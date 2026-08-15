@@ -41,37 +41,37 @@ export type CaseOutcome =
 
 export interface PatientInfo {
   identifier: string;
-  age?: string;
-  sex?: "MALE" | "FEMALE" | "UNKNOWN";
-  weightKg?: string;
-  medicalHistory?: string;
+  age?: string | undefined;
+  sex?: "MALE" | "FEMALE" | "UNKNOWN" | undefined;
+  weightKg?: string | undefined;
+  medicalHistory?: string | undefined;
 }
 
 export interface ReporterInfo {
   name: string;
   qualification: string;
   country: string;
-  contact?: string;
-  consentToContact?: boolean;
+  contact?: string | undefined;
+  consentToContact?: boolean | undefined;
 }
 
 export interface SuspectProduct {
   reportedName: string;
-  activeIngredient?: string;
-  dose?: string;
-  route?: string;
-  indication?: string;
-  therapyStart?: string;
-  therapyEnd?: string;
-  action?: string;
+  activeIngredient?: string | undefined;
+  dose?: string | undefined;
+  route?: string | undefined;
+  indication?: string | undefined;
+  therapyStart?: string | undefined;
+  therapyEnd?: string | undefined;
+  action?: string | undefined;
 }
 
 export interface ReactionEvent {
   reportedTerm: string;
-  onsetDate?: string;
-  endDate?: string;
+  onsetDate?: string | undefined;
+  endDate?: string | undefined;
   outcome: CaseOutcome;
-  codedTerm?: CodedTerm | null;
+  codedTerm?: CodedTerm | null | undefined;
 }
 
 export interface CodedTerm {
@@ -79,9 +79,9 @@ export interface CodedTerm {
   code: string;
   dictionary: "MedDRA" | "WHODrug";
   dictionaryVersion: string;
-  level?: string;
-  acceptedBy?: string;
-  acceptedAt?: string;
+  level?: string | undefined;
+  acceptedBy?: string | undefined;
+  acceptedAt?: string | undefined;
 }
 
 export interface CaseSummary {
@@ -137,8 +137,8 @@ export interface SeriousnessAssessment {
   rationale: string;
   engineVersion: string;
   reviewState: "PENDING_REVIEW" | "REVIEWED";
-  reviewedBy?: string;
-  reviewDecision?: "ACCEPT_REPORTED" | "MARK_SERIOUS" | "REQUEST_INFO";
+  reviewedBy?: string | undefined;
+  reviewDecision?: "ACCEPT_REPORTED" | "MARK_SERIOUS" | "REQUEST_INFO" | undefined;
 }
 
 export interface CodingSuggestion {
@@ -171,9 +171,9 @@ export interface AuditEvent {
   action: string;
   entity: string;
   entityId: string;
-  previousValue?: string | null;
-  newValue?: string | null;
-  reason?: string | null;
+  previousValue?: string | null | undefined;
+  newValue?: string | null | undefined;
+  reason?: string | null | undefined;
 }
 
 export interface IntakeConversation {
@@ -186,7 +186,7 @@ export interface IntakeConversation {
   consent: "GRANTED" | "PENDING" | "DECLINED";
   criteria: { reporter: boolean; patient: boolean; product: boolean; event: boolean };
   status: "NEW" | "IN_REVIEW" | "CONVERTED" | "NOT_A_CASE";
-  linkedCaseId?: string;
+  linkedCaseId?: string | undefined;
 }
 
 export interface IntakeMessage {
@@ -247,7 +247,7 @@ export interface PsurFinding {
   description: string;
   evidence: string;
   assistGenerated: boolean;
-  humanAssessment?: "ACCEPTED" | "DISMISSED" | null;
+  humanAssessment?: "ACCEPTED" | "DISMISSED" | null | undefined;
 }
 
 export interface Signal {
@@ -261,9 +261,9 @@ export interface Signal {
   statistic: { name: string; value: string; ci?: string }[];
   supportingCaseIds: string[];
   status: "POTENTIAL" | "UNDER_REVIEW" | "CONFIRMED" | "REFUTED";
-  reviewer?: string | null;
-  rationale?: string | null;
-  decidedAt?: string | null;
+  reviewer?: string | null | undefined;
+  rationale?: string | null | undefined;
+  decidedAt?: string | null | undefined;
 }
 
 export interface Notification {
@@ -282,5 +282,5 @@ export interface Notification {
   body: string;
   at: string;
   read: boolean;
-  link?: string;
+  link?: string | undefined;
 }
