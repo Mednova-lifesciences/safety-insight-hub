@@ -198,7 +198,7 @@ export interface IntakeMessage {
 
 export interface IntakeConversationDetail extends IntakeConversation {
   messages: IntakeMessage[];
-  extracted: { field: string; value: string | null; sourceMessageId?: string }[];
+  extracted: { field: string; value: string | null; sourceMessageId?: string | undefined }[];
   missing: string[];
 }
 
@@ -258,7 +258,7 @@ export interface Signal {
   detectionMethod: string;
   detectionPeriod: string;
   caseCount: number;
-  statistic: { name: string; value: string; ci?: string }[];
+  statistic: { name: string; value: string; ci?: string | undefined }[];
   supportingCaseIds: string[];
   status: "POTENTIAL" | "UNDER_REVIEW" | "CONFIRMED" | "REFUTED";
   reviewer?: string | null | undefined;
