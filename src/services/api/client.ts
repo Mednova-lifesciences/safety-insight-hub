@@ -69,9 +69,9 @@ export async function apiRequest<T>(
   const res = await fetch(url.toString(), {
     method,
     credentials: "include",
-    signal,
-    headers: isForm ? undefined : body ? { "Content-Type": "application/json" } : undefined,
-    body: isForm ? body : body ? JSON.stringify(body) : undefined,
+    signal: signal ?? null,
+    headers: !isForm && body ? { "Content-Type": "application/json" } : {},
+    body: isForm ? (body as FormData) : body ? JSON.stringify(body) : null,
   });
 
   if (!res.ok) {
