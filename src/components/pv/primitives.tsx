@@ -286,7 +286,11 @@ export function QueryBoundary<T>({
   children,
   loadingLabel,
 }: {
-  query: { isPending: boolean; error: Error | null; data?: { data: T; source: "live" | "demo" } };
+  query: {
+    isPending: boolean;
+    error: Error | null;
+    data?: { data: T; source: "live" | "demo" } | undefined;
+  };
   children: (data: T, source: "live" | "demo") => ReactNode;
   loadingLabel?: string;
 }) {
