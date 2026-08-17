@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { WORKFLOW_LABELS, WORKFLOW_STEPS } from "@/types/pv";
 
-export const Route = createFileRoute("/_app/cases")({
+export const Route = createFileRoute("/_app/cases/")({
   head: () => ({
     meta: [
       { title: "Case workbench — MedNova PV Assist" },
