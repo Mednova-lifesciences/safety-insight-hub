@@ -11,8 +11,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as AppAuditRouteImport } from './routes/_app/audit'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppFollowUpsRouteImport } from './routes/_app/follow-ups'
+import { Route as AppNotificationsRouteImport } from './routes/_app/notifications'
 import { Route as AppCasesIndexRouteImport } from './routes/_app/cases.index'
+import { Route as AppCasesCaseIdRouteImport } from './routes/_app/cases.$caseId'
+import { Route as AppIcsrNewRouteImport } from './routes/_app/icsr.new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -23,9 +28,24 @@ const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppAuditRoute = AppAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFollowUpsRoute = AppFollowUpsRouteImport.update({
+  id: '/follow-ups',
+  path: '/follow-ups',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppNotificationsRoute = AppNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCasesIndexRoute = AppCasesIndexRouteImport.update({
@@ -33,30 +53,81 @@ const AppCasesIndexRoute = AppCasesIndexRouteImport.update({
   path: '/cases/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCasesCaseIdRoute = AppCasesCaseIdRouteImport.update({
+  id: '/cases/$caseId',
+  path: '/cases/$caseId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppIcsrNewRoute = AppIcsrNewRouteImport.update({
+  id: '/icsr/new',
+  path: '/icsr/new',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/audit': typeof AppAuditRoute
   '/dashboard': typeof AppDashboardRoute
+  '/follow-ups': typeof AppFollowUpsRoute
+  '/notifications': typeof AppNotificationsRoute
+  '/cases/$caseId': typeof AppCasesCaseIdRoute
+  '/icsr/new': typeof AppIcsrNewRoute
   '/cases/': typeof AppCasesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/audit': typeof AppAuditRoute
   '/dashboard': typeof AppDashboardRoute
+  '/follow-ups': typeof AppFollowUpsRoute
+  '/notifications': typeof AppNotificationsRoute
+  '/cases/$caseId': typeof AppCasesCaseIdRoute
+  '/icsr/new': typeof AppIcsrNewRoute
   '/cases': typeof AppCasesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/_app/audit': typeof AppAuditRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/follow-ups': typeof AppFollowUpsRoute
+  '/_app/notifications': typeof AppNotificationsRoute
+  '/_app/cases/$caseId': typeof AppCasesCaseIdRoute
+  '/_app/icsr/new': typeof AppIcsrNewRoute
   '/_app/cases/': typeof AppCasesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/dashboard' | '/cases/'
+  fullPaths:
+    | '/'
+    | '/audit'
+    | '/dashboard'
+    | '/follow-ups'
+    | '/notifications'
+    | '/cases/$caseId'
+    | '/icsr/new'
+    | '/cases/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dashboard' | '/cases'
-  id: '__root__' | '/' | '/_app' | '/_app/dashboard' | '/_app/cases/'
+  to:
+    | '/'
+    | '/audit'
+    | '/dashboard'
+    | '/follow-ups'
+    | '/notifications'
+    | '/cases/$caseId'
+    | '/icsr/new'
+    | '/cases'
+  id:
+    | '__root__'
+    | '/'
+    | '/_app'
+    | '/_app/audit'
+    | '/_app/dashboard'
+    | '/_app/follow-ups'
+    | '/_app/notifications'
+    | '/_app/cases/$caseId'
+    | '/_app/icsr/new'
+    | '/_app/cases/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -80,11 +151,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/audit': {
+      id: '/_app/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AppAuditRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/follow-ups': {
+      id: '/_app/follow-ups'
+      path: '/follow-ups'
+      fullPath: '/follow-ups'
+      preLoaderRoute: typeof AppFollowUpsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/notifications': {
+      id: '/_app/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof AppNotificationsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/cases/': {
@@ -94,16 +186,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCasesIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/cases/$caseId': {
+      id: '/_app/cases/$caseId'
+      path: '/cases/$caseId'
+      fullPath: '/cases/$caseId'
+      preLoaderRoute: typeof AppCasesCaseIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/icsr/new': {
+      id: '/_app/icsr/new'
+      path: '/icsr/new'
+      fullPath: '/icsr/new'
+      preLoaderRoute: typeof AppIcsrNewRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
+  AppAuditRoute: typeof AppAuditRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppFollowUpsRoute: typeof AppFollowUpsRoute
+  AppNotificationsRoute: typeof AppNotificationsRoute
+  AppCasesCaseIdRoute: typeof AppCasesCaseIdRoute
+  AppIcsrNewRoute: typeof AppIcsrNewRoute
   AppCasesIndexRoute: typeof AppCasesIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAuditRoute: AppAuditRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppFollowUpsRoute: AppFollowUpsRoute,
+  AppNotificationsRoute: AppNotificationsRoute,
+  AppCasesCaseIdRoute: AppCasesCaseIdRoute,
+  AppIcsrNewRoute: AppIcsrNewRoute,
   AppCasesIndexRoute: AppCasesIndexRoute,
 }
 
