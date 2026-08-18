@@ -10,7 +10,7 @@
  * every call rejects with `ApiNotConfiguredError` and the UI renders an
  * explicit "pending integration" state instead of inventing results.
  *
- * Authentication: credentials are sent as cookies (`credentials: "include"`).
+ * Authentication: JWT token is stored in localStorage and sent as Bearer token.
  * No API keys or model credentials ever live in this client.
  */
 
@@ -19,6 +19,27 @@ export const API_BASE_URL: string =
   "";
 
 export const isApiConfigured = () => API_BASE_URL.length > 0;
+
+// Token management
+export const getStoredToken = (): string | null => {
+  try {
+    return localStorage.getItem("auth_token");
+  } catch {
+    return null;
+  }
+};
+
+export const setStoredToken = (token: string | null): void => {
+  try {
+    if (token) {
+      localStorage.setItem("auth_token", token);
+    } else {
+      localStorage.removeItem("auth_token");
+    }
+  } catch {
+    // Silent fail for localStorage access issues
+  }
+};
 
 export class ApiNotConfiguredError extends Error {
   readonly kind = "not_configured";
@@ -50,11 +71,12 @@ interface RequestOptions {
   body?: unknown;
   signal?: AbortSignal;
   query?: Record<string, string | number | boolean | undefined>;
+  token?: string;
 }
 
 export async function apiRequest<T>(
   endpoint: string,
-  { method = "GET", body, signal, query }: RequestOptions = {},
+  { method = "GET", body, signal, query, token }: RequestOptions = {},
 ): Promise<T> {
   if (!isApiConfigured()) throw new ApiNotConfiguredError(endpoint);
 
@@ -65,12 +87,24 @@ export async function apiRequest<T>(
     }
   }
 
+  // Use provided token or retrieve from localStorage
+  const authToken = token || getStoredToken();
+  const headers: Record<string, string> = {};
+  
+  if (!body || !(body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+  
+  if (authToken) {
+    headers["Authorization"] = `Bearer ${authToken}`;
+  }
+
   const isForm = body instanceof FormData;
   const res = await fetch(url.toString(), {
     method,
     credentials: "include",
     signal: signal ?? null,
-    headers: !isForm && body ? { "Content-Type": "application/json" } : {},
+    headers,
     body: isForm ? (body as FormData) : body ? JSON.stringify(body) : null,
   });
 

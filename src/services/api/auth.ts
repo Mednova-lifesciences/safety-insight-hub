@@ -3,7 +3,7 @@
  * Handles signup and signin with the FastAPI backend using real authentication
  */
 
-import { apiRequest } from "./client";
+import { apiRequest, setStoredToken, getStoredToken } from "./client";
 
 export interface SignupRequest {
   email: string;
@@ -46,10 +46,15 @@ export const auth = {
    * Creates a new organization for the first user (ADMIN role)
    */
   async signup(request: SignupRequest): Promise<AuthResponse> {
-    return apiRequest<AuthResponse>("/api/auth/signup", {
+    const response = await apiRequest<AuthResponse>("/api/auth/signup", {
       method: "POST",
       body: request,
     });
+    // Store token on signup
+    if (response?.access_token) {
+      setStoredToken(response.access_token);
+    }
+    return response;
   },
 
   /**
@@ -57,27 +62,62 @@ export const auth = {
    * Returns JWT token and user profile
    */
   async signin(request: SigninRequest): Promise<AuthResponse> {
-    return apiRequest<AuthResponse>("/api/auth/signin", {
+    const response = await apiRequest<AuthResponse>("/api/auth/signin", {
       method: "POST",
       body: request,
     });
+    // Store token on signin
+    if (response?.access_token) {
+      setStoredToken(response.access_token);
+    }
+    return response;
   },
 
   /**
-   * Get current user profile (requires valid JWT token)
+   * Get current user profile (uses stored token automatically)
    */
-  async getCurrentUser(token: string): Promise<AuthResponse["profile"]> {
-    return apiRequest<AuthResponse["profile"]>("/api/auth/me", {
-      method: "GET",
-    }, token);
+  async getCurrentUser(): Promise<AuthResponse["profile"] | null> {
+    try {
+      const token = getStoredToken();
+      if (!token) return null;
+      return await apiRequest<AuthResponse["profile"]>("/api/auth/me", {
+        method: "GET",
+        token,
+      });
+    } catch {
+      return null;
+    }
   },
 
   /**
-   * Sign out (optional - mainly for frontend cleanup)
+   * Sign out (clears stored token)
    */
-  async signout(token: string): Promise<void> {
-    return apiRequest<void>("/api/auth/signout", {
-      method: "POST",
-    }, token);
+  async signout(): Promise<void> {
+    const token = getStoredToken();
+    if (token) {
+      try {
+        await apiRequest<void>("/api/auth/signout", {
+          method: "POST",
+          token,
+        });
+      } catch {
+        // Proceed with logout even if signout API call fails
+      }
+    }
+    setStoredToken(null);
+  },
+
+  /**
+   * Check if user is authenticated
+   */
+  isAuthenticated(): boolean {
+    return !!getStoredToken();
+  },
+
+  /**
+   * Clear authentication (for manual logout)
+   */
+  clearAuth(): void {
+    setStoredToken(null);
   },
 };
