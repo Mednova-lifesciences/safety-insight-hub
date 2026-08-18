@@ -6,6 +6,7 @@ import { usePvQuery } from "@/lib/data-source";
 import { PageHeader, QueryBoundary, Section, SourceTag } from "@/components/pv/primitives";
 import { AuditTimeline } from "@/components/pv/audit-timeline";
 import { Input } from "@/components/ui/input";
+import { PermissionGate } from "@/components/pv/permission-gate";
 
 export const Route = createFileRoute("/_app/audit")({
   head: () => ({
@@ -16,7 +17,11 @@ export const Route = createFileRoute("/_app/audit")({
       { property: "og:description", content: "Full audit history across the pharmacovigilance platform." },
     ],
   }),
-  component: AuditPage,
+  component: () => (
+    <PermissionGate permission="audit.view.all">
+      <AuditPage />
+    </PermissionGate>
+  ),
 });
 
 function AuditPage() {

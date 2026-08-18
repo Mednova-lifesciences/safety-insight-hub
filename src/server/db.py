@@ -15,6 +15,7 @@ class SupabaseClient:
         self.url = SUPABASE_URL
         self.key = SUPABASE_SERVICE_ROLE_KEY
         self.headers = {
+            "apikey": self.key,
             "Authorization": f"Bearer {self.key}",
             "Content-Type": "application/json",
             "Prefer": "return=representation"

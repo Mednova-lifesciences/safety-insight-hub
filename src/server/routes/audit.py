@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Optional
 import logging
 
-from ..dependencies import get_current_user, AuthenticatedUser
+from ..dependencies import require_permission, AuthenticatedUser
 from ..db import get_supabase_client
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ async def list_audit_events(
     offset: int = 0,
     entity_type: Optional[str] = None,
     entity_id: Optional[str] = None,
-    user: AuthenticatedUser = Depends(get_current_user)
+    user: AuthenticatedUser = Depends(require_permission("audit.view.all"))
 ):
     """
     List audit events for the organization

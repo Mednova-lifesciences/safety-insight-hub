@@ -21,7 +21,8 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "Sign in — MedNova PV Assist" },
       {
         property: "og:description",
-        content: "Role-based access to ICSR triage, coding assistance, line-list processing and signal review.",
+        content:
+          "Role-based access to ICSR triage, coding assistance, line-list processing and signal review.",
       },
     ],
   }),
@@ -30,20 +31,24 @@ export const Route = createFileRoute("/")({
 
 const ROLE_DESCRIPTIONS: Record<Role, string> = {
   FIELD_ASSOCIATE: "Capture and prepare incoming safety information.",
-  COORDINATOR: "Process, code and validate cases; run line-list and PSUR workflows.",
-  MANAGER: "Oversight, signal decisions and audit review.",
+  PV_COORDINATOR: "Process, code and validate cases; run line-list and PSUR workflows.",
+  PV_MANAGER: "Oversight, signal decisions and audit review.",
+  ADMIN: "Manage access, operations and the complete audit surface.",
 };
 
-const DEMO_CREDENTIALS = {
-  email: "a.okafor@mednova.example",
-  password: "demo123",
+const DEMO_PASSWORD = "demo123";
+const DEMO_CREDENTIALS: Record<Role, { email: string; password: string }> = {
+  FIELD_ASSOCIATE: { email: "field@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
+  PV_COORDINATOR: { email: "coordinator@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
+  PV_MANAGER: { email: "manager@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
+  ADMIN: { email: "admin@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
 };
 
 function SignInPage() {
   const { user, status, signIn } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("a.okafor@mednova.example");
-  const [password, setPassword] = useState("demo123");
+  const [email, setEmail] = useState(DEMO_CREDENTIALS.FIELD_ASSOCIATE.email);
+  const [password, setPassword] = useState(DEMO_PASSWORD);
   const [role, setRole] = useState<Role>("FIELD_ASSOCIATE");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,7 +167,9 @@ function SignInPage() {
               </p>
               {!isApiConfigured() && (
                 <p className="text-xs text-muted-foreground">
-                  Demo login: <span className="font-medium text-foreground">a.okafor@mednova.example</span> / any password
+                  Demo login:{" "}
+                  <span className="font-medium text-foreground">field@demo.safetyinsighthub.com</span> /
+                  demo123
                 </p>
               )}
             </div>
@@ -193,8 +200,8 @@ function SignInPage() {
                     checked={role === r}
                     onChange={() => {
                       setRole(r);
-                      setEmail(DEMO_CREDENTIALS.email);
-                      setPassword(DEMO_CREDENTIALS.password);
+                      setEmail(DEMO_CREDENTIALS[r].email);
+                      setPassword(DEMO_CREDENTIALS[r].password);
                     }}
                   />
                   <span>

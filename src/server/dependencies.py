@@ -8,6 +8,8 @@ import os
 from typing import Optional
 import logging
 
+from .roles import has_permission, normalize_role
+
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
@@ -34,6 +36,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 f"{SUPABASE_URL}/auth/v1/user",
                 headers={
                     "Authorization": f"Bearer {token}",
+                    "apikey": os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SERVICE_ROLE_KEY", ""),
                     "Content-Type": "application/json"
                 }
             )
@@ -67,11 +70,17 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 detail="User profile not found",
             )
         
+        try:
+            role = normalize_role(profile.get("role", ""))
+        except ValueError as error:
+            logger.error("Invalid role for user %s: %s", user_id, error)
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid user role") from error
+
         return AuthenticatedUser(
             user_id=user_id,
             email=email,
             organization_id=profile.get("organization_id"),
-            role=profile.get("role")
+            role=role,
         )
     
     except HTTPException:
@@ -88,10 +97,20 @@ def require_role(*allowed_roles):
     Decorator to check user role
     """
     async def role_checker(user: AuthenticatedUser = Depends(get_current_user)):
-        if user.role not in allowed_roles:
+        normalized_roles = {normalize_role(role) for role in allowed_roles}
+        if user.role not in normalized_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"This action requires one of: {', '.join(allowed_roles)}"
             )
         return user
     return role_checker
+
+
+def require_permission(permission: str):
+    async def permission_checker(user: AuthenticatedUser = Depends(get_current_user)):
+        if not has_permission(user.role, permission):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+        return user
+
+    return permission_checker

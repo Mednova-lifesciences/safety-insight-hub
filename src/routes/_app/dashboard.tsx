@@ -65,6 +65,81 @@ function Metric({
 
 function DashboardPage() {
   const { user } = useAuth();
+  switch (user?.role) {
+    case "FIELD_ASSOCIATE":
+      return <FieldAssociateDashboard />;
+    case "PV_COORDINATOR":
+      return <CoordinatorDashboard />;
+    case "PV_MANAGER":
+      return <ManagerDashboard />;
+    case "ADMIN":
+      return <AdminDashboard />;
+    default:
+      return <FieldAssociateDashboard />;
+  }
+}
+
+function CoordinatorDashboard() {
+  const { user } = useAuth();
+  const casesQuery = usePvQuery(["cases"], () => casesApi.list(), () => demoCases);
+  const auditQuery = usePvQuery(["audit", "recent"], () => auditApi.list({ limit: 6 }), () => demoAudit.slice(0, 5));
+  return (
+    <>
+      <PageHeader title="Coordinator queue" description={`${user?.name ?? "Coordinator"} — process, code and validate the organisation's incoming cases.`} />
+      <div className="space-y-4 p-6">
+        <QueryBoundary query={casesQuery} loadingLabel="Loading coordinator queue">
+          {(items, source) => {
+            const coding = items.filter((item) => item.workflowStep === "CODING").length;
+            const review = items.filter((item) => item.workflowStep === "REVIEW").length;
+            return (
+              <>
+                <div className="flex items-center justify-between"><p className="label-caps">Processing queue</p><SourceTag source={source} /></div>
+                <div className="grid gap-3 sm:grid-cols-3"><Metric label="Cases in queue" value={items.length} to="/cases" /><Metric label="Coding backlog" value={coding} tone="warning" to="/cases" /><Metric label="Awaiting review" value={review} to="/cases" /></div>
+              </>
+            );
+          }}
+        </QueryBoundary>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Section title="Coordinator actions" description="Workflows available to the processing team."><div className="flex flex-wrap gap-2"><Button asChild><Link to="/line-list">Process line-list</Link></Button><Button asChild variant="outline"><Link to="/e2b">Prepare E2B(R3)</Link></Button><Button asChild variant="outline"><Link to="/psur">Review PSUR</Link></Button></div></Section>
+          <Section title="Recent activity"><QueryBoundary query={auditQuery}>{(events) => <AuditTimeline events={events} dense />}</QueryBoundary></Section>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ManagerDashboard() {
+  const { user } = useAuth();
+  const casesQuery = usePvQuery(["cases"], () => casesApi.list(), () => demoCases);
+  return (
+    <>
+      <PageHeader title="Management overview" description={`${user?.name ?? "Manager"} — portfolio risk, workload and signal decisions.`} actions={<Button asChild><Link to="/oversight">Open operational overview</Link></Button>} />
+      <div className="space-y-4 p-6">
+        <QueryBoundary query={casesQuery} loadingLabel="Loading management metrics">
+          {(items, source) => <><div className="flex items-center justify-between"><p className="label-caps">Portfolio health</p><SourceTag source={source} /></div><div className="grid gap-3 sm:grid-cols-3"><Metric label="Portfolio cases" value={items.length} to="/cases" /><Metric label="Serious cases" value={items.filter((item) => item.seriousness === "SERIOUS").length} tone="critical" to="/cases" /><Metric label="Open signals" value={items.filter((item) => item.flags.includes("SERIOUSNESS_MISMATCH")).length} tone="warning" to="/signals" /></div></>}
+        </QueryBoundary>
+        <Section title="Decision workspace" description="Manager-only operational and signal review surfaces."><div className="flex flex-wrap gap-2"><Button asChild><Link to="/oversight">Operational overview</Link></Button><Button asChild variant="outline"><Link to="/signals">Signal review</Link></Button><Button asChild variant="outline"><Link to="/audit">Audit trail</Link></Button></div></Section>
+      </div>
+    </>
+  );
+}
+
+function AdminDashboard() {
+  const { user } = useAuth();
+  const auditQuery = usePvQuery(["audit", "recent"], () => auditApi.list({ limit: 8 }), () => demoAudit);
+  return (
+    <>
+      <PageHeader title="Administration dashboard" description={`${user?.name ?? "Administrator"} — system-wide access, audit and operational controls.`} />
+      <div className="space-y-4 p-6">
+        <Section title="Administrative controls" description="Review the complete operational surface with server-side authorization."><div className="flex flex-wrap gap-2"><Button asChild><Link to="/oversight">Operational overview</Link></Button><Button asChild variant="outline"><Link to="/audit">Full audit trail</Link></Button><Button asChild variant="outline"><Link to="/cases">All cases</Link></Button></div></Section>
+        <Section title="Recent audit activity"><QueryBoundary query={auditQuery}>{(events) => <AuditTimeline events={events} dense />}</QueryBoundary></Section>
+      </div>
+    </>
+  );
+}
+
+function FieldAssociateDashboard() {
+  const { user } = useAuth();
   const casesQuery = usePvQuery(["cases"], () => casesApi.list(), () => demoCases);
   const followUpQuery = usePvQuery(["follow-ups"], () => casesApi.followUps(), () => demoFollowUps);
   const auditQuery = usePvQuery(["audit", "recent"], () => auditApi.list({ limit: 6 }), () => demoAudit.slice(0, 5));

@@ -30,8 +30,9 @@ export interface AuthResponse {
   };
   profile: {
     user_id: string;
+    email: string;
     organization_id: string;
-    role: "ADMIN" | "MANAGER" | "COORDINATOR" | "FIELD_ASSOCIATE";
+    role: "ADMIN" | "PV_MANAGER" | "PV_COORDINATOR" | "MANAGER" | "COORDINATOR" | "FIELD_ASSOCIATE";
     created_at: string;
   };
   organization: {

@@ -1,9 +1,11 @@
 # 401 Authorization Fix - Complete Implementation
 
 ## Problem
+
 After Render deployment, all protected API endpoints returned `401 Unauthorized` even after successful login.
 
 ### Root Cause Analysis
+
 1. **Backend** enforced `HTTPBearer` authentication:
    - All protected routes required `Authorization: Bearer <jwt>` header
    - Verified tokens via Supabase identity service
@@ -21,6 +23,7 @@ After Render deployment, all protected API endpoints returned `401 Unauthorized`
 ## Solution Architecture
 
 ### Frontend Authentication Flow
+
 ```
 User Login
     ↓
@@ -49,6 +52,7 @@ User Login
 ### 1. Frontend Changes
 
 #### `src/services/api/client.ts`
+
 - **Added token storage**:
   - `getStoredToken()` - retrieves JWT from localStorage
   - `setStoredToken()` - stores JWT in localStorage
@@ -59,6 +63,7 @@ User Login
   - All API calls automatically include Bearer token
 
 #### `src/services/api/auth.ts`
+
 - **Updated response handling**:
   - `signin()` now stores token after successful login
   - `signup()` stores token for new accounts
@@ -67,6 +72,7 @@ User Login
   - Added `isAuthenticated()` helper
 
 #### `src/lib/auth.tsx` (AuthProvider)
+
 - **Real backend integration**:
   - Checks `isApiConfigured()` to detect backend availability
   - Calls real auth API when backend is available
@@ -81,6 +87,7 @@ User Login
   - Mock mode still allows role selection for testing
 
 #### `src/routes/index.tsx` (Login Page)
+
 - **Captures password input**:
   - Password field now has value state
   - Password sent to `signIn()` function
@@ -95,7 +102,9 @@ User Login
 ### 2. Backend Changes
 
 #### `src/server/routes/auth.py`
+
 - **Added missing endpoints**:
+
   ```
   POST   /api/auth/signup    - Create new user
   POST   /api/auth/signin    - Login with email/password
@@ -125,6 +134,7 @@ User Login
 ## Deployment Checklist
 
 ### Before Deployment
+
 - [x] All code committed to GitHub
 - [x] No TypeScript errors
 - [x] render.yaml configured with `cd src && python -m uvicorn ...`
@@ -133,6 +143,7 @@ User Login
 - [x] SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY set as Render environment variables
 
 ### Deployment Steps
+
 1. **Code pushed to GitHub** ✓
    - Commits: 99124b9, 1e0279a, a08eb79, 1c79f0d
    - Latest main branch ready
@@ -151,6 +162,7 @@ User Login
 ### Post-Deployment Verification
 
 #### Check Backend
+
 ```bash
 # 1. Health check
 curl https://backend-url/health
@@ -170,13 +182,14 @@ curl https://backend-url/api/auth/me \
 ```
 
 #### Check Frontend
+
 ```javascript
 // In browser console
 // 1. Check backend is configured
-console.log(isApiConfigured())  // true if VITE_PV_API_BASE_URL set
+console.log(isApiConfigured()); // true if VITE_PV_API_BASE_URL set
 
 // 2. Check token storage
-console.log(localStorage.getItem("auth_token"))  // JWT after login
+console.log(localStorage.getItem("auth_token")); // JWT after login
 
 // 3. Check Authorization header
 // Open DevTools → Network tab → Login → Check request headers
@@ -186,6 +199,7 @@ console.log(localStorage.getItem("auth_token"))  // JWT after login
 ## Testing Plan
 
 ### Manual Testing
+
 1. **Login Flow**
    - Navigate to app
    - Enter valid Supabase credentials
@@ -211,6 +225,7 @@ console.log(localStorage.getItem("auth_token"))  // JWT after login
    - Going back to dashboard: redirected to login
 
 ### Automated Testing (if available)
+
 ```bash
 # Backend auth tests
 python -m pytest src/server/routes/test_auth.py -v
@@ -222,7 +237,9 @@ npm test -- auth
 ## Troubleshooting Guide
 
 ### Still Getting 401?
+
 1. **Check backend is running**
+
    ```bash
    # SSH into Render instance
    # Check if uvicorn is running
@@ -232,8 +249,9 @@ npm test -- auth
    ```
 
 2. **Verify token is stored**
+
    ```javascript
-   localStorage.getItem("auth_token")  // Should have JWT
+   localStorage.getItem("auth_token"); // Should have JWT
    ```
 
 3. **Check Authorization header**
@@ -245,12 +263,13 @@ npm test -- auth
      ```
 
 4. **Test backend auth directly**
+
    ```bash
    # Test signin
    curl -X POST https://backend/api/auth/signin \
      -H "Content-Type: application/json" \
      -d '{"email":"user@example.com","password":"password"}'
-   
+
    # If 401: Check Supabase credentials
    # If success: Get token and test /me
    TOKEN="<access_token_from_above>"
@@ -270,12 +289,14 @@ npm test -- auth
    ```
 
 ### 401 on Backend but Token Seems Valid
+
 1. Check token expiration
 2. Check Supabase JWT secret
 3. Verify token format (should start with `eyJ`)
 4. Check backend logs for token validation errors
 
 ### localStorage not persisting
+
 1. Check browser privacy settings
 2. Check if running in incognito/private mode
 3. Try clearing cache and retrying
@@ -284,31 +305,35 @@ npm test -- auth
 ## Files Modified
 
 ### Frontend
+
 - `src/services/api/client.ts` - Token storage and injection
 - `src/services/api/auth.ts` - Auth service methods
 - `src/lib/auth.tsx` - AuthProvider integration
 - `src/routes/index.tsx` - Login form
 
 ### Backend
+
 - `src/server/routes/auth.py` - Auth endpoints
 
 ### Configuration
+
 - `render.yaml` - Already configured
 - `.python-version` - Already created
 - `requirements.txt` - Already created
 
 ### Documentation
+
 - `AUTH_DEPLOYMENT_CHECKLIST.md` - Testing guide
 - `AUTH_FIX_SUMMARY.md` - This file
 
 ## Key Commits
 
-| Commit | Description |
-|--------|-------------|
-| 99124b9 | Fix frontend auth to send JWT bearer tokens |
+| Commit  | Description                                                           |
+| ------- | --------------------------------------------------------------------- |
+| 99124b9 | Fix frontend auth to send JWT bearer tokens                           |
 | 1e0279a | Update login flow to capture password and integrate with backend auth |
-| a08eb79 | Add auth deployment checklist and testing guide |
-| 1c79f0d | Add missing auth endpoints and fix response structures |
+| a08eb79 | Add auth deployment checklist and testing guide                       |
+| 1c79f0d | Add missing auth endpoints and fix response structures                |
 
 ## Next Steps
 
@@ -331,12 +356,14 @@ npm test -- auth
 ## Security Notes
 
 ### Current Implementation
+
 - ✓ JWT tokens only sent to same backend
 - ✓ HTTPS enforced on Render
 - ✓ Token stored in localStorage (not httpOnly)
 - ✓ Backend validates token with Supabase
 
 ### Potential Improvements
+
 - Consider httpOnly cookies (reduces XSS risk)
 - Implement token refresh logic
 - Add token expiration handling
@@ -345,6 +372,7 @@ npm test -- auth
 ## Support
 
 For questions or issues:
+
 1. Check browser DevTools → Console for errors
 2. Check Render logs for backend errors
 3. Review troubleshooting section above

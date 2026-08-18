@@ -16,17 +16,18 @@ import { getStoredToken, setStoredToken, isApiConfigured } from "@/services/api/
  * This layer bridges the frontend UI with the FastAPI authentication backend.
  * - When FastAPI is configured: uses real JWT tokens stored in localStorage
  * - When FastAPI is not configured: falls back to mock auth for development
- * 
+ *
  * No permission decision made here may be trusted by the backend: every API
  * handler must re-check the caller's role server-side.
  */
 
-export type Role = "FIELD_ASSOCIATE" | "COORDINATOR" | "MANAGER" | "ADMIN";
+/** Canonical role identifiers shared with public.profiles.role. */
+export type Role = "FIELD_ASSOCIATE" | "PV_COORDINATOR" | "PV_MANAGER" | "ADMIN";
 
 export const ROLE_LABELS: Record<Role, string> = {
   FIELD_ASSOCIATE: "PV Field Associate",
-  COORDINATOR: "PV Coordinator",
-  MANAGER: "PV Manager",
+  PV_COORDINATOR: "PV Coordinator",
+  PV_MANAGER: "PV Manager",
   ADMIN: "Administrator",
 };
 
@@ -45,21 +46,27 @@ export type Permission =
   | "signal.view"
   | "signal.decide"
   | "audit.view.all"
-  | "team.view";
+  | "team.view"
+  | "follow_up.view"
+  | "follow_up.create";
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   FIELD_ASSOCIATE: [
     "case.create",
     "case.edit",
     "case.view",
+    "follow_up.view",
+    "follow_up.create",
     "seriousness.review",
     "coding.review",
     "intake.manage",
   ],
-  COORDINATOR: [
+  PV_COORDINATOR: [
     "case.create",
     "case.edit",
     "case.view",
+    "follow_up.view",
+    "follow_up.create",
     "case.assign",
     "seriousness.review",
     "coding.review",
@@ -72,8 +79,9 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "audit.view.all",
     "team.view",
   ],
-  MANAGER: [
+  PV_MANAGER: [
     "case.view",
+    "follow_up.view",
     "case.assign",
     "seriousness.review",
     "coding.review",
@@ -91,6 +99,8 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "case.create",
     "case.edit",
     "case.view",
+    "follow_up.view",
+    "follow_up.create",
     "case.assign",
     "seriousness.review",
     "coding.review",
@@ -138,14 +148,17 @@ function deriveName(email: string) {
 }
 
 function mapRoleFromApi(apiRole: string): Role {
-  // Map backend roles to frontend roles
   const roleMap: Record<string, Role> = {
     ADMIN: "ADMIN",
-    MANAGER: "MANAGER",
-    COORDINATOR: "COORDINATOR",
+    PV_MANAGER: "PV_MANAGER",
+    MANAGER: "PV_MANAGER",
+    PV_COORDINATOR: "PV_COORDINATOR",
+    COORDINATOR: "PV_COORDINATOR",
     FIELD_ASSOCIATE: "FIELD_ASSOCIATE",
   };
-  return roleMap[apiRole] || "FIELD_ASSOCIATE";
+  const role = roleMap[apiRole];
+  if (!role) throw new Error(`Unsupported account role: ${apiRole}`);
+  return role;
 }
 
 function buildCurrentUser(authResponse: AuthResponse): CurrentUser {
@@ -184,11 +197,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (token) {
             const profile = await apiAuth.getCurrentUser();
             if (profile) {
-              // Successfully restored session with real backend
-              // Create a minimal CurrentUser from profile
               const storedUserJson = window.localStorage.getItem(STORAGE_KEY);
               if (storedUserJson) {
-                setUser(JSON.parse(storedUserJson) as CurrentUser);
+                const storedUser = JSON.parse(storedUserJson) as CurrentUser;
+                setUser({
+                  ...storedUser,
+                  id: profile.user_id,
+                  email: profile.email,
+                  role: mapRoleFromApi(profile.role),
+                });
                 setStatus("authenticated");
                 return;
               }
@@ -236,7 +253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .slice(0, 2)
             .toUpperCase() || "PV",
         email,
-        role: mockRole || "COORDINATOR",
+        role: mockRole || "PV_COORDINATOR",
         organisation: "MedNova Drug Safety",
       };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -245,41 +262,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string, name: string, org?: string) => {
-    if (isApiConfigured()) {
-      // Use real backend authentication
-      const response = await apiAuth.signup({
-        email,
-        password,
-        name,
-        organization_name: org,
-      });
-      const currentUser = buildCurrentUser(response);
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
-      setUser(currentUser);
-      setStatus("authenticated");
-    } else {
-      // Mock authentication (dev mode without backend)
-      const n = deriveName(email);
-      const next: CurrentUser = {
-        id: `usr_${email.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`,
-        name: n,
-        initials:
-          n
-            .split(" ")
-            .map((p) => p[0])
-            .join("")
-            .slice(0, 2)
-            .toUpperCase() || "PV",
-        email,
-        role: "ADMIN",
-        organisation: org || "MedNova Drug Safety",
-      };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      setUser(next);
-      setStatus("authenticated");
-    }
-  }, []);
+  const signUp = useCallback(
+    async (email: string, password: string, name: string, org?: string) => {
+      if (isApiConfigured()) {
+        // Use real backend authentication
+        const response = await apiAuth.signup({
+          email,
+          password,
+          name,
+          ...(org ? { organization_name: org } : {}),
+        });
+        const currentUser = buildCurrentUser(response);
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
+        setUser(currentUser);
+        setStatus("authenticated");
+      } else {
+        // Mock authentication (dev mode without backend)
+        const n = deriveName(email);
+        const next: CurrentUser = {
+          id: `usr_${email.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`,
+          name: n,
+          initials:
+            n
+              .split(" ")
+              .map((p) => p[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase() || "PV",
+          email,
+          role: "ADMIN",
+          organisation: org || "MedNova Drug Safety",
+        };
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        setUser(next);
+        setStatus("authenticated");
+      }
+    },
+    [],
+  );
 
   const signOut = useCallback(async () => {
     try {
@@ -297,8 +317,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const can = useCallback(
-    (permission: Permission) =>
-      !!user && ROLE_PERMISSIONS[user.role].includes(permission),
+    (permission: Permission) => !!user && ROLE_PERMISSIONS[user.role].includes(permission),
     [user],
   );
 

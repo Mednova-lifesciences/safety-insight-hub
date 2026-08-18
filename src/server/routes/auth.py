@@ -9,6 +9,9 @@ import httpx
 import os
 import logging
 
+from ..db import get_supabase_client
+from ..roles import normalize_role
+
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
@@ -42,6 +45,26 @@ class AuthResponse(BaseModel):
     profile: UserProfile
     organization: Optional[dict] = None
 
+
+async def _load_profile_async(user_id: str, email: str) -> tuple[UserProfile, Optional[dict]]:
+    profile = await get_supabase_client().get_user_profile(user_id)
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User profile not found")
+
+    organization = profile.get("organizations")
+    if isinstance(organization, list):
+        organization = organization[0] if organization else None
+    return (
+        UserProfile(
+            user_id=user_id,
+            email=email,
+            organization_id=profile.get("organization_id"),
+            role=normalize_role(profile.get("role", "")),
+            created_at=profile.get("created_at"),
+        ),
+        organization,
+    )
+
 @router.post("/signup")
 async def sign_up(request: SignUpRequest):
     """
@@ -58,7 +81,8 @@ async def sign_up(request: SignUpRequest):
                 },
                 json={
                     "email": request.email,
-                    "password": request.password
+                    "password": request.password,
+                    "data": {"name": request.name},
                 }
             )
         
@@ -78,14 +102,36 @@ async def sign_up(request: SignUpRequest):
                 detail="User creation failed"
             )
         
-        # Create organization and profile
-        # Note: Database integration would happen here
-        # For now, return basic auth response
-        
+        db = get_supabase_client()
+        organizations = await db.query(
+            "organizations",
+            filters={"name": request.organization_name or f"{request.email}'s Organization"},
+            select="*",
+        )
+        if organizations:
+            organization = organizations[0]
+        else:
+            created_organizations = await db.query(
+                "organizations",
+                method="POST",
+                data={"name": request.organization_name or f"{request.email}'s Organization"},
+            )
+            organization = created_organizations[0]
+        await db.query(
+            "profiles",
+            method="POST",
+            data={
+                "id": user_id,
+                "organization_id": organization["id"],
+                "full_name": request.name,
+                "email": request.email,
+                "role": "ADMIN",
+            },
+        )
         profile = UserProfile(
             user_id=user_id,
             email=request.email,
-            organization_id=None,
+            organization_id=organization["id"],
             role="ADMIN"  # First user is admin
         )
         
@@ -100,10 +146,7 @@ async def sign_up(request: SignUpRequest):
                 }
             },
             profile=profile,
-            organization={
-                "id": "org_default",
-                "name": request.organization_name or f"{request.email}'s Organization"
-            }
+            organization=organization,
         )
     
     except HTTPException:
@@ -157,14 +200,7 @@ async def sign_in(request: SignInRequest):
         user_id = user_data.get("id")
         email = user_data.get("email")
         
-        # In production, fetch user profile from database
-        # For MVP, return basic profile
-        profile = UserProfile(
-            user_id=user_id,
-            email=email,
-            organization_id=None,
-            role="COORDINATOR"
-        )
+        profile, organization = await _load_profile_async(user_id, email)
         
         return AuthResponse(
             access_token=data.get("access_token"),
@@ -177,10 +213,7 @@ async def sign_in(request: SignInRequest):
                 }
             },
             profile=profile,
-            organization={
-                "id": "org_default",
-                "name": "MedNova Drug Safety"
-            }
+            organization=organization,
         )
     
     except HTTPException:
@@ -220,14 +253,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         user_id = user_data.get("id")
         email = user_data.get("email")
         
-        # In production, fetch full profile from database
-        # For MVP, return basic profile
-        profile = UserProfile(
-            user_id=user_id,
-            email=email,
-            organization_id=None,
-            role="COORDINATOR"
-        )
+        profile, _ = await _load_profile_async(user_id, email)
         
         return profile
     

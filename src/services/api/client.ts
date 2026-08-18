@@ -15,8 +15,7 @@
  */
 
 export const API_BASE_URL: string =
-  (import.meta.env["VITE_PV_API_BASE_URL"] as string | undefined)?.replace(/\/$/, "") ??
-  "";
+  (import.meta.env["VITE_PV_API_BASE_URL"] as string | undefined)?.replace(/\/$/, "") ?? "";
 
 export const isApiConfigured = () => API_BASE_URL.length > 0;
 
@@ -90,11 +89,11 @@ export async function apiRequest<T>(
   // Use provided token or retrieve from localStorage
   const authToken = token || getStoredToken();
   const headers: Record<string, string> = {};
-  
+
   if (!body || !(body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
-  
+
   if (authToken) {
     headers["Authorization"] = `Bearer ${authToken}`;
   }

@@ -74,7 +74,7 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/oversight", label: "Operational overview", icon: Gauge, permission: "team.view" },
       { to: "/signals", label: "Signal review", icon: Radar, permission: "signal.view" },
-      { to: "/audit", label: "Audit trail", icon: Activity },
+      { to: "/audit", label: "Audit trail", icon: Activity, permission: "audit.view.all" },
       { to: "/notifications", label: "Notifications", icon: Bell },
     ],
   },

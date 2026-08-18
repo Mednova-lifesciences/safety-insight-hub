@@ -36,11 +36,11 @@ export const cases = {
       body: { step, reason },
     }),
   followUps: (caseId?: string) =>
-    apiRequest<FollowUpRequest[]>("/api/cases/follow-ups", {
-      query: caseId ? { caseId } : {},
+    apiRequest<FollowUpRequest[]>("/api/follow-ups", {
+      query: caseId ? { case_id: caseId } : {},
     }),
   requestFollowUp: (caseId: string, requestedInformation: string, channel: string) =>
-    apiRequest<FollowUpRequest>(`/api/cases/${encodeURIComponent(caseId)}/follow-ups`, {
+    apiRequest<FollowUpRequest>(`/api/follow-ups/${encodeURIComponent(caseId)}`, {
       method: "POST",
       body: { requestedInformation, channel },
     }),

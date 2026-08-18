@@ -1,14 +1,17 @@
 # Frontend Auth Deployment Checklist
 
 ## Problem Resolved
+
 **401 Unauthorized on all protected API endpoints**
 
 ### Root Cause
+
 - Backend requires `Authorization: Bearer <jwt>` header (HTTPBearer)
 - Frontend was only sending `credentials: "include"` (cookies)
 - No mechanism to pass JWT tokens from login to subsequent API calls
 
 ### Solution
+
 Updated frontend auth flow to properly store and send JWT Bearer tokens:
 
 ## Files Modified (Commits: 99124b9, 1e0279a)
@@ -39,6 +42,7 @@ Updated frontend auth flow to properly store and send JWT Bearer tokens:
 ## Deployment Flow
 
 ### When Deployed to Render
+
 1. **Frontend loads** (index.html, JS bundles)
 2. **App checks backend** via `isApiConfigured()` (checks VITE_PV_API_BASE_URL)
 3. **If backend configured:**
@@ -53,6 +57,7 @@ Updated frontend auth flow to properly store and send JWT Bearer tokens:
    - Returns user data or 401 if invalid
 
 ### When Backend Not Configured
+
 - Mock auth enabled (for development)
 - Password required but not validated
 - Role selector shown (pick any role for testing)
@@ -61,6 +66,7 @@ Updated frontend auth flow to properly store and send JWT Bearer tokens:
 ## Testing Post-Deployment
 
 ### 1. Verify Backend Is Running
+
 ```bash
 # On Render dashboard, check:
 - Service status: "Live" ✓
@@ -69,12 +75,14 @@ Updated frontend auth flow to properly store and send JWT Bearer tokens:
 ```
 
 ### 2. Verify Frontend Can Reach Backend
+
 ```bash
 # In browser console:
 console.log(isApiConfigured())  // Should be true if VITE_PV_API_BASE_URL set
 ```
 
 ### 3. Test Login Flow
+
 ```
 1. Navigate to app (https://safety-insight-hub.onrender.com)
 2. Enter valid Supabase user email + password
@@ -83,6 +91,7 @@ console.log(isApiConfigured())  // Should be true if VITE_PV_API_BASE_URL set
 ```
 
 ### 4. Verify Bearer Token Sent
+
 ```bash
 # In browser DevTools → Network tab:
 1. Perform any API call after login
@@ -91,6 +100,7 @@ console.log(isApiConfigured())  // Should be true if VITE_PV_API_BASE_URL set
 ```
 
 ### 5. Test Session Persistence
+
 ```
 1. Log in successfully
 2. Refresh page (F5)
@@ -99,6 +109,7 @@ console.log(isApiConfigured())  // Should be true if VITE_PV_API_BASE_URL set
 ```
 
 ### 6. Test Logout
+
 ```
 1. Click "Sign out" button
 2. Expected: localStorage cleared, redirected to login
@@ -108,9 +119,10 @@ console.log(isApiConfigured())  // Should be true if VITE_PV_API_BASE_URL set
 ## Error Scenarios
 
 ### Still Getting 401?
+
 1. **Check backend is running:**
    - `GET https://backend-url/health` returns 200
-   
+
 2. **Check token is stored:**
    - DevTools → Application → LocalStorage → `auth_token`
    - Should contain JWT (starts with `eyJ`)
@@ -124,23 +136,28 @@ console.log(isApiConfigured())  // Should be true if VITE_PV_API_BASE_URL set
    - Backend should return user profile (not 401)
 
 ### Backend Returning 401 on /api/auth/signin
+
 1. Check Supabase credentials in backend
 2. Verify email + password are correct
 3. Check backend logs for auth errors
 
 ## Browser Compatibility
+
 - localStorage: Supported in all modern browsers
 - Credentials: "include": Supported in all modern browsers
 - Authorization header: Standard HTTP, all browsers
 
 ## Security Notes
+
 - JWT stored in localStorage (vulnerable to XSS)
 - In production: Consider httpOnly cookies (requires backend support)
 - Current implementation: Acceptable for internal PV tool
 - Token never logged or exposed in URLs
 
 ## Rollback
+
 If issues occur:
+
 1. Previous working version: commit b621abb
 2. Has: deployment fixes (cd src && uvicorn)
 3. Missing: Bearer token auth (will cause 401)
@@ -159,6 +176,7 @@ If issues occur:
 - [ ] No JavaScript errors in console
 
 ## Next Steps (If Issues Persist)
+
 1. Check backend logs on Render for auth-related errors
 2. Verify Supabase URL and service role key are correct
 3. Test backend auth endpoint directly: `curl -H "Authorization: Bearer <token>" https://backend/api/auth/me`

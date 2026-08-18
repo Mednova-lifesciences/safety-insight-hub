@@ -10,6 +10,7 @@ import {
   SourceTag,
   StatusPill,
 } from "@/components/pv/primitives";
+import { PermissionGate } from "@/components/pv/permission-gate";
 
 export const Route = createFileRoute("/_app/follow-ups")({
   head: () => ({
@@ -20,7 +21,11 @@ export const Route = createFileRoute("/_app/follow-ups")({
       { property: "og:description", content: "Track reporter information requests across open safety cases." },
     ],
   }),
-  component: FollowUpsPage,
+  component: () => (
+    <PermissionGate permission="follow_up.view">
+      <FollowUpsPage />
+    </PermissionGate>
+  ),
 });
 
 function FollowUpsPage() {

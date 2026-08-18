@@ -7,7 +7,7 @@ from typing import Optional, List
 from datetime import datetime
 import logging
 
-from ..dependencies import get_current_user, AuthenticatedUser
+from ..dependencies import get_current_user, require_permission, AuthenticatedUser
 from ..db import get_supabase_client
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class CaseListItem(BaseModel):
 @router.post("")
 async def create_case(
     request: CreateCaseRequest,
-    user: AuthenticatedUser = Depends(get_current_user)
+    user: AuthenticatedUser = Depends(require_permission("case.create"))
 ):
     """
     Create a new ICSR/case
@@ -156,6 +156,10 @@ async def list_cases(
                 "assignedTo": case.get("assigned_to"),
                 "receivedDate": case.get("created_at", "").split("T")[0] if case.get("created_at") else "",
                 "dueDate": None,
+                "outcome": case.get("reaction_outcome") or "UNKNOWN",
+                "priority": "HIGH" if case.get("reported_seriousness") == "SERIOUS" else "MEDIUM",
+                "flags": [],
+                "source": case.get("source") or "MANUAL",
             }
             for case in cases
         ]
