@@ -7,23 +7,27 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { auth as apiAuth, type AuthResponse } from "@/services/api/auth";
+import { getStoredToken, setStoredToken, isApiConfigured } from "@/services/api/client";
 
 /**
  * Session abstraction for MedNova PV Assist.
  *
- * This is deliberately a thin client-side abstraction over a session object.
- * When the FastAPI layer is connected, replace `signIn`/`restore` with real
- * calls (e.g. POST /api/auth/login returning a short-lived token stored in an
- * httpOnly cookie). No permission decision made here may be trusted by the
- * backend: every API handler must re-check the caller's role server-side.
+ * This layer bridges the frontend UI with the FastAPI authentication backend.
+ * - When FastAPI is configured: uses real JWT tokens stored in localStorage
+ * - When FastAPI is not configured: falls back to mock auth for development
+ * 
+ * No permission decision made here may be trusted by the backend: every API
+ * handler must re-check the caller's role server-side.
  */
 
-export type Role = "FIELD_ASSOCIATE" | "COORDINATOR" | "MANAGER";
+export type Role = "FIELD_ASSOCIATE" | "COORDINATOR" | "MANAGER" | "ADMIN";
 
 export const ROLE_LABELS: Record<Role, string> = {
   FIELD_ASSOCIATE: "PV Field Associate",
   COORDINATOR: "PV Coordinator",
   MANAGER: "PV Manager",
+  ADMIN: "Administrator",
 };
 
 export type Permission =
@@ -83,6 +87,23 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "audit.view.all",
     "team.view",
   ],
+  ADMIN: [
+    "case.create",
+    "case.edit",
+    "case.view",
+    "case.assign",
+    "seriousness.review",
+    "coding.review",
+    "coding.approve",
+    "intake.manage",
+    "linelist.process",
+    "e2b.generate",
+    "psur.review",
+    "signal.view",
+    "signal.decide",
+    "audit.view.all",
+    "team.view",
+  ],
 };
 
 export interface CurrentUser {
@@ -97,7 +118,8 @@ export interface CurrentUser {
 interface AuthState {
   user: CurrentUser | null;
   status: "loading" | "authenticated" | "unauthenticated";
-  signIn: (email: string, role: Role) => Promise<void>;
+  signIn: (email: string, password: string, mockRole?: Role) => Promise<void>;
+  signUp: (email: string, password: string, name: string, org?: string) => Promise<void>;
   signOut: () => void;
   can: (permission: Permission) => boolean;
 }
@@ -115,49 +137,163 @@ function deriveName(email: string) {
     .join(" ");
 }
 
+function mapRoleFromApi(apiRole: string): Role {
+  // Map backend roles to frontend roles
+  const roleMap: Record<string, Role> = {
+    ADMIN: "ADMIN",
+    MANAGER: "MANAGER",
+    COORDINATOR: "COORDINATOR",
+    FIELD_ASSOCIATE: "FIELD_ASSOCIATE",
+  };
+  return roleMap[apiRole] || "FIELD_ASSOCIATE";
+}
+
+function buildCurrentUser(authResponse: AuthResponse): CurrentUser {
+  const email = authResponse.user.email;
+  const name = authResponse.user.user_metadata?.name || deriveName(email);
+  const role = mapRoleFromApi(authResponse.profile.role);
+  const organisation = authResponse.organization?.name || "MedNova Drug Safety";
+
+  return {
+    id: authResponse.user.id,
+    name,
+    initials:
+      name
+        .split(" ")
+        .map((p) => p[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase() || "PV",
+    email,
+    role,
+    organisation,
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [status, setStatus] = useState<AuthState["status"]>("loading");
 
+  // On mount, restore session from stored token if available
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        setUser(JSON.parse(raw) as CurrentUser);
-        setStatus("authenticated");
-        return;
+    const restoreSession = async () => {
+      try {
+        if (isApiConfigured()) {
+          // Try to restore from stored JWT token
+          const token = getStoredToken();
+          if (token) {
+            const profile = await apiAuth.getCurrentUser();
+            if (profile) {
+              // Successfully restored session with real backend
+              // Create a minimal CurrentUser from profile
+              const storedUserJson = window.localStorage.getItem(STORAGE_KEY);
+              if (storedUserJson) {
+                setUser(JSON.parse(storedUserJson) as CurrentUser);
+                setStatus("authenticated");
+                return;
+              }
+            }
+          }
+        } else {
+          // API not configured - try mock auth
+          const raw = window.localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            setUser(JSON.parse(raw) as CurrentUser);
+            setStatus("authenticated");
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("Failed to restore session:", error);
+        // Clear invalid token
+        setStoredToken(null);
       }
-    } catch {
-      /* corrupt session — fall through to signed out */
-    }
-    setStatus("unauthenticated");
-  }, []);
-
-  const signIn = useCallback(async (email: string, role: Role) => {
-    const name = deriveName(email);
-    const next: CurrentUser = {
-      id: `usr_${email.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`,
-      name,
-      initials:
-        name
-          .split(" ")
-          .map((p) => p[0])
-          .join("")
-          .slice(0, 2)
-          .toUpperCase() || "PV",
-      email,
-      role,
-      organisation: "MedNova Drug Safety",
+      setStatus("unauthenticated");
     };
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    setUser(next);
-    setStatus("authenticated");
+
+    restoreSession();
   }, []);
 
-  const signOut = useCallback(() => {
-    window.localStorage.removeItem(STORAGE_KEY);
-    setUser(null);
-    setStatus("unauthenticated");
+  const signIn = useCallback(async (email: string, password: string, mockRole?: Role) => {
+    if (isApiConfigured()) {
+      // Use real backend authentication
+      const response = await apiAuth.signin({ email, password });
+      const currentUser = buildCurrentUser(response);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
+      setUser(currentUser);
+      setStatus("authenticated");
+    } else {
+      // Mock authentication (dev mode without backend)
+      const name = deriveName(email);
+      const next: CurrentUser = {
+        id: `usr_${email.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`,
+        name,
+        initials:
+          name
+            .split(" ")
+            .map((p) => p[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase() || "PV",
+        email,
+        role: mockRole || "COORDINATOR",
+        organisation: "MedNova Drug Safety",
+      };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      setUser(next);
+      setStatus("authenticated");
+    }
+  }, []);
+
+  const signUp = useCallback(async (email: string, password: string, name: string, org?: string) => {
+    if (isApiConfigured()) {
+      // Use real backend authentication
+      const response = await apiAuth.signup({
+        email,
+        password,
+        name,
+        organization_name: org,
+      });
+      const currentUser = buildCurrentUser(response);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
+      setUser(currentUser);
+      setStatus("authenticated");
+    } else {
+      // Mock authentication (dev mode without backend)
+      const n = deriveName(email);
+      const next: CurrentUser = {
+        id: `usr_${email.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`,
+        name: n,
+        initials:
+          n
+            .split(" ")
+            .map((p) => p[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase() || "PV",
+        email,
+        role: "ADMIN",
+        organisation: org || "MedNova Drug Safety",
+      };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      setUser(next);
+      setStatus("authenticated");
+    }
+  }, []);
+
+  const signOut = useCallback(async () => {
+    try {
+      if (isApiConfigured()) {
+        await apiAuth.signout();
+      }
+    } catch (error) {
+      console.error("Sign out error:", error);
+    } finally {
+      window.localStorage.removeItem(STORAGE_KEY);
+      setStoredToken(null);
+      setUser(null);
+      setStatus("unauthenticated");
+    }
   }, []);
 
   const can = useCallback(
@@ -167,8 +303,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthState>(
-    () => ({ user, status, signIn, signOut, can }),
-    [user, status, signIn, signOut, can],
+    () => ({ user, status, signIn, signUp, signOut, can }),
+    [user, status, signIn, signUp, signOut, can],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

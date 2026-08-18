@@ -38,8 +38,10 @@ function SignInPage() {
   const { user, status, signIn } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("a.okafor@mednova.example");
+  const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("FIELD_ASSOCIATE");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "authenticated" && user) navigate({ to: "/dashboard", replace: true });
@@ -103,9 +105,28 @@ function SignInPage() {
             className="mt-6 space-y-5"
             onSubmit={async (e) => {
               e.preventDefault();
+              setError(null);
               setSubmitting(true);
-              await signIn(email.trim(), role);
-              navigate({ to: "/dashboard", replace: true });
+              try {
+                if (isApiConfigured()) {
+                  // Real authentication with backend
+                  await signIn(email.trim(), password);
+                } else {
+                  // Mock authentication (dev mode)
+                  // In mock mode, still require a non-empty password field
+                  if (!password) {
+                    setError("Enter a password (any value works in demo mode)");
+                    setSubmitting(false);
+                    return;
+                  }
+                  // Use the selected role in mock mode
+                  await signIn(email.trim(), password, role);
+                }
+                navigate({ to: "/dashboard", replace: true });
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Sign in failed");
+                setSubmitting(false);
+              }
             }}
           >
             <div className="space-y-1.5">
@@ -122,38 +143,57 @@ function SignInPage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" autoComplete="current-password" placeholder="••••••••" />
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
               <p className="text-xs text-muted-foreground">
                 Credential verification is performed by the backend identity service once connected.
               </p>
             </div>
 
-            <fieldset className="space-y-2">
-              <legend className="label-caps mb-1">Role</legend>
-              {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
-                <label
-                  key={r}
-                  className={cn(
-                    "flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition-colors",
-                    role === r ? "border-primary bg-accent" : "border-border hover:bg-muted",
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="role"
-                    className="mt-1 accent-[var(--primary)]"
-                    checked={role === r}
-                    onChange={() => setRole(r)}
-                  />
-                  <span>
-                    <span className="block text-sm font-medium">{ROLE_LABELS[r]}</span>
-                    <span className="block text-xs text-muted-foreground">
-                      {ROLE_DESCRIPTIONS[r]}
+            {error && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+
+            {!isApiConfigured() && (
+              <fieldset className="space-y-2">
+                <legend className="label-caps mb-1">Demo Role</legend>
+                <p className="text-xs text-muted-foreground mb-2">
+                  (Only used in demo mode; server determines actual role when backend is connected)
+                </p>
+                {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
+                  <label
+                    key={r}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition-colors",
+                      role === r ? "border-primary bg-accent" : "border-border hover:bg-muted",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="role"
+                      className="mt-1 accent-[var(--primary)]"
+                      checked={role === r}
+                      onChange={() => setRole(r)}
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">{ROLE_LABELS[r]}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {ROLE_DESCRIPTIONS[r]}
+                      </span>
                     </span>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
+                  </label>
+                ))}
+              </fieldset>
+            )}
 
             <Button type="submit" className="w-full" disabled={submitting}>
               <Lock className="size-4" /> Sign in
