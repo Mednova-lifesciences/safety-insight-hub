@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
 import { ArrowRight, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -29,7 +30,11 @@ export const Route = createFileRoute("/_app/psur")({
       { property: "og:description", content: "Review assistance for periodic safety reports, with the final assessment recorded by a human." },
     ],
   }),
-  component: PsurPage,
+  component: () => (
+    <PermissionGate permission="psur.review">
+      <PsurPage />
+    </PermissionGate>
+  ),
 });
 
 const FLOW = ["Upload PDF", "Extract document", "Identify sections", "Check completeness", "Check consistency", "Review findings", "Human assessment"];

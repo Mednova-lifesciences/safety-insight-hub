@@ -1,4 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
 import { toast } from "sonner";
 import { signals as signalsApi } from "@/services/api/signals";
@@ -29,7 +30,11 @@ export const Route = createFileRoute("/_app/signals")({
       { property: "og:description", content: "Manager signal workspace with auditable confirm/refute decisions." },
     ],
   }),
-  component: SignalsPage,
+  component: () => (
+    <PermissionGate permission="signal.view">
+      <SignalsPage />
+    </PermissionGate>
+  ),
 });
 
 const statusTone: Record<Signal["status"], Tone> = {

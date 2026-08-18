@@ -1,4 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { PermissionGate } from "@/components/pv/permission-gate";
 import {
   Bar,
   BarChart,
@@ -41,7 +42,11 @@ export const Route = createFileRoute("/_app/oversight")({
       { property: "og:description", content: "Pharmacovigilance operations oversight and drill-down." },
     ],
   }),
-  component: OversightPage,
+  component: () => (
+    <PermissionGate permission="team.view">
+      <OversightPage />
+    </PermissionGate>
+  ),
 });
 
 function Metric({ label, value, tone, to }: { label: string; value: number; tone?: string; to?: string }) {

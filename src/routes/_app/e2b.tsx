@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
 import { Download, FileStack, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -26,7 +27,11 @@ export const Route = createFileRoute("/_app/e2b")({
       { property: "og:description", content: "Prepare and export E2B(R3) files. Regulatory transmission is a separate integration." },
     ],
   }),
-  component: E2bPage,
+  component: () => (
+    <PermissionGate permission="e2b.generate">
+      <E2bPage />
+    </PermissionGate>
+  ),
 });
 
 function E2bPage() {
