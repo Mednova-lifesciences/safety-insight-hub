@@ -12,7 +12,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SERVICE_ROLE_KEY", "")
 
 router = APIRouter()
 security = HTTPBearer()
@@ -121,8 +121,10 @@ async def sign_in(request: SignInRequest):
     Sign in with email/password
     Returns JWT token and user profile
     """
+    logger.info("AUTH: signin endpoint reached")
     try:
         async with httpx.AsyncClient() as client:
+            logger.info("AUTH: Supabase authentication attempted")
             response = await client.post(
                 f"{SUPABASE_URL}/auth/v1/token?grant_type=password",
                 headers={
@@ -136,13 +138,21 @@ async def sign_in(request: SignInRequest):
             )
         
         if response.status_code >= 400:
-            error_detail = response.json().get("error_description", "Invalid credentials")
+            error_payload = response.json()
+            logger.warning(
+                "AUTH: Supabase authentication failed with status=%s code=%s error=%s",
+                response.status_code,
+                error_payload.get("error_code"),
+                error_payload.get("error"),
+            )
+            error_detail = error_payload.get("error_description", "Invalid credentials")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=error_detail
             )
         
         data = response.json()
+        logger.info("AUTH: Supabase authentication succeeded")
         user_data = data.get("user", {})
         user_id = user_data.get("id")
         email = user_data.get("email")

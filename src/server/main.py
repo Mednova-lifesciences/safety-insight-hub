@@ -36,6 +36,7 @@ from datetime import datetime
 import json
 from typing import Optional
 import logging
+from urllib.parse import urlparse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -63,6 +64,12 @@ CORS_ORIGINS = [
 
 if not all([SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY]):
     raise ValueError("Missing required Supabase environment variables: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY")
+
+logger.info(
+    "AUTH: Supabase configuration loaded host=%s service_key_configured=%s",
+    urlparse(SUPABASE_URL).netloc if SUPABASE_URL else "missing",
+    bool(SUPABASE_SERVICE_ROLE_KEY),
+)
 
 # Create FastAPI app
 app = FastAPI(
