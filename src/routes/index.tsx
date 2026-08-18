@@ -34,6 +34,11 @@ const ROLE_DESCRIPTIONS: Record<Role, string> = {
   MANAGER: "Oversight, signal decisions and audit review.",
 };
 
+const DEMO_CREDENTIALS = {
+  email: "a.okafor@mednova.example",
+  password: "demo123",
+};
+
 function SignInPage() {
   const { user, status, signIn } = useAuth();
   const navigate = useNavigate();
@@ -186,7 +191,11 @@ function SignInPage() {
                     name="role"
                     className="mt-1 accent-[var(--primary)]"
                     checked={role === r}
-                    onChange={() => setRole(r)}
+                    onChange={() => {
+                      setRole(r);
+                      setEmail(DEMO_CREDENTIALS.email);
+                      setPassword(DEMO_CREDENTIALS.password);
+                    }}
                   />
                   <span>
                     <span className="block text-sm font-medium">{ROLE_LABELS[r]}</span>
