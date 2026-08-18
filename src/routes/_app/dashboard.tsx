@@ -72,7 +72,7 @@ function DashboardPage() {
   return (
     <>
       <PageHeader
-        title={`Good day, ${user?.name.split(" ")[0] ?? "colleague"}`}
+        title={`Good day, ${user?.name ?? "colleague"}`}
         description={`${ROLE_LABELS[user!.role]} workspace — cases assigned to you, items needing attention, and recent audited activity.`}
         actions={
           <>

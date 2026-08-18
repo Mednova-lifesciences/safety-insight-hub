@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
 import { ArrowRight, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -26,7 +27,11 @@ export const Route = createFileRoute("/_app/line-list")({
       { property: "og:description", content: "Deterministic line-list cleaning and validation with full issue visibility." },
     ],
   }),
-  component: LineListPage,
+  component: () => (
+    <PermissionGate permission="linelist.process">
+      <LineListPage />
+    </PermissionGate>
+  ),
 });
 
 const STAGES = ["Upload", "Inspect columns", "Map columns", "Normalise", "Validate", "Review issues", "Generate E2B(R3)", "Download XML"];
