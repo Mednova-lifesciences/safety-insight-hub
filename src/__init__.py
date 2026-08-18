@@ -1,0 +1,1 @@
+# SafetyCore application package
