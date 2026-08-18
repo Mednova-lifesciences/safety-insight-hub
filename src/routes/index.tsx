@@ -168,37 +168,35 @@ function SignInPage() {
               </div>
             )}
 
-            {!isApiConfigured() && (
-              <fieldset className="space-y-2">
-                <legend className="label-caps mb-1">Demo Role</legend>
-                <p className="text-xs text-muted-foreground mb-2">
-                  (Only used in demo mode; server determines actual role when backend is connected)
-                </p>
-                {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
-                  <label
-                    key={r}
-                    className={cn(
-                      "flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition-colors",
-                      role === r ? "border-primary bg-accent" : "border-border hover:bg-muted",
-                    )}
-                  >
-                    <input
-                      type="radio"
-                      name="role"
-                      className="mt-1 accent-[var(--primary)]"
-                      checked={role === r}
-                      onChange={() => setRole(r)}
-                    />
-                    <span>
-                      <span className="block text-sm font-medium">{ROLE_LABELS[r]}</span>
-                      <span className="block text-xs text-muted-foreground">
-                        {ROLE_DESCRIPTIONS[r]}
-                      </span>
+            <fieldset className="space-y-2">
+              <legend className="label-caps mb-1">Demo Role</legend>
+              <p className="text-xs text-muted-foreground mb-2">
+                (Only used in demo mode; server determines actual role when backend is connected)
+              </p>
+              {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
+                <label
+                  key={r}
+                  className={cn(
+                    "flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition-colors",
+                    role === r ? "border-primary bg-accent" : "border-border hover:bg-muted",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="role"
+                    className="mt-1 accent-[var(--primary)]"
+                    checked={role === r}
+                    onChange={() => setRole(r)}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">{ROLE_LABELS[r]}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {ROLE_DESCRIPTIONS[r]}
                     </span>
-                  </label>
-                ))}
-              </fieldset>
-            )}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
 
             <Button type="submit" className="w-full" disabled={submitting}>
               <Lock className="size-4" /> Sign in
