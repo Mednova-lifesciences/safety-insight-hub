@@ -3,5 +3,6 @@ services:
     name: safety-insight-hub
     runtime: python
     rootDir: .
-    buildCommand: pip install -r requirements-server.txt
-    startCommand: python -m uvicorn server.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd src && python -m uvicorn server.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
