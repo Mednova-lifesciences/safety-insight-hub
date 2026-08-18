@@ -17,6 +17,9 @@ import { Route as AppE2bRouteImport } from './routes/_app/e2b'
 import { Route as AppFollowUpsRouteImport } from './routes/_app/follow-ups'
 import { Route as AppLineListRouteImport } from './routes/_app/line-list'
 import { Route as AppNotificationsRouteImport } from './routes/_app/notifications'
+import { Route as AppOversightRouteImport } from './routes/_app/oversight'
+import { Route as AppPsurRouteImport } from './routes/_app/psur'
+import { Route as AppSignalsRouteImport } from './routes/_app/signals'
 import { Route as AppCasesIndexRouteImport } from './routes/_app/cases.index'
 import { Route as AppCasesCaseIdRouteImport } from './routes/_app/cases.$caseId'
 import { Route as AppIcsrNewRouteImport } from './routes/_app/icsr.new'
@@ -62,6 +65,21 @@ const AppNotificationsRoute = AppNotificationsRouteImport.update({
   path: '/notifications',
   getParentRoute: () => AppRoute,
 } as any)
+const AppOversightRoute = AppOversightRouteImport.update({
+  id: '/oversight',
+  path: '/oversight',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPsurRoute = AppPsurRouteImport.update({
+  id: '/psur',
+  path: '/psur',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSignalsRoute = AppSignalsRouteImport.update({
+  id: '/signals',
+  path: '/signals',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppCasesIndexRoute = AppCasesIndexRouteImport.update({
   id: '/cases/',
   path: '/cases/',
@@ -96,6 +114,9 @@ export interface FileRoutesByFullPath {
   '/follow-ups': typeof AppFollowUpsRoute
   '/line-list': typeof AppLineListRoute
   '/notifications': typeof AppNotificationsRoute
+  '/oversight': typeof AppOversightRoute
+  '/psur': typeof AppPsurRoute
+  '/signals': typeof AppSignalsRoute
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
   '/intake/$conversationId': typeof AppIntakeConversationIdRoute
@@ -110,6 +131,9 @@ export interface FileRoutesByTo {
   '/follow-ups': typeof AppFollowUpsRoute
   '/line-list': typeof AppLineListRoute
   '/notifications': typeof AppNotificationsRoute
+  '/oversight': typeof AppOversightRoute
+  '/psur': typeof AppPsurRoute
+  '/signals': typeof AppSignalsRoute
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
   '/intake/$conversationId': typeof AppIntakeConversationIdRoute
@@ -126,6 +150,9 @@ export interface FileRoutesById {
   '/_app/follow-ups': typeof AppFollowUpsRoute
   '/_app/line-list': typeof AppLineListRoute
   '/_app/notifications': typeof AppNotificationsRoute
+  '/_app/oversight': typeof AppOversightRoute
+  '/_app/psur': typeof AppPsurRoute
+  '/_app/signals': typeof AppSignalsRoute
   '/_app/cases/$caseId': typeof AppCasesCaseIdRoute
   '/_app/icsr/new': typeof AppIcsrNewRoute
   '/_app/intake/$conversationId': typeof AppIntakeConversationIdRoute
@@ -142,6 +169,9 @@ export interface FileRouteTypes {
     | '/follow-ups'
     | '/line-list'
     | '/notifications'
+    | '/oversight'
+    | '/psur'
+    | '/signals'
     | '/cases/$caseId'
     | '/icsr/new'
     | '/intake/$conversationId'
@@ -156,6 +186,9 @@ export interface FileRouteTypes {
     | '/follow-ups'
     | '/line-list'
     | '/notifications'
+    | '/oversight'
+    | '/psur'
+    | '/signals'
     | '/cases/$caseId'
     | '/icsr/new'
     | '/intake/$conversationId'
@@ -171,6 +204,9 @@ export interface FileRouteTypes {
     | '/_app/follow-ups'
     | '/_app/line-list'
     | '/_app/notifications'
+    | '/_app/oversight'
+    | '/_app/psur'
+    | '/_app/signals'
     | '/_app/cases/$caseId'
     | '/_app/icsr/new'
     | '/_app/intake/$conversationId'
@@ -241,6 +277,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNotificationsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/oversight': {
+      id: '/_app/oversight'
+      path: '/oversight'
+      fullPath: '/oversight'
+      preLoaderRoute: typeof AppOversightRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/psur': {
+      id: '/_app/psur'
+      path: '/psur'
+      fullPath: '/psur'
+      preLoaderRoute: typeof AppPsurRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/signals': {
+      id: '/_app/signals'
+      path: '/signals'
+      fullPath: '/signals'
+      preLoaderRoute: typeof AppSignalsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/cases/': {
       id: '/_app/cases/'
       path: '/cases'
@@ -286,6 +343,9 @@ interface AppRouteChildren {
   AppFollowUpsRoute: typeof AppFollowUpsRoute
   AppLineListRoute: typeof AppLineListRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
+  AppOversightRoute: typeof AppOversightRoute
+  AppPsurRoute: typeof AppPsurRoute
+  AppSignalsRoute: typeof AppSignalsRoute
   AppCasesCaseIdRoute: typeof AppCasesCaseIdRoute
   AppIcsrNewRoute: typeof AppIcsrNewRoute
   AppIntakeConversationIdRoute: typeof AppIntakeConversationIdRoute
@@ -300,6 +360,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppFollowUpsRoute: AppFollowUpsRoute,
   AppLineListRoute: AppLineListRoute,
   AppNotificationsRoute: AppNotificationsRoute,
+  AppOversightRoute: AppOversightRoute,
+  AppPsurRoute: AppPsurRoute,
+  AppSignalsRoute: AppSignalsRoute,
   AppCasesCaseIdRoute: AppCasesCaseIdRoute,
   AppIcsrNewRoute: AppIcsrNewRoute,
   AppIntakeConversationIdRoute: AppIntakeConversationIdRoute,
