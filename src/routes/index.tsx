@@ -38,7 +38,7 @@ function SignInPage() {
   const { user, status, signIn } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("a.okafor@mednova.example");
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState("demo123");
   const [role, setRole] = useState<Role>("FIELD_ASSOCIATE");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +155,11 @@ function SignInPage() {
               <p className="text-xs text-muted-foreground">
                 Credential verification is performed by the backend identity service once connected.
               </p>
+              {!isApiConfigured() && (
+                <p className="text-xs text-muted-foreground">
+                  Demo login: <span className="font-medium text-foreground">a.okafor@mednova.example</span> / any password
+                </p>
+              )}
             </div>
 
             {error && (
