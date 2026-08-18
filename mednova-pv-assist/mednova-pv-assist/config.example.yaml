@@ -1,0 +1,29 @@
+# Copy to config.yaml and fill in. Nothing here is required to run the demo.
+
+llm:
+  provider: anthropic        # anthropic | none
+  model: claude-sonnet-4-5
+  # api_key is read from the ANTHROPIC_API_KEY environment variable, not stored here.
+
+dictionaries:
+  # Point these at YOUR licensed exports (CSV: code,term,level,synonyms).
+  meddra:
+    path: data/meddra_sample.csv     # replace with your MedDRA export
+    version: "27.0"                  # inspectors will ask which version coded a case
+  whodrug:
+    path: data/whodrug_sample.csv    # replace with your WHODrug export
+    version: "GLOBAL-2025-Sep"
+
+e2b:
+  sender_id: MEDNOVA
+  receiver_id: NAFDAC-NPC
+  country: NG
+
+audit:
+  path: output/audit_log.jsonl
+
+# Where personal health data may be processed. If narratives cannot leave your
+# environment, set llm.provider: none (rules engines still run) or point the
+# client at a self-hosted model.
+data_residency:
+  allow_external_llm: false
