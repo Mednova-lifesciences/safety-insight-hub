@@ -14,7 +14,252 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      pv_audit_events: {
+        Row: {
+          data: Json
+          id: string
+          occurred_at: string
+        }
+        Insert: {
+          data: Json
+          id: string
+          occurred_at?: string
+        }
+        Update: {
+          data?: Json
+          id?: string
+          occurred_at?: string
+        }
+        Relationships: []
+      }
+      pv_cases: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      pv_coding_history: {
+        Row: {
+          case_id: string
+          created_at: string
+          data: Json
+          id: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          data: Json
+          id: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          data?: Json
+          id?: string
+        }
+        Relationships: []
+      }
+      pv_coding_suggestions: {
+        Row: {
+          case_id: string
+          data: Json
+          id: string
+        }
+        Insert: {
+          case_id: string
+          data: Json
+          id: string
+        }
+        Update: {
+          case_id?: string
+          data?: Json
+          id?: string
+        }
+        Relationships: []
+      }
+      pv_follow_ups: {
+        Row: {
+          case_id: string
+          created_at: string
+          data: Json
+          id: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          data: Json
+          id: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          data?: Json
+          id?: string
+        }
+        Relationships: []
+      }
+      pv_intake_conversations: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      pv_linelist_issues: {
+        Row: {
+          data: Json
+          id: string
+          job_id: string
+        }
+        Insert: {
+          data: Json
+          id: string
+          job_id: string
+        }
+        Update: {
+          data?: Json
+          id?: string
+          job_id?: string
+        }
+        Relationships: []
+      }
+      pv_linelist_jobs: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+        }
+        Relationships: []
+      }
+      pv_notifications: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+        }
+        Relationships: []
+      }
+      pv_psur_documents: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+        }
+        Relationships: []
+      }
+      pv_psur_findings: {
+        Row: {
+          data: Json
+          document_id: string
+          id: string
+        }
+        Insert: {
+          data: Json
+          document_id: string
+          id: string
+        }
+        Update: {
+          data?: Json
+          document_id?: string
+          id?: string
+        }
+        Relationships: []
+      }
+      pv_seriousness: {
+        Row: {
+          case_id: string
+          data: Json
+          updated_at: string
+        }
+        Insert: {
+          case_id: string
+          data: Json
+          updated_at?: string
+        }
+        Update: {
+          case_id?: string
+          data?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      pv_signals: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
