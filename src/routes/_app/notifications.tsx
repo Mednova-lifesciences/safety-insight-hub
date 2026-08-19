@@ -3,6 +3,8 @@ import { Bell } from "lucide-react";
 import { notifications as notificationsApi } from "@/services/api/notifications";
 import { demoNotifications } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
+import { useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
 import {
   EmptyState,
   PageHeader,
@@ -39,6 +41,7 @@ const tone: Record<Notification["type"], Tone> = {
 };
 
 function NotificationsPage() {
+  const queryClient = useQueryClient();
   const query = usePvQuery(["notifications"], () => notificationsApi.list(), () => demoNotifications);
   return (
     <>
@@ -73,6 +76,18 @@ function NotificationsPage() {
                         <Link to={n.link} className="text-sm text-primary hover:underline">
                           Open
                         </Link>
+                      ) : null}
+                      {!n.read ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            await notificationsApi.markRead(n.id);
+                            await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+                          }}
+                        >
+                          Mark read
+                        </Button>
                       ) : null}
                     </li>
                   ))}

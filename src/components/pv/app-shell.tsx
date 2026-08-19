@@ -32,6 +32,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { StatusPill } from "./primitives";
 import { demoNotifications } from "@/services/demo/dataset";
+import { notifications as notificationsApi } from "@/services/api/notifications";
+import { usePvQuery } from "@/lib/data-source";
 
 interface NavItem {
   to: string;
@@ -85,7 +87,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { backendConnected, demoData, setDemoData } = useDataSource();
-  const unread = demoNotifications.filter((n) => !n.read).length;
+  const notificationsQuery = usePvQuery(
+    ["notifications"],
+    () => notificationsApi.list(),
+    () => demoNotifications,
+  );
+  const unread = notificationsQuery.data?.data.filter((n) => !n.read).length ?? 0;
 
   if (!user) return null;
 
