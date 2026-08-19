@@ -1,9 +1,12 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { cases as casesApi } from "@/services/api/cases";
 import { audit as auditApi } from "@/services/api/audit";
 import { demoAudit, demoCaseDetails } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
+import { isNotConfigured } from "@/services/api/client";
 import {
   Field,
   PageHeader,
@@ -20,19 +23,131 @@ import { CodingWorkspace } from "@/components/pv/coding-workspace";
 import { AuditTimeline } from "@/components/pv/audit-timeline";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { usePermission } from "@/lib/auth";
+import type { FollowUpRequest } from "@/types/pv";
 
 export const Route = createFileRoute("/_app/cases/$caseId")({
   head: () => ({
     meta: [
       { title: "Case detail — MedNova PV Assist" },
-      { name: "description", content: "Full safety case workspace: patient, reporter, product, narrative, seriousness, coding and audit trail." },
+      {
+        name: "description",
+        content:
+          "Full safety case workspace: patient, reporter, product, narrative, seriousness, coding and audit trail.",
+      },
       { property: "og:title", content: "Case detail — MedNova PV Assist" },
-      { property: "og:description", content: "Individual case safety report workspace with workflow state and audit history." },
+      {
+        property: "og:description",
+        content: "Individual case safety report workspace with workflow state and audit history.",
+      },
     ],
   }),
   component: CaseDetailPage,
 });
+
+const CHANNELS: FollowUpRequest["channel"][] = ["EMAIL", "PHONE", "WHATSAPP"];
+
+function FollowUpTab({
+  caseId,
+  requests,
+  onChanged,
+}: {
+  caseId: string;
+  requests: FollowUpRequest[];
+  onChanged: () => void;
+}) {
+  const canCreate = usePermission("follow_up.create");
+  const [info, setInfo] = useState("");
+  const [channel, setChannel] = useState<FollowUpRequest["channel"]>("EMAIL");
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div className="space-y-4">
+      <Section title="Follow-up requests" description="Information requests linked to this case.">
+        {requests.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No follow-up requests recorded for this case.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {requests.map((f) => (
+              <li key={f.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                <StatusPill
+                  tone={
+                    f.status === "OVERDUE"
+                      ? "critical"
+                      : f.status === "RESPONDED"
+                        ? "success"
+                        : f.status === "CLOSED"
+                          ? "neutral"
+                          : "warning"
+                  }
+                >
+                  {f.status.toLowerCase()}
+                </StatusPill>
+                <span>{f.requestedInformation}</span>
+                <span className="text-muted-foreground">via {f.channel.toLowerCase()}</span>
+                <span className="mono-num ml-auto text-xs text-muted-foreground">
+                  requested {f.requestedAt.slice(0, 10)} · due {f.dueAt.slice(0, 10)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {canCreate ? (
+        <Section title="Request information from the reporter">
+          <div className="space-y-3">
+            <Textarea
+              rows={3}
+              value={info}
+              onChange={(e) => setInfo(e.target.value)}
+              placeholder="What information is needed? e.g. patient age, event outcome, batch number…"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                value={channel}
+                onChange={(e) => setChannel(e.target.value as FollowUpRequest["channel"])}
+              >
+                {CHANNELS.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                disabled={busy || info.trim().length === 0}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await casesApi.requestFollowUp(caseId, info.trim(), channel);
+                    toast.success("Follow-up request recorded.");
+                    setInfo("");
+                    onChanged();
+                  } catch (err) {
+                    toast.error(
+                      isNotConfigured(err)
+                        ? "Backend not connected — no follow-up was recorded."
+                        : "Could not record the follow-up request.",
+                    );
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Send request
+              </Button>
+            </div>
+          </div>
+        </Section>
+      ) : null}
+    </div>
+  );
+}
 
 function CaseDetailPage() {
   const { caseId } = Route.useParams();
@@ -79,7 +194,10 @@ function CaseDetailPage() {
           />
 
           <div className="space-y-4 p-6">
-            <Section title="Workflow status" description="Each step must be completed by a human owner before the case advances.">
+            <Section
+              title="Workflow status"
+              description="Each step must be completed by a human owner before the case advances."
+            >
               <WorkflowProgress state={c.workflowState} />
             </Section>
 
@@ -102,7 +220,11 @@ function CaseDetailPage() {
                       <Field label="Age" value={c.patient.age} />
                       <Field label="Sex" value={c.patient.sex?.toLowerCase()} />
                       <Field label="Weight (kg)" value={c.patient.weightKg} mono />
-                      <Field label="Relevant medical history" value={c.patient.medicalHistory} className="sm:col-span-2" />
+                      <Field
+                        label="Relevant medical history"
+                        value={c.patient.medicalHistory}
+                        className="sm:col-span-2"
+                      />
                     </div>
                   </Section>
 
@@ -142,7 +264,10 @@ function CaseDetailPage() {
                       <div key={i} className="grid gap-4 sm:grid-cols-2">
                         <Field label="Reported term" value={r.reportedTerm} />
                         <Field label="Onset date" value={r.onsetDate} mono />
-                        <Field label="Outcome" value={r.outcome.replaceAll("_", " ").toLowerCase()} />
+                        <Field
+                          label="Outcome"
+                          value={r.outcome.replaceAll("_", " ").toLowerCase()}
+                        />
                         <Field
                           label="Coded term"
                           value={
@@ -169,7 +294,9 @@ function CaseDetailPage() {
                     <SeriousnessBadge value={c.seriousness} />
                     {c.reportedSeriousnessCriteria.length ? (
                       c.reportedSeriousnessCriteria.map((cr) => (
-                        <StatusPill key={cr} tone="critical">{cr}</StatusPill>
+                        <StatusPill key={cr} tone="critical">
+                          {cr}
+                        </StatusPill>
                       ))
                     ) : (
                       <span className="text-sm text-muted-foreground">
@@ -189,21 +316,18 @@ function CaseDetailPage() {
               </TabsContent>
 
               <TabsContent value="followup" className="mt-4">
-                <Section title="Follow-up" description="Information requests linked to this case.">
-                  {c.followUpRequests.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No follow-up requests recorded for this case.{" "}
-                      <Link to="/follow-ups" className="text-primary hover:underline">
-                        Open the follow-up queue
-                      </Link>
-                      .
-                    </p>
-                  ) : null}
-                </Section>
+                <FollowUpTab
+                  caseId={c.id}
+                  requests={c.followUpRequests}
+                  onChanged={() => query.refetch()}
+                />
               </TabsContent>
 
               <TabsContent value="audit" className="mt-4">
-                <Section title="Audit trail" description="Append-only record of regulated actions on this case.">
+                <Section
+                  title="Audit trail"
+                  description="Append-only record of regulated actions on this case."
+                >
                   <QueryBoundary query={auditQuery}>
                     {(events) => <AuditTimeline events={events} />}
                   </QueryBoundary>
