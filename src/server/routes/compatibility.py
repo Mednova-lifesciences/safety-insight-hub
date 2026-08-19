@@ -1,6 +1,6 @@
 """Protected compatibility endpoints for frontend modules not yet persisted server-side."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..dependencies import AuthenticatedUser, require_permission
 from ..db import get_supabase_client
@@ -20,6 +20,21 @@ async def list_intake_conversations(
     user: AuthenticatedUser = Depends(require_permission("intake.manage")),
 ):
     return await _list_data_table("pv_intake_conversations")
+
+
+@router.get("/intake/conversations/{conversation_id}")
+async def get_intake_conversation(
+    conversation_id: str,
+    user: AuthenticatedUser = Depends(require_permission("intake.manage")),
+):
+    rows = await get_supabase_client().query(
+        "pv_intake_conversations",
+        filters={"id": conversation_id},
+        select="data",
+    )
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    return rows[0].get("data")
 
 
 @router.get("/psur/documents")
