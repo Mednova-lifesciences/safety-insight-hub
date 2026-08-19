@@ -1,13 +1,7 @@
 /** Domain types mirroring the payloads the FastAPI layer will return. */
 
 export type WorkflowStep =
-  | "INTAKE"
-  | "TRIAGE"
-  | "CODING"
-  | "REVIEW"
-  | "QC"
-  | "REGULATORY_READY"
-  | "CLOSED";
+  "INTAKE" | "TRIAGE" | "CODING" | "REVIEW" | "QC" | "REGULATORY_READY" | "CLOSED";
 
 export const WORKFLOW_STEPS: WorkflowStep[] = [
   "INTAKE",
@@ -32,12 +26,7 @@ export const WORKFLOW_LABELS: Record<WorkflowStep, string> = {
 export type Seriousness = "SERIOUS" | "NON_SERIOUS" | "UNASSESSED";
 export type Priority = "HIGH" | "MEDIUM" | "LOW";
 export type CaseOutcome =
-  | "RECOVERED"
-  | "RECOVERING"
-  | "NOT_RECOVERED"
-  | "RECOVERED_WITH_SEQUELAE"
-  | "FATAL"
-  | "UNKNOWN";
+  "RECOVERED" | "RECOVERING" | "NOT_RECOVERED" | "RECOVERED_WITH_SEQUELAE" | "FATAL" | "UNKNOWN";
 
 export interface PatientInfo {
   identifier: string;
@@ -232,16 +221,15 @@ export interface PsurDocument {
   uploadedBy: string;
   stage: "UPLOADED" | "EXTRACTED" | "REVIEWED" | "FAILED";
   pages: number;
+  /** PDF narrative report vs. a spreadsheet annex (e.g. a cumulative
+   *  summary tabulation). Defaults to PDF for documents uploaded before
+   *  this field existed. */
+  sourceType?: "PDF" | "SPREADSHEET";
 }
 
 export interface PsurFinding {
   id: string;
-  category:
-    | "MISSING_SECTION"
-    | "CONSISTENCY"
-    | "NUMERICAL"
-    | "SIGNAL"
-    | "BENEFIT_RISK";
+  category: "MISSING_SECTION" | "CONSISTENCY" | "NUMERICAL" | "SIGNAL" | "BENEFIT_RISK";
   severity: "HIGH" | "MEDIUM" | "LOW";
   section: string;
   description: string;
