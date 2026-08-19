@@ -10,6 +10,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import mednovaLogo from "../index.png?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/lib/auth";
 import { DataSourceProvider } from "@/lib/data-source";
@@ -75,20 +76,41 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
+const SITE_URL = "https://safety-insight-hub.vercel.app";
+const SITE_NAME = "MedNova PV Assist";
+const SITE_TITLE = "MedNova PV Assist — Pharmacovigilance Operations Platform";
+const SITE_DESCRIPTION =
+  "Human-in-the-loop pharmacovigilance operations platform for ICSR triage, MedDRA/WHODrug coding, line-list processing, E2B(R3) preparation, PSUR/PBRER review and signal management.";
+const SOCIAL_IMAGE = new URL(mednovaLogo, SITE_URL).toString();
+
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "MedNova PV Assist" },
-      {
-        name: "description",
-        content:
-          "Human-in-the-loop pharmacovigilance operations platform for ICSR triage, coding, line-list processing and PSUR review.",
-      },
+      { title: SITE_TITLE },
+      { name: "description", content: SITE_DESCRIPTION },
+      { name: "theme-color", content: "#17588f" },
       { name: "robots", content: "noindex" },
+
+      // Open Graph — controls how the link unfurls when shared (Slack, email, LinkedIn, etc.)
       { property: "og:type", content: "website" },
+      { property: "og:site_name", content: SITE_NAME },
+      { property: "og:title", content: SITE_TITLE },
+      { property: "og:description", content: SITE_DESCRIPTION },
+      { property: "og:url", content: SITE_URL },
+      { property: "og:locale", content: "en_US" },
+      { property: "og:image", content: SOCIAL_IMAGE },
+      { property: "og:image:width", content: "815" },
+      { property: "og:image:height", content: "306" },
+      { property: "og:image:alt", content: "MedNova Lifesciences" },
+
+      // Twitter/X card
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: SITE_TITLE },
+      { name: "twitter:description", content: SITE_DESCRIPTION },
+      { name: "twitter:image", content: SOCIAL_IMAGE },
+      { name: "twitter:image:alt", content: "MedNova Lifesciences" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -98,7 +120,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap",
       },
-      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "icon", href: mednovaLogo, type: "image/png" },
+      { rel: "apple-touch-icon", href: mednovaLogo },
+      { rel: "canonical", href: SITE_URL },
     ],
   }),
   shellComponent: RootShell,
