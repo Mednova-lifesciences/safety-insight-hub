@@ -76,7 +76,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
-const SITE_URL = "https://safety-insight-hub.vercel.app";
+const SITE_URL = "https://pv-assist.mednovalife.com";
 const SITE_NAME = "MedNova PV Assist";
 const SITE_TITLE = "MedNova PV Assist — Pharmacovigilance Operations Platform";
 const SITE_DESCRIPTION =
