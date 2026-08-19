@@ -20,7 +20,16 @@ const TARGET_FIELDS = [
 ] as const;
 type TargetField = (typeof TARGET_FIELDS)[number];
 
-const SERIOUSNESS_VALUES = new Set(["SERIOUS", "NON_SERIOUS", "NON-SERIOUS", "NONSERIOUS"]);
+const SERIOUSNESS_VALUES = new Set([
+  "SERIOUS",
+  "NON_SERIOUS",
+  "NON-SERIOUS",
+  "NONSERIOUS",
+  "YES",
+  "NO",
+  "Y",
+  "N",
+]);
 const OUTCOME_VALUES = new Set([
   "RECOVERED",
   "RECOVERING",
@@ -65,23 +74,79 @@ async function saveJob(job: LineListJobRow): Promise<LineListJobRow> {
   return job;
 }
 
-/** Best-effort column-name → target-field matching. Deterministic string
- *  matching, not AI — the same header always maps the same way. */
-function suggestField(header: string): TargetField | null {
-  const h = header.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const table: [TargetField, string[]][] = [
-    ["case_id", ["caseid", "case", "reportid", "reportno", "reference"]],
-    ["patient_identifier", ["patientid", "patient", "subjectid", "subject", "patientinitials"]],
-    ["product", ["product", "drug", "medication", "suspectproduct", "medicinalproduct"]],
-    ["reaction", ["reaction", "adverseevent", "event", "aeterm", "reactionterm"]],
-    ["onset_date", ["onsetdate", "onset", "eventdate", "startdate", "datestarted"]],
-    ["seriousness", ["seriousness", "serious"]],
-    ["outcome", ["outcome", "result", "resolution"]],
-  ];
-  for (const [field, keys] of table) {
-    if (keys.some((k) => h.includes(k))) return field;
-  }
-  return null;
+/**
+ * Column-name → target-field matching. Deterministic string matching, not
+ * AI — the same header always maps the same way.
+ *
+ * Real-world PV exports (e.g. WHO-UMC/VigiLyze-style ICSR listings) have
+ * many columns whose names share short, generic substrings — "Age at
+ * onset of reaction" contains "reaction", "Drug role" contains "drug".
+ * A naive first-match-wins scan picks those up ahead of the actual
+ * "Reaction / event (MedDRA)" or "Drug name (WHODrug)" columns. Instead,
+ * every header is scored against every field by keyword specificity, and
+ * headers are assigned to fields in descending score order — the most
+ * confident matches win regardless of column order.
+ */
+const FIELD_KEYWORDS: Record<TargetField, [string, number][]> = {
+  case_id: [
+    ["otherreportid", 90],
+    ["caseid", 90],
+    ["reportid", 80],
+    ["reportno", 80],
+    ["reportnumber", 80],
+    ["reference", 40],
+    ["case", 20],
+  ],
+  patient_identifier: [
+    ["patientidentifier", 95],
+    ["patientinitials", 90],
+    ["initials", 80],
+    ["patientid", 85],
+    ["subjectid", 80],
+    ["specialistrecordnumber", 60],
+    ["patientno", 70],
+    ["patient", 20],
+    ["subject", 20],
+  ],
+  product: [
+    ["drugnamewhodrug", 95],
+    ["drugname", 90],
+    ["suspectproduct", 90],
+    ["medicinalproduct", 85],
+    ["product", 25],
+    ["drug", 20],
+    ["medication", 25],
+  ],
+  reaction: [
+    ["reactioneventmeddra", 95],
+    ["reactionevent", 85],
+    ["adverseevent", 80],
+    ["reactionterm", 80],
+    ["aeterm", 70],
+    ["reaction", 15],
+    ["event", 10],
+  ],
+  onset_date: [
+    ["onsetdatetime", 90],
+    ["onsetdate", 85],
+    ["eventdate", 60],
+    ["datestarted", 60],
+    ["startdate", 30],
+    ["onset", 20],
+  ],
+  seriousness: [
+    ["seriousness", 95],
+    ["serious", 30],
+  ],
+  outcome: [
+    ["outcome", 85],
+    ["resolution", 30],
+    ["result", 20],
+  ],
+};
+
+function normaliseHeader(header: string): string {
+  return header.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 /** Reads a CSV or XLSX file into a header row + string matrix. Throws on
@@ -99,6 +164,9 @@ async function parseFile(file: File): Promise<{ headers: string[]; rows: string[
     header: 1,
     blankrows: false,
     defval: "",
+    // Read each cell through its own number format (so an Excel date cell
+    // comes back as "2026-08-10", not the raw serial number 46239.4...).
+    raw: false,
   }) as (string | number)[][];
 
   const [headerRow, ...dataRows] = matrix;
@@ -111,14 +179,27 @@ async function parseFile(file: File): Promise<{ headers: string[]; rows: string[
 }
 
 function mapColumns(headers: string[]): Record<string, TargetField> {
-  const mapping: Record<string, TargetField> = {};
-  const used = new Set<TargetField>();
+  const candidates: { header: string; field: TargetField; score: number }[] = [];
   for (const header of headers) {
-    const field = suggestField(header);
-    if (field && !used.has(field)) {
-      mapping[header] = field;
-      used.add(field);
+    const h = normaliseHeader(header);
+    for (const field of TARGET_FIELDS) {
+      let best = 0;
+      for (const [keyword, weight] of FIELD_KEYWORDS[field]) {
+        if (h.includes(keyword)) best = Math.max(best, weight);
+      }
+      if (best > 0) candidates.push({ header, field, score: best });
     }
+  }
+  candidates.sort((a, b) => b.score - a.score);
+
+  const mapping: Record<string, TargetField> = {};
+  const usedFields = new Set<TargetField>();
+  const usedHeaders = new Set<string>();
+  for (const c of candidates) {
+    if (usedFields.has(c.field) || usedHeaders.has(c.header)) continue;
+    mapping[c.header] = c.field;
+    usedFields.add(c.field);
+    usedHeaders.add(c.header);
   }
   return mapping;
 }
