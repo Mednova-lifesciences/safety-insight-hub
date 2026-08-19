@@ -22,9 +22,17 @@ export const Route = createFileRoute("/_app/e2b")({
   head: () => ({
     meta: [
       { title: "E2B(R3) preparation — MedNova PV Assist" },
-      { name: "description", content: "Review case readiness and generate E2B(R3)-shaped XML output from validated processing jobs." },
+      {
+        name: "description",
+        content:
+          "Review case readiness and generate E2B(R3)-shaped XML output from validated processing jobs.",
+      },
       { property: "og:title", content: "E2B(R3) preparation — MedNova PV Assist" },
-      { property: "og:description", content: "Prepare and export E2B(R3) files. Regulatory transmission is a separate integration." },
+      {
+        property: "og:description",
+        content:
+          "Prepare and export E2B(R3) files. Regulatory transmission is a separate integration.",
+      },
     ],
   }),
   component: () => (
@@ -35,7 +43,11 @@ export const Route = createFileRoute("/_app/e2b")({
 });
 
 function E2bPage() {
-  const jobs = usePvQuery(["linelist", "jobs"], () => linelistApi.jobs(), () => demoLineListJobs);
+  const jobs = usePvQuery(
+    ["linelist", "jobs"],
+    () => linelistApi.jobs(),
+    () => demoLineListJobs,
+  );
   const [busy, setBusy] = useState<string | null>(null);
 
   return (
@@ -50,16 +62,18 @@ function E2bPage() {
         <div className="flex items-start gap-3 rounded-md border border-warning/30 bg-warning-soft px-4 py-3">
           <ShieldAlert className="mt-0.5 size-4 text-warning" />
           <p className="text-sm text-foreground">
-            This product <strong>prepares and generates</strong> E2B(R3) output. It does not transmit
-            reports to any regulatory authority. Submission requires a separately validated gateway
-            integration.
+            This product <strong>prepares and generates</strong> E2B(R3) output. It does not
+            transmit reports to any regulatory authority. Submission requires a separately validated
+            gateway integration.
           </p>
         </div>
 
         <Section title="Jobs ready for preparation">
           <QueryBoundary query={jobs}>
             {(items) => {
-              const ready = items.filter((j) => j.stage === "VALIDATED" || j.stage === "E2B_GENERATED");
+              const ready = items.filter(
+                (j) => j.stage === "VALIDATED" || j.stage === "E2B_GENERATED",
+              );
               if (ready.length === 0)
                 return (
                   <EmptyState
@@ -93,9 +107,14 @@ function E2bPage() {
                             ["Invalid cases", j.invalidCases, "text-critical"],
                             ["Warnings", j.warnings, "text-warning"],
                           ].map(([label, value, cls]) => (
-                            <div key={label as string} className="rounded-md border border-border px-3 py-2">
+                            <div
+                              key={label as string}
+                              className="rounded-md border border-border px-3 py-2"
+                            >
                               <dt className="label-caps">{label as string}</dt>
-                              <dd className={`mono-num text-lg font-semibold ${cls as string}`}>{value as number}</dd>
+                              <dd className={`mono-num text-lg font-semibold ${cls as string}`}>
+                                {value as number}
+                              </dd>
                             </div>
                           ))}
                         </dl>
@@ -108,7 +127,9 @@ function E2bPage() {
                               setBusy(j.id);
                               try {
                                 const artifact = await e2bApi.generate(j.id);
-                                toast.success(`Generated ${artifact.filename} (${artifact.caseCount} cases). Not transmitted.`);
+                                toast.success(
+                                  `Generated ${artifact.filename} (${artifact.caseCount} cases). Not transmitted.`,
+                                );
                               } catch (err) {
                                 toast.error(
                                   isNotConfigured(err)
@@ -128,8 +149,7 @@ function E2bPage() {
                             disabled={j.stage !== "E2B_GENERATED"}
                             onClick={async () => {
                               try {
-                                const readiness = await e2bApi.readiness(j.id);
-                                toast.info(`Schema ${readiness.schema}; ${readiness.validCases} exportable cases.`);
+                                await e2bApi.download(j.id);
                               } catch (err) {
                                 toast.error(
                                   isNotConfigured(err)
@@ -143,7 +163,8 @@ function E2bPage() {
                           </Button>
                           {!exportable ? (
                             <span className="self-center text-xs text-muted-foreground">
-                              {j.invalidCases} invalid case(s) must be resolved in line-list processing first.
+                              {j.invalidCases} invalid case(s) must be resolved in line-list
+                              processing first.
                             </span>
                           ) : null}
                         </div>

@@ -92,6 +92,39 @@ export type Database = {
         }
         Relationships: []
       }
+      pv_dictionary_terms: {
+        Row: {
+          code: string
+          created_at: string
+          dictionary: string
+          dictionary_version: string
+          id: string
+          kind: string
+          synonyms: string[]
+          term: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          dictionary: string
+          dictionary_version: string
+          id: string
+          kind: string
+          synonyms?: string[]
+          term: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          dictionary?: string
+          dictionary_version?: string
+          id?: string
+          kind?: string
+          synonyms?: string[]
+          term?: string
+        }
+        Relationships: []
+      }
       pv_follow_ups: {
         Row: {
           case_id: string
