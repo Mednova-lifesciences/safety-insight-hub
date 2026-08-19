@@ -6,7 +6,11 @@
  * swapping the transport later does not require UI changes.
  */
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import type { AuditEvent, WorkflowStep, WorkflowStepState } from "@/types/pv";
+
+/** Domain objects are stored in a jsonb `data` column. */
+export const toJson = (value: unknown): Json => value as unknown as Json;
 
 const SESSION_KEY = "mednova.pv.session";
 
@@ -53,17 +57,6 @@ export function stepStates(
   return { ...out, ...overrides };
 }
 
-/** Reads the `data` payload column of a jsonb-backed table. */
-export async function selectData<T>(
-  table: string,
-  build: (q: ReturnType<typeof supabase.from>) => unknown = (q) => q,
-): Promise<T[]> {
-  void build;
-  const { data, error } = await supabase.from(table).select("data");
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => (r as { data: T }).data);
-}
-
 export async function recordAudit(event: {
   action: string;
   entity: string;
@@ -87,7 +80,7 @@ export async function recordAudit(event: {
   };
   const { error } = await supabase
     .from("pv_audit_events")
-    .insert({ id: row.id, occurred_at: row.timestamp, data: row as never });
+    .insert({ id: row.id, occurred_at: row.timestamp, data: toJson(row) });
   if (error) throw new Error(error.message);
   return row;
 }
@@ -107,5 +100,5 @@ export async function pushNotification(n: {
     read: false,
     ...(n.link ? { link: n.link } : {}),
   };
-  await supabase.from("pv_notifications").insert({ id: row.id, data: row as never });
+  await supabase.from("pv_notifications").insert({ id: row.id, data: toJson(row) });
 }
