@@ -43,7 +43,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Import routes
-from .routes import auth, cases, seriousness, coding, audit, signals, followups
+from .routes import auth, cases, seriousness, coding, audit, signals, followups, compatibility
 
 def _get_env(*names: str) -> Optional[str]:
     for name in names:
@@ -100,6 +100,7 @@ app.include_router(coding.router, prefix="/api/coding", tags=["coding"])
 app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
 app.include_router(signals.router, prefix="/api/signals", tags=["signals"])
 app.include_router(followups.router, prefix="/api/follow-ups", tags=["follow-ups"])
+app.include_router(compatibility.router, prefix="/api", tags=["compatibility"])
 
 # Health check
 @app.get("/health")

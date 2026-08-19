@@ -24,6 +24,34 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+@router.get("")
+async def list_signals(
+    status: Optional[str] = None,
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    """Return signal candidates through the frontend's collection endpoint."""
+    filters = {"organization_id": user.organization_id}
+    if status:
+        filters["state"] = status
+    candidates = await get_supabase_client().query(
+        "signal_candidates",
+        filters=filters,
+        select="*",
+    )
+    return [
+        {
+            "id": candidate.get("id"),
+            "reference": candidate.get("id"),
+            "product": candidate.get("product_name"),
+            "reaction": candidate.get("reaction_term"),
+            "status": candidate.get("state"),
+            "caseCount": candidate.get("case_count"),
+            "confidence": candidate.get("confidence_level"),
+        }
+        for candidate in candidates
+    ]
+
 # Request/Response Models
 
 class SignalDetectionRunRequest(BaseModel):
