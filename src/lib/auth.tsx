@@ -9,6 +9,7 @@ import {
 } from "react";
 import { auth as apiAuth, type AuthResponse } from "@/services/api/auth";
 import { getStoredToken, setStoredToken, isApiConfigured } from "@/services/api/client";
+import { supabase } from "@/integrations/supabase/client";
 
 /**
  * Session abstraction for MedNova PV Assist.
@@ -161,6 +162,25 @@ function mapRoleFromApi(apiRole: string): Role {
   return role;
 }
 
+/**
+ * The FastAPI signin/signup routes proxy Supabase Auth's own token endpoint,
+ * so the access/refresh tokens they return are valid Supabase session tokens.
+ * Attaching them to the browser's Supabase client makes `auth.uid()` resolve
+ * inside RLS policies for the direct-to-Supabase data calls used elsewhere in
+ * the app. Without this, those calls run as fully anonymous requests.
+ */
+async function syncSupabaseSession(authResponse: AuthResponse): Promise<void> {
+  if (!authResponse.access_token || !authResponse.refresh_token) return;
+  try {
+    await supabase.auth.setSession({
+      access_token: authResponse.access_token,
+      refresh_token: authResponse.refresh_token,
+    });
+  } catch (error) {
+    console.error("Failed to sync Supabase session:", error);
+  }
+}
+
 function buildCurrentUser(authResponse: AuthResponse): CurrentUser {
   const email = authResponse.user.email;
   const name = authResponse.user.user_metadata?.name || deriveName(email);
@@ -235,6 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isApiConfigured()) {
       // Use real backend authentication
       const response = await apiAuth.signin({ email, password });
+      await syncSupabaseSession(response);
       const currentUser = buildCurrentUser(response);
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
       setUser(currentUser);
@@ -272,6 +293,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name,
           ...(org ? { organization_name: org } : {}),
         });
+        await syncSupabaseSession(response);
         const currentUser = buildCurrentUser(response);
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
         setUser(currentUser);
@@ -306,6 +328,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (isApiConfigured()) {
         await apiAuth.signout();
       }
+      await supabase.auth.signOut();
     } catch (error) {
       console.error("Sign out error:", error);
     } finally {
