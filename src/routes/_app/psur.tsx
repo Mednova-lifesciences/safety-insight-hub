@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
-import { ArrowRight, Upload } from "lucide-react";
+import { ArrowRight, Download, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { psur as psurApi } from "@/services/api/psur";
 import { demoPsurDocuments, demoPsurFindings } from "@/services/demo/dataset";
@@ -46,13 +46,12 @@ export const Route = createFileRoute("/_app/psur")({
 });
 
 const FLOW = [
-  "Upload PDF",
-  "Extract document",
-  "Identify sections",
-  "Check completeness",
-  "Check consistency",
-  "Review findings",
-  "Human assessment",
+  "Upload PDF or XLSX/CSV",
+  "AI review",
+  "Findings displayed",
+  "Accept / dismiss",
+  "Run Full Fix",
+  "Download fixed document",
 ];
 
 const categoryTone: Record<PsurFinding["category"], Tone> = {
@@ -62,6 +61,12 @@ const categoryTone: Record<PsurFinding["category"], Tone> = {
   SIGNAL: "info",
   BENEFIT_RISK: "assist",
 };
+
+function assessmentTone(status: PsurFinding["humanAssessment"]): Tone {
+  if (status === "ACCEPTED") return "success";
+  if (status === "DISMISSED") return "neutral";
+  return "warning";
+}
 
 function PsurPage() {
   const docs = usePvQuery(
@@ -77,12 +82,13 @@ function PsurPage() {
     () => demoPsurFindings,
   );
   const [uploading, setUploading] = useState(false);
+  const [fixing, setFixing] = useState(false);
 
   return (
     <>
       <PageHeader
         title="PSUR / PBRER review"
-        description="Review assistance for periodic safety reports. Findings are generated to support a reviewer — they are not a regulatory assessment."
+        description="Review assistance for periodic safety reports, primarily powered by OpenAI with deterministic checks as a fallback. Findings support a reviewer — they are not a regulatory assessment."
         meta={
           <>
             <AssistLabel>Review assistance — human assessment required</AssistLabel>
@@ -109,12 +115,12 @@ function PsurPage() {
 
         <Section
           title="Upload a periodic report"
-          description="PDF narrative report, or an XLSX/CSV cumulative summary tabulation. Extraction and analysis run server-side."
+          description="PDF narrative report, or an XLSX/CSV cumulative summary tabulation. AI review runs automatically on upload."
         >
           <label className="flex cursor-pointer flex-col items-center gap-2 rounded-md border border-dashed border-border px-6 py-8 text-center hover:bg-muted/50">
             <Upload className="size-5 text-muted-foreground" />
             <span className="text-sm font-medium">
-              {uploading ? "Uploading…" : "Choose a PDF, XLSX or CSV"}
+              {uploading ? "Uploading and reviewing…" : "Choose a PDF, XLSX or CSV"}
             </span>
             <input
               type="file"
@@ -125,8 +131,12 @@ function PsurPage() {
                 if (!f) return;
                 setUploading(true);
                 try {
-                  await psurApi.upload(f);
-                  toast.success("Document uploaded. Extraction queued.");
+                  const doc = await psurApi.upload(f);
+                  toast.success(
+                    doc.stage === "REVIEWED"
+                      ? "Document uploaded and reviewed."
+                      : "Document uploaded.",
+                  );
                   docs.refetch();
                 } catch (err) {
                   toast.error(
@@ -204,7 +214,73 @@ function PsurPage() {
             <Section
               title="Review findings"
               description="Missing sections, consistency issues, numerical discrepancies, signal-related items and benefit-risk areas requiring attention."
-              actions={findings.data ? <SourceTag source={findings.data.source} /> : null}
+              actions={
+                <div className="flex flex-wrap items-center gap-2">
+                  {findings.data ? <SourceTag source={findings.data.source} /> : null}
+                  <QueryBoundary query={findings}>
+                    {(items) => {
+                      const acceptedCount = items.filter(
+                        (f) => f.humanAssessment === "ACCEPTED",
+                      ).length;
+                      if (acceptedCount === 0) return null;
+                      return (
+                        <>
+                          <Button
+                            size="sm"
+                            disabled={fixing}
+                            onClick={async () => {
+                              setFixing(true);
+                              try {
+                                const result = await psurApi.runFullFix(activeDoc.id);
+                                if (!result.aiUsed) {
+                                  toast.error(
+                                    result.aiError ?? "AI fix unavailable — no changes were made.",
+                                  );
+                                } else {
+                                  toast.success(
+                                    `${result.resolvedCount} finding(s) resolved.${result.unresolvedCount ? ` ${result.unresolvedCount} left unresolved.` : ""}`,
+                                  );
+                                }
+                                findings.refetch();
+                                docs.refetch();
+                              } catch (err) {
+                                toast.error(
+                                  err instanceof Error ? err.message : "Run Full Fix failed.",
+                                );
+                              } finally {
+                                setFixing(false);
+                              }
+                            }}
+                          >
+                            <Wrench className="size-4" />{" "}
+                            {fixing ? "Fixing with AI…" : `Run Full Fix (${acceptedCount})`}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              try {
+                                await psurApi.downloadFixedDocument(activeDoc.id);
+                              } catch (err) {
+                                toast.error(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Could not download this file.",
+                                );
+                              }
+                            }}
+                          >
+                            <Download className="size-4" />{" "}
+                            {activeDoc.sourceType === "SPREADSHEET"
+                              ? "Download Fixed Document"
+                              : "Download Corrections Report"}
+                          </Button>
+                        </>
+                      );
+                    }}
+                  </QueryBoundary>
+                </div>
+              }
             >
               <QueryBoundary query={findings} loadingLabel="Analysing document">
                 {(items) =>
@@ -230,18 +306,34 @@ function PsurPage() {
                               {f.severity.toLowerCase()} severity
                             </StatusPill>
                             <span className="text-sm font-medium">{f.section}</span>
+                            <StatusPill tone={f.source === "ai" ? "assist" : "neutral"}>
+                              {f.source === "ai" ? "AI" : "rule"}
+                            </StatusPill>
                             {f.assistGenerated ? (
                               <AssistLabel>AI-generated review assistance</AssistLabel>
+                            ) : null}
+                            {f.humanAssessment ? (
+                              <StatusPill tone={assessmentTone(f.humanAssessment)}>
+                                {f.humanAssessment.toLowerCase()}
+                              </StatusPill>
                             ) : null}
                           </div>
                           <p className="mt-2 text-sm">{f.description}</p>
                           <p className="mt-1 border-l-2 border-border pl-2 text-xs text-muted-foreground">
                             {f.evidence}
                           </p>
+                          {f.resolution ? (
+                            <p className="mt-2 rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs">
+                              <span className="font-medium">
+                                {f.resolved ? "Resolution: " : "Unresolved: "}
+                              </span>
+                              {f.resolution}
+                            </p>
+                          ) : null}
                           <div className="mt-3 flex flex-wrap gap-2">
                             <Button
                               size="sm"
-                              variant="outline"
+                              variant={f.humanAssessment === "ACCEPTED" ? "default" : "outline"}
                               onClick={async () => {
                                 try {
                                   await psurApi.recordAssessment(
@@ -251,6 +343,7 @@ function PsurPage() {
                                     "Confirmed by reviewer",
                                   );
                                   toast.success("Assessment recorded.");
+                                  findings.refetch();
                                 } catch (err) {
                                   toast.error(
                                     isNotConfigured(err)
@@ -264,7 +357,7 @@ function PsurPage() {
                             </Button>
                             <Button
                               size="sm"
-                              variant="ghost"
+                              variant={f.humanAssessment === "DISMISSED" ? "default" : "ghost"}
                               onClick={async () => {
                                 try {
                                   await psurApi.recordAssessment(
@@ -274,6 +367,7 @@ function PsurPage() {
                                     "Not applicable",
                                   );
                                   toast.success("Assessment recorded.");
+                                  findings.refetch();
                                 } catch (err) {
                                   toast.error(
                                     isNotConfigured(err)

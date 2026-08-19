@@ -100,6 +100,12 @@ function E2bPage() {
                           </StatusPill>
                         </div>
 
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {exportable
+                            ? "No outstanding line-listing issues. This dataset — including any AI-applied corrections — is what will be used to generate E2B(R3) output."
+                            : `${j.invalidCases} outstanding line-listing issue(s) on this dataset must be resolved before it can be exported.`}
+                        </p>
+
                         <dl className="mt-3 grid gap-3 sm:grid-cols-4">
                           {[
                             ["Case count", j.rows, ""],

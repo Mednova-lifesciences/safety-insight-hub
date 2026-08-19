@@ -210,6 +210,13 @@ export interface LineListIssue {
   code: string;
   message: string;
   value: string | null;
+  /** Whether an automatic correction is plausible via "Fix Issues".
+   *  Absent on older/demo-seeded issues — treated as non-fixable. */
+  fixable?: boolean;
+  /** Which engine found this — shown in the UI so AI and deterministic
+   *  findings are never presented as the same thing. Absent on
+   *  demo-seeded issues predating this distinction. */
+  source?: "ai" | "rule";
 }
 
 export interface PsurDocument {
@@ -236,6 +243,15 @@ export interface PsurFinding {
   evidence: string;
   assistGenerated: boolean;
   humanAssessment?: "ACCEPTED" | "DISMISSED" | null | undefined;
+  /** Which engine produced this finding. Absent on findings generated
+   *  before this distinction existed — treated as "rule". */
+  source?: "ai" | "rule" | undefined;
+  respondedBy?: string | undefined;
+  respondedAt?: string | undefined;
+  rationale?: string | undefined;
+  /** Set once "Run Full Fix" has proposed a resolution for this finding. */
+  resolution?: string | undefined;
+  resolved?: boolean | undefined;
 }
 
 export interface Signal {

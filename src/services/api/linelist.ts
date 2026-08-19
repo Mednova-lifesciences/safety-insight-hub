@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { currentActor, newId, recordAudit, toJson } from "./db";
 import { mapColumnsByKeywords, parseTabularFile } from "./tabular-parse";
+import { ai } from "./ai";
 import type { LineListIssue, LineListJob } from "@/types/pv";
 
 export interface ColumnInspection {
@@ -183,6 +184,8 @@ function runValidation(
       code: "NO_COLUMNS_MAPPED",
       message: `None of the columns (${headers.join(", ")}) could be automatically matched to an expected field (${TARGET_FIELDS.join(", ")}). Manual column mapping is required before this file can be validated.`,
       value: null,
+      source: "rule",
+      fixable: false,
     });
     return issues;
   }
@@ -201,6 +204,8 @@ function runValidation(
           code: `MISSING_${field.toUpperCase()}`,
           message: `${field.replaceAll("_", " ")} is required.`,
           value: null,
+          source: "rule",
+          fixable: true,
         });
       }
     });
@@ -213,6 +218,8 @@ function runValidation(
         code: "MISSING_ONSET_DATE",
         message: "Onset date was not provided.",
         value: null,
+        source: "rule",
+        fixable: true,
       });
     } else if (!DATE_RE.test(row.onset_date)) {
       issues.push({
@@ -222,6 +229,8 @@ function runValidation(
         code: "INVALID_DATE_FORMAT",
         message: `"${row.onset_date}" does not look like a valid date (expected YYYY-MM-DD or similar).`,
         value: row.onset_date,
+        source: "rule",
+        fixable: true,
       });
     }
 
@@ -233,6 +242,8 @@ function runValidation(
         code: "UNRECOGNISED_SERIOUSNESS_VALUE",
         message: `"${row.seriousness}" is not a recognised seriousness value (expected SERIOUS or NON_SERIOUS).`,
         value: row.seriousness,
+        source: "rule",
+        fixable: true,
       });
     }
 
@@ -244,6 +255,8 @@ function runValidation(
         code: "UNRECOGNISED_OUTCOME_VALUE",
         message: `"${row.outcome}" is not a recognised outcome value.`,
         value: row.outcome,
+        source: "rule",
+        fixable: true,
       });
     }
 
@@ -257,6 +270,8 @@ function runValidation(
           code: "DUPLICATE_CASE_ID",
           message: `case_id "${row.case_id}" also appears on row ${firstRow}.`,
           value: row.case_id,
+          source: "rule",
+          fixable: false,
         });
       } else {
         seenCaseIds.set(row.case_id, rowNum);
@@ -327,6 +342,8 @@ export const linelist = {
               ? err.message
               : "The uploaded file could not be parsed as CSV or XLSX.",
           value: null,
+          source: "rule",
+          fixable: false,
         } satisfies LineListIssue),
       });
       await recordAudit({
@@ -384,15 +401,61 @@ export const linelist = {
     return saveJob({ ...job, stage: "NORMALISED" });
   },
 
-  validate: async (jobId: string): Promise<{ job: LineListJob; issues: LineListIssue[] }> => {
+  /**
+   * OpenAI is the primary validation engine here: for a real upload, its
+   * findings are requested and merged in alongside the deterministic rule
+   * checks (which always run regardless, and are what's shown alone if AI
+   * is unavailable, times out, or returns something unusable — see
+   * src/server/routes/ai_linelist.py, which never lets that surface as an
+   * error, only as ai_used: false). Each issue is tagged with its source
+   * so the UI never presents the two as indistinguishable.
+   */
+  validate: async (
+    jobId: string,
+  ): Promise<{
+    job: LineListJob;
+    issues: LineListIssue[];
+    aiUsed: boolean;
+    aiError?: string | undefined;
+  }> => {
     const job = await readJob(jobId);
     let issues: LineListIssue[];
+    let aiUsed = false;
+    let aiError: string | undefined;
 
     if (job.parsedRows) {
       // Real upload — re-run validation against the actual parsed content
       // every time, so the result always reflects the current data.
       await supabase.from("pv_linelist_issues").delete().eq("job_id", jobId);
-      issues = runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows);
+      const ruleIssues = runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows);
+
+      let aiIssues: LineListIssue[] = [];
+      try {
+        const analysis = await ai.linelist.analyze({
+          headers: job.columns ?? [],
+          mapping: job.mapping ?? {},
+          rows: job.parsedRows as Record<string, string>[],
+        });
+        aiUsed = analysis.ai_used;
+        aiError = analysis.error ?? undefined;
+        aiIssues = analysis.findings.map((f) => ({
+          row: f.row,
+          column: f.column,
+          severity: f.severity,
+          code: f.code,
+          message: f.message,
+          value: f.value,
+          fixable: f.fixable,
+          source: "ai" as const,
+        }));
+      } catch (err) {
+        // The AI endpoint itself is unreachable (network/deploy issue,
+        // not just "no key") — rule-based findings still stand alone.
+        aiUsed = false;
+        aiError = err instanceof Error ? err.message : "AI analysis unavailable.";
+      }
+
+      issues = [...ruleIssues, ...aiIssues];
       if (issues.length > 0) {
         const { error } = await supabase
           .from("pv_linelist_issues")
@@ -420,9 +483,9 @@ export const linelist = {
       action: "LINELIST_VALIDATED",
       entity: "LineListJob",
       entityId: jobId,
-      newValue: `${next.validCases} valid / ${invalidCases} invalid / ${warnings.length} warning(s)`,
+      newValue: `${next.validCases} valid / ${invalidCases} invalid / ${warnings.length} warning(s)${aiUsed ? " (AI + rule-based)" : " (rule-based only)"}`,
     });
-    return { job: next, issues };
+    return { job: next, issues, aiUsed, aiError };
   },
 
   issues: async (jobId: string): Promise<LineListIssue[]> => {
@@ -432,5 +495,111 @@ export const linelist = {
       .eq("job_id", jobId);
     if (error) throw new Error(error.message);
     return (data ?? []).map((r) => r.data as unknown as LineListIssue);
+  },
+
+  /**
+   * Sends every currently-fixable issue to OpenAI, applies the corrections
+   * it can confidently make to the job's stored parsed rows, persists that
+   * as the new active dataset (E2B and any later validation pass then see
+   * only the corrected data — there is no separate "fixed copy"), and
+   * re-validates so the UI immediately reflects what's actually resolved
+   * versus still outstanding. Never fabricates a value: anything OpenAI
+   * can't safely determine is left unchanged and reported as unresolved.
+   */
+  fixIssues: async (
+    jobId: string,
+  ): Promise<{
+    job: LineListJob;
+    issues: LineListIssue[];
+    correctionsApplied: number;
+    unresolved: { row: number; column: string; reason: string }[];
+    aiUsed: boolean;
+    aiError?: string | undefined;
+  }> => {
+    const job = await readJob(jobId);
+    if (!job.parsedRows || !job.columns || !job.mapping) {
+      throw new Error(
+        "This job has no stored row data to fix (it predates AI-assisted line-list processing).",
+      );
+    }
+    const currentIssues = await linelist.issues(jobId);
+    const fixable = currentIssues.filter((i) => i.fixable);
+
+    if (fixable.length === 0) {
+      const revalidated = await linelist.validate(jobId);
+      return { ...revalidated, correctionsApplied: 0, unresolved: [], aiUsed: false };
+    }
+
+    const fixResult = await ai.linelist.fix({
+      headers: job.columns,
+      mapping: job.mapping,
+      rows: job.parsedRows as Record<string, string>[],
+      issues: fixable,
+    });
+
+    if (fixResult.ai_used && fixResult.corrections.length > 0) {
+      const rows = [...job.parsedRows];
+      for (const correction of fixResult.corrections) {
+        const idx = correction.row - 1;
+        if (idx < 0 || idx >= rows.length) continue;
+        const field = correction.column as TargetField;
+        if (!TARGET_FIELDS.includes(field)) continue;
+        rows[idx] = { ...rows[idx], [field]: correction.new_value };
+      }
+      await saveJob({ ...job, parsedRows: rows });
+      await recordAudit({
+        action: "LINELIST_AI_FIX_APPLIED",
+        entity: "LineListJob",
+        entityId: jobId,
+        newValue: `${fixResult.corrections.length} field(s) corrected, ${fixResult.unresolved.length} left unresolved`,
+        reason: `Prompt ${fixResult.prompt_version}`,
+      });
+    }
+
+    const revalidated = await linelist.validate(jobId);
+    return {
+      ...revalidated,
+      correctionsApplied: fixResult.ai_used ? fixResult.corrections.length : 0,
+      unresolved: fixResult.unresolved,
+      aiUsed: fixResult.ai_used,
+      aiError: fixResult.error ?? undefined,
+    };
+  },
+
+  /** Rebuilds a CSV from the job's current (possibly AI-corrected) data,
+   *  preserving the original column headers and order, and triggers a
+   *  browser download. Columns that weren't mapped to a known field are
+   *  kept as empty columns rather than dropped, so the file's shape still
+   *  matches the source. */
+  downloadCsv: async (jobId: string): Promise<void> => {
+    const job = await readJob(jobId);
+    if (!job.columns || !job.mapping || !job.parsedRows) {
+      throw new Error("This job has no stored row data to export.");
+    }
+    const { columns, mapping, parsedRows } = job;
+    const escapeCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    const lines = [
+      columns.map(escapeCell).join(","),
+      ...parsedRows.map((row) =>
+        columns
+          .map((header) => {
+            const field = mapping[header];
+            return escapeCell(field ? (row[field] ?? "") : "");
+          })
+          .join(","),
+      ),
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = job.filename.replace(/\.[^.]+$/, "") + "-fixed.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   },
 };

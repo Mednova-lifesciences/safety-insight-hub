@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 # Import routes
 from .routes import auth, cases, seriousness, coding, audit, signals, followups, compatibility
+from .routes import ai_linelist, ai_psur, ai_icsr
 
 def _get_env(*names: str) -> Optional[str]:
     for name in names:
@@ -101,6 +102,9 @@ app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
 app.include_router(signals.router, prefix="/api/signals", tags=["signals"])
 app.include_router(followups.router, prefix="/api/follow-ups", tags=["follow-ups"])
 app.include_router(compatibility.router, prefix="/api", tags=["compatibility"])
+app.include_router(ai_linelist.router, prefix="/api/ai/linelist", tags=["ai-linelist"])
+app.include_router(ai_psur.router, prefix="/api/ai/psur", tags=["ai-psur"])
+app.include_router(ai_icsr.router, prefix="/api/ai/icsr", tags=["ai-icsr"])
 
 # Health check
 @app.get("/health")
