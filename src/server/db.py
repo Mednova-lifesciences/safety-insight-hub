@@ -54,9 +54,9 @@ class SupabaseClient:
             elif method == "POST":
                 response = await client.post(endpoint, headers=self.headers, json=data)
             elif method == "PATCH":
-                response = await client.patch(endpoint, headers=self.headers, json=data, params=filters)
+                response = await client.patch(endpoint, headers=self.headers, json=data, params=params)
             elif method == "DELETE":
-                response = await client.delete(endpoint, headers=self.headers, params=filters)
+                response = await client.delete(endpoint, headers=self.headers, params=params)
             else:
                 raise ValueError(f"Unsupported method: {method}")
             
