@@ -25,8 +25,19 @@ export interface E2bArtifact {
   xml: string;
 }
 
+interface ParsedRow {
+  case_id?: string;
+  patient_identifier?: string;
+  product?: string;
+  reaction?: string;
+  onset_date?: string;
+  seriousness?: string;
+  outcome?: string;
+}
+
 interface LineListJobRow extends LineListJob {
   e2bArtifact?: E2bArtifact;
+  parsedRows?: ParsedRow[];
 }
 
 async function readJob(jobId: string): Promise<LineListJobRow> {
@@ -60,21 +71,34 @@ function buildReadiness(job: LineListJobRow): E2bReadiness {
   };
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 /**
- * Builds an E2B(R3)-shaped ICSR XML skeleton from what's actually known
- * about the job at this stage of the MVP (no licensed MedDRA/WHODrug coding
- * or field-level case data is wired in yet). This is explicitly a
- * preparation artifact — see the DEMO/SANDBOX comment in the file itself —
- * not a submission-ready regulatory file, matching the product's own
- * "prepares and generates, does not transmit" description on this page.
+ * Builds an E2B(R3)-shaped ICSR XML from the job's actual parsed line-list
+ * rows when they're available (real uploads always have them). Field
+ * values are real, not fabricated — but this is still explicitly a
+ * preparation artifact (see the DEMO/SANDBOX comment in the file itself):
+ * reaction/drug terms here are verbatim text, not coded against a licensed
+ * MedDRA/WHODrug dictionary, and this is NOT a submission-ready regulatory
+ * file. Legacy jobs seeded without stored row data fall back to a
+ * summary-only report.
  */
 function buildE2bXml(job: LineListJobRow, artifactId: string, generatedAt: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>
+  const messageDate = generatedAt.replace(/[-:]/g, "").slice(0, 14);
+  const header = `<?xml version="1.0" encoding="UTF-8"?>
 <!--
   DEMO/SANDBOX OUTPUT — MedNova PV Assist
   This is a structural E2B(R3) preparation draft generated from line-list
-  processing results. It is NOT validated against a licensed MedDRA/WHODrug
-  dictionary and is NOT a submission-ready regulatory file. Regulatory
+  processing results. Reaction and drug terms are verbatim text from the
+  source file, NOT validated against a licensed MedDRA/WHODrug dictionary,
+  and this is NOT a submission-ready regulatory file. Regulatory
   transmission requires a separately validated gateway integration.
 -->
 <ichicsr lang="en">
@@ -85,18 +109,50 @@ function buildE2bXml(job: LineListJobRow, artifactId: string, generatedAt: strin
     <messagenumb>${artifactId}</messagenumb>
     <messagesenderidentifier>MedNova PV Assist</messagesenderidentifier>
     <messagedateformat>204</messagedateformat>
-    <messagedate>${generatedAt.replace(/[-:]/g, "").slice(0, 14)}</messagedate>
-  </ichicsrmessageheader>
+    <messagedate>${messageDate}</messagedate>
+  </ichicsrmessageheader>`;
+
+  const footer = `</ichicsr>\n`;
+
+  if (!job.parsedRows || job.parsedRows.length === 0) {
+    return `${header}
   <safetyreport>
-    <sourcejobid>${job.id}</sourcejobid>
-    <sourcefilename>${job.filename}</sourcefilename>
+    <sourcejobid>${escapeXml(job.id)}</sourcejobid>
+    <sourcefilename>${escapeXml(job.filename)}</sourcefilename>
     <casecount>${job.rows}</casecount>
     <validcasecount>${job.validCases}</validcasecount>
     <invalidcasecount>${job.invalidCases}</invalidcasecount>
     <preparedby>SafetyCore MVP — preparation draft, not submission-ready</preparedby>
   </safetyreport>
-</ichicsr>
-`;
+${footer}`;
+  }
+
+  const reports = job.parsedRows
+    .map((row, i) => {
+      const safetyReportId = escapeXml(row.case_id || `${job.id}-${i + 1}`);
+      return `  <safetyreport>
+    <safetyreportid>${safetyReportId}</safetyreportid>
+    <sourcejobid>${escapeXml(job.id)}</sourcejobid>
+    <patient>
+      <patientinitials>${escapeXml(row.patient_identifier ?? "")}</patientinitials>
+    </patient>
+    <drug>
+      <medicinalproduct>${escapeXml(row.product ?? "")}</medicinalproduct>
+    </drug>
+    <reaction>
+      <reactionmeddrapt_verbatim>${escapeXml(row.reaction ?? "")}</reactionmeddrapt_verbatim>
+      <reactionstartdate>${escapeXml(row.onset_date ?? "")}</reactionstartdate>
+      <reactionoutcome_verbatim>${escapeXml(row.outcome ?? "")}</reactionoutcome_verbatim>
+    </reaction>
+    <serious_verbatim>${escapeXml(row.seriousness ?? "")}</serious_verbatim>
+    <preparedby>SafetyCore MVP — preparation draft, not submission-ready</preparedby>
+  </safetyreport>`;
+    })
+    .join("\n");
+
+  return `${header}
+${reports}
+${footer}`;
 }
 
 export const e2b = {
