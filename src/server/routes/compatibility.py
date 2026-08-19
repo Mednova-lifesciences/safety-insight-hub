@@ -34,7 +34,34 @@ async def get_intake_conversation(
     )
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
-    return rows[0].get("data")
+    data = rows[0].get("data", {})
+    
+    # Ensure detail fields exist with sensible defaults
+    if "messages" not in data:
+        data["messages"] = [
+            {
+                "id": "m1",
+                "direction": "INBOUND",
+                "at": data.get("lastMessageAt", ""),
+                "body": data.get("lastMessage", "")
+            }
+        ]
+    if "extracted" not in data:
+        data["extracted"] = []
+    if "missing" not in data:
+        # Determine missing fields based on criteria
+        missing = []
+        if not data.get("criteria", {}).get("reporter"):
+            missing.append("Reporter information")
+        if not data.get("criteria", {}).get("patient"):
+            missing.append("Patient information")
+        if not data.get("criteria", {}).get("product"):
+            missing.append("Product information")
+        if not data.get("criteria", {}).get("event"):
+            missing.append("Adverse event description")
+        data["missing"] = missing
+    
+    return data
 
 
 @router.get("/psur/documents")
