@@ -400,7 +400,7 @@ export const psur = {
         action: "PSUR_REVIEWED",
         entity: "PsurDocument",
         entityId: doc.id,
-        newValue: `${findings.length} finding(s) generated${aiResult.ai_used ? " (AI)" : " (rule-based fallback)"}`,
+        newValue: `${findings.length} finding(s) generated${aiResult.ai_used ? " (AI)" : RULE_BASED_DETECTION_ENABLED ? " (rule-based fallback)" : " (AI unavailable, rule-based fallback disabled)"}`,
       });
       return reviewed;
     } catch {

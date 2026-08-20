@@ -490,7 +490,7 @@ export const linelist = {
       action: "LINELIST_VALIDATED",
       entity: "LineListJob",
       entityId: jobId,
-      newValue: `${next.validCases} valid / ${invalidCases} invalid / ${warnings.length} warning(s)${aiUsed ? " (AI + rule-based)" : " (rule-based only)"}`,
+      newValue: `${next.validCases} valid / ${invalidCases} invalid / ${warnings.length} warning(s)${aiUsed ? (RULE_BASED_DETECTION_ENABLED ? " (AI + rule-based)" : " (AI only — rule-based detection disabled)") : RULE_BASED_DETECTION_ENABLED ? " (rule-based only)" : " (no detection engine available)"}`,
     });
     return { job: next, issues, aiUsed, aiError };
   },
