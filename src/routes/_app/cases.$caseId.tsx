@@ -25,7 +25,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { usePermission } from "@/lib/auth";
-import { WORKFLOW_LABELS, WORKFLOW_STEPS, type FollowUpRequest, type WorkflowStep } from "@/types/pv";
+import {
+  WORKFLOW_LABELS,
+  WORKFLOW_STEPS,
+  type FollowUpRequest,
+  type WorkflowStep,
+} from "@/types/pv";
 
 export const Route = createFileRoute("/_app/cases/$caseId")({
   head: () => ({
@@ -149,6 +154,30 @@ function FollowUpTab({
   );
 }
 
+/**
+ * Which case-detail tab is most relevant to work on at each workflow step —
+ * mirrors how case-management tools like Argus/Vault Safety route a
+ * reviewer's attention per stage (triage lands on the seriousness call,
+ * coding lands on the coding workspace, QC/closed land on the audit trail
+ * to verify what happened). There's no 1:1 tab per step since the tabs are
+ * data-entity views, not stage views, so REVIEW and REGULATORY_READY fall
+ * back to the full case-data overview.
+ */
+const WORKFLOW_STEP_TAB: Record<WorkflowStep, string> = {
+  INTAKE: "overview",
+  TRIAGE: "seriousness",
+  CODING: "coding",
+  REVIEW: "overview",
+  QC: "audit",
+  REGULATORY_READY: "overview",
+  CLOSED: "audit",
+};
+
+function tabForStep(step: WorkflowStep, canCode: boolean): string {
+  const tab = WORKFLOW_STEP_TAB[step];
+  return tab === "coding" && !canCode ? "overview" : tab;
+}
+
 function AdvanceWorkflow({
   caseId,
   currentStep,
@@ -156,7 +185,7 @@ function AdvanceWorkflow({
 }: {
   caseId: string;
   currentStep: WorkflowStep;
-  onChanged: () => void;
+  onChanged: (nextStep: WorkflowStep) => void;
 }) {
   const canEdit = usePermission("case.edit");
   const [reason, setReason] = useState("");
@@ -192,7 +221,7 @@ function AdvanceWorkflow({
             await casesApi.advanceWorkflow(caseId, nextStep, reason.trim());
             toast.success(`Case moved to ${WORKFLOW_LABELS[nextStep]}.`);
             setReason("");
-            onChanged();
+            onChanged(nextStep);
           } catch (err) {
             toast.error(
               isNotConfigured(err)
@@ -213,6 +242,7 @@ function AdvanceWorkflow({
 function CaseDetailPage() {
   const { caseId } = Route.useParams();
   const canCode = usePermission("coding.review");
+  const [activeTab, setActiveTab] = useState<string | null>(null);
   const query = usePvQuery(
     ["case", caseId],
     () => casesApi.get(caseId),
@@ -226,186 +256,193 @@ function CaseDetailPage() {
 
   return (
     <QueryBoundary query={query} loadingLabel="Loading case">
-      {(c, source) => (
-        <>
-          <PageHeader
-            title={c.id}
-            description={`${c.product} · ${c.reaction}`}
-            meta={
-              <>
-                <SeriousnessBadge value={c.seriousness} />
-                <PriorityBadge value={c.priority} />
-                <StatusPill tone="neutral">Patient {c.patientIdentifier}</StatusPill>
-                <StatusPill tone="neutral">Received {c.receivedDate}</StatusPill>
-                <StatusPill tone={c.dueDate < "2026-08-15" ? "critical" : "neutral"}>
-                  Due {c.dueDate}
-                </StatusPill>
-                <StatusPill tone="neutral">Assigned to {c.assignedTo}</StatusPill>
-                <StatusPill tone="info">Source {c.source.toLowerCase()}</StatusPill>
-                <SourceTag source={source} />
-              </>
-            }
-            actions={
-              <Button asChild variant="outline" size="sm">
-                <Link to="/cases">
-                  <ArrowLeft className="size-4" /> Back to workbench
-                </Link>
-              </Button>
-            }
-          />
+      {(c, source) => {
+        // Follows the case's current stage until the reviewer picks a tab
+        // by hand; an "Advance" click always jumps it to the new stage's
+        // tab regardless of whatever was manually selected before.
+        const tab = activeTab ?? tabForStep(c.workflowStep, canCode);
+        return (
+          <>
+            <PageHeader
+              title={c.id}
+              description={`${c.product} · ${c.reaction}`}
+              meta={
+                <>
+                  <SeriousnessBadge value={c.seriousness} />
+                  <PriorityBadge value={c.priority} />
+                  <StatusPill tone="neutral">Patient {c.patientIdentifier}</StatusPill>
+                  <StatusPill tone="neutral">Received {c.receivedDate}</StatusPill>
+                  <StatusPill tone={c.dueDate < "2026-08-15" ? "critical" : "neutral"}>
+                    Due {c.dueDate}
+                  </StatusPill>
+                  <StatusPill tone="neutral">Assigned to {c.assignedTo}</StatusPill>
+                  <StatusPill tone="info">Source {c.source.toLowerCase()}</StatusPill>
+                  <SourceTag source={source} />
+                </>
+              }
+              actions={
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/cases">
+                    <ArrowLeft className="size-4" /> Back to workbench
+                  </Link>
+                </Button>
+              }
+            />
 
-          <div className="space-y-4 p-6">
-            <Section
-              title="Workflow status"
-              description="Each step must be completed by a human owner before the case advances."
-            >
-              <WorkflowProgress state={c.workflowState} />
-              <AdvanceWorkflow
-                caseId={c.id}
-                currentStep={c.workflowStep}
-                onChanged={() => {
-                  query.refetch();
-                  auditQuery.refetch();
-                }}
-              />
-            </Section>
+            <div className="space-y-4 p-6">
+              <Section
+                title="Workflow status"
+                description="Each step must be completed by a human owner before the case advances."
+              >
+                <WorkflowProgress state={c.workflowState} />
+                <AdvanceWorkflow
+                  caseId={c.id}
+                  currentStep={c.workflowStep}
+                  onChanged={(nextStep) => {
+                    query.refetch();
+                    auditQuery.refetch();
+                    setActiveTab(tabForStep(nextStep, canCode));
+                  }}
+                />
+              </Section>
 
-            <Tabs defaultValue="overview">
-              <TabsList>
-                <TabsTrigger value="overview">Case data</TabsTrigger>
-                <TabsTrigger value="seriousness">Seriousness</TabsTrigger>
-                <TabsTrigger value="coding" disabled={!canCode}>
-                  Coding
-                </TabsTrigger>
-                <TabsTrigger value="followup">Follow-up</TabsTrigger>
-                <TabsTrigger value="audit">Audit trail</TabsTrigger>
-              </TabsList>
+              <Tabs value={tab} onValueChange={setActiveTab}>
+                <TabsList>
+                  <TabsTrigger value="overview">Case data</TabsTrigger>
+                  <TabsTrigger value="seriousness">Seriousness</TabsTrigger>
+                  <TabsTrigger value="coding" disabled={!canCode}>
+                    Coding
+                  </TabsTrigger>
+                  <TabsTrigger value="followup">Follow-up</TabsTrigger>
+                  <TabsTrigger value="audit">Audit trail</TabsTrigger>
+                </TabsList>
 
-              <TabsContent value="overview" className="mt-4 space-y-4">
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <Section title="Patient">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Field label="Patient identifier" value={c.patient.identifier} mono />
-                      <Field label="Age" value={c.patient.age} />
-                      <Field label="Sex" value={c.patient.sex?.toLowerCase()} />
-                      <Field label="Weight (kg)" value={c.patient.weightKg} mono />
-                      <Field
-                        label="Relevant medical history"
-                        value={c.patient.medicalHistory}
-                        className="sm:col-span-2"
-                      />
-                    </div>
-                  </Section>
-
-                  <Section title="Reporter">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Field label="Name" value={c.reporter.name} />
-                      <Field label="Qualification" value={c.reporter.qualification} />
-                      <Field label="Country" value={c.reporter.country} />
-                      <Field label="Contact" value={c.reporter.contact} mono />
-                      <Field
-                        label="Consent to contact"
-                        value={
-                          <StatusPill tone={c.reporter.consentToContact ? "success" : "warning"}>
-                            {c.reporter.consentToContact ? "Granted" : "Not recorded"}
-                          </StatusPill>
-                        }
-                      />
-                    </div>
-                  </Section>
-
-                  <Section title="Suspect product">
-                    {c.suspectProducts.map((p, i) => (
-                      <div key={i} className="grid gap-4 sm:grid-cols-2">
-                        <Field label="Reported name" value={p.reportedName} />
-                        <Field label="Active ingredient" value={p.activeIngredient} />
-                        <Field label="Dose" value={p.dose} />
-                        <Field label="Route" value={p.route} />
-                        <Field label="Indication" value={p.indication} />
-                        <Field label="Therapy start" value={p.therapyStart} mono />
-                        <Field label="Action taken" value={p.action} />
-                      </div>
-                    ))}
-                  </Section>
-
-                  <Section title="Reaction / event">
-                    {c.reactions.map((r, i) => (
-                      <div key={i} className="grid gap-4 sm:grid-cols-2">
-                        <Field label="Reported term" value={r.reportedTerm} />
-                        <Field label="Onset date" value={r.onsetDate} mono />
+                <TabsContent value="overview" className="mt-4 space-y-4">
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <Section title="Patient">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field label="Patient identifier" value={c.patient.identifier} mono />
+                        <Field label="Age" value={c.patient.age} />
+                        <Field label="Sex" value={c.patient.sex?.toLowerCase()} />
+                        <Field label="Weight (kg)" value={c.patient.weightKg} mono />
                         <Field
-                          label="Outcome"
-                          value={r.outcome.replaceAll("_", " ").toLowerCase()}
+                          label="Relevant medical history"
+                          value={c.patient.medicalHistory}
+                          className="sm:col-span-2"
                         />
+                      </div>
+                    </Section>
+
+                    <Section title="Reporter">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field label="Name" value={c.reporter.name} />
+                        <Field label="Qualification" value={c.reporter.qualification} />
+                        <Field label="Country" value={c.reporter.country} />
+                        <Field label="Contact" value={c.reporter.contact} mono />
                         <Field
-                          label="Coded term"
+                          label="Consent to contact"
                           value={
-                            r.codedTerm ? (
-                              <span className="mono-num">
-                                {r.codedTerm.term} · {r.codedTerm.dictionary} {r.codedTerm.code}
-                              </span>
-                            ) : (
-                              <StatusPill tone="warning">Not yet coded</StatusPill>
-                            )
+                            <StatusPill tone={c.reporter.consentToContact ? "success" : "warning"}>
+                              {c.reporter.consentToContact ? "Granted" : "Not recorded"}
+                            </StatusPill>
                           }
                         />
                       </div>
-                    ))}
-                  </Section>
-                </div>
+                    </Section>
 
-                <Section title="Narrative">
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{c.narrative}</p>
-                </Section>
+                    <Section title="Suspect product">
+                      {c.suspectProducts.map((p, i) => (
+                        <div key={i} className="grid gap-4 sm:grid-cols-2">
+                          <Field label="Reported name" value={p.reportedName} />
+                          <Field label="Active ingredient" value={p.activeIngredient} />
+                          <Field label="Dose" value={p.dose} />
+                          <Field label="Route" value={p.route} />
+                          <Field label="Indication" value={p.indication} />
+                          <Field label="Therapy start" value={p.therapyStart} mono />
+                          <Field label="Action taken" value={p.action} />
+                        </div>
+                      ))}
+                    </Section>
 
-                <Section title="Seriousness (as reported)">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <SeriousnessBadge value={c.seriousness} />
-                    {c.reportedSeriousnessCriteria.length ? (
-                      c.reportedSeriousnessCriteria.map((cr) => (
-                        <StatusPill key={cr} tone="critical">
-                          {cr}
-                        </StatusPill>
-                      ))
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        No seriousness criteria recorded by the reporter.
-                      </span>
-                    )}
+                    <Section title="Reaction / event">
+                      {c.reactions.map((r, i) => (
+                        <div key={i} className="grid gap-4 sm:grid-cols-2">
+                          <Field label="Reported term" value={r.reportedTerm} />
+                          <Field label="Onset date" value={r.onsetDate} mono />
+                          <Field
+                            label="Outcome"
+                            value={r.outcome.replaceAll("_", " ").toLowerCase()}
+                          />
+                          <Field
+                            label="Coded term"
+                            value={
+                              r.codedTerm ? (
+                                <span className="mono-num">
+                                  {r.codedTerm.term} · {r.codedTerm.dictionary} {r.codedTerm.code}
+                                </span>
+                              ) : (
+                                <StatusPill tone="warning">Not yet coded</StatusPill>
+                              )
+                            }
+                          />
+                        </div>
+                      ))}
+                    </Section>
                   </div>
-                </Section>
-              </TabsContent>
 
-              <TabsContent value="seriousness" className="mt-4">
-                <SeriousnessAssist caseDetail={c} />
-              </TabsContent>
+                  <Section title="Narrative">
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{c.narrative}</p>
+                  </Section>
 
-              <TabsContent value="coding" className="mt-4">
-                <CodingWorkspace caseId={c.id} />
-              </TabsContent>
+                  <Section title="Seriousness (as reported)">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SeriousnessBadge value={c.seriousness} />
+                      {c.reportedSeriousnessCriteria.length ? (
+                        c.reportedSeriousnessCriteria.map((cr) => (
+                          <StatusPill key={cr} tone="critical">
+                            {cr}
+                          </StatusPill>
+                        ))
+                      ) : (
+                        <span className="text-sm text-muted-foreground">
+                          No seriousness criteria recorded by the reporter.
+                        </span>
+                      )}
+                    </div>
+                  </Section>
+                </TabsContent>
 
-              <TabsContent value="followup" className="mt-4">
-                <FollowUpTab
-                  caseId={c.id}
-                  requests={c.followUpRequests}
-                  onChanged={() => query.refetch()}
-                />
-              </TabsContent>
+                <TabsContent value="seriousness" className="mt-4">
+                  <SeriousnessAssist caseDetail={c} />
+                </TabsContent>
 
-              <TabsContent value="audit" className="mt-4">
-                <Section
-                  title="Audit trail"
-                  description="Append-only record of regulated actions on this case."
-                >
-                  <QueryBoundary query={auditQuery}>
-                    {(events) => <AuditTimeline events={events} />}
-                  </QueryBoundary>
-                </Section>
-              </TabsContent>
-            </Tabs>
-          </div>
-        </>
-      )}
+                <TabsContent value="coding" className="mt-4">
+                  <CodingWorkspace caseId={c.id} />
+                </TabsContent>
+
+                <TabsContent value="followup" className="mt-4">
+                  <FollowUpTab
+                    caseId={c.id}
+                    requests={c.followUpRequests}
+                    onChanged={() => query.refetch()}
+                  />
+                </TabsContent>
+
+                <TabsContent value="audit" className="mt-4">
+                  <Section
+                    title="Audit trail"
+                    description="Append-only record of regulated actions on this case."
+                  >
+                    <QueryBoundary query={auditQuery}>
+                      {(events) => <AuditTimeline events={events} />}
+                    </QueryBoundary>
+                  </Section>
+                </TabsContent>
+              </Tabs>
+            </div>
+          </>
+        );
+      }}
     </QueryBoundary>
   );
 }
