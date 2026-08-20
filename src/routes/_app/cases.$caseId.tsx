@@ -23,11 +23,14 @@ import { CodingWorkspace } from "@/components/pv/coding-workspace";
 import { AuditTimeline } from "@/components/pv/audit-timeline";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { usePermission } from "@/lib/auth";
+import { useCurrentUser, usePermission, useRole } from "@/lib/auth";
 import {
   WORKFLOW_LABELS,
   WORKFLOW_STEPS,
+  type CaseDetail,
+  type CaseOutcome,
   type FollowUpRequest,
   type WorkflowStep,
 } from "@/types/pv";
@@ -53,6 +56,100 @@ export const Route = createFileRoute("/_app/cases/$caseId")({
 
 const CHANNELS: FollowUpRequest["channel"][] = ["EMAIL", "PHONE", "WHATSAPP"];
 
+function FollowUpItem({
+  f,
+  canRespond,
+  onChanged,
+}: {
+  f: FollowUpRequest;
+  canRespond: boolean;
+  onChanged: () => void;
+}) {
+  const [responding, setResponding] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <li className="space-y-2 py-3">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <StatusPill
+          tone={
+            f.status === "OVERDUE"
+              ? "critical"
+              : f.status === "RESPONDED"
+                ? "success"
+                : f.status === "CLOSED"
+                  ? "neutral"
+                  : "warning"
+          }
+        >
+          {f.status.toLowerCase()}
+        </StatusPill>
+        <span>{f.requestedInformation}</span>
+        <span className="text-muted-foreground">via {f.channel.toLowerCase()}</span>
+        <span className="mono-num ml-auto text-xs text-muted-foreground">
+          requested {f.requestedAt.slice(0, 10)} · due {f.dueAt.slice(0, 10)}
+        </span>
+      </div>
+
+      {f.responseNote ? (
+        <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-sm">
+          <p>{f.responseNote}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {f.respondedBy ?? "Reviewer"} · {f.respondedAt?.slice(0, 10)}
+          </p>
+        </div>
+      ) : null}
+
+      {canRespond && (f.status === "OPEN" || f.status === "OVERDUE") ? (
+        responding ? (
+          <div className="space-y-2">
+            <Textarea
+              rows={2}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="What did the reporter/associate confirm? e.g. patient age is 34, batch number BX-1029."
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                disabled={busy || note.trim().length === 0}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await casesApi.respondToFollowUp(f.id, note.trim());
+                    toast.success("Follow-up marked responded.");
+                    setResponding(false);
+                    setNote("");
+                    onChanged();
+                  } catch (err) {
+                    toast.error(
+                      isNotConfigured(err)
+                        ? "Backend not connected — the follow-up was not updated."
+                        : "Could not update the follow-up.",
+                    );
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Save response
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setResponding(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button size="sm" variant="outline" onClick={() => setResponding(true)}>
+            Mark responded
+          </Button>
+        )
+      ) : null}
+    </li>
+  );
+}
+
 function FollowUpTab({
   caseId,
   requests,
@@ -77,26 +174,7 @@ function FollowUpTab({
         ) : (
           <ul className="divide-y divide-border">
             {requests.map((f) => (
-              <li key={f.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
-                <StatusPill
-                  tone={
-                    f.status === "OVERDUE"
-                      ? "critical"
-                      : f.status === "RESPONDED"
-                        ? "success"
-                        : f.status === "CLOSED"
-                          ? "neutral"
-                          : "warning"
-                  }
-                >
-                  {f.status.toLowerCase()}
-                </StatusPill>
-                <span>{f.requestedInformation}</span>
-                <span className="text-muted-foreground">via {f.channel.toLowerCase()}</span>
-                <span className="mono-num ml-auto text-xs text-muted-foreground">
-                  requested {f.requestedAt.slice(0, 10)} · due {f.dueAt.slice(0, 10)}
-                </span>
-              </li>
+              <FollowUpItem key={f.id} f={f} canRespond={canCreate} onChanged={onChanged} />
             ))}
           </ul>
         )}
@@ -188,15 +266,28 @@ function AdvanceWorkflow({
   onChanged: (nextStep: WorkflowStep) => void;
 }) {
   const canEdit = usePermission("case.edit");
+  const role = useRole();
   const [reason, setReason] = useState("");
   const [advancing, setAdvancing] = useState(false);
 
   if (!canEdit) return null;
 
   const idx = WORKFLOW_STEPS.indexOf(currentStep);
-  const nextStep = idx >= 0 && idx < WORKFLOW_STEPS.length - 1 ? WORKFLOW_STEPS[idx + 1] : null;
+  // Field associates hand a case off at Coding — only a coordinator/admin
+  // can move it into Review and beyond.
+  const roleCapIdx =
+    role === "FIELD_ASSOCIATE" ? WORKFLOW_STEPS.indexOf("CODING") : WORKFLOW_STEPS.length - 1;
+  const nextStep = idx >= 0 && idx < roleCapIdx ? WORKFLOW_STEPS[idx + 1] : null;
 
   if (!nextStep) {
+    if (role === "FIELD_ASSOCIATE" && idx === roleCapIdx && idx < WORKFLOW_STEPS.length - 1) {
+      return (
+        <p className="mt-3 text-sm text-muted-foreground">
+          This case is ready for review — a PV Coordinator or Manager needs to advance it past
+          Coding.
+        </p>
+      );
+    }
     return (
       <p className="mt-3 text-sm text-muted-foreground">
         This case has reached the end of the workflow.
@@ -239,9 +330,258 @@ function AdvanceWorkflow({
   );
 }
 
+const SEX_OPTIONS: NonNullable<CaseDetail["patient"]["sex"]>[] = ["MALE", "FEMALE", "UNKNOWN"];
+const OUTCOME_OPTIONS: CaseOutcome[] = [
+  "RECOVERED",
+  "RECOVERING",
+  "NOT_RECOVERED",
+  "RECOVERED_WITH_SEQUELAE",
+  "FATAL",
+  "UNKNOWN",
+];
+
+/**
+ * Lets a field associate act on follow-up feedback without waiting on
+ * anyone else: fix the details a reporter/follow-up flagged, then resubmit.
+ * Only rendered when the case is still theirs to fix (see canEditThisCase
+ * in CaseDetailPage) — coding and seriousness stay on their own tabs since
+ * those are separate, already-audited workflows.
+ */
+function CaseEditForm({ c, onSubmitted }: { c: CaseDetail; onSubmitted: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const product = c.suspectProducts[0];
+  const reaction = c.reactions[0];
+
+  const [patientIdentifier, setPatientIdentifier] = useState(c.patient.identifier);
+  const [patientAge, setPatientAge] = useState(c.patient.age ?? "");
+  const [patientSex, setPatientSex] = useState(c.patient.sex ?? "UNKNOWN");
+  const [patientWeight, setPatientWeight] = useState(c.patient.weightKg ?? "");
+  const [patientHistory, setPatientHistory] = useState(c.patient.medicalHistory ?? "");
+  const [reporterName, setReporterName] = useState(c.reporter.name);
+  const [reporterQualification, setReporterQualification] = useState(c.reporter.qualification);
+  const [reporterCountry, setReporterCountry] = useState(c.reporter.country);
+  const [reporterContact, setReporterContact] = useState(c.reporter.contact ?? "");
+  const [productName, setProductName] = useState(product?.reportedName ?? "");
+  const [productDose, setProductDose] = useState(product?.dose ?? "");
+  const [productRoute, setProductRoute] = useState(product?.route ?? "");
+  const [productIndication, setProductIndication] = useState(product?.indication ?? "");
+  const [productTherapyStart, setProductTherapyStart] = useState(product?.therapyStart ?? "");
+  const [productAction, setProductAction] = useState(product?.action ?? "");
+  const [reactionTerm, setReactionTerm] = useState(reaction?.reportedTerm ?? "");
+  const [reactionOnset, setReactionOnset] = useState(reaction?.onsetDate ?? "");
+  const [reactionOutcome, setReactionOutcome] = useState<CaseOutcome>(
+    reaction?.outcome ?? "UNKNOWN",
+  );
+  const [narrative, setNarrative] = useState(c.narrative);
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  if (!editing) {
+    return (
+      <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+        Edit case &amp; resubmit
+      </Button>
+    );
+  }
+
+  async function submit() {
+    setSaving(true);
+    try {
+      await casesApi.updateAndResubmit(
+        c.id,
+        {
+          patient: {
+            identifier: patientIdentifier,
+            age: patientAge,
+            sex: patientSex,
+            weightKg: patientWeight,
+            medicalHistory: patientHistory,
+          },
+          reporter: {
+            name: reporterName,
+            qualification: reporterQualification,
+            country: reporterCountry,
+            contact: reporterContact,
+          },
+          product: {
+            reportedName: productName,
+            dose: productDose,
+            route: productRoute,
+            indication: productIndication,
+            therapyStart: productTherapyStart,
+            action: productAction,
+          },
+          reaction: {
+            reportedTerm: reactionTerm,
+            onsetDate: reactionOnset,
+            outcome: reactionOutcome,
+          },
+          narrative,
+        },
+        reason.trim(),
+      );
+      toast.success("Case updated and resubmitted to Intake.");
+      setEditing(false);
+      setReason("");
+      onSubmitted();
+    } catch (err) {
+      toast.error(
+        isNotConfigured(err)
+          ? "Backend not connected — the case was not updated."
+          : "Could not update the case.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Edit case & resubmit"
+      description="Update whatever the follow-up flagged, then resubmit — the case goes back to Intake for re-triage."
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1">
+          <label className="label-caps">Patient identifier</label>
+          <Input value={patientIdentifier} onChange={(e) => setPatientIdentifier(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Age</label>
+          <Input value={patientAge} onChange={(e) => setPatientAge(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Sex</label>
+          <select
+            className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
+            value={patientSex}
+            onChange={(e) => setPatientSex(e.target.value as CaseDetail["patient"]["sex"])}
+          >
+            {SEX_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Weight (kg)</label>
+          <Input value={patientWeight} onChange={(e) => setPatientWeight(e.target.value)} />
+        </div>
+        <div className="space-y-1 sm:col-span-2">
+          <label className="label-caps">Relevant medical history</label>
+          <Textarea
+            rows={2}
+            value={patientHistory}
+            onChange={(e) => setPatientHistory(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="label-caps">Reporter name</label>
+          <Input value={reporterName} onChange={(e) => setReporterName(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Reporter qualification</label>
+          <Input
+            value={reporterQualification}
+            onChange={(e) => setReporterQualification(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Reporter country</label>
+          <Input value={reporterCountry} onChange={(e) => setReporterCountry(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Reporter contact</label>
+          <Input value={reporterContact} onChange={(e) => setReporterContact(e.target.value)} />
+        </div>
+
+        <div className="space-y-1">
+          <label className="label-caps">Suspect product</label>
+          <Input value={productName} onChange={(e) => setProductName(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Dose</label>
+          <Input value={productDose} onChange={(e) => setProductDose(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Route</label>
+          <Input value={productRoute} onChange={(e) => setProductRoute(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Indication</label>
+          <Input value={productIndication} onChange={(e) => setProductIndication(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Therapy start</label>
+          <Input
+            value={productTherapyStart}
+            onChange={(e) => setProductTherapyStart(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Action taken</label>
+          <Input value={productAction} onChange={(e) => setProductAction(e.target.value)} />
+        </div>
+
+        <div className="space-y-1">
+          <label className="label-caps">Reaction / event term</label>
+          <Input value={reactionTerm} onChange={(e) => setReactionTerm(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Onset date</label>
+          <Input value={reactionOnset} onChange={(e) => setReactionOnset(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="label-caps">Outcome</label>
+          <select
+            className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
+            value={reactionOutcome}
+            onChange={(e) => setReactionOutcome(e.target.value as CaseOutcome)}
+          >
+            {OUTCOME_OPTIONS.map((o) => (
+              <option key={o} value={o}>
+                {o.replaceAll("_", " ")}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-1">
+        <label className="label-caps">Narrative</label>
+        <Textarea rows={4} value={narrative} onChange={(e) => setNarrative(e.target.value)} />
+      </div>
+
+      <div className="mt-4 space-y-1">
+        <label className="label-caps">
+          Reason for resubmission (required, recorded in the audit trail)
+        </label>
+        <Textarea
+          rows={2}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. Follow-up confirmed patient age and exact onset date."
+        />
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <Button size="sm" disabled={saving || reason.trim().length === 0} onClick={submit}>
+          Save & resubmit to Intake
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+          Cancel
+        </Button>
+      </div>
+    </Section>
+  );
+}
+
 function CaseDetailPage() {
   const { caseId } = Route.useParams();
   const canCode = usePermission("coding.review");
+  const currentUser = useCurrentUser();
+  const role = useRole();
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const query = usePvQuery(
     ["case", caseId],
@@ -261,6 +601,13 @@ function CaseDetailPage() {
         // by hand; an "Advance" click always jumps it to the new stage's
         // tab regardless of whatever was manually selected before.
         const tab = activeTab ?? tabForStep(c.workflowStep, canCode);
+        // A field associate can only fix and resubmit a case they own,
+        // and only before it's reached Review — once a coordinator starts
+        // reviewing it, further changes go through the normal workflow.
+        const canEditThisCase =
+          role === "FIELD_ASSOCIATE" &&
+          c.assignedTo === currentUser?.name &&
+          WORKFLOW_STEPS.indexOf(c.workflowStep) < WORKFLOW_STEPS.indexOf("REVIEW");
         return (
           <>
             <PageHeader
@@ -318,6 +665,17 @@ function CaseDetailPage() {
                 </TabsList>
 
                 <TabsContent value="overview" className="mt-4 space-y-4">
+                  {canEditThisCase ? (
+                    <CaseEditForm
+                      c={c}
+                      onSubmitted={() => {
+                        query.refetch();
+                        auditQuery.refetch();
+                        setActiveTab("overview");
+                      }}
+                    />
+                  ) : null}
+
                   <div className="grid gap-4 xl:grid-cols-2">
                     <Section title="Patient">
                       <div className="grid gap-4 sm:grid-cols-2">

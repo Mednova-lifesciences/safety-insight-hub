@@ -111,6 +111,11 @@ export interface FollowUpRequest {
   dueAt: string;
   status: "OPEN" | "RESPONDED" | "OVERDUE" | "CLOSED";
   channel: "WHATSAPP" | "EMAIL" | "PHONE";
+  /** Set once someone marks the request responded — the note they left
+   *  alongside it. Absent on requests that predate this field. */
+  responseNote?: string | undefined;
+  respondedBy?: string | undefined;
+  respondedAt?: string | undefined;
 }
 
 export interface SeriousnessAssessment {

@@ -83,6 +83,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   PV_MANAGER: [
     "case.view",
     "follow_up.view",
+    "follow_up.create",
     "case.assign",
     "seriousness.review",
     "coding.review",

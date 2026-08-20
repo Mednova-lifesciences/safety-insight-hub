@@ -22,7 +22,7 @@ PERMISSION_ROLES: Final = {
     "case.assign": {PV_COORDINATOR, PV_MANAGER, ADMIN},
     "audit.view.all": {PV_COORDINATOR, PV_MANAGER, ADMIN},
     "follow_up.view": {FIELD_ASSOCIATE, PV_COORDINATOR, PV_MANAGER, ADMIN},
-    "follow_up.create": {FIELD_ASSOCIATE, PV_COORDINATOR, ADMIN},
+    "follow_up.create": {FIELD_ASSOCIATE, PV_COORDINATOR, PV_MANAGER, ADMIN},
     "intake.manage": {FIELD_ASSOCIATE, PV_COORDINATOR, PV_MANAGER, ADMIN},
     "linelist.process": {PV_COORDINATOR, PV_MANAGER, ADMIN},
     "psur.review": {PV_COORDINATOR, PV_MANAGER, ADMIN},

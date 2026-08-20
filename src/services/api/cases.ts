@@ -53,12 +53,21 @@ export const cases = {
     const rows = await allCases();
     const q = filters.q?.toLowerCase().trim();
     return rows.filter((c) => {
-      if (q && !`${c.id} ${c.product} ${c.reaction} ${c.patientIdentifier}`.toLowerCase().includes(q))
+      if (
+        q &&
+        !`${c.id} ${c.product} ${c.reaction} ${c.patientIdentifier}`.toLowerCase().includes(q)
+      )
         return false;
-      if (filters.status && filters.status !== "ALL" && c.workflowStep !== filters.status) return false;
-      if (filters.seriousness && filters.seriousness !== "ALL" && c.seriousness !== filters.seriousness)
+      if (filters.status && filters.status !== "ALL" && c.workflowStep !== filters.status)
         return false;
-      if (filters.assignee && filters.assignee !== "ALL" && c.assignedTo !== filters.assignee) return false;
+      if (
+        filters.seriousness &&
+        filters.seriousness !== "ALL" &&
+        c.seriousness !== filters.seriousness
+      )
+        return false;
+      if (filters.assignee && filters.assignee !== "ALL" && c.assignedTo !== filters.assignee)
+        return false;
       return true;
     });
   },
@@ -79,7 +88,9 @@ export const cases = {
     };
   },
 
-  create: async (payload: NewIcsrPayload): Promise<{ caseId: string; workflowStep: WorkflowStep }> => {
+  create: async (
+    payload: NewIcsrPayload,
+  ): Promise<{ caseId: string; workflowStep: WorkflowStep }> => {
     const actor = currentActor();
     const { count } = await supabase.from("pv_cases").select("id", { count: "exact", head: true });
     const caseId = `MN-${new Date().getFullYear()}-${String(900000 + (count ?? 0) + 1).slice(0, 6)}`;
@@ -129,7 +140,8 @@ export const cases = {
         {
           reportedTerm: reaction,
           onsetDate: str(payload.reaction["onsetDate"]),
-          outcome: (str(payload.reaction["outcome"], "UNKNOWN") as CaseDetail["outcome"]) ?? "UNKNOWN",
+          outcome:
+            (str(payload.reaction["outcome"], "UNKNOWN") as CaseDetail["outcome"]) ?? "UNKNOWN",
           codedTerm: null,
         },
       ],
@@ -159,7 +171,11 @@ export const cases = {
     return { caseId, workflowStep: "INTAKE" };
   },
 
-  advanceWorkflow: async (caseId: string, step: WorkflowStep, reason: string): Promise<CaseDetail> => {
+  advanceWorkflow: async (
+    caseId: string,
+    step: WorkflowStep,
+    reason: string,
+  ): Promise<CaseDetail> => {
     const detail = await cases.get(caseId);
     const next: CaseDetail = {
       ...detail,
@@ -290,5 +306,105 @@ export const cases = {
       newValue: requestedInformation,
     });
     return row;
+  },
+
+  respondToFollowUp: async (requestId: string, note: string): Promise<FollowUpRequest> => {
+    const { data, error } = await supabase
+      .from("pv_follow_ups")
+      .select("data")
+      .eq("id", requestId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("Follow-up request not found");
+    const current = data.data as unknown as FollowUpRequest;
+    const actor = currentActor();
+    const next: FollowUpRequest = {
+      ...current,
+      status: "RESPONDED",
+      responseNote: note,
+      respondedBy: actor.name,
+      respondedAt: new Date().toISOString(),
+    };
+    const { error: updateError } = await supabase
+      .from("pv_follow_ups")
+      .update({ data: toJson(next) })
+      .eq("id", requestId);
+    if (updateError) throw new Error(updateError.message);
+    await recordAudit({
+      action: "FOLLOW_UP_RESPONDED",
+      entity: "FollowUpRequest",
+      entityId: requestId,
+      previousValue: current.status,
+      newValue: "RESPONDED",
+      reason: note,
+    });
+    return next;
+  },
+
+  /**
+   * Lets a field associate act on follow-up feedback: update the case's
+   * own submitted details and send it back through the workflow from the
+   * start, rather than leaving it stuck wherever it was (Triage/Coding)
+   * with now-stale data. Only the fields a field associate would
+   * realistically need to correct are covered here — coding and
+   * seriousness stay on their own dedicated tabs/workflows.
+   */
+  updateAndResubmit: async (
+    caseId: string,
+    patch: {
+      patient: Partial<
+        Pick<CaseDetail["patient"], "identifier" | "age" | "sex" | "weightKg" | "medicalHistory">
+      >;
+      reporter: Partial<
+        Pick<CaseDetail["reporter"], "name" | "qualification" | "country" | "contact">
+      >;
+      product: Partial<
+        Pick<
+          CaseDetail["suspectProducts"][number],
+          "reportedName" | "dose" | "route" | "indication" | "therapyStart" | "action"
+        >
+      >;
+      reaction: Partial<
+        Pick<CaseDetail["reactions"][number], "reportedTerm" | "onsetDate" | "outcome">
+      >;
+      narrative: string;
+    },
+    reason: string,
+  ): Promise<CaseDetail> => {
+    const detail = await cases.get(caseId);
+    const updatedProduct = {
+      ...(detail.suspectProducts[0] ?? { reportedName: "" }),
+      ...patch.product,
+    };
+    const updatedReaction = {
+      ...(detail.reactions[0] ?? { reportedTerm: "", outcome: "UNKNOWN" as const }),
+      ...patch.reaction,
+    };
+    const next: CaseDetail = {
+      ...detail,
+      patient: { ...detail.patient, ...patch.patient },
+      reporter: { ...detail.reporter, ...patch.reporter },
+      suspectProducts: [updatedProduct, ...detail.suspectProducts.slice(1)],
+      reactions: [updatedReaction, ...detail.reactions.slice(1)],
+      product: updatedProduct.reportedName,
+      reaction: updatedReaction.reportedTerm,
+      narrative: patch.narrative,
+      workflowStep: "INTAKE",
+      workflowState: stepStates("INTAKE"),
+    };
+    const { error } = await supabase
+      .from("pv_cases")
+      .update({ data: toJson(next), updated_at: new Date().toISOString() })
+      .eq("id", caseId);
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      action: "CASE_UPDATED_RESUBMITTED",
+      entity: "Case",
+      entityId: caseId,
+      previousValue: detail.workflowStep,
+      newValue: "INTAKE",
+      reason,
+    });
+    return next;
   },
 };
