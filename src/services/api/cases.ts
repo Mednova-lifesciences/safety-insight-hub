@@ -184,13 +184,16 @@ export const cases = {
 
   /**
    * Exports a set of cases (typically whatever the Case workbench's
-   * filters currently show) as a line-list: triggers a browser CSV
-   * download, and also creates a matching job in Line-list processing so
-   * it shows up there ready to be reviewed/validated, the same as an
-   * uploaded file. Onset date isn't on CaseSummary, so each case's full
-   * detail is fetched to get the real value rather than substituting
-   * receivedDate — with the case counts this app deals with, that's a
-   * handful of parallel requests, not a real cost.
+   * filters currently show) as a line-list: creates a matching job in
+   * Line-list processing so it shows up there ready to be
+   * reviewed/validated, then triggers a browser CSV download. The job is
+   * created *before* the download fires deliberately — if the browser
+   * shows a native "save file" prompt, that can stall the page, and the
+   * job record is the side effect that matters; the CSV is a convenience
+   * copy of the same data. Onset date isn't on CaseSummary, so each
+   * case's full detail is fetched to get the real value rather than
+   * substituting receivedDate — with the case counts this app deals
+   * with, that's a handful of parallel requests, not a real cost.
    */
   exportToLineList: async (rows: CaseSummary[]): Promise<LineListJob> => {
     if (rows.length === 0) throw new Error("No cases to export.");
@@ -207,6 +210,8 @@ export const cases = {
     }));
 
     const filename = `case-line-list-${new Date().toISOString().slice(0, 10)}.csv`;
+    const job = await linelist.createFromCases(parsedRows, filename);
+
     const columns = [
       "Case ID",
       "Patient Identifier",
@@ -246,7 +251,7 @@ export const cases = {
       URL.revokeObjectURL(url);
     }
 
-    return linelist.createFromCases(parsedRows, filename);
+    return job;
   },
 
   followUps: async (caseId?: string): Promise<FollowUpRequest[]> => {
