@@ -1,9 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
 import { currentActor, newId, pushNotification, recordAudit, stepStates, toJson } from "./db";
+import { linelist, type ParsedRow } from "./linelist";
 import type {
   CaseDetail,
   CaseSummary,
   FollowUpRequest,
+  LineListJob,
   Seriousness,
   WorkflowStep,
 } from "@/types/pv";
@@ -178,6 +180,73 @@ export const cases = {
       reason,
     });
     return next;
+  },
+
+  /**
+   * Exports a set of cases (typically whatever the Case workbench's
+   * filters currently show) as a line-list: triggers a browser CSV
+   * download, and also creates a matching job in Line-list processing so
+   * it shows up there ready to be reviewed/validated, the same as an
+   * uploaded file. Onset date isn't on CaseSummary, so each case's full
+   * detail is fetched to get the real value rather than substituting
+   * receivedDate — with the case counts this app deals with, that's a
+   * handful of parallel requests, not a real cost.
+   */
+  exportToLineList: async (rows: CaseSummary[]): Promise<LineListJob> => {
+    if (rows.length === 0) throw new Error("No cases to export.");
+
+    const details = await Promise.all(rows.map((r) => cases.get(r.id)));
+    const parsedRows: ParsedRow[] = details.map((d) => ({
+      case_id: d.id,
+      patient_identifier: d.patientIdentifier,
+      product: d.product,
+      reaction: d.reaction,
+      onset_date: d.reactions[0]?.onsetDate ?? "",
+      seriousness: d.seriousness,
+      outcome: d.outcome,
+    }));
+
+    const filename = `case-line-list-${new Date().toISOString().slice(0, 10)}.csv`;
+    const columns = [
+      "Case ID",
+      "Patient Identifier",
+      "Product",
+      "Reaction",
+      "Onset Date",
+      "Seriousness",
+      "Outcome",
+    ] as const;
+    const escapeCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    const lines = [
+      columns.join(","),
+      ...parsedRows.map((r) =>
+        [
+          r.case_id,
+          r.patient_identifier,
+          r.product,
+          r.reaction,
+          r.onset_date,
+          r.seriousness,
+          r.outcome,
+        ]
+          .map((v) => escapeCell(v ?? ""))
+          .join(","),
+      ),
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+
+    return linelist.createFromCases(parsedRows, filename);
   },
 
   followUps: async (caseId?: string): Promise<FollowUpRequest[]> => {

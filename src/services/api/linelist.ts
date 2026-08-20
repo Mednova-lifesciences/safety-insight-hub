@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { currentActor, newId, recordAudit, toJson } from "./db";
 import { mapColumnsByKeywords, parseTabularFile } from "./tabular-parse";
 import { ai } from "./ai";
+import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import type { LineListIssue, LineListJob } from "@/types/pv";
 
 export interface ColumnInspection {
@@ -10,7 +11,7 @@ export interface ColumnInspection {
   targetFields: string[];
 }
 
-const TARGET_FIELDS = [
+export const TARGET_FIELDS = [
   "case_id",
   "patient_identifier",
   "product",
@@ -19,7 +20,7 @@ const TARGET_FIELDS = [
   "seriousness",
   "outcome",
 ] as const;
-type TargetField = (typeof TARGET_FIELDS)[number];
+export type TargetField = (typeof TARGET_FIELDS)[number];
 
 const SERIOUSNESS_VALUES = new Set([
   "SERIOUS",
@@ -43,7 +44,7 @@ const OUTCOME_VALUES = new Set([
 ]);
 
 /** A parsed, column-mapped row from an uploaded file — the input to validation. */
-type ParsedRow = Partial<Record<TargetField, string>>;
+export type ParsedRow = Partial<Record<TargetField, string>>;
 
 /** Extends the public LineListJob shape with the raw parse the job was
  *  built from, so validation can run against real content. Legacy/demo
@@ -427,7 +428,13 @@ export const linelist = {
       // Real upload — re-run validation against the actual parsed content
       // every time, so the result always reflects the current data.
       await supabase.from("pv_linelist_issues").delete().eq("job_id", jobId);
-      const ruleIssues = runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows);
+      // RULE_BASED_DETECTION_ENABLED gates the entire deterministic rule
+      // engine (including its NO_COLUMNS_MAPPED short-circuit) — flip the
+      // flag in feature-flags.ts to bring it back, rest of validate() is
+      // unaffected either way.
+      const ruleIssues = RULE_BASED_DETECTION_ENABLED
+        ? runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows)
+        : [];
 
       let aiIssues: LineListIssue[] = [];
       try {
@@ -564,6 +571,61 @@ export const linelist = {
       aiUsed: fixResult.ai_used,
       aiError: fixResult.error ?? undefined,
     };
+  },
+
+  /**
+   * Creates a new line-list processing job directly from case data already
+   * known to the app (used by the Case workbench's line-list export)
+   * rather than from an uploaded file. Starts at UPLOADED stage exactly
+   * like a real upload, so it shows up in Processing jobs ready to be
+   * validated the same way — column mapping is fixed and known up front
+   * since these headers are generated, not parsed from an arbitrary file.
+   */
+  createFromCases: async (rows: ParsedRow[], sourceLabel: string): Promise<LineListJob> => {
+    const actor = currentActor();
+    const columns = [
+      "Case ID",
+      "Patient Identifier",
+      "Product",
+      "Reaction",
+      "Onset Date",
+      "Seriousness",
+      "Outcome",
+    ];
+    const mapping: Record<string, TargetField> = {
+      "Case ID": "case_id",
+      "Patient Identifier": "patient_identifier",
+      Product: "product",
+      Reaction: "reaction",
+      "Onset Date": "onset_date",
+      Seriousness: "seriousness",
+      Outcome: "outcome",
+    };
+    const job: LineListJobRow = {
+      id: newId("ll"),
+      filename: sourceLabel,
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: actor.name,
+      rows: rows.length,
+      stage: "UPLOADED",
+      validCases: 0,
+      invalidCases: 0,
+      warnings: 0,
+      columns,
+      mapping,
+      parsedRows: rows,
+    };
+    const { error } = await supabase
+      .from("pv_linelist_jobs")
+      .insert({ id: job.id, data: toJson(job) });
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      action: "LINELIST_CREATED_FROM_CASES",
+      entity: "LineListJob",
+      entityId: job.id,
+      newValue: `${sourceLabel} (${rows.length} case(s) exported from the case workbench)`,
+    });
+    return job;
   },
 
   /** Rebuilds a CSV from the job's current (possibly AI-corrected) data,

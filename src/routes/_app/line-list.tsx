@@ -7,6 +7,7 @@ import { linelist as linelistApi } from "@/services/api/linelist";
 import { demoLineListIssues, demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { isNotConfigured } from "@/services/api/client";
+import { RULE_BASED_DETECTION_ENABLED } from "@/services/api/feature-flags";
 import {
   EmptyState,
   PageHeader,
@@ -94,12 +95,19 @@ function LineListPage() {
       setAiNotice(
         result.aiUsed
           ? null
-          : (result.aiError ?? "AI analysis unavailable — showing rule-based findings only."),
+          : (result.aiError ??
+              (RULE_BASED_DETECTION_ENABLED
+                ? "AI analysis unavailable — showing rule-based findings only."
+                : "AI analysis unavailable — rule-based detection is currently disabled, so no issues were flagged.")),
       );
       toast.success(
         result.aiUsed
-          ? "Validated with AI + rule-based checks."
-          : "Validated (rule-based checks only).",
+          ? RULE_BASED_DETECTION_ENABLED
+            ? "Validated with AI + rule-based checks."
+            : "Validated with AI (rule-based detection disabled)."
+          : RULE_BASED_DETECTION_ENABLED
+            ? "Validated (rule-based checks only)."
+            : "Validated — no findings (AI unavailable, rule-based detection disabled).",
       );
       issues.refetch();
       jobs.refetch();

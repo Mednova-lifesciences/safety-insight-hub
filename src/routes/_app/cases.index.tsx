@@ -1,9 +1,12 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Download, Search } from "lucide-react";
+import { toast } from "sonner";
 import { cases as casesApi } from "@/services/api/cases";
 import { demoCases } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
+import { isNotConfigured } from "@/services/api/client";
+import { usePermission } from "@/lib/auth";
 import {
   PageHeader,
   PriorityBadge,
@@ -13,6 +16,7 @@ import {
   StatusPill,
   WorkflowBadge,
 } from "@/components/pv/primitives";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -37,12 +41,14 @@ export const Route = createFileRoute("/_app/cases/")({
 
 function CaseWorkbench() {
   const query = usePvQuery(["cases"], () => casesApi.list(), () => demoCases);
+  const canProcessLineList = usePermission("linelist.process");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
   const [seriousness, setSeriousness] = useState("all");
   const [assignee, setAssignee] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const all = query.data?.data ?? [];
   const assignees = useMemo(() => Array.from(new Set(all.map((c) => c.assignedTo))), [all]);
@@ -58,12 +64,45 @@ function CaseWorkbench() {
     return true;
   });
 
+  async function exportLineList() {
+    setExporting(true);
+    try {
+      const job = await casesApi.exportToLineList(filtered);
+      toast.success(
+        `Downloaded ${filtered.length} case(s) as a CSV and created line-list job ${job.id} for review.`,
+      );
+    } catch (err) {
+      toast.error(
+        isNotConfigured(err)
+          ? "Backend not connected — nothing was exported."
+          : err instanceof Error
+            ? err.message
+            : "Could not export these cases.",
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
         title="Case workbench"
         description="All individual case safety reports visible to your role."
         meta={query.data ? <SourceTag source={query.data.source} /> : null}
+        actions={
+          canProcessLineList ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={exporting || filtered.length === 0}
+              onClick={exportLineList}
+            >
+              <Download className="size-4" />
+              {exporting ? "Exporting…" : "Download line-list CSV"}
+            </Button>
+          ) : null
+        }
       />
 
       <div className="space-y-4 p-6">

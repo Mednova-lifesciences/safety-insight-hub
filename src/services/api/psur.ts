@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { currentActor, newId, recordAudit, toJson } from "./db";
 import { isSpreadsheetFile, mapColumnsByKeywords, parseTabularFile } from "./tabular-parse";
 import { ai } from "./ai";
+import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import type { PsurDocument, PsurFinding } from "@/types/pv";
 
 /** Findings are review assistance only — the regulatory assessment is
@@ -389,7 +390,9 @@ export const psur = {
             humanAssessment: null,
             source: "ai" as const,
           }))
-        : generatePdfFindingsFallback(doc);
+        : RULE_BASED_DETECTION_ENABLED
+          ? generatePdfFindingsFallback(doc)
+          : [];
       await persistFindings(doc.id, findings);
       const reviewed: PsurDocumentRow = { ...doc, stage: "REVIEWED" };
       await saveDocument(reviewed);
@@ -439,16 +442,20 @@ export const psur = {
                 humanAssessment: null,
                 source: "ai" as const,
               }))
-            : generateSpreadsheetFindingsFallback(document);
+            : RULE_BASED_DETECTION_ENABLED
+              ? generateSpreadsheetFindingsFallback(document)
+              : [];
         } catch {
-          findings = generateSpreadsheetFindingsFallback(document);
+          findings = RULE_BASED_DETECTION_ENABLED
+            ? generateSpreadsheetFindingsFallback(document)
+            : [];
         }
       } else {
         // PDF that somehow reached review() without being reviewed at
         // upload time (e.g. the AI endpoint was unreachable then) — the
         // original bytes are gone, so only the metadata-based fallback
-        // is possible here.
-        findings = generatePdfFindingsFallback(document);
+        // is possible here (when RULE_BASED_DETECTION_ENABLED is on).
+        findings = RULE_BASED_DETECTION_ENABLED ? generatePdfFindingsFallback(document) : [];
       }
 
       await persistFindings(documentId, findings);

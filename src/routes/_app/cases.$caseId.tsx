@@ -25,7 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { usePermission } from "@/lib/auth";
-import type { FollowUpRequest } from "@/types/pv";
+import { WORKFLOW_LABELS, WORKFLOW_STEPS, type FollowUpRequest, type WorkflowStep } from "@/types/pv";
 
 export const Route = createFileRoute("/_app/cases/$caseId")({
   head: () => ({
@@ -149,6 +149,67 @@ function FollowUpTab({
   );
 }
 
+function AdvanceWorkflow({
+  caseId,
+  currentStep,
+  onChanged,
+}: {
+  caseId: string;
+  currentStep: WorkflowStep;
+  onChanged: () => void;
+}) {
+  const canEdit = usePermission("case.edit");
+  const [reason, setReason] = useState("");
+  const [advancing, setAdvancing] = useState(false);
+
+  if (!canEdit) return null;
+
+  const idx = WORKFLOW_STEPS.indexOf(currentStep);
+  const nextStep = idx >= 0 && idx < WORKFLOW_STEPS.length - 1 ? WORKFLOW_STEPS[idx + 1] : null;
+
+  if (!nextStep) {
+    return (
+      <p className="mt-3 text-sm text-muted-foreground">
+        This case has reached the end of the workflow.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-3 space-y-2">
+      <Textarea
+        rows={2}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder={`Why is this case moving to ${WORKFLOW_LABELS[nextStep]}? e.g. "Triage complete, assigning to coding."`}
+      />
+      <Button
+        size="sm"
+        disabled={advancing || reason.trim().length === 0}
+        onClick={async () => {
+          setAdvancing(true);
+          try {
+            await casesApi.advanceWorkflow(caseId, nextStep, reason.trim());
+            toast.success(`Case moved to ${WORKFLOW_LABELS[nextStep]}.`);
+            setReason("");
+            onChanged();
+          } catch (err) {
+            toast.error(
+              isNotConfigured(err)
+                ? "Backend not connected — the case was not moved."
+                : "Could not advance the case.",
+            );
+          } finally {
+            setAdvancing(false);
+          }
+        }}
+      >
+        Advance to {WORKFLOW_LABELS[nextStep]}
+      </Button>
+    </div>
+  );
+}
+
 function CaseDetailPage() {
   const { caseId } = Route.useParams();
   const canCode = usePermission("coding.review");
@@ -199,6 +260,14 @@ function CaseDetailPage() {
               description="Each step must be completed by a human owner before the case advances."
             >
               <WorkflowProgress state={c.workflowState} />
+              <AdvanceWorkflow
+                caseId={c.id}
+                currentStep={c.workflowStep}
+                onChanged={() => {
+                  query.refetch();
+                  auditQuery.refetch();
+                }}
+              />
             </Section>
 
             <Tabs defaultValue="overview">
