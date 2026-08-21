@@ -101,6 +101,29 @@ class AiPsurFix(BaseModel):
 
 # ---------------------------------------------------------------------- ICSR --
 
+class AiIcsrDrugFinding(BaseModel):
+    """One suspected drug found in the image. The singular product* fields
+    on AiIcsrExtraction always mirror suspectedDrugs[0] (backward
+    compatibility for callers that only read the singular fields) — this
+    array is the source of truth when there is more than one suspect
+    drug on the same report."""
+
+    productName: Optional[str] = None
+    productDose: Optional[str] = None
+    productRoute: Optional[str] = None
+    productIndication: Optional[str] = None
+    therapyStartDate: Optional[str] = None
+    productAction: Optional[str] = None
+    batchNumber: Optional[str] = None
+    expiryDate: Optional[str] = None
+
+
+class AiIcsrConcomitantMed(BaseModel):
+    name: Optional[str] = None
+    dose: Optional[str] = None
+    indication: Optional[str] = None
+
+
 class AiIcsrExtraction(BaseModel):
     reporterName: Optional[str] = None
     reporterQualification: Optional[str] = None
@@ -126,6 +149,13 @@ class AiIcsrExtraction(BaseModel):
     reportedSeriousness: Optional[Literal["SERIOUS", "NON_SERIOUS", "UNASSESSED"]] = None
     narrative: Optional[str] = None
     additionalInformation: Optional[str] = None
+    # Every suspected drug on the report, including the same one already
+    # mirrored into the singular product* fields above as element 0.
+    suspectedDrugs: list[AiIcsrDrugFinding] = Field(default_factory=list)
+    concomitantMedicines: list[AiIcsrConcomitantMed] = Field(default_factory=list)
+    # Exact strings from the known seriousness-criteria checkbox list that
+    # the prompt provides — only ones actually marked/ticked in the image.
+    seriousnessCriteria: list[str] = Field(default_factory=list)
     lowConfidenceFields: list[str] = Field(default_factory=list)
 
     @field_validator("*", mode="before")

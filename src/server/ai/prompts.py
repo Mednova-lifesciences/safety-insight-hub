@@ -409,6 +409,15 @@ Respond with JSON exactly in this shape:
 )
 
 
+ICSR_SERIOUSNESS_CRITERIA = [
+    "Results in death",
+    "Life-threatening",
+    "Requires or prolongs hospitalisation",
+    "Persistent or significant disability/incapacity",
+    "Congenital anomaly/birth defect",
+    "Other medically important condition",
+]
+
 ICSR_IMAGE_EXTRACTION_PROMPT = (
     SAFETY_PREAMBLE
     + """
@@ -422,7 +431,25 @@ handwriting), return null for that field — do not guess. This extraction is re
 by a human before anything is submitted, so it is far better to leave a field blank than to fill \
 it with an invented or low-confidence value.
 
-Respond with JSON exactly in this shape (every key must be present; use null for anything not \
+Some reports name more than one suspected drug, and separately list concomitant (non-suspect) \
+medications the patient was also taking. Handle both:
+- "suspectedDrugs": one entry per drug the report identifies as suspect (caused or contributed to \
+the reaction) — not concomitant medication. Always include the same drug you used to populate the \
+singular productName/productDose/productRoute/productIndication/therapyStartDate/productAction \
+fields above as the first entry (index 0) of this array, even when there is only one suspect drug \
+in total. Extract a batch/lot number and expiry date per drug when visible — these are not asked \
+for in the singular fields above. If there is truly only one suspect drug, "suspectedDrugs" still \
+has exactly one entry (do not leave it empty when the singular fields are populated).
+- "concomitantMedicines": medications explicitly listed as concomitant/other/non-suspect \
+medication, separate from the suspect drug(s) above. Leave this empty if the form doesn't \
+distinguish concomitant medication or none is listed.
+- "seriousnessCriteria": which of these exact checkbox labels appear genuinely marked/ticked/ \
+circled in the image — return only the ones actually indicated, copying the label text exactly:
+""" + "\n".join(f'  - "{c}"' for c in ICSR_SERIOUSNESS_CRITERIA) + """
+Do not infer a criterion from the narrative alone if the form has an actual checkbox/tickbox for \
+it that is not marked — only report a criterion here when the image shows it was actually selected.
+
+Respond with JSON exactly in this shape (every key must be present; use null/[] for anything not \
 confidently extracted):
 {
   "reporterName": <string or null>,
@@ -447,6 +474,26 @@ confidently extracted):
   "reportedSeriousness": "SERIOUS" | "NON_SERIOUS" | "UNASSESSED" | null,
   "narrative": <string or null, a plain-text summary of the clinical narrative if one is present>,
   "additionalInformation": <string or null>,
+  "suspectedDrugs": [
+    {
+      "productName": <string or null>,
+      "productDose": <string or null>,
+      "productRoute": <string or null>,
+      "productIndication": <string or null>,
+      "therapyStartDate": <string in YYYY-MM-DD or null>,
+      "productAction": <string or null>,
+      "batchNumber": <string or null>,
+      "expiryDate": <string in YYYY-MM-DD or null>
+    }
+  ],
+  "concomitantMedicines": [
+    {
+      "name": <string or null>,
+      "dose": <string or null>,
+      "indication": <string or null>
+    }
+  ],
+  "seriousnessCriteria": [<zero or more of the exact checkbox labels listed above>],
   "lowConfidenceFields": [<array of field names above that you extracted but are not fully confident in>]
 }
 """

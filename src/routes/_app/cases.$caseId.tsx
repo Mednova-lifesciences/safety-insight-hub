@@ -709,19 +709,50 @@ function CaseDetailPage() {
                       </div>
                     </Section>
 
-                    <Section title="Suspect product">
-                      {c.suspectProducts.map((p, i) => (
-                        <div key={i} className="grid gap-4 sm:grid-cols-2">
-                          <Field label="Reported name" value={p.reportedName} />
-                          <Field label="Active ingredient" value={p.activeIngredient} />
-                          <Field label="Dose" value={p.dose} />
-                          <Field label="Route" value={p.route} />
-                          <Field label="Indication" value={p.indication} />
-                          <Field label="Therapy start" value={p.therapyStart} mono />
-                          <Field label="Action taken" value={p.action} />
-                        </div>
-                      ))}
+                    <Section
+                      title={
+                        c.suspectProducts.length > 1
+                          ? `Suspect products (${c.suspectProducts.length})`
+                          : "Suspect product"
+                      }
+                    >
+                      <div className="space-y-4">
+                        {c.suspectProducts.map((p, i) => (
+                          <div
+                            key={i}
+                            className={
+                              c.suspectProducts.length > 1
+                                ? "grid gap-4 rounded-md border border-border p-3 sm:grid-cols-2"
+                                : "grid gap-4 sm:grid-cols-2"
+                            }
+                          >
+                            <Field label="Reported name" value={p.reportedName} />
+                            <Field label="Active ingredient" value={p.activeIngredient} />
+                            <Field label="Dose" value={p.dose} />
+                            <Field label="Route" value={p.route} />
+                            <Field label="Indication" value={p.indication} />
+                            <Field label="Therapy start" value={p.therapyStart} mono />
+                            <Field label="Action taken" value={p.action} />
+                            <Field label="Batch / lot number" value={p.batchNumber} mono />
+                            <Field label="Expiry date" value={p.expiryDate} mono />
+                          </div>
+                        ))}
+                      </div>
                     </Section>
+
+                    {c.concomitantMedicines && c.concomitantMedicines.length > 0 ? (
+                      <Section title="Concomitant medications">
+                        <div className="space-y-3">
+                          {c.concomitantMedicines.map((m, i) => (
+                            <div key={i} className="grid gap-4 sm:grid-cols-3">
+                              <Field label="Medicine name" value={m.name} />
+                              <Field label="Dose" value={m.dose} />
+                              <Field label="Indication" value={m.indication} />
+                            </div>
+                          ))}
+                        </div>
+                      </Section>
+                    ) : null}
 
                     <Section title="Reaction / event">
                       {c.reactions.map((r, i) => (

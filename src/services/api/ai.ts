@@ -124,7 +124,32 @@ export interface AiIcsrExtraction {
   reportedSeriousness: "SERIOUS" | "NON_SERIOUS" | "UNASSESSED" | null;
   narrative: string | null;
   additionalInformation: string | null;
+  /** Every suspected drug found — element 0 always mirrors the singular
+   *  product* fields above. Absent/empty on responses from before this
+   *  field existed; callers should fall back to the singular fields. */
+  suspectedDrugs?: AiIcsrDrugFinding[];
+  concomitantMedicines?: AiIcsrConcomitantMed[];
+  /** Exact labels from the known seriousness-criteria checkbox list that
+   *  the image showed as actually marked. */
+  seriousnessCriteria?: string[];
   lowConfidenceFields: string[];
+}
+
+export interface AiIcsrDrugFinding {
+  productName: string | null;
+  productDose: string | null;
+  productRoute: string | null;
+  productIndication: string | null;
+  therapyStartDate: string | null;
+  productAction: string | null;
+  batchNumber: string | null;
+  expiryDate: string | null;
+}
+
+export interface AiIcsrConcomitantMed {
+  name: string | null;
+  dose: string | null;
+  indication: string | null;
 }
 
 export interface AiIcsrExtractionResponse {

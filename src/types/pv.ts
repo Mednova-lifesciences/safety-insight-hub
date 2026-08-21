@@ -53,6 +53,16 @@ export interface SuspectProduct {
   therapyStart?: string | undefined;
   therapyEnd?: string | undefined;
   action?: string | undefined;
+  /** Additive fields for multi-drug ICSR capture — absent on cases created
+   *  before per-drug batch/expiry tracking existed. */
+  batchNumber?: string | undefined;
+  expiryDate?: string | undefined;
+}
+
+export interface ConcomitantMedicine {
+  name: string;
+  dose?: string | undefined;
+  indication?: string | undefined;
 }
 
 export interface ReactionEvent {
@@ -76,6 +86,14 @@ export interface CodedTerm {
 export interface CaseSummary {
   id: string;
   patientIdentifier: string;
+  /** The primary suspect product (suspectProducts[0]'s name) — deliberately
+   *  the single product this app aggregates and filters cases-list/
+   *  dashboard/signal views by, even on a case with multiple suspect
+   *  drugs. That's an intentional simplification, not an oversight: a
+   *  case with several suspect drugs is still one case for workflow and
+   *  triage purposes, and its full drug list is always visible on the
+   *  case detail page (CaseDetail.suspectProducts). Revisit only if
+   *  per-drug (rather than per-case) aggregation is explicitly wanted. */
   product: string;
   reaction: string;
   seriousness: Seriousness;
@@ -94,6 +112,10 @@ export interface CaseDetail extends CaseSummary {
   patient: PatientInfo;
   suspectProducts: SuspectProduct[];
   reactions: ReactionEvent[];
+  /** Non-suspect medication the patient was also taking, distinct from
+   *  suspectProducts. Additive — absent/empty on cases created before
+   *  concomitant-medicine capture existed. */
+  concomitantMedicines?: ConcomitantMedicine[] | undefined;
   narrative: string;
   reportedSeriousnessCriteria: string[];
   followUpRequests: FollowUpRequest[];

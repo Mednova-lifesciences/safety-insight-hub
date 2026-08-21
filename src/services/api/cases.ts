@@ -28,6 +28,11 @@ export interface NewIcsrPayload {
   reportedSeriousness: string;
   seriousnessCriteria: string[];
   additionalInformation?: string;
+  /** Extra suspect drugs beyond the primary `product` above, from the
+   *  repeatable drug-row editor. Absent/empty behaves exactly as before
+   *  this field existed — `product` alone still becomes suspectProducts[0]. */
+  additionalProducts?: Record<string, unknown>[];
+  concomitantMedicines?: Record<string, unknown>[];
 }
 
 const str = (v: unknown, fallback = "") =>
@@ -134,8 +139,29 @@ export const cases = {
           indication: str(payload.product["indication"]),
           therapyStart: str(payload.product["therapyStart"]),
           action: str(payload.product["action"]),
+          batchNumber: str(payload.product["batchNumber"]),
+          expiryDate: str(payload.product["expiryDate"]),
         },
+        ...(payload.additionalProducts ?? [])
+          .filter((p) => str(p["reportedName"]).length > 0)
+          .map((p) => ({
+            reportedName: str(p["reportedName"]),
+            dose: str(p["dose"]),
+            route: str(p["route"]),
+            indication: str(p["indication"]),
+            therapyStart: str(p["therapyStart"]),
+            action: str(p["action"]),
+            batchNumber: str(p["batchNumber"]),
+            expiryDate: str(p["expiryDate"]),
+          })),
       ],
+      concomitantMedicines: (payload.concomitantMedicines ?? [])
+        .filter((m) => str(m["name"]).length > 0)
+        .map((m) => ({
+          name: str(m["name"]),
+          dose: str(m["dose"]),
+          indication: str(m["indication"]),
+        })),
       reactions: [
         {
           reportedTerm: reaction,

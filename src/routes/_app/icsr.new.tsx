@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, ImageUp, Save, Sparkles } from "lucide-react";
+import { ArrowRight, ImageUp, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 import { cases as casesApi } from "@/services/api/cases";
 import { ai } from "@/services/api/ai";
 import { isNotConfigured } from "@/services/api/client";
@@ -99,6 +99,8 @@ const FIELD_LABELS: Record<string, string> = {
   productIndication: "Indication",
   therapyStart: "Therapy start date",
   productAction: "Action taken",
+  productBatch: "Batch/lot number",
+  productExpiry: "Expiry date",
   reactionTerm: "Reaction",
   onsetDate: "Onset date",
   endDate: "End date",
@@ -107,6 +109,40 @@ const FIELD_LABELS: Record<string, string> = {
   narrative: "Narrative",
   additional: "Additional information",
 };
+
+interface DrugRow {
+  reportedName: string;
+  dose: string;
+  route: string;
+  indication: string;
+  therapyStart: string;
+  action: string;
+  batchNumber: string;
+  expiryDate: string;
+}
+
+interface ConcomitantRow {
+  name: string;
+  dose: string;
+  indication: string;
+}
+
+function emptyDrugRow(): DrugRow {
+  return {
+    reportedName: "",
+    dose: "",
+    route: "",
+    indication: "",
+    therapyStart: "",
+    action: "",
+    batchNumber: "",
+    expiryDate: "",
+  };
+}
+
+function emptyConcomitantRow(): ConcomitantRow {
+  return { name: "", dose: "", indication: "" };
+}
 
 function Req() {
   return <span className="ml-1 text-critical">*</span>;
@@ -150,6 +186,8 @@ function NewIcsrPage() {
   const [criteria, setCriteria] = useState<string[]>([]);
   const [seriousnessValue, setSeriousnessValue] = useState("NON_SERIOUS");
   const [form, setForm] = useState<Record<string, string>>({});
+  const [additionalProducts, setAdditionalProducts] = useState<DrugRow[]>([]);
+  const [concomitantMeds, setConcomitantMeds] = useState<ConcomitantRow[]>([]);
   const [lowConfidenceFields, setLowConfidenceFields] = useState<string[]>([]);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [aiUnavailableNote, setAiUnavailableNote] = useState<string | null>(null);
@@ -202,11 +240,44 @@ function NewIcsrPage() {
       if (e.narrative) mapped["narrative"] = e.narrative;
       if (e.additionalInformation) mapped["additional"] = e.additionalInformation;
 
+      const drugs = e.suspectedDrugs ?? [];
+      if (drugs[0]?.batchNumber) mapped["productBatch"] = drugs[0].batchNumber;
+      if (drugs[0]?.expiryDate) mapped["productExpiry"] = drugs[0].expiryDate;
+
       setForm((f) => ({ ...f, ...mapped }));
       if (e.reportedSeriousness) setSeriousnessValue(e.reportedSeriousness);
       setLowConfidenceFields(e.lowConfidenceFields ?? []);
 
-      const populatedCount = Object.keys(mapped).length;
+      if (drugs.length > 1) {
+        setAdditionalProducts(
+          drugs.slice(1).map((d) => ({
+            reportedName: d.productName ?? "",
+            dose: d.productDose ?? "",
+            route: d.productRoute ?? "",
+            indication: d.productIndication ?? "",
+            therapyStart: d.therapyStartDate ?? "",
+            action: d.productAction ?? "",
+            batchNumber: d.batchNumber ?? "",
+            expiryDate: d.expiryDate ?? "",
+          })),
+        );
+      }
+      if (e.concomitantMedicines && e.concomitantMedicines.length > 0) {
+        setConcomitantMeds(
+          e.concomitantMedicines.map((m) => ({
+            name: m.name ?? "",
+            dose: m.dose ?? "",
+            indication: m.indication ?? "",
+          })),
+        );
+      }
+      if (e.seriousnessCriteria && e.seriousnessCriteria.length > 0) {
+        const matched = SERIOUSNESS_CRITERIA.filter((c) => e.seriousnessCriteria!.includes(c));
+        if (matched.length > 0) setCriteria(matched);
+      }
+
+      const populatedCount =
+        Object.keys(mapped).length + drugs.slice(1).length + (e.concomitantMedicines?.length ?? 0);
       if (populatedCount === 0) {
         toast.info(
           "No fields could be confidently extracted from this image. Enter details manually.",
@@ -252,6 +323,8 @@ function NewIcsrPage() {
           indication: form["productIndication"],
           therapyStart: form["therapyStart"],
           action: form["productAction"],
+          batchNumber: form["productBatch"],
+          expiryDate: form["productExpiry"],
         },
         reaction: {
           reportedTerm: form["reactionTerm"],
@@ -262,6 +335,8 @@ function NewIcsrPage() {
         reportedSeriousness: seriousnessValue,
         seriousnessCriteria: criteria,
         additionalInformation: form["additional"] ?? "",
+        additionalProducts: additionalProducts.filter((p) => p.reportedName.trim().length > 0),
+        concomitantMedicines: concomitantMeds.filter((m) => m.name.trim().length > 0),
       });
       toast.success(`Case ${created.caseId} created.`);
       navigate({ to: "/cases/$caseId", params: { caseId: created.caseId } });
@@ -533,6 +608,155 @@ function NewIcsrPage() {
                   </SelectContent>
                 </Select>
               </FieldRow>
+              <FieldRow id="productBatch" label="Batch / lot number">
+                <Input
+                  id="productBatch"
+                  value={form["productBatch"] ?? ""}
+                  onChange={set("productBatch")}
+                />
+              </FieldRow>
+              <FieldRow id="productExpiry" label="Expiry date">
+                <Input
+                  id="productExpiry"
+                  type="date"
+                  value={form["productExpiry"] ?? ""}
+                  onChange={set("productExpiry")}
+                />
+              </FieldRow>
+            </div>
+          </Section>
+
+          <Section
+            title="Additional suspect drugs"
+            description="Only needed when more than one product is suspected in causing the reaction."
+          >
+            <div className="space-y-3">
+              {additionalProducts.map((row, idx) => (
+                <div
+                  key={idx}
+                  className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-2 xl:grid-cols-4"
+                >
+                  <FieldRow id={`extraProduct-${idx}-name`} label="Product as reported">
+                    <Input
+                      id={`extraProduct-${idx}-name`}
+                      value={row.reportedName}
+                      onChange={(e) =>
+                        setAdditionalProducts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, reportedName: e.target.value } : r)),
+                        )
+                      }
+                    />
+                  </FieldRow>
+                  <FieldRow id={`extraProduct-${idx}-dose`} label="Dose">
+                    <Input
+                      id={`extraProduct-${idx}-dose`}
+                      value={row.dose}
+                      onChange={(e) =>
+                        setAdditionalProducts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, dose: e.target.value } : r)),
+                        )
+                      }
+                    />
+                  </FieldRow>
+                  <FieldRow id={`extraProduct-${idx}-batch`} label="Batch / lot number">
+                    <Input
+                      id={`extraProduct-${idx}-batch`}
+                      value={row.batchNumber}
+                      onChange={(e) =>
+                        setAdditionalProducts((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, batchNumber: e.target.value } : r)),
+                        )
+                      }
+                    />
+                  </FieldRow>
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setAdditionalProducts((rows) => rows.filter((_, i) => i !== idx))
+                      }
+                    >
+                      <Trash2 className="size-4" /> Remove
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setAdditionalProducts((rows) => [...rows, emptyDrugRow()])}
+              >
+                <Plus className="size-4" /> Add another suspect drug
+              </Button>
+            </div>
+          </Section>
+
+          <Section
+            title="Concomitant medications"
+            description="Non-suspect medication the patient was also taking at the time of the reaction."
+          >
+            <div className="space-y-3">
+              {concomitantMeds.map((row, idx) => (
+                <div
+                  key={idx}
+                  className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-3"
+                >
+                  <FieldRow id={`concomitant-${idx}-name`} label="Medicine name">
+                    <Input
+                      id={`concomitant-${idx}-name`}
+                      value={row.name}
+                      onChange={(e) =>
+                        setConcomitantMeds((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)),
+                        )
+                      }
+                    />
+                  </FieldRow>
+                  <FieldRow id={`concomitant-${idx}-dose`} label="Dose">
+                    <Input
+                      id={`concomitant-${idx}-dose`}
+                      value={row.dose}
+                      onChange={(e) =>
+                        setConcomitantMeds((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, dose: e.target.value } : r)),
+                        )
+                      }
+                    />
+                  </FieldRow>
+                  <div className="flex items-end justify-between gap-2">
+                    <FieldRow id={`concomitant-${idx}-indication`} label="Indication" className="flex-1">
+                      <Input
+                        id={`concomitant-${idx}-indication`}
+                        value={row.indication}
+                        onChange={(e) =>
+                          setConcomitantMeds((rows) =>
+                            rows.map((r, i) => (i === idx ? { ...r, indication: e.target.value } : r)),
+                          )
+                        }
+                      />
+                    </FieldRow>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConcomitantMeds((rows) => rows.filter((_, i) => i !== idx))}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setConcomitantMeds((rows) => [...rows, emptyConcomitantRow()])}
+              >
+                <Plus className="size-4" /> Add concomitant medication
+              </Button>
             </div>
           </Section>
 
