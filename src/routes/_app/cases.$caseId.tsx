@@ -601,13 +601,14 @@ function CaseDetailPage() {
         // by hand; an "Advance" click always jumps it to the new stage's
         // tab regardless of whatever was manually selected before.
         const tab = activeTab ?? tabForStep(c.workflowStep, canCode);
-        // A field associate can only fix and resubmit a case they own,
-        // and only before it's reached Review — once a coordinator starts
-        // reviewing it, further changes go through the normal workflow.
+        // A field associate can only fix and resubmit a case they own, and
+        // only until review has actually been completed — editable through
+        // Review itself, but locked the moment the case moves on to QC (or
+        // any stage after), no matter who advanced it there.
         const canEditThisCase =
           role === "FIELD_ASSOCIATE" &&
           c.assignedTo === currentUser?.name &&
-          WORKFLOW_STEPS.indexOf(c.workflowStep) < WORKFLOW_STEPS.indexOf("REVIEW");
+          WORKFLOW_STEPS.indexOf(c.workflowStep) < WORKFLOW_STEPS.indexOf("QC");
         return (
           <>
             <PageHeader
