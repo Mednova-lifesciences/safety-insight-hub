@@ -29,7 +29,10 @@ from openai import APIConnectionError, APIError, APITimeoutError, AsyncOpenAI, R
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-sol")
+# Vision (ICSR image extraction) stays on gpt-4o independently of
+# DEFAULT_MODEL — set OPENAI_VISION_MODEL explicitly if gpt-5.6-sol's
+# image-input support is confirmed and this should switch too.
 VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
 # Line-list validation (analysis + adversarial review) can be pointed at a
 # stronger/different model independently of the app's other AI workflows,
