@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
+import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { signals as signalsApi } from "@/services/api/signals";
@@ -25,9 +26,16 @@ export const Route = createFileRoute("/_app/signals")({
   head: () => ({
     meta: [
       { title: "Signal review — MedNova PV Assist" },
-      { name: "description", content: "Potential, under-review, confirmed and refuted safety signals with statistical evidence and recorded rationale." },
+      {
+        name: "description",
+        content:
+          "Potential, under-review, confirmed and refuted safety signals with statistical evidence and recorded rationale.",
+      },
       { property: "og:title", content: "Signal review — MedNova PV Assist" },
-      { property: "og:description", content: "Manager signal workspace with auditable confirm/refute decisions." },
+      {
+        property: "og:description",
+        content: "Manager signal workspace with auditable confirm/refute decisions.",
+      },
     ],
   }),
   component: () => (
@@ -84,7 +92,9 @@ function SignalCard({
     <li className="rounded-md border border-border p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="mono-num text-sm font-semibold">{s.reference}</span>
-        <StatusPill tone={statusTone[s.status]}>{s.status.replaceAll("_", " ").toLowerCase()}</StatusPill>
+        <StatusPill tone={statusTone[s.status]}>
+          {s.status.replaceAll("_", " ").toLowerCase()}
+        </StatusPill>
         <span className="text-sm">
           {s.product} <span className="text-muted-foreground">/</span> {s.reaction}
         </span>
@@ -103,7 +113,9 @@ function SignalCard({
         <div className="sm:col-span-2">
           <dt className="label-caps">Statistical evidence</dt>
           <dd className="mono-num text-sm">
-            {s.statistic.map((st) => `${st.name} ${st.value}${st.ci ? ` (${st.ci})` : ""}`).join(" · ")}
+            {s.statistic
+              .map((st) => `${st.name} ${st.value}${st.ci ? ` (${st.ci})` : ""}`)
+              .join(" · ")}
           </dd>
         </div>
       </dl>
@@ -112,7 +124,12 @@ function SignalCard({
         <p className="label-caps">Supporting cases</p>
         <div className="mt-1 flex flex-wrap gap-2">
           {s.supportingCaseIds.map((id) => (
-            <Link key={id} to="/cases/$caseId" params={{ caseId: id }} className="mono-num text-sm text-primary hover:underline">
+            <Link
+              key={id}
+              to="/cases/$caseId"
+              params={{ caseId: id }}
+              className="mono-num text-sm text-primary hover:underline"
+            >
               {id}
             </Link>
           ))}
@@ -142,17 +159,29 @@ function SignalCard({
                     toast.success("Review started.");
                     onChanged();
                   } catch (err) {
-                    toast.error(isNotConfigured(err) ? "Backend not connected — review not started." : "Could not start review.");
+                    toast.error(
+                      isNotConfigured(err)
+                        ? "Backend not connected — review not started."
+                        : "Could not start review.",
+                    );
                   }
                 }}
               >
                 Start review
               </Button>
             ) : null}
-            <Button size="sm" variant={mode === "CONFIRMED" ? "default" : "outline"} onClick={() => setMode("CONFIRMED")}>
+            <Button
+              size="sm"
+              variant={mode === "CONFIRMED" ? "default" : "outline"}
+              onClick={() => setMode("CONFIRMED")}
+            >
               Confirm signal
             </Button>
-            <Button size="sm" variant={mode === "REFUTED" ? "default" : "outline"} onClick={() => setMode("REFUTED")}>
+            <Button
+              size="sm"
+              variant={mode === "REFUTED" ? "default" : "outline"}
+              onClick={() => setMode("REFUTED")}
+            >
               Refute signal
             </Button>
           </div>
@@ -186,7 +215,37 @@ function SignalCard({
 
 function SignalsPage() {
   const canDecide = usePermission("signal.decide");
-  const query = usePvQuery(["signals"], () => signalsApi.list(), () => demoSignals);
+  const query = usePvQuery(
+    ["signals"],
+    () => signalsApi.list(),
+    () => demoSignals,
+  );
+  const [detecting, setDetecting] = useState(false);
+
+  async function runDetection() {
+    setDetecting(true);
+    try {
+      const result = await signalsApi.runDetection();
+      if (result.candidates === 0) {
+        toast.success(
+          `Scanned ${result.scanned} case(s) — no pair met the detection threshold (N≥3, PRR≥2, χ²≥4).`,
+        );
+      } else {
+        toast.success(
+          `Scanned ${result.scanned} case(s): ${result.candidates} candidate(s) found (${result.created} new, ${result.refreshed} refreshed).`,
+        );
+      }
+      query.refetch();
+    } catch (err) {
+      toast.error(
+        isNotConfigured(err)
+          ? "Backend not connected — detection did not run."
+          : "Detection run failed.",
+      );
+    } finally {
+      setDetecting(false);
+    }
+  }
 
   return (
     <>
@@ -194,6 +253,14 @@ function SignalsPage() {
         title="Signal review"
         description="Safety signals with statistical evidence, supporting cases and recorded review decisions."
         meta={query.data ? <SourceTag source={query.data.source} /> : null}
+        actions={
+          canDecide ? (
+            <Button size="sm" variant="outline" disabled={detecting} onClick={runDetection}>
+              <RefreshCw className={detecting ? "size-4 animate-spin" : "size-4"} />
+              {detecting ? "Scanning cases…" : "Rerun signal detection"}
+            </Button>
+          ) : null
+        }
       />
       <div className="p-6">
         <QueryBoundary query={query} loadingLabel="Loading signals">
@@ -203,7 +270,10 @@ function SignalsPage() {
               ["Under review", items.filter((s) => s.status === "UNDER_REVIEW")],
               ["Confirmed", items.filter((s) => s.status === "CONFIRMED")],
               ["Refuted", items.filter((s) => s.status === "REFUTED")],
-              ["Historical", items.filter((s) => s.status === "CONFIRMED" || s.status === "REFUTED")],
+              [
+                "Historical",
+                items.filter((s) => s.status === "CONFIRMED" || s.status === "REFUTED"),
+              ],
             ];
             return (
               <Tabs defaultValue="Potential">
@@ -222,7 +292,12 @@ function SignalsPage() {
                       ) : (
                         <ul className="space-y-3">
                           {list.map((s) => (
-                            <SignalCard key={s.id} s={s} canDecide={canDecide} onChanged={() => query.refetch()} />
+                            <SignalCard
+                              key={s.id}
+                              s={s}
+                              canDecide={canDecide}
+                              onChanged={() => query.refetch()}
+                            />
                           ))}
                         </ul>
                       )}

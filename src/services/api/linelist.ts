@@ -553,7 +553,7 @@ export const linelist = {
         if (!TARGET_FIELDS.includes(field)) continue;
         rows[idx] = { ...rows[idx], [field]: correction.new_value };
       }
-      await saveJob({ ...job, parsedRows: rows });
+      await saveJob({ ...job, parsedRows: rows, fixedAt: new Date().toISOString() });
       await recordAudit({
         action: "LINELIST_AI_FIX_APPLIED",
         entity: "LineListJob",

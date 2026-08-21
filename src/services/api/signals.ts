@@ -1,6 +1,94 @@
 import { supabase } from "@/integrations/supabase/client";
-import { currentActor, recordAudit, toJson } from "./db";
+import { currentActor, newId, recordAudit, toJson } from "./db";
 import type { Signal } from "@/types/pv";
+
+const norm = (s: string) => s.trim().toLowerCase();
+
+/**
+ * Standard disproportionality screening (Evans et al.): a product/reaction
+ * pair is a signal candidate when, across a 2x2 contingency table built
+ * from every other case in the system, it has at least MIN_CASES reports,
+ * a Proportional Reporting Ratio >= MIN_PRR, and a (Yates-corrected)
+ * chi-square >= MIN_CHI_SQUARE. This is the actual textbook rule of thumb
+ * used for first-pass signal screening — not a demo threshold.
+ */
+const MIN_CASES = 3;
+const MIN_PRR = 2;
+const MIN_CHI_SQUARE = 4;
+
+interface SignalCandidate {
+  product: string;
+  reaction: string;
+  caseIds: string[];
+  prr: number;
+  chiSquare: number;
+}
+
+function computeCandidates(
+  cases: { id: string; product: string; reaction: string }[],
+): SignalCandidate[] {
+  const total = cases.length;
+  const productCounts = new Map<string, number>();
+  const reactionCounts = new Map<string, number>();
+  const pairs = new Map<
+    string,
+    { product: string; reaction: string; normProduct: string; normReaction: string; ids: string[] }
+  >();
+
+  for (const c of cases) {
+    const p = norm(c.product);
+    const r = norm(c.reaction);
+    productCounts.set(p, (productCounts.get(p) ?? 0) + 1);
+    reactionCounts.set(r, (reactionCounts.get(r) ?? 0) + 1);
+    // A pipe-joined key is enough here since product/reaction text in
+    // practice never contains a literal pipe; normProduct/normReaction are
+    // also kept directly on the entry so nothing needs to be parsed back
+    // out of the key.
+    const key = `${p}|${r}`;
+    const entry = pairs.get(key) ?? {
+      product: c.product,
+      reaction: c.reaction,
+      normProduct: p,
+      normReaction: r,
+      ids: [] as string[],
+    };
+    entry.ids.push(c.id);
+    pairs.set(key, entry);
+  }
+
+  const candidates: SignalCandidate[] = [];
+  for (const entry of pairs.values()) {
+    const p = entry.normProduct;
+    const r = entry.normReaction;
+    const a = entry.ids.length;
+    if (a < MIN_CASES) continue;
+
+    const b = (productCounts.get(p) ?? 0) - a;
+    const cCount = (reactionCounts.get(r) ?? 0) - a;
+    const d = total - a - b - cCount;
+    if (a + b <= 0 || cCount + d <= 0) continue;
+
+    const prr = a / (a + b) / (cCount / (cCount + d));
+    if (!Number.isFinite(prr) || prr < MIN_PRR) continue;
+
+    const n = a + b + cCount + d;
+    const ad = a * d;
+    const bc = b * cCount;
+    const chiDenominator = (a + b) * (cCount + d) * (a + cCount) * (b + d);
+    const chiSquare =
+      chiDenominator > 0 ? (n * (Math.abs(ad - bc) - n / 2) ** 2) / chiDenominator : 0;
+    if (chiSquare < MIN_CHI_SQUARE) continue;
+
+    candidates.push({
+      product: entry.product,
+      reaction: entry.reaction,
+      caseIds: entry.ids,
+      prr,
+      chiSquare,
+    });
+  }
+  return candidates;
+}
 
 async function readSignal(signalId: string): Promise<Signal> {
   const { data, error } = await supabase
@@ -77,5 +165,91 @@ export const signals = {
       reason: rationale,
     });
     return next;
+  },
+
+  /**
+   * Actually scans pv_cases for disproportionate product/reaction pairs
+   * (see computeCandidates) instead of relying on hand-seeded rows. Existing
+   * signals are matched by (product, reaction) and refreshed in place —
+   * case count, supporting case IDs and statistics update, but status,
+   * reviewer, and rationale are left untouched, since those represent a
+   * human decision this engine must never silently overwrite. A pair with
+   * no existing signal becomes a new POTENTIAL one.
+   */
+  runDetection: async (): Promise<{
+    scanned: number;
+    candidates: number;
+    created: number;
+    refreshed: number;
+  }> => {
+    const { data, error } = await supabase.from("pv_cases").select("data");
+    if (error) throw new Error(error.message);
+    const caseRows = (data ?? [])
+      .map((r) => r.data as unknown as { id: string; product: string; reaction: string })
+      .filter(
+        (c) =>
+          !!c.product &&
+          !!c.reaction &&
+          norm(c.product) !== "unspecified product" &&
+          norm(c.reaction) !== "unspecified reaction",
+      );
+
+    const candidates = computeCandidates(caseRows);
+    const existing = await signals.list();
+    const existingByKey = new Map(
+      existing.map((s) => [`${norm(s.product)}|${norm(s.reaction)}`, s]),
+    );
+
+    let created = 0;
+    let refreshed = 0;
+    const today = new Date().toISOString().slice(0, 10);
+
+    for (const cand of candidates) {
+      const key = `${norm(cand.product)}|${norm(cand.reaction)}`;
+      const existingSignal = existingByKey.get(key);
+      const statistic = [
+        { name: "PRR", value: cand.prr.toFixed(2) },
+        { name: "Chi-square", value: cand.chiSquare.toFixed(2) },
+      ];
+      if (existingSignal) {
+        await saveSignal({
+          ...existingSignal,
+          caseCount: cand.caseIds.length,
+          supportingCaseIds: cand.caseIds,
+          statistic,
+          detectionMethod: "Disproportionality (PRR, Evans criteria)",
+          detectionPeriod: `Recomputed ${today}`,
+        });
+        refreshed++;
+      } else {
+        const row: Signal = {
+          id: newId("sig"),
+          reference: `SIG-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+          product: cand.product,
+          reaction: cand.reaction,
+          detectionMethod: "Disproportionality (PRR, Evans criteria)",
+          detectionPeriod: `Computed ${today}`,
+          caseCount: cand.caseIds.length,
+          statistic,
+          supportingCaseIds: cand.caseIds,
+          status: "POTENTIAL",
+        };
+        const { error: insertError } = await supabase
+          .from("pv_signals")
+          .insert({ id: row.id, data: toJson(row) });
+        if (insertError) throw new Error(insertError.message);
+        created++;
+      }
+    }
+
+    await recordAudit({
+      action: "SIGNAL_DETECTION_RUN",
+      entity: "Signal",
+      entityId: "bulk",
+      newValue: `${candidates.length} candidate(s) found (${created} new, ${refreshed} refreshed)`,
+      reason: `Scanned ${caseRows.length} case(s); threshold N>=${MIN_CASES}, PRR>=${MIN_PRR}, chi-square>=${MIN_CHI_SQUARE}`,
+    });
+
+    return { scanned: caseRows.length, candidates: candidates.length, created, refreshed };
   },
 };

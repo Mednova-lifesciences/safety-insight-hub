@@ -297,21 +297,23 @@ function LineListPage() {
                     );
                   }}
                 </QueryBoundary>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await linelistApi.downloadCsv(activeJob.id);
-                    } catch (err) {
-                      toast.error(
-                        err instanceof Error ? err.message : "Could not download this file.",
-                      );
-                    }
-                  }}
-                >
-                  <Download className="size-4" /> Download Fixed CSV
-                </Button>
+                {activeJob.fixedAt ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await linelistApi.downloadCsv(activeJob.id);
+                      } catch (err) {
+                        toast.error(
+                          err instanceof Error ? err.message : "Could not download this file.",
+                        );
+                      }
+                    }}
+                  >
+                    <Download className="size-4" /> Download Fixed CSV
+                  </Button>
+                ) : null}
               </div>
             }
           >

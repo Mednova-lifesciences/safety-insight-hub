@@ -206,6 +206,10 @@ export interface LineListJob {
   validCases: number;
   invalidCases: number;
   warnings: number;
+  /** Set once AI-assisted "Fix Issues" has actually applied at least one
+   *  correction to this job's data. Absent until then — gates whether a
+   *  "Download Fixed CSV" download has anything genuinely fixed to offer. */
+  fixedAt?: string | undefined;
 }
 
 export interface LineListIssue {
