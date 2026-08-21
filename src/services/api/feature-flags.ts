@@ -6,7 +6,7 @@
  * site that reads this flag keeps its rule-based logic fully intact, just
  * conditionally invoked.
  */
-export const RULE_BASED_DETECTION_ENABLED = false;
+export const RULE_BASED_DETECTION_ENABLED = true;
 
 /**
  * Temporary switch to hide auto-fix workflows across line-list and PSUR/
