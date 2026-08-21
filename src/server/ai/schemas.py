@@ -15,11 +15,18 @@ from pydantic import BaseModel, Field, field_validator
 class AiLineListFinding(BaseModel):
     row: int
     column: str
-    severity: Literal["ERROR", "WARNING"]
+    severity: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
     code: str
     message: str
     value: Optional[str] = None
     fixable: bool = False
+    # Required, not defaulted: forces the model to actually make the call
+    # explicit (see LINELIST_ANALYSIS_PROMPT) rather than this silently
+    # reading as confident when the model just omitted the field. LOW means
+    # this finding depended on inferring an unfamiliar column's role, a
+    # typo/near-miss judgment call, or a plausibility check rather than an
+    # exact rule — the app gates auto-fix on this (see ai_linelist.py).
+    confidence: Literal["HIGH", "LOW"]
 
 
 class AiLineListAnalysis(BaseModel):

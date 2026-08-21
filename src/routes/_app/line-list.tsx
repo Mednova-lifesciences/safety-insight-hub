@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
-import { ArrowRight, Download, Sparkles, Upload, Wrench } from "lucide-react";
+import { ArrowRight, Download, FileText, Sparkles, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { linelist as linelistApi } from "@/services/api/linelist";
 import { demoLineListIssues, demoLineListJobs } from "@/services/demo/dataset";
@@ -314,6 +314,23 @@ function LineListPage() {
                     <Download className="size-4" /> Download Fixed CSV
                   </Button>
                 ) : null}
+                {activeJob.stage === "VALIDATED" || activeJob.stage === "E2B_GENERATED" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await linelistApi.downloadExecutiveSummary(activeJob.id);
+                      } catch (err) {
+                        toast.error(
+                          err instanceof Error ? err.message : "Could not download the summary.",
+                        );
+                      }
+                    }}
+                  >
+                    <FileText className="size-4" /> Download Executive Summary
+                  </Button>
+                ) : null}
               </div>
             }
           >
@@ -333,6 +350,7 @@ function LineListPage() {
                           "Row",
                           "Column",
                           "Severity",
+                          "Confidence",
                           "Source",
                           "Code",
                           "Message",
@@ -354,9 +372,28 @@ function LineListPage() {
                           <td className="mono-num px-3 py-2">{i.row}</td>
                           <td className="mono-num px-3 py-2">{i.column}</td>
                           <td className="px-3 py-2">
-                            <StatusPill tone={i.severity === "ERROR" ? "critical" : "warning"}>
+                            <StatusPill
+                              tone={
+                                i.severity === "CRITICAL"
+                                  ? "critical"
+                                  : i.severity === "HIGH"
+                                    ? "warning"
+                                    : i.severity === "MEDIUM"
+                                      ? "info"
+                                      : "neutral"
+                              }
+                            >
                               {i.severity.toLowerCase()}
                             </StatusPill>
+                          </td>
+                          <td className="px-3 py-2">
+                            {i.confidence ? (
+                              <StatusPill tone={i.confidence === "LOW" ? "warning" : "neutral"}>
+                                {i.confidence.toLowerCase()}
+                              </StatusPill>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
                           </td>
                           <td className="px-3 py-2">
                             <StatusPill tone={i.source === "ai" ? "assist" : "neutral"}>

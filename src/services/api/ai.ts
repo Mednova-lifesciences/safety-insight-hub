@@ -13,7 +13,12 @@ import { apiRequest, apiUpload } from "./client";
 export interface AiLineListIssueOut {
   row: number;
   column: string;
-  severity: "ERROR" | "WARNING";
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  /** LOW means this finding depended on inferring an unfamiliar column's
+   *  role, a typo/near-miss judgment call, or a plausibility check rather
+   *  than an exact rule — the app never auto-applies a fix for one of
+   *  these without a human deciding first. */
+  confidence: "HIGH" | "LOW";
   code: string;
   message: string;
   value: string | null;

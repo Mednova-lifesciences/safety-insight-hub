@@ -44,6 +44,7 @@ class IssueOut(BaseModel):
     row: int
     column: str
     severity: str
+    confidence: str = "HIGH"
     code: str
     message: str
     value: Optional[str] = None
@@ -95,6 +96,7 @@ async def analyze_linelist(
                     row=f.row,
                     column=f.column,
                     severity=f.severity,
+                    confidence=f.confidence,
                     code=f.code,
                     message=f.message,
                     value=f.value,

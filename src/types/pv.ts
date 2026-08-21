@@ -210,12 +210,22 @@ export interface LineListJob {
    *  correction to this job's data. Absent until then — gates whether a
    *  "Download Fixed CSV" download has anything genuinely fixed to offer. */
   fixedAt?: string | undefined;
+  /** Per-tier breakdown of the current issue list, additive alongside the
+   *  three counters above (validCases/invalidCases/warnings stay
+   *  CRITICAL|HIGH vs MEDIUM|LOW buckets for backward compatibility).
+   *  Absent on jobs validated before four-tier severity existed. */
+  criticalCount?: number | undefined;
+  highCount?: number | undefined;
+  mediumCount?: number | undefined;
+  lowCount?: number | undefined;
 }
+
+export type LineListSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 
 export interface LineListIssue {
   row: number;
   column: string;
-  severity: "ERROR" | "WARNING";
+  severity: LineListSeverity;
   code: string;
   message: string;
   value: string | null;
@@ -226,6 +236,12 @@ export interface LineListIssue {
    *  findings are never presented as the same thing. Absent on
    *  demo-seeded issues predating this distinction. */
   source?: "ai" | "rule";
+  /** LOW means the finding depended on inferring an unfamiliar column's
+   *  role or a judgment call rather than an exact rule — auto-fix skips
+   *  these and leaves them for a human to decide either way. Rule-engine
+   *  findings are always HIGH by construction. Absent on issues persisted
+   *  before this distinction existed. */
+  confidence?: "HIGH" | "LOW";
 }
 
 export interface PsurDocument {
