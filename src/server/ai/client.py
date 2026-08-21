@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
+# Line-list validation (analysis + adversarial review) can be pointed at a
+# stronger/different model independently of the app's other AI workflows,
+# without editing code — falls back to DEFAULT_MODEL when unset.
+VALIDATION_MODEL = os.getenv("OPENAI_VALIDATION_MODEL", DEFAULT_MODEL)
 DEFAULT_TIMEOUT_SECONDS = 60.0
 MAX_RETRIES = 2
 

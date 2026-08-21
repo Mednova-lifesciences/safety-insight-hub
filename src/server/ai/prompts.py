@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-08-21.4"
+PROMPT_VERSION = "2026-08-21.5"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -58,11 +58,32 @@ column by its exact original header text, never a renamed or canonical version o
 GENERAL CHECKS (apply regardless of column names): missing required identifying fields (a \
 patient identifier, the suspect product, the reaction/event), invalid or inconsistent date \
 formats, chronology violations (a later step's date running before an earlier one, or any date \
-in the future), duplicate case identifiers, near-duplicate patients (same name/sex/age under \
-different IDs — flag as "possible duplicate — review, do not delete", never as a certainty), \
-implausible demographic values, and malformed columns (a column whose values don't match what it \
-represents at all — e.g. a reaction column full of numeric codes when it should hold text, drug \
-names appearing in a reaction column, or dates appearing in a text field).
+in the future), implausible demographic values, and malformed columns (a column whose values \
+don't match what it represents at all — e.g. a reaction column full of numeric codes when it \
+should hold text, drug names appearing in a reaction column, or dates appearing in a text field). \
+Also watch for column-shift/misalignment: a run of rows where a whole column's worth of values \
+looks like it belongs one or two columns to the left or right of where it appears (e.g. a batch \
+number sitting in what should be the dose column, and the dose value sitting in the batch column, \
+consistently across several consecutive rows) — this points at a spreadsheet-level misalignment \
+rather than independent per-cell errors, so flag it once with a message that names the likely \
+shift, rather than reporting each shifted cell as an unrelated malformed value.
+
+DUPLICATE CASES — grade the certainty explicitly rather than using one blanket "possible \
+duplicate" label; use whichever of these best matches what you actually observe:
+- Exact duplicate: every identifying field (case ID, patient identifier, product, reaction, date) \
+matches another row — CRITICAL, safe to flag as a near-certain data-entry duplicate.
+- Same case ID, different content: the same case identifier appears on rows whose other fields \
+differ — CRITICAL, this is a data-integrity problem regardless of whether it's a duplicate or a \
+reused ID.
+- Same patient, same event, different ID: patient identifier/name/sex/age and the \
+reaction/product plainly match but the case ID differs — HIGH, "likely duplicate — review, do not \
+delete".
+- Same patient, different event: the same patient identifiable across rows but with a different \
+reaction, product, or date — MEDIUM, "same patient reported more than once — confirm these are \
+separate events".
+- Superficially similar, likely coincidental: only a loose partial match (e.g. same age and sex \
+only, common in any AEFI cohort) — do not flag at all; this is normal and flagging it produces \
+noise, not signal.
 
 Outcome and seriousness values: judge these by medical meaning, not exact spelling or a fixed \
 enum. Accept any wording, spacing, punctuation, capitalisation, abbreviation, or language variant \
@@ -213,6 +234,62 @@ Respond with JSON exactly in this shape:
     }
   ]
 }
+"""
+)
+
+
+LINELIST_ADVERSARIAL_REVIEW_PROMPT = (
+    SAFETY_PREAMBLE
+    + """
+TASK: You are a second, independent reviewer auditing another AI reviewer's findings against a \
+pharmacovigilance/AEFI line-list, before those findings ever reach a human. Your job is to be \
+skeptical, not agreeable — the first reviewer's findings are a draft for you to stress-test, not a \
+result to rubber-stamp.
+
+You will be given: the exact original column headers, the specific data rows the first reviewer's \
+findings reference (plus a small sample of other rows for baseline context — the full file is not \
+repeated here), and the first reviewer's complete list of findings against those rows.
+
+For every finding given to you, re-examine it directly against the row data and decide one of:
+- CONFIRM it as-is, if the row data genuinely supports it as stated.
+- ADJUST it, if it is real but its severity or confidence is wrong (e.g. it treats a plausible, \
+medically-meaningful value as an error, or it claims HIGH confidence for what is actually an \
+inferred/judgment call) — keep it, with the corrected severity/confidence and, if needed, a \
+corrected message.
+- DROP it, if it is a false positive: it misjudges a value that is actually valid (e.g. an \
+unusual-looking but medically real outcome, seriousness, or product spelling), it duplicates \
+another finding on the same row/column, or it isn't actually supported by the row data as given.
+
+Then, independently look at the same rows for anything the first reviewer plainly missed that is \
+at least as clear-cut as what it did report — do not go looking for marginal new findings just to \
+justify this pass; only add a finding here if you are confident a careful human reviewer would \
+flag it and would be surprised it was missed.
+
+Apply the same severity scale (CRITICAL/HIGH/MEDIUM/LOW), confidence rule (HIGH only when correct \
+regardless of context; LOW whenever the finding depends on judgment or an inferred column role), \
+and outcome/seriousness medical-meaning tolerance described for the first pass. Do not fabricate a \
+finding, row, or column that isn't grounded in the data you were given. Do not flag a row as a \
+duplicate of itself, and do not repeat the exact same message across multiple rows unless you have \
+individually verified each one independently supports it.
+
+Respond with JSON exactly in this shape — this is the FINAL list of findings that will actually be \
+shown to the human reviewer, so it must include every finding you are confirming or adjusting, plus \
+any you are adding, and must NOT include any you are dropping:
+{
+  "findings": [
+    {
+      "row": <integer, 1-indexed data row>,
+      "column": "<the exact original column header text this finding is about>",
+      "severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+      "confidence": "HIGH" | "LOW",
+      "code": "<SHORT_UPPER_SNAKE_CASE_CODE>",
+      "message": "<one sentence, specific to this row>",
+      "value": <the current value as a string, or null>,
+      "fixable": <true if a safe automatic correction is plausible, false if it needs a human to supply missing information>
+    }
+  ]
+}
+If, after this review, no findings survive, return {"findings": []}.
 """
 )
 

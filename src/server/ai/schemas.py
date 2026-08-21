@@ -38,6 +38,17 @@ class AiLineListAnalysis(BaseModel):
     findings: list[AiLineListFinding]
 
 
+class AiLineListAdversarialReview(BaseModel):
+    """Pass 2's output *is* the final finding list, in the same shape as
+    Pass 1 — the adversarial reviewer returns findings it actually stands
+    behind (with severity/confidence adjusted where warranted), having
+    dropped ones it couldn't support and added any material ones it found
+    while re-examining the same rows. Required, not defaulted, for the
+    same reason as AiLineListAnalysis.findings above."""
+
+    findings: list[AiLineListFinding]
+
+
 class AiLineListCorrection(BaseModel):
     row: int
     column: str

@@ -16,9 +16,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from ..ai.client import AiNotConfiguredError, AiRequestError, is_ai_configured, structured_completion
-from ..ai.prompts import LINELIST_ANALYSIS_PROMPT, LINELIST_FIX_PROMPT, PROMPT_VERSION
-from ..ai.schemas import AiLineListAnalysis, AiLineListFix
+from ..ai.client import AiNotConfiguredError, AiRequestError, VALIDATION_MODEL, is_ai_configured, structured_completion
+from ..ai.prompts import (
+    LINELIST_ADVERSARIAL_REVIEW_PROMPT,
+    LINELIST_ANALYSIS_PROMPT,
+    LINELIST_FIX_PROMPT,
+    PROMPT_VERSION,
+)
+from ..ai.schemas import AiLineListAdversarialReview, AiLineListAnalysis, AiLineListFix
 from ..dependencies import AuthenticatedUser, require_permission
 
 logger = logging.getLogger(__name__)
@@ -28,6 +33,12 @@ router = APIRouter()
 # size — larger files are analysed in multiple calls, each still cheap,
 # rather than one call scaling unboundedly with row count.
 MAX_ROWS_PER_ANALYSIS_CALL = 200
+
+# Pass 2 (adversarial review) gets every row a Pass-1 finding references,
+# plus a small evenly-spaced sample of the rest for baseline context — not
+# the whole file again, since it's re-examining Pass 1's findings, not
+# redoing Pass 1's scan from scratch.
+MAX_ADVERSARIAL_SAMPLE_ROWS = 20
 
 
 class RowIn(BaseModel):
@@ -65,6 +76,67 @@ async def ai_status():
     """Lets the frontend check availability once instead of guessing from
     a failed call, so it can show an accurate "AI unavailable" state."""
     return {"configured": is_ai_configured()}
+
+
+async def _adversarial_review(
+    *,
+    headers: list[str],
+    mapping: dict[str, str],
+    rows: list[dict],
+    findings: list[IssueOut],
+) -> list[IssueOut]:
+    """Pass 2: an independent re-examination of Pass 1's own findings,
+    looking for false positives, miscalibrated severity/confidence, and
+    clear-cut misses — before anything reaches a human reviewer.
+
+    Best-effort only: any failure here (AI not configured, request error,
+    unparseable output) falls back silently to Pass 1's findings, since
+    Pass 1 already produced a usable result on its own.
+    """
+    if not findings:
+        return findings
+
+    rows_by_number = {i + 1: row for i, row in enumerate(rows)}
+    referenced = sorted({f.row for f in findings if f.row in rows_by_number})
+
+    sample: list[int] = []
+    if len(rows) > 0:
+        step = max(1, len(rows) // MAX_ADVERSARIAL_SAMPLE_ROWS)
+        sample = [r for r in range(1, len(rows) + 1, step)][:MAX_ADVERSARIAL_SAMPLE_ROWS]
+
+    row_numbers = sorted(set(referenced) | set(sample))
+    rows_payload = [{"row": r, **rows_by_number[r]} for r in row_numbers if r in rows_by_number]
+
+    try:
+        payload = {
+            "columns": headers,
+            "mapping": mapping,
+            "rows": rows_payload,
+            "findings": [f.model_dump(exclude={"source"}) for f in findings],
+        }
+        completion = await structured_completion(
+            system_prompt=LINELIST_ADVERSARIAL_REVIEW_PROMPT,
+            user_content=json.dumps(payload),
+            model=VALIDATION_MODEL,
+        )
+        parsed = AiLineListAdversarialReview.model_validate(completion.data)
+        return [
+            IssueOut(
+                row=f.row,
+                column=f.column,
+                severity=f.severity,
+                confidence=f.confidence,
+                code=f.code,
+                message=f.message,
+                value=f.value,
+                fixable=f.fixable,
+                source="ai",
+            )
+            for f in parsed.findings
+        ]
+    except Exception as exc:  # AiNotConfiguredError, AiRequestError, or bad output
+        logger.warning("Line-list adversarial review (pass 2) skipped, using pass 1 findings: %s", exc)
+        return findings
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
@@ -105,6 +177,14 @@ async def analyze_linelist(
                 )
                 for f in parsed.findings
             )
+
+        all_findings = await _adversarial_review(
+            headers=request.headers,
+            mapping=request.mapping,
+            rows=request.rows,
+            findings=all_findings,
+        )
+
         return AnalyzeResponse(
             findings=all_findings, ai_used=True, prompt_version=PROMPT_VERSION, model=model_used
         )
