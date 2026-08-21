@@ -160,6 +160,7 @@ async def analyze_linelist(
             completion = await structured_completion(
                 system_prompt=LINELIST_ANALYSIS_PROMPT,
                 user_content=json.dumps(payload),
+                model=VALIDATION_MODEL,
             )
             model_used = completion.model
             parsed = AiLineListAnalysis.model_validate(completion.data)
