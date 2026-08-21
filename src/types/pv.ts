@@ -65,6 +65,45 @@ export interface ConcomitantMedicine {
   indication?: string | undefined;
 }
 
+/**
+ * Case-specific information detected on a source document (image/form)
+ * that doesn't map to any canonical ICSR field above — e.g. a facility
+ * LGA, a hospital department, a country-specific reporting code. The
+ * canonical fields above stay the single source of truth for validation,
+ * E2B mapping, and workflow logic; dynamic fields exist purely so that
+ * real-world source-document information is never silently discarded
+ * just because this app's fixed schema doesn't have a slot for it yet.
+ */
+export interface DynamicField {
+  id: string;
+  label: string;
+  value: string;
+  /** The label exactly as it appeared on the source document, before any
+   *  user rename — absent for a field the user added manually. */
+  originalLabel?: string | undefined;
+  /** 0–1, only meaningful for source === "ai_extraction". */
+  confidence?: number | undefined;
+  source: "ai_extraction" | "user_added";
+  /** "detected" = as extracted, untouched. "edited" = a user has changed
+   *  the label or value — a later extraction pass must never overwrite an
+   *  "edited" field silently. "confirmed" = a user reviewed it as-is
+   *  without changing it. */
+  status: "detected" | "confirmed" | "edited";
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The AI's raw structured-extraction result, kept alongside the
+ *  normalized canonical+dynamic fields for audit/traceability — never
+ *  read by any business logic, purely a record of what the model
+ *  actually returned before the user reviewed/edited anything. */
+export interface RawExtractionRecord {
+  fields: Record<string, unknown>;
+  model?: string | undefined;
+  promptVersion?: string | undefined;
+  extractedAt: string;
+}
+
 export interface ReactionEvent {
   reportedTerm: string;
   onsetDate?: string | undefined;
@@ -105,6 +144,14 @@ export interface CaseSummary {
   priority: Priority;
   flags: string[];
   source: "MANUAL" | "WHATSAPP" | "LINELIST" | "EMAIL";
+  /** Precomputed from CaseDetail.dynamicFields for the cases list page —
+   *  count only, so the list view can show "N additional fields" without
+   *  fetching every case's full detail. Absent/0 when there are none. */
+  dynamicFieldsCount?: number | undefined;
+  /** Precomputed "label value" join of every dynamic field, lower-cased,
+   *  so the list page's existing free-text search can match against
+   *  dynamic-field content without changing how that search works. */
+  dynamicFieldsSearchText?: string | undefined;
 }
 
 export interface CaseDetail extends CaseSummary {
@@ -116,6 +163,14 @@ export interface CaseDetail extends CaseSummary {
    *  suspectProducts. Additive — absent/empty on cases created before
    *  concomitant-medicine capture existed. */
   concomitantMedicines?: ConcomitantMedicine[] | undefined;
+  /** Additive — absent/[] on every case created before this feature
+   *  existed, and never required for canonical ICSR validation, E2B
+   *  generation, or workflow logic. See DynamicField's own doc comment. */
+  dynamicFields?: DynamicField[] | undefined;
+  /** The AI's original extraction output, if this case was created via
+   *  image extraction — kept for audit only, separate from the
+   *  normalized fields above. Absent for manually-typed cases. */
+  rawExtraction?: RawExtractionRecord | undefined;
   narrative: string;
   reportedSeriousnessCriteria: string[];
   followUpRequests: FollowUpRequest[];

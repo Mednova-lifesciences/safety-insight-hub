@@ -28,12 +28,41 @@ MAX_IMAGE_BYTES = 12 * 1024 * 1024
 ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 
 
+class ExtractionSummary(BaseModel):
+    canonical_fields_detected: int
+    dynamic_fields_detected: int
+    low_confidence_fields: int
+
+
 class ExtractionResponse(BaseModel):
     extracted: Optional[dict] = None
     ai_used: bool
     prompt_version: str
     model: Optional[str] = None
     error: Optional[str] = None
+    extraction_summary: Optional[ExtractionSummary] = None
+
+
+# Fields on AiIcsrExtraction that aren't a canonical scalar field — the
+# array/list fields, counted separately in the summary instead.
+_NON_CANONICAL_KEYS = {"suspectedDrugs", "concomitantMedicines", "seriousnessCriteria", "dynamicFields", "lowConfidenceFields"}
+
+
+def _build_extraction_summary(parsed: AiIcsrExtraction) -> ExtractionSummary:
+    # Computed deterministically from the validated response rather than
+    # asked of the model directly — a self-reported count could drift from
+    # what was actually returned; this can't.
+    dumped = parsed.model_dump()
+    canonical_detected = sum(
+        1
+        for key, value in dumped.items()
+        if key not in _NON_CANONICAL_KEYS and value not in (None, "", [])
+    )
+    return ExtractionSummary(
+        canonical_fields_detected=canonical_detected,
+        dynamic_fields_detected=len(parsed.dynamicFields),
+        low_confidence_fields=len(parsed.lowConfidenceFields),
+    )
 
 
 @router.get("/status")
@@ -69,7 +98,11 @@ async def extract_icsr_image(
         )
         parsed = AiIcsrExtraction.model_validate(completion.data)
         return ExtractionResponse(
-            extracted=parsed.model_dump(), ai_used=True, prompt_version=PROMPT_VERSION, model=completion.model
+            extracted=parsed.model_dump(),
+            ai_used=True,
+            prompt_version=PROMPT_VERSION,
+            model=completion.model,
+            extraction_summary=_build_extraction_summary(parsed),
         )
     except AiNotConfiguredError as exc:
         logger.info("ICSR image extraction skipped: %s", exc)

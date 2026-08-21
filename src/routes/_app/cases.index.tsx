@@ -190,6 +190,11 @@ function CaseWorkbench() {
                         <Link to="/cases/$caseId" params={{ caseId: c.id }} className="mono-num font-medium text-primary hover:underline">
                           {c.id}
                         </Link>
+                        {c.dynamicFieldsCount ? (
+                          <StatusPill tone="neutral" className="ml-2">
+                            {c.dynamicFieldsCount} additional
+                          </StatusPill>
+                        ) : null}
                       </td>
                       <td className="mono-num px-3 py-2 whitespace-nowrap">{c.patientIdentifier}</td>
                       <td className="max-w-52 truncate px-3 py-2">{c.product}</td>

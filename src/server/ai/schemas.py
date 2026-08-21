@@ -124,6 +124,23 @@ class AiIcsrConcomitantMed(BaseModel):
     indication: Optional[str] = None
 
 
+class AiIcsrDynamicField(BaseModel):
+    """A meaningful, clearly-labeled field the model found on the source
+    document that does not map to any canonical ICSR field above (e.g. a
+    facility LGA, a hospital department, a country-specific reporting
+    code). The canonical fields remain the single source of truth for
+    validation/E2B/workflow — this exists so that real information on a
+    real form is never silently dropped just because our fixed schema
+    has no slot for it."""
+
+    label: str
+    value: Optional[str] = None
+    # The label exactly as it appeared on the source document — the model
+    # is instructed to prefer this over inventing a standardized name.
+    originalLabel: Optional[str] = None
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
 class AiIcsrExtraction(BaseModel):
     reporterName: Optional[str] = None
     reporterQualification: Optional[str] = None
@@ -156,6 +173,9 @@ class AiIcsrExtraction(BaseModel):
     # Exact strings from the known seriousness-criteria checkbox list that
     # the prompt provides — only ones actually marked/ticked in the image.
     seriousnessCriteria: list[str] = Field(default_factory=list)
+    # Meaningful fields found on the document that don't map to any of the
+    # canonical fields above — see AiIcsrDynamicField's own doc comment.
+    dynamicFields: list[AiIcsrDynamicField] = Field(default_factory=list)
     lowConfidenceFields: list[str] = Field(default_factory=list)
 
     @field_validator("*", mode="before")

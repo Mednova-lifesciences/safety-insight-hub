@@ -132,7 +132,19 @@ export interface AiIcsrExtraction {
   /** Exact labels from the known seriousness-criteria checkbox list that
    *  the image showed as actually marked. */
   seriousnessCriteria?: string[];
+  /** Meaningful fields found on the document that don't map to any
+   *  canonical field above — never silently discarded just because our
+   *  fixed schema has no slot for them yet. Absent on responses from
+   *  before this field existed. */
+  dynamicFields?: AiIcsrDynamicFieldFinding[];
   lowConfidenceFields: string[];
+}
+
+export interface AiIcsrDynamicFieldFinding {
+  label: string;
+  value: string | null;
+  originalLabel: string | null;
+  confidence: number | null;
 }
 
 export interface AiIcsrDrugFinding {
@@ -152,12 +164,19 @@ export interface AiIcsrConcomitantMed {
   indication: string | null;
 }
 
+export interface AiIcsrExtractionSummary {
+  canonical_fields_detected: number;
+  dynamic_fields_detected: number;
+  low_confidence_fields: number;
+}
+
 export interface AiIcsrExtractionResponse {
   extracted: AiIcsrExtraction | null;
   ai_used: boolean;
   prompt_version: string;
   model?: string | null;
   error?: string | null;
+  extraction_summary?: AiIcsrExtractionSummary | null;
 }
 
 export const ai = {

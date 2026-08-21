@@ -4,8 +4,10 @@ import { linelist, type ParsedRow } from "./linelist";
 import type {
   CaseDetail,
   CaseSummary,
+  DynamicField,
   FollowUpRequest,
   LineListJob,
+  RawExtractionRecord,
   Seriousness,
   WorkflowStep,
 } from "@/types/pv";
@@ -33,6 +35,20 @@ export interface NewIcsrPayload {
    *  this field existed — `product` alone still becomes suspectProducts[0]. */
   additionalProducts?: Record<string, unknown>[];
   concomitantMedicines?: Record<string, unknown>[];
+  /** Case-specific information detected on the source document that
+   *  doesn't map to any canonical field — see DynamicField's own doc
+   *  comment in types/pv.ts. Absent/empty behaves exactly as before this
+   *  field existed. */
+  dynamicFields?: Array<{
+    id?: string;
+    label: string;
+    value?: string;
+    originalLabel?: string;
+    confidence?: number;
+    source?: "ai_extraction" | "user_added";
+    status?: "detected" | "confirmed" | "edited";
+  }>;
+  rawExtraction?: RawExtractionRecord;
 }
 
 const str = (v: unknown, fallback = "") =>
@@ -57,10 +73,20 @@ export const cases = {
   list: async (filters: CaseFilters = {}): Promise<CaseSummary[]> => {
     const rows = await allCases();
     const q = filters.q?.toLowerCase().trim();
-    return rows.filter((c) => {
+    const withDynamicSummary: CaseSummary[] = rows.map((c) => ({
+      ...c,
+      dynamicFieldsCount: c.dynamicFields?.length ?? 0,
+      dynamicFieldsSearchText: (c.dynamicFields ?? [])
+        .map((f) => `${f.label} ${f.value}`)
+        .join(" ")
+        .toLowerCase(),
+    }));
+    return withDynamicSummary.filter((c) => {
       if (
         q &&
-        !`${c.id} ${c.product} ${c.reaction} ${c.patientIdentifier}`.toLowerCase().includes(q)
+        !`${c.id} ${c.product} ${c.reaction} ${c.patientIdentifier} ${c.dynamicFieldsSearchText ?? ""}`
+          .toLowerCase()
+          .includes(q)
       )
         return false;
       if (filters.status && filters.status !== "ALL" && c.workflowStep !== filters.status)
@@ -173,6 +199,20 @@ export const cases = {
       ],
       narrative: payload.narrative,
       reportedSeriousnessCriteria: payload.seriousnessCriteria,
+      dynamicFields: (payload.dynamicFields ?? [])
+        .filter((f) => f.label.trim().length > 0)
+        .map((f) => ({
+          id: f.id ?? newId("dyn"),
+          label: f.label.trim(),
+          value: str(f.value),
+          originalLabel: f.originalLabel ?? f.label.trim(),
+          confidence: typeof f.confidence === "number" ? f.confidence : undefined,
+          source: f.source ?? "ai_extraction",
+          status: f.status ?? "detected",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })),
+      rawExtraction: payload.rawExtraction,
       followUpRequests: [],
       workflowState: stepStates("INTAKE"),
     };
@@ -430,6 +470,36 @@ export const cases = {
       previousValue: detail.workflowStep,
       newValue: "INTAKE",
       reason,
+    });
+    return next;
+  },
+
+  /**
+   * Replaces a case's dynamic (non-canonical) field list wholesale — the
+   * caller sends the full, already-edited array (added/edited/removed),
+   * since editing happens client-side before one save. Deliberately
+   * independent of updateAndResubmit/canEditThisCase: dynamic fields are
+   * supplementary case metadata, not core clinical data, so they don't
+   * require the stricter resubmit-to-Intake workflow reset that editing
+   * patient/reporter/product/reaction does.
+   */
+  updateDynamicFields: async (
+    caseId: string,
+    dynamicFields: DynamicField[],
+  ): Promise<CaseDetail> => {
+    const detail = await cases.get(caseId);
+    const next: CaseDetail = { ...detail, dynamicFields };
+    const { error } = await supabase
+      .from("pv_cases")
+      .update({ data: toJson(next), updated_at: new Date().toISOString() })
+      .eq("id", caseId);
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      action: "CASE_DYNAMIC_FIELDS_UPDATED",
+      entity: "Case",
+      entityId: caseId,
+      previousValue: `${detail.dynamicFields?.length ?? 0} field(s)`,
+      newValue: `${dynamicFields.length} field(s)`,
     });
     return next;
   },

@@ -1,9 +1,10 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { cases as casesApi } from "@/services/api/cases";
 import { audit as auditApi } from "@/services/api/audit";
+import { newId } from "@/services/api/db";
 import { demoAudit, demoCaseDetails } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { isNotConfigured } from "@/services/api/client";
@@ -31,6 +32,7 @@ import {
   WORKFLOW_STEPS,
   type CaseDetail,
   type CaseOutcome,
+  type DynamicField,
   type FollowUpRequest,
   type WorkflowStep,
 } from "@/types/pv";
@@ -577,6 +579,170 @@ function CaseEditForm({ c, onSubmitted }: { c: CaseDetail; onSubmitted: () => vo
   );
 }
 
+/**
+ * Case-specific information detected on the source document that doesn't
+ * map to any canonical ICSR field — see DynamicField's doc comment in
+ * types/pv.ts. Deliberately its own save path, independent of
+ * CaseEditForm/updateAndResubmit: these are supplementary fields, not
+ * core clinical data, so editing them doesn't require the stricter
+ * resubmit-to-Intake reset. Renders nothing when there are no fields and
+ * the viewer can't add any, per the "don't show an empty section" rule.
+ */
+function DynamicFieldsSection({
+  caseId,
+  fields,
+  editable,
+  onSaved,
+}: {
+  caseId: string;
+  fields: DynamicField[];
+  editable: boolean;
+  onSaved: () => void;
+}) {
+  const [draft, setDraft] = useState<DynamicField[]>(fields);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Stay in sync with a refetched case (e.g. another tab's change), but
+  // never clobber edits still in progress on this page.
+  useEffect(() => {
+    if (!dirty) setDraft(fields);
+  }, [fields, dirty]);
+
+  if (draft.length === 0 && !editable) return null;
+
+  async function save() {
+    setSaving(true);
+    try {
+      await casesApi.updateDynamicFields(caseId, draft);
+      toast.success("Additional fields saved.");
+      setDirty(false);
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save additional fields.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Additional fields"
+      description="Case-specific information found on the source document that isn't part of the standard ICSR fields."
+    >
+      {draft.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No additional fields on this case.</p>
+      ) : (
+        <div className="space-y-2">
+          {draft.map((field) => (
+            <div
+              key={field.id}
+              className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+            >
+              {editable ? (
+                <>
+                  <div className="space-y-1.5">
+                    <div className="label-caps">Field name</div>
+                    <Input
+                      value={field.label}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setDraft((prev) =>
+                          prev.map((f) =>
+                            f.id === field.id
+                              ? { ...f, label: v, status: "edited", updatedAt: new Date().toISOString() }
+                              : f,
+                          ),
+                        );
+                        setDirty(true);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="label-caps">Value</div>
+                    <Input
+                      value={field.value}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setDraft((prev) =>
+                          prev.map((f) =>
+                            f.id === field.id
+                              ? { ...f, value: v, status: "edited", updatedAt: new Date().toISOString() }
+                              : f,
+                          ),
+                        );
+                        setDirty(true);
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Field label="Field name" value={field.label} />
+                  <Field label="Value" value={field.value} />
+                </>
+              )}
+              <div className="flex items-center gap-2">
+                <StatusPill tone={field.source === "ai_extraction" ? "assist" : "neutral"}>
+                  {field.source === "ai_extraction" ? "AI detected" : "Added"}
+                </StatusPill>
+                {typeof field.confidence === "number" && field.confidence < 0.7 ? (
+                  <StatusPill tone="warning">Needs review</StatusPill>
+                ) : null}
+                {editable ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setDraft((prev) => prev.filter((f) => f.id !== field.id));
+                      setDirty(true);
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {editable ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const now = new Date().toISOString();
+              setDraft((prev) => [
+                ...prev,
+                {
+                  id: newId("dyn"),
+                  label: "",
+                  value: "",
+                  source: "user_added",
+                  status: "confirmed",
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              ]);
+              setDirty(true);
+            }}
+          >
+            <Plus className="size-4" /> Add a field
+          </Button>
+          {dirty ? (
+            <Button type="button" size="sm" disabled={saving} onClick={save}>
+              {saving ? "Saving…" : "Save additional fields"}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </Section>
+  );
+}
+
 function CaseDetailPage() {
   const { caseId } = Route.useParams();
   const canCode = usePermission("coding.review");
@@ -800,6 +966,13 @@ function CaseDetailPage() {
                       )}
                     </div>
                   </Section>
+
+                  <DynamicFieldsSection
+                    caseId={c.id}
+                    fields={c.dynamicFields ?? []}
+                    editable={canEditThisCase || role !== "FIELD_ASSOCIATE"}
+                    onSaved={() => query.refetch()}
+                  />
                 </TabsContent>
 
                 <TabsContent value="seriousness" className="mt-4">

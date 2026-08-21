@@ -5,6 +5,8 @@ import { ArrowRight, ImageUp, Plus, Save, Sparkles, Trash2 } from "lucide-react"
 import { cases as casesApi } from "@/services/api/cases";
 import { ai } from "@/services/api/ai";
 import { isNotConfigured } from "@/services/api/client";
+import { newId } from "@/services/api/db";
+import type { DynamicField } from "@/types/pv";
 import { PageHeader, Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -188,6 +190,13 @@ function NewIcsrPage() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [additionalProducts, setAdditionalProducts] = useState<DrugRow[]>([]);
   const [concomitantMeds, setConcomitantMeds] = useState<ConcomitantRow[]>([]);
+  const [dynamicFields, setDynamicFields] = useState<DynamicField[]>([]);
+  const [rawExtraction, setRawExtraction] = useState<{
+    fields: Record<string, unknown>;
+    model?: string;
+    promptVersion?: string;
+    extractedAt: string;
+  } | null>(null);
   const [lowConfidenceFields, setLowConfidenceFields] = useState<string[]>([]);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [aiUnavailableNote, setAiUnavailableNote] = useState<string | null>(null);
@@ -276,8 +285,57 @@ function NewIcsrPage() {
         if (matched.length > 0) setCriteria(matched);
       }
 
+      const detectedDynamic = e.dynamicFields ?? [];
+      if (detectedDynamic.length > 0) {
+        const now = new Date().toISOString();
+        setDynamicFields((prev) => {
+          const next = [...prev];
+          for (const d of detectedDynamic) {
+            if (!d.label?.trim()) continue;
+            const matchKey = (d.originalLabel ?? d.label).trim().toLowerCase();
+            const existingIdx = next.findIndex(
+              (f) => (f.originalLabel ?? f.label).trim().toLowerCase() === matchKey,
+            );
+            if (existingIdx >= 0) {
+              // Never let a re-extraction silently overwrite a value the
+              // user has already reviewed and changed.
+              if (next[existingIdx]!.status === "edited") continue;
+              next[existingIdx] = {
+                ...next[existingIdx]!,
+                value: d.value ?? next[existingIdx]!.value,
+                confidence: d.confidence ?? next[existingIdx]!.confidence,
+                updatedAt: now,
+              };
+            } else {
+              next.push({
+                id: newId("dyn"),
+                label: d.label.trim(),
+                value: d.value ?? "",
+                originalLabel: d.originalLabel ?? d.label,
+                confidence: d.confidence ?? undefined,
+                source: "ai_extraction",
+                status: "detected",
+                createdAt: now,
+                updatedAt: now,
+              });
+            }
+          }
+          return next;
+        });
+      }
+
+      setRawExtraction({
+        fields: e as unknown as Record<string, unknown>,
+        model: result.model ?? undefined,
+        promptVersion: result.prompt_version,
+        extractedAt: new Date().toISOString(),
+      });
+
       const populatedCount =
-        Object.keys(mapped).length + drugs.slice(1).length + (e.concomitantMedicines?.length ?? 0);
+        Object.keys(mapped).length +
+        drugs.slice(1).length +
+        (e.concomitantMedicines?.length ?? 0) +
+        detectedDynamic.length;
       if (populatedCount === 0) {
         toast.info(
           "No fields could be confidently extracted from this image. Enter details manually.",
@@ -337,6 +395,8 @@ function NewIcsrPage() {
         additionalInformation: form["additional"] ?? "",
         additionalProducts: additionalProducts.filter((p) => p.reportedName.trim().length > 0),
         concomitantMedicines: concomitantMeds.filter((m) => m.name.trim().length > 0),
+        dynamicFields: dynamicFields.filter((f) => f.label.trim().length > 0),
+        rawExtraction: rawExtraction ?? undefined,
       });
       toast.success(`Case ${created.caseId} created.`);
       navigate({ to: "/cases/$caseId", params: { caseId: created.caseId } });
@@ -430,6 +490,105 @@ function NewIcsrPage() {
             </div>
           ) : null}
         </Section>
+
+        <Section
+          title="Additional fields detected"
+          description="These fields were found in the source document but are not part of the standard ICSR fields. Review, edit, or remove them — nothing here is required to submit."
+        >
+            <div className="space-y-2">
+              {dynamicFields.map((field) => {
+                const needsReview =
+                  field.source === "ai_extraction" &&
+                  typeof field.confidence === "number" &&
+                  field.confidence < 0.7;
+                return (
+                  <div
+                    key={field.id}
+                    className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+                  >
+                    <FieldRow id={`dyn-${field.id}-label`} label="Field name">
+                      <Input
+                        id={`dyn-${field.id}-label`}
+                        value={field.label}
+                        onChange={(e) =>
+                          setDynamicFields((prev) =>
+                            prev.map((f) =>
+                              f.id === field.id
+                                ? {
+                                    ...f,
+                                    label: e.target.value,
+                                    status: f.source === "ai_extraction" ? "edited" : f.status,
+                                    updatedAt: new Date().toISOString(),
+                                  }
+                                : f,
+                            ),
+                          )
+                        }
+                      />
+                    </FieldRow>
+                    <FieldRow id={`dyn-${field.id}-value`} label="Value">
+                      <Input
+                        id={`dyn-${field.id}-value`}
+                        value={field.value}
+                        onChange={(e) =>
+                          setDynamicFields((prev) =>
+                            prev.map((f) =>
+                              f.id === field.id
+                                ? {
+                                    ...f,
+                                    value: e.target.value,
+                                    status: f.source === "ai_extraction" ? "edited" : f.status,
+                                    updatedAt: new Date().toISOString(),
+                                  }
+                                : f,
+                            ),
+                          )
+                        }
+                      />
+                    </FieldRow>
+                    <div className="flex items-center gap-2">
+                      <StatusPill tone={field.source === "ai_extraction" ? "assist" : "neutral"}>
+                        {field.source === "ai_extraction" ? "AI detected" : "Added"}
+                      </StatusPill>
+                      {needsReview ? <StatusPill tone="warning">Needs review</StatusPill> : null}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setDynamicFields((prev) => prev.filter((f) => f.id !== field.id))
+                        }
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const now = new Date().toISOString();
+                  setDynamicFields((prev) => [
+                    ...prev,
+                    {
+                      id: newId("dyn"),
+                      label: "",
+                      value: "",
+                      source: "user_added",
+                      status: "confirmed",
+                      createdAt: now,
+                      updatedAt: now,
+                    },
+                  ]);
+                }}
+              >
+                <Plus className="size-4" /> Add a field
+              </Button>
+            </div>
+          </Section>
 
         <Section
           title="Minimum ICSR criteria"

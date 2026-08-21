@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-08-21.5"
+PROMPT_VERSION = "2026-08-21.6"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -431,6 +431,25 @@ handwriting), return null for that field — do not guess. This extraction is re
 by a human before anything is submitted, so it is far better to leave a field blank than to fill \
 it with an invented or low-confidence value.
 
+Inspect the ENTIRE document, not only the fields listed below. Real intake forms vary by country \
+and facility — some carry information this application's canonical field list doesn't have a slot \
+for yet (a facility LGA, a hospital department/ward, a local case number, an additional reporter \
+identifier, a country-specific reporting code, or anything else clearly labeled and meaningful). \
+Never silently drop a clearly labeled, meaningful field just because it isn't one of the named \
+fields below:
+- First, try to map what you find to one of the canonical fields listed below (including the \
+suspect-drug/concomitant-medicine/seriousness-criteria structures) — use the canonical field \
+whenever the source content genuinely matches its meaning, regardless of the exact label the form \
+uses for it.
+- If a clearly-labeled, meaningful piece of information does NOT correspond to any canonical field, \
+preserve it as an entry in "dynamicFields" instead of discarding it. Use the field's own label from \
+the source document as "originalLabel" (and as "label", unless a short cleanup of obvious OCR noise \
+makes it clearer — never rephrase or reinterpret its meaning). Do not invent a dynamic field that \
+isn't actually present and labeled on the document, and do not duplicate something already captured \
+in a canonical field.
+- Give every dynamic field a "confidence" between 0 and 1 reflecting how certain you are of both the \
+label and the value.
+
 Some reports name more than one suspected drug, and separately list concomitant (non-suspect) \
 medications the patient was also taking. Handle both:
 - "suspectedDrugs": one entry per drug the report identifies as suspect (caused or contributed to \
@@ -494,6 +513,14 @@ confidently extracted):
     }
   ],
   "seriousnessCriteria": [<zero or more of the exact checkbox labels listed above>],
+  "dynamicFields": [
+    {
+      "label": "<the field's label, normally identical to originalLabel>",
+      "value": <string or null>,
+      "originalLabel": "<the label exactly as it appears on the source document>",
+      "confidence": <number between 0 and 1>
+    }
+  ],
   "lowConfidenceFields": [<array of field names above that you extracted but are not fully confident in>]
 }
 """
