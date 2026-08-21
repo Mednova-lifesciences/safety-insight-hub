@@ -29,7 +29,7 @@ from openai import APIConnectionError, APIError, APITimeoutError, AsyncOpenAI, R
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
 DEFAULT_TIMEOUT_SECONDS = 60.0
 MAX_RETRIES = 2

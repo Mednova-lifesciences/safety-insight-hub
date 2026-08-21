@@ -62,6 +62,13 @@ interface PsurDocumentRow extends PsurDocument {
   columns?: string[];
   mapping?: Record<string, PsurField>;
   parsedRows?: ParsedCaseRow[];
+  /** Every original column, keyed by its real header text, for every row
+   *  — unlike parsedRows (canonical PsurField-only), nothing is dropped
+   *  here. Sent to AI review/fix instead of parsedRows so a column
+   *  outside the fixed field list is never invisible to the AI pass.
+   *  Absent for any PSUR document not sourced from a raw spreadsheet
+   *  (e.g. a PDF, which has no tabular columns to begin with). */
+  rawRows?: Record<string, string>[];
   fixedAt?: string;
   fixResolvedCount?: number;
   fixUnresolvedCount?: number;
@@ -298,6 +305,13 @@ export const psur = {
           });
           return parsed;
         });
+        const rawRows: Record<string, string>[] = rows.map((row) => {
+          const obj: Record<string, string> = {};
+          headers.forEach((header, i) => {
+            obj[header] = row[i] ?? "";
+          });
+          return obj;
+        });
         doc = {
           id: newId("psur"),
           filename: file.name,
@@ -313,6 +327,7 @@ export const psur = {
           columns: headers,
           mapping,
           parsedRows,
+          rawRows,
         };
       } catch (err) {
         doc = {
@@ -425,7 +440,7 @@ export const psur = {
           const aiResult = await ai.psur.reviewSpreadsheet({
             filename: document.filename,
             columns: document.columns ?? [],
-            rows: document.parsedRows as Record<string, string>[],
+            rows: (document.rawRows ?? document.parsedRows) as Record<string, string>[],
             product: document.product,
             reportingPeriod: document.reportingPeriod,
             stats,
@@ -538,7 +553,7 @@ export const psur = {
         evidence: f.evidence,
       })),
       columns: document.columns,
-      rows: document.parsedRows as Record<string, string>[] | undefined,
+      rows: (document.rawRows ?? document.parsedRows) as Record<string, string>[] | undefined,
     });
 
     const resolutionByFindingId = new Map(fixResult.resolutions.map((r) => [r.finding_id, r]));
@@ -564,18 +579,32 @@ export const psur = {
 
     let updatedDoc: PsurDocumentRow = document;
     if (document.sourceType === "SPREADSHEET" && document.parsedRows) {
-      const rows = [...document.parsedRows];
+      // A resolution's column may reference any original header, not just
+      // one of the fixed PsurField names — never drop it just because it
+      // isn't one of those. Write into rawRows by original header (what
+      // the export reads from) and into parsedRows too when that header
+      // also happens to map to a canonical PsurField.
+      const parsedRows = [...document.parsedRows];
+      const rawRows = document.rawRows ? [...document.rawRows] : undefined;
       for (const r of fixResult.resolutions) {
         if (r.row == null || !r.column) continue;
         const idx = r.row - 1;
-        if (idx < 0 || idx >= rows.length) continue;
-        const field = r.column as PsurField;
-        if (!(field in PSUR_FIELD_KEYWORDS)) continue;
-        const currentRow = rows[idx];
-        if (!currentRow) continue;
-        rows[idx] = { ...currentRow, [field]: r.new_value ?? currentRow[field] };
+        if (idx < 0) continue;
+        if (rawRows && idx < rawRows.length && r.column in rawRows[idx]!) {
+          rawRows[idx] = { ...rawRows[idx]!, [r.column]: r.new_value ?? rawRows[idx]![r.column] };
+        }
+        const canonicalField = document.mapping?.[r.column];
+        if (canonicalField && idx < parsedRows.length) {
+          const currentRow = parsedRows[idx];
+          if (currentRow) {
+            parsedRows[idx] = {
+              ...currentRow,
+              [canonicalField]: r.new_value ?? currentRow[canonicalField],
+            };
+          }
+        }
       }
-      updatedDoc = { ...document, parsedRows: rows };
+      updatedDoc = { ...document, parsedRows, ...(rawRows ? { rawRows } : {}) };
     }
 
     updatedDoc = {
@@ -611,17 +640,26 @@ export const psur = {
     const doc = await readDocument(documentId);
     const findings = await readFindings(documentId);
 
-    if (doc.sourceType === "SPREADSHEET" && doc.columns && doc.mapping && doc.parsedRows) {
-      const { columns, mapping, parsedRows } = doc;
+    if (doc.sourceType === "SPREADSHEET" && doc.columns && (doc.rawRows || (doc.mapping && doc.parsedRows))) {
+      const { columns } = doc;
       const escapeCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-      const lines = [
-        columns.map(escapeCell).join(","),
-        ...parsedRows.map((row) =>
-          columns
-            .map((header) => escapeCell(mapping[header] ? (row[mapping[header]] ?? "") : ""))
-            .join(","),
-        ),
-      ];
+      // Read from rawRows (every original column, post-fix) when present
+      // — falling back to the canonical-field reconstruction only for a
+      // document with no raw parse at all, which would otherwise blank
+      // every column outside the fixed PsurField list.
+      const lines = doc.rawRows
+        ? [
+            columns.map(escapeCell).join(","),
+            ...doc.rawRows.map((row) => columns.map((header) => escapeCell(row[header] ?? "")).join(",")),
+          ]
+        : [
+            columns.map(escapeCell).join(","),
+            ...doc.parsedRows!.map((row) =>
+              columns
+                .map((header) => escapeCell(doc.mapping![header] ? (row[doc.mapping![header]!] ?? "") : ""))
+                .join(","),
+            ),
+          ];
       const blob = new Blob([lines.join("\n")], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
       try {

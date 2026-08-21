@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-08-21.2"
+PROMPT_VERSION = "2026-08-21.4"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -113,7 +113,17 @@ implausible, e.g. a product typically given only to infants recorded against a m
 age.
 - Structural rows: a title row, a merged-cell artefact, or a trailing footer/legend row (e.g. a \
 "key to summary findings" block) must not be treated as a data row — flag the row itself as \
-structural rather than producing per-column findings against its cells.
+structural rather than producing per-column findings against its cells. Do NOT flag a row as \
+structural merely because one column repeats the same value as many other rows — a country, \
+state, facility, or reporting-period column is expected to hold the same value across every \
+genuine case row in the file, and that repetition alone is normal data, not a title artefact. \
+Only flag a row as structural when most or all of its other columns are also empty, blank, or \
+plainly non-data (not real per-case values like an age, a name, a reaction, or a date). Evaluate \
+every row independently on its own contents — never copy a finding (row, column, message) from \
+one row onto another merely because they share a value; if you are about to report the same \
+message for more than a couple of consecutive rows, stop and re-check each of those rows \
+individually before including it, since real per-case data essentially never produces that many \
+consecutive identical findings.
 
 SEVERITY — use exactly one of these four values for every finding, matching how a human reviewer \
 would actually weigh it:
@@ -246,13 +256,23 @@ PSUR_REVIEW_SPREADSHEET_PROMPT = (
 TASK: Review a PSUR/PBRER cumulative/interval summary tabulation (a spreadsheet listing cases \
 for the reporting period) and identify findings for a human reviewer.
 
-You will be given the mapped columns, the row data, and pre-computed summary statistics (total \
-case count, serious count, fatal count, counts of rows missing seriousness/outcome). Use the \
-real data given to you — do not invent numbers that aren't derivable from it.
+You will be given every original column from the file (not just the ones the app's own keyword \
+matcher recognised), the row data as JSON keyed by the exact original column header text, a \
+`mapping` hint showing which columns the app's deterministic matcher already recognised as one \
+of product/reaction/seriousness/outcome/case_date, and pre-computed summary statistics (total \
+case count, serious count, fatal count, counts of rows missing seriousness/outcome, computed only \
+from the columns the deterministic matcher recognised). Trust the `mapping` hint where given, but \
+for every column, recognised or not, infer its role the way an experienced reviewer opens an \
+unfamiliar spreadsheet: from its header text and the values across the sample rows. Do not skip a \
+column just because it has no `mapping` entry. Use only the real data given to you — do not \
+invent numbers, values, or column meanings that aren't derivable from what you were given.
 
-Look for: data-completeness gaps (rows missing seriousness/outcome/product/reaction), any \
-internal inconsistency you can observe directly in the rows, and a benefit-risk cross-reference \
-reminder. Numbers you report must be computed from the actual rows provided.
+Look for: data-completeness gaps (rows missing seriousness/outcome/product/reaction, or any other \
+column you've identified as clearly required), any internal inconsistency you can observe \
+directly in the rows (including in columns outside the recognised set — e.g. a batch/lot column \
+that's empty or a placeholder, a reporter-contact column that's empty or malformed), and a \
+benefit-risk cross-reference reminder. Numbers you report must be computed from the actual rows \
+provided, and must always refer to a column by its exact original header text.
 
 Respond with JSON exactly in this shape:
 {
@@ -260,7 +280,7 @@ Respond with JSON exactly in this shape:
     {
       "category": "MISSING_SECTION" | "CONSISTENCY" | "NUMERICAL" | "SIGNAL" | "BENEFIT_RISK",
       "severity": "HIGH" | "MEDIUM" | "LOW",
-      "section": "<topic name>",
+      "section": "<topic name, or the exact original column header text if this finding is about a specific column>",
       "description": "<one to two sentences>",
       "evidence": "<what in the data supports this, e.g. exact counts>"
     }
@@ -278,13 +298,17 @@ real problems worth fixing — do not second-guess whether they're valid), propo
 correction or content that should be added/changed to resolve it.
 
 You will be given: the document's metadata, the accepted findings (each with its category, \
-section, description and evidence), and — for a spreadsheet-sourced document — the row data \
-so you can propose exact cell-level corrections the same way the line-list fix workflow does.
+section, description and evidence), and — for a spreadsheet-sourced document — every original \
+column header and the row data keyed by the exact original column header text, so you can \
+propose exact cell-level corrections the same way the line-list fix workflow does. A finding may \
+concern any original column, not only ones matching a fixed field name — never decline to \
+propose a correction just because a column isn't one of those.
 
 Only address the findings given to you. Do not propose changes unrelated to an accepted \
 finding. If a finding cannot be safely resolved without information you don't have (e.g. it \
-requires a fact only the company can supply, like an internal case count reconciliation), mark \
-it unresolved with a clear explanation rather than fabricating the missing information.
+requires a fact only the company can supply, like an internal case count reconciliation, or the \
+document's text was truncated before the relevant section), mark it unresolved with a clear \
+explanation rather than fabricating the missing information.
 
 Respond with JSON exactly in this shape:
 {
@@ -293,7 +317,7 @@ Respond with JSON exactly in this shape:
       "finding_id": "<the finding's id, copied exactly as given>",
       "resolution_text": "<the specific correction, addition, or content to resolve this finding>",
       "row": <integer or null — only for spreadsheet corrections that change a specific cell>,
-      "column": "<field name or null — only for spreadsheet corrections>",
+      "column": "<the exact original column header text, or null — only for spreadsheet corrections>",
       "new_value": "<corrected cell value as a string, or null>"
     }
   ],
