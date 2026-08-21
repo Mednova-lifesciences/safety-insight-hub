@@ -1,10 +1,17 @@
 import type { AuditEvent } from "@/types/pv";
 import { StatusPill } from "./primitives";
 import { cn } from "@/lib/utils";
+import { ROLE_LABELS, type Role } from "@/lib/auth";
 
 function formatTs(ts: string) {
   const d = new Date(ts);
   return Number.isNaN(d.getTime()) ? ts : d.toISOString().replace("T", " ").slice(0, 16) + " UTC";
+}
+
+/** Older/legacy role strings (e.g. a plain "MANAGER" alias) fall back to
+ *  the raw value rather than showing blank. */
+function roleLabel(role: string): string {
+  return ROLE_LABELS[role as Role] ?? role;
 }
 
 /** Reusable audit timeline. Every regulated action recorded by the backend
@@ -35,14 +42,16 @@ export function AuditTimeline({
           </div>
           <div className={cn("min-w-0 flex-1", dense ? "pb-4" : "pb-5")}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="mono-num text-xs text-muted-foreground">{formatTs(e.timestamp)}</span>
+              <span className="mono-num text-xs text-muted-foreground">
+                {formatTs(e.timestamp)}
+              </span>
               <StatusPill tone="info">{e.action.replaceAll("_", " ").toLowerCase()}</StatusPill>
               <span className="text-xs text-muted-foreground">
                 {e.entity} · <span className="mono-num">{e.entityId}</span>
               </span>
             </div>
             <p className="mt-1 text-sm text-foreground">
-              {e.user} <span className="text-muted-foreground">({e.role})</span>
+              {e.user} <span className="text-muted-foreground">({roleLabel(e.role)})</span>
             </p>
             {e.previousValue || e.newValue ? (
               <p className="mt-1 text-xs text-muted-foreground">

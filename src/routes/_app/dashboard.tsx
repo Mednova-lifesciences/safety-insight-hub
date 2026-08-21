@@ -22,7 +22,10 @@ export const Route = createFileRoute("/_app/dashboard")({
   head: () => ({
     meta: [
       { title: "Dashboard — MedNova PV Assist" },
-      { name: "description", content: "Assigned cases, attention items, follow-ups and recent audited activity." },
+      {
+        name: "description",
+        content: "Assigned cases, attention items, follow-ups and recent audited activity.",
+      },
       { property: "og:title", content: "Dashboard — MedNova PV Assist" },
       { property: "og:description", content: "Daily pharmacovigilance operations overview." },
     ],
@@ -47,7 +50,11 @@ function Metric({
       <p
         className={
           "mono-num mt-1 text-2xl font-semibold " +
-          (tone === "critical" ? "text-critical" : tone === "warning" ? "text-warning" : "text-foreground")
+          (tone === "critical"
+            ? "text-critical"
+            : tone === "warning"
+              ? "text-warning"
+              : "text-foreground")
         }
       >
         {value}
@@ -71,7 +78,7 @@ function DashboardPage() {
     case "PV_COORDINATOR":
       return <CoordinatorDashboard />;
     case "PV_MANAGER":
-      return <ManagerDashboard />;
+      return <AdminDashboard />;
     case "ADMIN":
       return <AdminDashboard />;
     default:
@@ -81,11 +88,22 @@ function DashboardPage() {
 
 function CoordinatorDashboard() {
   const { user } = useAuth();
-  const casesQuery = usePvQuery(["cases"], () => casesApi.list(), () => demoCases);
-  const auditQuery = usePvQuery(["audit", "recent"], () => auditApi.list({ limit: 6 }), () => demoAudit.slice(0, 5));
+  const casesQuery = usePvQuery(
+    ["cases"],
+    () => casesApi.list(),
+    () => demoCases,
+  );
+  const auditQuery = usePvQuery(
+    ["audit", "recent"],
+    () => auditApi.list({ limit: 6 }),
+    () => demoAudit.slice(0, 5),
+  );
   return (
     <>
-      <PageHeader title="Coordinator queue" description={`${user?.name ?? "Coordinator"} — process, code and validate the organisation's incoming cases.`} />
+      <PageHeader
+        title="Coordinator queue"
+        description={`${user?.name ?? "Coordinator"} — process, code and validate the organisation's incoming cases.`}
+      />
       <div className="space-y-4 p-6">
         <QueryBoundary query={casesQuery} loadingLabel="Loading coordinator queue">
           {(items, source) => {
@@ -93,32 +111,42 @@ function CoordinatorDashboard() {
             const review = items.filter((item) => item.workflowStep === "REVIEW").length;
             return (
               <>
-                <div className="flex items-center justify-between"><p className="label-caps">Processing queue</p><SourceTag source={source} /></div>
-                <div className="grid gap-3 sm:grid-cols-3"><Metric label="Cases in queue" value={items.length} to="/cases" /><Metric label="Coding backlog" value={coding} tone="warning" to="/cases" /><Metric label="Awaiting review" value={review} to="/cases" /></div>
+                <div className="flex items-center justify-between">
+                  <p className="label-caps">Processing queue</p>
+                  <SourceTag source={source} />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Metric label="Cases in queue" value={items.length} to="/cases" />
+                  <Metric label="Coding backlog" value={coding} tone="warning" to="/cases" />
+                  <Metric label="Awaiting review" value={review} to="/cases" />
+                </div>
               </>
             );
           }}
         </QueryBoundary>
         <div className="grid gap-4 xl:grid-cols-2">
-          <Section title="Coordinator actions" description="Workflows available to the processing team."><div className="flex flex-wrap gap-2"><Button asChild><Link to="/line-list">Process line-list</Link></Button><Button asChild variant="outline"><Link to="/e2b">Prepare E2B(R3)</Link></Button><Button asChild variant="outline"><Link to="/psur">Review PSUR</Link></Button></div></Section>
-          <Section title="Recent activity"><QueryBoundary query={auditQuery}>{(events) => <AuditTimeline events={events} dense />}</QueryBoundary></Section>
+          <Section
+            title="Coordinator actions"
+            description="Workflows available to the processing team."
+          >
+            <div className="flex flex-wrap gap-2">
+              <Button asChild>
+                <Link to="/line-list">Process line-list</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/e2b">Prepare E2B(R3)</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/psur">Review PSUR</Link>
+              </Button>
+            </div>
+          </Section>
+          <Section title="Recent activity">
+            <QueryBoundary query={auditQuery}>
+              {(events) => <AuditTimeline events={events} dense />}
+            </QueryBoundary>
+          </Section>
         </div>
-      </div>
-    </>
-  );
-}
-
-function ManagerDashboard() {
-  const { user } = useAuth();
-  const casesQuery = usePvQuery(["cases"], () => casesApi.list(), () => demoCases);
-  return (
-    <>
-      <PageHeader title="Management overview" description={`${user?.name ?? "Manager"} — portfolio risk, workload and signal decisions.`} actions={<Button asChild><Link to="/oversight">Open operational overview</Link></Button>} />
-      <div className="space-y-4 p-6">
-        <QueryBoundary query={casesQuery} loadingLabel="Loading management metrics">
-          {(items, source) => <><div className="flex items-center justify-between"><p className="label-caps">Portfolio health</p><SourceTag source={source} /></div><div className="grid gap-3 sm:grid-cols-3"><Metric label="Portfolio cases" value={items.length} to="/cases" /><Metric label="Serious cases" value={items.filter((item) => item.seriousness === "SERIOUS").length} tone="critical" to="/cases" /><Metric label="Open signals" value={items.filter((item) => item.flags.includes("SERIOUSNESS_MISMATCH")).length} tone="warning" to="/signals" /></div></>}
-        </QueryBoundary>
-        <Section title="Decision workspace" description="Manager-only operational and signal review surfaces."><div className="flex flex-wrap gap-2"><Button asChild><Link to="/oversight">Operational overview</Link></Button><Button asChild variant="outline"><Link to="/signals">Signal review</Link></Button><Button asChild variant="outline"><Link to="/audit">Audit trail</Link></Button></div></Section>
       </div>
     </>
   );
@@ -126,13 +154,39 @@ function ManagerDashboard() {
 
 function AdminDashboard() {
   const { user } = useAuth();
-  const auditQuery = usePvQuery(["audit", "recent"], () => auditApi.list({ limit: 8 }), () => demoAudit);
+  const auditQuery = usePvQuery(
+    ["audit", "recent"],
+    () => auditApi.list({ limit: 8 }),
+    () => demoAudit,
+  );
   return (
     <>
-      <PageHeader title="Administration dashboard" description={`${user?.name ?? "Administrator"} — system-wide access, audit and operational controls.`} />
+      <PageHeader
+        title="Administration dashboard"
+        description={`${user?.name ?? "Administrator"} — system-wide access, audit and operational controls.`}
+      />
       <div className="space-y-4 p-6">
-        <Section title="Administrative controls" description="Review the complete operational surface with server-side authorization."><div className="flex flex-wrap gap-2"><Button asChild><Link to="/oversight">Operational overview</Link></Button><Button asChild variant="outline"><Link to="/audit">Full audit trail</Link></Button><Button asChild variant="outline"><Link to="/cases">All cases</Link></Button></div></Section>
-        <Section title="Recent audit activity"><QueryBoundary query={auditQuery}>{(events) => <AuditTimeline events={events} dense />}</QueryBoundary></Section>
+        <Section
+          title="Administrative controls"
+          description="Review the complete operational surface with server-side authorization."
+        >
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link to="/oversight">Operational overview</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/audit">Full audit trail</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/cases">All cases</Link>
+            </Button>
+          </div>
+        </Section>
+        <Section title="Recent audit activity">
+          <QueryBoundary query={auditQuery}>
+            {(events) => <AuditTimeline events={events} dense />}
+          </QueryBoundary>
+        </Section>
       </div>
     </>
   );
@@ -140,9 +194,21 @@ function AdminDashboard() {
 
 function FieldAssociateDashboard() {
   const { user } = useAuth();
-  const casesQuery = usePvQuery(["cases"], () => casesApi.list(), () => demoCases);
-  const followUpQuery = usePvQuery(["follow-ups"], () => casesApi.followUps(), () => demoFollowUps);
-  const auditQuery = usePvQuery(["audit", "recent"], () => auditApi.list({ limit: 6 }), () => demoAudit.slice(0, 5));
+  const casesQuery = usePvQuery(
+    ["cases"],
+    () => casesApi.list(),
+    () => demoCases,
+  );
+  const followUpQuery = usePvQuery(
+    ["follow-ups"],
+    () => casesApi.followUps(),
+    () => demoFollowUps,
+  );
+  const auditQuery = usePvQuery(
+    ["audit", "recent"],
+    () => auditApi.list({ limit: 6 }),
+    () => demoAudit.slice(0, 5),
+  );
 
   return (
     <>
@@ -168,7 +234,9 @@ function FieldAssociateDashboard() {
       <div className="space-y-4 p-6">
         <QueryBoundary query={casesQuery} loadingLabel="Loading cases">
           {(all, source) => {
-            const mine = all.filter((c) => c.assignedTo === "A. Okafor" || user?.role !== "FIELD_ASSOCIATE");
+            const mine = all.filter(
+              (c) => c.assignedTo === "A. Okafor" || user?.role !== "FIELD_ASSOCIATE",
+            );
             const open = mine.filter((c) => c.workflowStep !== "CLOSED");
             const serious = open.filter((c) => c.seriousness === "SERIOUS");
             const attention = open.filter((c) => c.flags.length > 0);
@@ -183,7 +251,12 @@ function FieldAssociateDashboard() {
                   <Metric label="Assigned cases" value={mine.length} to="/cases" />
                   <Metric label="Open" value={open.length} to="/cases" />
                   <Metric label="Serious" value={serious.length} tone="critical" to="/cases" />
-                  <Metric label="Needs attention" value={attention.length} tone="warning" to="/cases" />
+                  <Metric
+                    label="Needs attention"
+                    value={attention.length}
+                    tone="warning"
+                    to="/cases"
+                  />
                   <Metric label="Overdue" value={overdue.length} tone="critical" to="/cases" />
                 </div>
 
@@ -200,7 +273,9 @@ function FieldAssociateDashboard() {
                 >
                   <ul className="divide-y divide-border">
                     {attention.length === 0 ? (
-                      <li className="py-4 text-sm text-muted-foreground">Nothing needs attention.</li>
+                      <li className="py-4 text-sm text-muted-foreground">
+                        Nothing needs attention.
+                      </li>
                     ) : (
                       attention.map((c) => (
                         <li key={c.id} className="flex flex-wrap items-center gap-3 py-3">
@@ -264,7 +339,15 @@ function FieldAssociateDashboard() {
                       <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
                         {f.requestedInformation}
                       </span>
-                      <StatusPill tone={f.status === "OVERDUE" ? "critical" : f.status === "RESPONDED" ? "success" : "warning"}>
+                      <StatusPill
+                        tone={
+                          f.status === "OVERDUE"
+                            ? "critical"
+                            : f.status === "RESPONDED"
+                              ? "success"
+                              : "warning"
+                        }
+                      >
                         {f.status.toLowerCase()}
                       </StatusPill>
                     </li>
@@ -285,7 +368,9 @@ function FieldAssociateDashboard() {
               </Button>
             }
           >
-            <QueryBoundary query={auditQuery}>{(events) => <AuditTimeline events={events} dense />}</QueryBoundary>
+            <QueryBoundary query={auditQuery}>
+              {(events) => <AuditTimeline events={events} dense />}
+            </QueryBoundary>
           </Section>
         </div>
       </div>

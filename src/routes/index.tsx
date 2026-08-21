@@ -32,9 +32,14 @@ export const Route = createFileRoute("/")({
 const ROLE_DESCRIPTIONS: Record<Role, string> = {
   FIELD_ASSOCIATE: "Capture and prepare incoming safety information.",
   PV_COORDINATOR: "Process, code and validate cases; run line-list and PSUR workflows.",
-  PV_MANAGER: "Oversight, signal decisions and audit review.",
+  PV_MANAGER:
+    "Full access — cases, processing workflows, signal decisions and complete audit oversight.",
   ADMIN: "Manage access, operations and the complete audit surface.",
 };
+
+// The standalone Administrator role card is hidden for now — PV_MANAGER
+// (labelled "Administrator" via ROLE_LABELS) covers the same ground.
+const VISIBLE_ROLES: Role[] = ["FIELD_ASSOCIATE", "PV_COORDINATOR", "PV_MANAGER"];
 
 const DEMO_PASSWORD = "demo123";
 const DEMO_CREDENTIALS: Record<Role, { email: string; password: string }> = {
@@ -168,8 +173,10 @@ function SignInPage() {
               {!isApiConfigured() && (
                 <p className="text-xs text-muted-foreground">
                   Demo login:{" "}
-                  <span className="font-medium text-foreground">field@demo.safetyinsighthub.com</span> /
-                  demo123
+                  <span className="font-medium text-foreground">
+                    field@demo.safetyinsighthub.com
+                  </span>{" "}
+                  / demo123
                 </p>
               )}
             </div>
@@ -185,7 +192,7 @@ function SignInPage() {
               <p className="text-xs text-muted-foreground mb-2">
                 (Only used in demo mode; server determines actual role when backend is connected)
               </p>
-              {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
+              {VISIBLE_ROLES.map((r) => (
                 <label
                   key={r}
                   className={cn(

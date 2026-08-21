@@ -283,7 +283,7 @@ function AdvanceWorkflow({
     if (role === "FIELD_ASSOCIATE" && idx >= roleCapIdx && idx < WORKFLOW_STEPS.length - 1) {
       return (
         <p className="mt-3 text-sm text-muted-foreground">
-          This case is ready for review — a PV Coordinator or Manager needs to advance it past
+          This case is ready for review — a PV Coordinator or Administrator needs to advance it past
           Coding.
         </p>
       );

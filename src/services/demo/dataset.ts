@@ -27,7 +27,10 @@ import type {
   WorkflowStepState,
 } from "@/types/pv";
 
-const stepState = (current: WorkflowStep, overrides: Partial<Record<WorkflowStep, WorkflowStepState>> = {}) => {
+const stepState = (
+  current: WorkflowStep,
+  overrides: Partial<Record<WorkflowStep, WorkflowStepState>> = {},
+) => {
   const order: WorkflowStep[] = [
     "INTAKE",
     "TRIAGE",
@@ -208,7 +211,10 @@ export const demoCaseDetails: Record<string, CaseDetail> = Object.fromEntries(
           : `Patient receiving ${c.product} developed ${c.reaction.toLowerCase()}. Treating clinician documented the event and the product was withdrawn. Further clinical detail awaited from the reporter.`,
       reportedSeriousnessCriteria: c.seriousness === "SERIOUS" ? ["Hospitalisation"] : [],
       followUpRequests: [],
-      workflowState: stepState(c.workflowStep, c.flags.includes("SERIOUSNESS_MISMATCH") ? { TRIAGE: "ACTION_REQUIRED" } : {}),
+      workflowState: stepState(
+        c.workflowStep,
+        c.flags.includes("SERIOUSNESS_MISMATCH") ? { TRIAGE: "ACTION_REQUIRED" } : {},
+      ),
     } satisfies CaseDetail,
   ]),
 );
@@ -227,7 +233,11 @@ export const demoSeriousness: Record<string, SeriousnessAssessment> = {
       },
       { criterion: "Results in death", detected: false, evidence: [] },
       { criterion: "Life-threatening", detected: false, evidence: [] },
-      { criterion: "Persistent or significant disability/incapacity", detected: false, evidence: [] },
+      {
+        criterion: "Persistent or significant disability/incapacity",
+        detected: false,
+        evidence: [],
+      },
       { criterion: "Congenital anomaly/birth defect", detected: false, evidence: [] },
       { criterion: "Other medically important condition", detected: false, evidence: [] },
     ],
@@ -463,12 +473,54 @@ export const demoLineListJobs: LineListJob[] = [
 ];
 
 export const demoLineListIssues: LineListIssue[] = [
-  { row: 17, column: "onset_date", severity: "ERROR", code: "E_DATE_FORMAT", message: "Invalid date — could not be parsed as a valid date", value: "31/02/2026" },
-  { row: 23, column: "patient_id", severity: "ERROR", code: "E_MISSING_PATIENT", message: "Missing patient identifier", value: null },
-  { row: 58, column: "reaction", severity: "ERROR", code: "E_UNRECOGNISED_REACTION", message: "Unrecognised reaction term — no dictionary candidate returned", value: "feeling somehow" },
-  { row: 74, column: "product", severity: "ERROR", code: "E_INVALID_PRODUCT", message: "Invalid product — not found in product dictionary", value: "ORS sachet??" },
-  { row: 91, column: "sex", severity: "WARNING", code: "W_VALUE_NORMALISED", message: "Value normalised during processing", value: "f" },
-  { row: 104, column: "dose", severity: "WARNING", code: "W_MISSING_OPTIONAL", message: "Missing recommended value", value: null },
+  {
+    row: 17,
+    column: "onset_date",
+    severity: "ERROR",
+    code: "E_DATE_FORMAT",
+    message: "Invalid date — could not be parsed as a valid date",
+    value: "31/02/2026",
+  },
+  {
+    row: 23,
+    column: "patient_id",
+    severity: "ERROR",
+    code: "E_MISSING_PATIENT",
+    message: "Missing patient identifier",
+    value: null,
+  },
+  {
+    row: 58,
+    column: "reaction",
+    severity: "ERROR",
+    code: "E_UNRECOGNISED_REACTION",
+    message: "Unrecognised reaction term — no dictionary candidate returned",
+    value: "feeling somehow",
+  },
+  {
+    row: 74,
+    column: "product",
+    severity: "ERROR",
+    code: "E_INVALID_PRODUCT",
+    message: "Invalid product — not found in product dictionary",
+    value: "ORS sachet??",
+  },
+  {
+    row: 91,
+    column: "sex",
+    severity: "WARNING",
+    code: "W_VALUE_NORMALISED",
+    message: "Value normalised during processing",
+    value: "f",
+  },
+  {
+    row: 104,
+    column: "dose",
+    severity: "WARNING",
+    code: "W_MISSING_OPTIONAL",
+    message: "Missing recommended value",
+    value: null,
+  },
 ];
 
 export const demoPsurDocuments: PsurDocument[] = [
@@ -499,7 +551,8 @@ export const demoPsurFindings: PsurFinding[] = [
     category: "NUMERICAL",
     severity: "HIGH",
     section: "6.2 Cumulative summary tabulations",
-    description: "Cumulative serious case count differs between the narrative text and the summary tabulation.",
+    description:
+      "Cumulative serious case count differs between the narrative text and the summary tabulation.",
     evidence: "Narrative states 412 cumulative serious cases; tabulation totals 407.",
     assistGenerated: true,
   },
@@ -508,7 +561,8 @@ export const demoPsurFindings: PsurFinding[] = [
     category: "CONSISTENCY",
     severity: "MEDIUM",
     section: "5 Estimated exposure",
-    description: "Reporting period stated in the cover page differs from the period used in the exposure calculation.",
+    description:
+      "Reporting period stated in the cover page differs from the period used in the exposure calculation.",
     evidence: "Cover page: 01 Jul 2025 – 30 Jun 2026. Section 5: 01 Jan 2025 – 31 Dec 2025.",
     assistGenerated: true,
   },
@@ -559,7 +613,7 @@ export const demoSignals: Signal[] = [
     statistic: [{ name: "EB05", value: "2.10" }],
     supportingCaseIds: ["MN-2026-000817"],
     status: "UNDER_REVIEW",
-    reviewer: "PV Manager",
+    reviewer: "Administrator",
   },
   {
     id: "sig-3",
@@ -572,7 +626,7 @@ export const demoSignals: Signal[] = [
     statistic: [{ name: "PRR", value: "3.42", ci: "95% CI 2.01–5.80" }],
     supportingCaseIds: ["MN-2026-000822"],
     status: "CONFIRMED",
-    reviewer: "PV Manager",
+    reviewer: "Administrator",
     rationale:
       "Consistent case series with positive dechallenge in five of seven cases and biologically plausible mechanism. Label update requested.",
     decidedAt: "2026-07-18T09:00:00Z",
@@ -588,8 +642,9 @@ export const demoSignals: Signal[] = [
     statistic: [{ name: "PRR", value: "1.31" }],
     supportingCaseIds: ["MN-2026-000829"],
     status: "REFUTED",
-    reviewer: "PV Manager",
-    rationale: "Event already listed in the reference safety information; no change in reporting pattern.",
+    reviewer: "Administrator",
+    rationale:
+      "Event already listed in the reference safety information; no change in reporting pattern.",
     decidedAt: "2026-06-30T15:30:00Z",
   },
 ];
@@ -644,8 +699,8 @@ export const demoAudit: AuditEvent[] = [
   {
     id: "au-5",
     timestamp: "2026-07-18T09:00:00Z",
-    user: "PV Manager",
-    role: "PV Manager",
+    user: "Administrator",
+    role: "Administrator",
     action: "SIGNAL_CONFIRMED",
     entity: "Signal",
     entityId: "SIG-2026-0018",
@@ -706,7 +761,7 @@ export const demoNotifications: Notification[] = [
     id: "n5",
     type: "SIGNAL_REVIEW",
     title: "Signal requires review",
-    body: "SIG-2026-0031 (Amlodipine / peripheral oedema) is pending manager review.",
+    body: "SIG-2026-0031 (Amlodipine / peripheral oedema) is pending administrator review.",
     at: "2026-08-11T10:00:00Z",
     read: true,
     link: "/signals",

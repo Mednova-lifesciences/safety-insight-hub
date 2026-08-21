@@ -34,7 +34,7 @@ export const Route = createFileRoute("/_app/signals")({
       { property: "og:title", content: "Signal review — MedNova PV Assist" },
       {
         property: "og:description",
-        content: "Manager signal workspace with auditable confirm/refute decisions.",
+        content: "Administrator signal workspace with auditable confirm/refute decisions.",
       },
     ],
   }),

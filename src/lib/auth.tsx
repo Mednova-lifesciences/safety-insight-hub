@@ -25,10 +25,17 @@ import { supabase } from "@/integrations/supabase/client";
 /** Canonical role identifiers shared with public.profiles.role. */
 export type Role = "FIELD_ASSOCIATE" | "PV_COORDINATOR" | "PV_MANAGER" | "ADMIN";
 
+/**
+ * PV_MANAGER now displays as "Administrator" and carries every permission
+ * FIELD_ASSOCIATE/PV_COORDINATOR/PV_MANAGER previously had between them
+ * (see ROLE_PERMISSIONS below) — the standalone ADMIN role still exists
+ * server-side and keeps its own label, but its sign-in card is hidden
+ * (src/routes/index.tsx) since PV_MANAGER now covers the same ground.
+ */
 export const ROLE_LABELS: Record<Role, string> = {
   FIELD_ASSOCIATE: "PV Field Associate",
   PV_COORDINATOR: "PV Coordinator",
-  PV_MANAGER: "PV Manager",
+  PV_MANAGER: "Administrator",
   ADMIN: "Administrator",
 };
 
@@ -80,7 +87,12 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "audit.view.all",
     "team.view",
   ],
+  // Merged: PV_MANAGER now gets everything FIELD_ASSOCIATE and
+  // PV_COORDINATOR have, on top of its own manager-level permissions —
+  // effectively the same full set ADMIN has.
   PV_MANAGER: [
+    "case.create",
+    "case.edit",
     "case.view",
     "follow_up.view",
     "follow_up.create",
