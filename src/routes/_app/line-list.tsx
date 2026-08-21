@@ -7,7 +7,7 @@ import { linelist as linelistApi } from "@/services/api/linelist";
 import { demoLineListIssues, demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { isNotConfigured } from "@/services/api/client";
-import { RULE_BASED_DETECTION_ENABLED } from "@/services/api/feature-flags";
+import { AUTO_FIX_ENABLED, RULE_BASED_DETECTION_ENABLED } from "@/services/api/feature-flags";
 import {
   EmptyState,
   PageHeader,
@@ -259,6 +259,7 @@ function LineListPage() {
                 </Button>
                 <QueryBoundary query={issues}>
                   {(rows) => {
+                    if (!AUTO_FIX_ENABLED) return null;
                     const fixableCount = rows.filter((i) => i.fixable).length;
                     if (fixableCount === 0) return null;
                     return (
@@ -297,7 +298,7 @@ function LineListPage() {
                     );
                   }}
                 </QueryBoundary>
-                {activeJob.fixedAt ? (
+                {AUTO_FIX_ENABLED && activeJob.fixedAt ? (
                   <Button
                     size="sm"
                     variant="outline"

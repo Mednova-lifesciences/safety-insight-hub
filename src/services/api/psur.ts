@@ -708,4 +708,72 @@ export const psur = {
       URL.revokeObjectURL(url);
     }
   },
+
+  /**
+   * Deterministic export (no new AI call) covering only findings a human
+   * has actually ACCEPTED — dismissed and still-pending findings are
+   * listed in the totals for context but never detailed, so the summary
+   * can't be mistaken for an unreviewed AI dump.
+   */
+  downloadExecutiveSummary: async (documentId: string): Promise<void> => {
+    const doc = await readDocument(documentId);
+    const findings = await readFindings(documentId);
+    const accepted = findings.filter((f) => f.humanAssessment === "ACCEPTED");
+    const dismissed = findings.filter((f) => f.humanAssessment === "DISMISSED");
+    const pending = findings.filter((f) => !f.humanAssessment);
+
+    const byCategory = new Map<string, PsurFinding[]>();
+    for (const f of accepted) {
+      const list = byCategory.get(f.category) ?? [];
+      list.push(f);
+      byCategory.set(f.category, list);
+    }
+
+    const lines: string[] = [];
+    const rule = "-".repeat(60);
+    lines.push("PSUR/PBRER EXECUTIVE SUMMARY");
+    lines.push("=".repeat(60));
+    lines.push(`Document: ${doc.filename}`);
+    lines.push(`Product: ${doc.product}`);
+    lines.push(`Reporting period: ${doc.reportingPeriod}`);
+    lines.push(`Uploaded by: ${doc.uploadedBy} on ${doc.uploadedAt.slice(0, 16).replace("T", " ")} UTC`);
+    lines.push("");
+
+    lines.push("TOTALS");
+    lines.push(rule);
+    lines.push(`Findings detected: ${findings.length}`);
+    lines.push(`Accepted (detailed below): ${accepted.length}`);
+    lines.push(`Dismissed: ${dismissed.length}`);
+    lines.push(`Still pending review: ${pending.length}`);
+    lines.push("");
+
+    lines.push("ACCEPTED FINDINGS");
+    lines.push(rule);
+    if (accepted.length === 0) {
+      lines.push("No findings have been accepted yet — nothing to report.");
+    }
+    for (const [category, group] of byCategory) {
+      lines.push(`${category.replaceAll("_", " ")} — ${group.length} finding(s)`);
+      for (const f of group) {
+        lines.push(`  [${f.severity}] ${f.section}: ${f.description}`);
+        lines.push(`    Evidence: ${f.evidence}`);
+        if (f.rationale) lines.push(`    Reviewer rationale: ${f.rationale}`);
+        if (f.resolved && f.resolution) lines.push(`    Resolution: ${f.resolution}`);
+      }
+      lines.push("");
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.filename.replace(/\.[^.]+$/, "") + "-executive-summary.txt";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  },
 };

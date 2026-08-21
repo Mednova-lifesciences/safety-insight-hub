@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
-import { ArrowRight, Download, Upload, Wrench } from "lucide-react";
+import { ArrowRight, Download, FileText, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { psur as psurApi } from "@/services/api/psur";
+import { AUTO_FIX_ENABLED } from "@/services/api/feature-flags";
 import { demoPsurDocuments, demoPsurFindings } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { isNotConfigured } from "@/services/api/client";
@@ -217,68 +218,87 @@ function PsurPage() {
               actions={
                 <div className="flex flex-wrap items-center gap-2">
                   {findings.data ? <SourceTag source={findings.data.source} /> : null}
-                  <QueryBoundary query={findings}>
-                    {(items) => {
-                      const acceptedCount = items.filter(
-                        (f) => f.humanAssessment === "ACCEPTED",
-                      ).length;
-                      if (acceptedCount === 0) return null;
-                      return (
-                        <>
-                          <Button
-                            size="sm"
-                            disabled={fixing}
-                            onClick={async () => {
-                              setFixing(true);
-                              try {
-                                const result = await psurApi.runFullFix(activeDoc.id);
-                                if (!result.aiUsed) {
+                  {AUTO_FIX_ENABLED ? (
+                    <QueryBoundary query={findings}>
+                      {(items) => {
+                        const acceptedCount = items.filter(
+                          (f) => f.humanAssessment === "ACCEPTED",
+                        ).length;
+                        if (acceptedCount === 0) return null;
+                        return (
+                          <>
+                            <Button
+                              size="sm"
+                              disabled={fixing}
+                              onClick={async () => {
+                                setFixing(true);
+                                try {
+                                  const result = await psurApi.runFullFix(activeDoc.id);
+                                  if (!result.aiUsed) {
+                                    toast.error(
+                                      result.aiError ?? "AI fix unavailable — no changes were made.",
+                                    );
+                                  } else {
+                                    toast.success(
+                                      `${result.resolvedCount} finding(s) resolved.${result.unresolvedCount ? ` ${result.unresolvedCount} left unresolved.` : ""}`,
+                                    );
+                                  }
+                                  findings.refetch();
+                                  docs.refetch();
+                                } catch (err) {
                                   toast.error(
-                                    result.aiError ?? "AI fix unavailable — no changes were made.",
+                                    err instanceof Error ? err.message : "Run Full Fix failed.",
                                   );
-                                } else {
-                                  toast.success(
-                                    `${result.resolvedCount} finding(s) resolved.${result.unresolvedCount ? ` ${result.unresolvedCount} left unresolved.` : ""}`,
+                                } finally {
+                                  setFixing(false);
+                                }
+                              }}
+                            >
+                              <Wrench className="size-4" />{" "}
+                              {fixing ? "Fixing with AI…" : `Run Full Fix (${acceptedCount})`}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () => {
+                                try {
+                                  await psurApi.downloadFixedDocument(activeDoc.id);
+                                } catch (err) {
+                                  toast.error(
+                                    err instanceof Error
+                                      ? err.message
+                                      : "Could not download this file.",
                                   );
                                 }
-                                findings.refetch();
-                                docs.refetch();
-                              } catch (err) {
-                                toast.error(
-                                  err instanceof Error ? err.message : "Run Full Fix failed.",
-                                );
-                              } finally {
-                                setFixing(false);
-                              }
-                            }}
-                          >
-                            <Wrench className="size-4" />{" "}
-                            {fixing ? "Fixing with AI…" : `Run Full Fix (${acceptedCount})`}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={async () => {
-                              try {
-                                await psurApi.downloadFixedDocument(activeDoc.id);
-                              } catch (err) {
-                                toast.error(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Could not download this file.",
-                                );
-                              }
-                            }}
-                          >
-                            <Download className="size-4" />{" "}
-                            {activeDoc.sourceType === "SPREADSHEET"
-                              ? "Download Fixed Document"
-                              : "Download Corrections Report"}
-                          </Button>
-                        </>
-                      );
-                    }}
-                  </QueryBoundary>
+                              }}
+                            >
+                              <Download className="size-4" />{" "}
+                              {activeDoc.sourceType === "SPREADSHEET"
+                                ? "Download Fixed Document"
+                                : "Download Corrections Report"}
+                            </Button>
+                          </>
+                        );
+                      }}
+                    </QueryBoundary>
+                  ) : null}
+                  {activeDoc.stage === "REVIEWED" ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await psurApi.downloadExecutiveSummary(activeDoc.id);
+                        } catch (err) {
+                          toast.error(
+                            err instanceof Error ? err.message : "Could not download the summary.",
+                          );
+                        }
+                      }}
+                    >
+                      <FileText className="size-4" /> Download Executive Summary
+                    </Button>
+                  ) : null}
                 </div>
               }
             >
