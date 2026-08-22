@@ -92,6 +92,13 @@ interface LineListJobRow extends LineListJob {
    *  shown as validation issues. Empty for a file whose first row was
    *  already the real header. */
   parseWarnings?: string[];
+  /** Which sheet the parser selected as the actual data table, and the
+   *  1-indexed row (in that sheet) it used as the header — source
+   *  traceability for every issue's row/column back to the original
+   *  workbook, alongside `filename`. Absent on jobs synthesized internally
+   *  (createFromCases) or uploaded before this was tracked. */
+  sheetName?: string;
+  headerRowNumber?: number;
   validatedAt?: string;
   /** The AI prompt version last used to analyse this job, surfaced on the
    *  executive summary so it's traceable to exactly what ran. */
@@ -364,6 +371,156 @@ function checkCaseIdConsistency(rows: ParsedRow[], caseIdColumn: string): LineLi
     }));
 }
 
+/** Expected value *shape* for a canonical field, used only to flag a
+ *  column whose actual content doesn't look like what that field should
+ *  hold at all — a strong hint of a column-level shift (e.g. a phone
+ *  column full of role/title text), not a formatting nitpick. Deliberately
+ *  limited to fields where (a) a shape is genuinely well-defined and (b) a
+ *  real-world AEFI form plausibly transposes it with an adjacent column —
+ *  not attempted for free-text fields (reaction, product, narrative-ish
+ *  content) where "doesn't match a shape" is meaningless. */
+const FIELD_SHAPE_CHECKS: Partial<
+  Record<TargetField, { check: (v: string) => boolean; describe: string }>
+> = {
+  reporter_phone: {
+    check: (v) => {
+      const digits = v.replace(/\D/g, "");
+      const compact = v.replace(/\s/g, "");
+      return digits.length >= 7 && compact.length > 0 && digits.length / compact.length >= 0.6;
+    },
+    describe: "a phone number (mostly digits)",
+  },
+  reporter_designation: {
+    check: (v) => {
+      const digitCount = (v.match(/\d/g) ?? []).length;
+      return digitCount / v.length < 0.3 && !DATE_RE.test(v);
+    },
+    describe: "a reporter role/designation (mostly letters, not a date or phone number)",
+  },
+  sex: {
+    check: (v) => /^(m|f|male|female|unknown|u)$/i.test(v.trim()),
+    describe: "a sex value (M/F/Male/Female/Unknown)",
+  },
+  age: {
+    check: (v) => /^\d{1,3}(\.\d+)?\s*(y|yr|yrs|years?|m|mo|months?|d|days?)?$/i.test(v.trim()),
+    describe: "a numeric age",
+  },
+};
+
+/** Fields commonly transposed with each other on real AEFI forms (adjacent
+ *  columns, easy to mis-key or mis-map). Used only to corroborate a
+ *  possible column shift — if a field's values don't look like its own
+ *  shape AND its swap partner is suspiciously empty in those same rows,
+ *  that's stronger evidence than the shape mismatch alone. */
+const SHIFT_SWAP_PARTNERS: Partial<Record<TargetField, TargetField>> = {
+  reporter_phone: "reporter_designation",
+  reporter_designation: "reporter_phone",
+  sex: "age",
+  age: "sex",
+};
+
+const COLUMN_SHIFT_MIN_SAMPLE = 5;
+const COLUMN_SHIFT_WHOLE_COLUMN_THRESHOLD = 0.5;
+const COLUMN_SHIFT_HIGH_EVIDENCE_THRESHOLD = 0.8;
+
+/** Operates only on canonical parsed rows (never the raw worksheet, never
+ *  document-level title/letterhead/metadata rows — those never make it
+ *  into `rows` at all, since the parser strips them before building
+ *  canonical records) — so this can never mistake "FEDERAL REPUBLIC OF
+ *  NIGERIA" for a shifted patient column; it has no visibility into rows
+ *  like that in the first place.
+ *
+ *  Distinguishes a genuine column-wide shift from a single bad value:
+ *  a column only gets a single POSSIBLE_COLUMN_SHIFT finding (not one per
+ *  row) when most of its actual content doesn't match the field's expected
+ *  shape at all; an isolated mismatch in an otherwise-normal column is
+ *  reported per-row as FIELD_CONTENT_MISMATCH instead, never escalated
+ *  into a column-level claim. Confidence is always "LOW" (this is
+ *  statistical/inferred evidence, never a certain fact, so it's never
+ *  auto-fixable) — severity carries the HIGH/MEDIUM distinction the
+ *  evidence strength actually supports. */
+function detectColumnShifts(
+  mapping: Record<string, TargetField>,
+  rows: ParsedRow[],
+): LineListIssue[] {
+  const issues: LineListIssue[] = [];
+  const headerForField = new Map<TargetField, string>();
+  for (const [header, field] of Object.entries(mapping)) headerForField.set(field, header);
+
+  for (const [field, shape] of Object.entries(FIELD_SHAPE_CHECKS) as [
+    TargetField,
+    (typeof FIELD_SHAPE_CHECKS)[TargetField],
+  ][]) {
+    if (!shape) continue;
+    const header = headerForField.get(field);
+    if (!header) continue; // not mapped in this file — nothing to check
+
+    const partnerField = SHIFT_SWAP_PARTNERS[field];
+    const partnerHeader = partnerField ? headerForField.get(partnerField) : undefined;
+
+    const mismatched: { rowNum: number; value: string; partnerBlank: boolean }[] = [];
+    let nonBlankCount = 0;
+    rows.forEach((row, idx) => {
+      const value = (row[field] ?? "").trim();
+      if (!value) return;
+      nonBlankCount++;
+      if (!shape.check(value)) {
+        const partnerValue = partnerField ? (row[partnerField] ?? "").trim() : "";
+        mismatched.push({
+          rowNum: idx + 1,
+          value,
+          partnerBlank: partnerField ? !partnerValue : false,
+        });
+      }
+    });
+
+    if (nonBlankCount < COLUMN_SHIFT_MIN_SAMPLE || mismatched.length === 0) continue;
+    const mismatchRate = mismatched.length / nonBlankCount;
+
+    if (mismatchRate >= COLUMN_SHIFT_WHOLE_COLUMN_THRESHOLD) {
+      const partnerBlankRate = mismatched.filter((m) => m.partnerBlank).length / mismatched.length;
+      const corroborated = !!partnerHeader && partnerBlankRate >= 0.5;
+      const strongEvidence = mismatchRate >= COLUMN_SHIFT_HIGH_EVIDENCE_THRESHOLD || corroborated;
+      const example = mismatched[0]!.value;
+      issues.push({
+        row: 0,
+        column: header,
+        severity: strongEvidence ? "HIGH" : "MEDIUM",
+        confidence: "LOW",
+        code: "POSSIBLE_COLUMN_SHIFT",
+        message:
+          `${Math.round(mismatchRate * 100)}% of the values in "${header}" don't look like ${shape.describe} ` +
+          `(e.g. "${example}") — possible column shift, review before relying on this column.` +
+          (corroborated
+            ? ` "${partnerHeader}" is blank in ${Math.round(partnerBlankRate * 100)}% of those same rows, which is consistent with a shift between the two.`
+            : ""),
+        value: example,
+        source: "rule",
+        fixable: false,
+      });
+      continue;
+    }
+
+    // Below the whole-column threshold: isolated bad values, not a
+    // structural claim about the column itself.
+    for (const m of mismatched) {
+      issues.push({
+        row: m.rowNum,
+        column: header,
+        severity: "LOW",
+        confidence: "LOW",
+        code: "FIELD_CONTENT_MISMATCH",
+        message: `"${m.value}" doesn't look like ${shape.describe} — worth a second look, but most other values in this column do match.`,
+        value: m.value,
+        source: "rule",
+        fixable: false,
+      });
+    }
+  }
+
+  return issues;
+}
+
 /** Deterministic, rule-based validation — no AI involved. Every uploaded
  *  file gets the same checks run against its actual mapped content.
  *  Issues reference the *original column header* wherever one is known
@@ -371,7 +528,7 @@ function checkCaseIdConsistency(rows: ParsedRow[], caseIdColumn: string): LineLi
  *  — so a fixable rule issue and an AI-fixable issue always identify a
  *  column the same way, which matters once fixIssues() has to look that
  *  column up in rawRows (keyed by original header, not canonical field). */
-function runValidation(
+export function runValidation(
   headers: string[],
   mapping: Record<string, TargetField>,
   rows: ParsedRow[],
@@ -580,7 +737,8 @@ function runValidation(
 
     if (mappedFields.has("serious_code") && row.seriousness) {
       const hasSeriousCode =
-        !!row.serious_code && !["0", "none", "n/a", "-", "nil"].includes(row.serious_code.trim().toLowerCase());
+        !!row.serious_code &&
+        !["0", "none", "n/a", "-", "nil"].includes(row.serious_code.trim().toLowerCase());
       const isNonSerious = NON_SERIOUS_VALUES.has(row.seriousness.toUpperCase());
       const isSerious = SERIOUS_TEXT_VALUES.has(row.seriousness.toUpperCase());
       if (isNonSerious && hasSeriousCode) {
@@ -726,8 +884,35 @@ function runValidation(
   });
 
   issues.push(...checkCaseIdConsistency(rows, col("case_id")));
+  issues.push(...detectColumnShifts(mapping, rows));
 
   return issues;
+}
+
+/** A finding "identity" for deduplicating overlapping rule/AI findings
+ *  that describe the same underlying cell — row + a normalised column
+ *  name. Deliberately coarse: it collapses two differently-worded
+ *  findings anchored on the same cell into one, but won't catch a rule/AI
+ *  pair describing the same concept from two different columns (e.g. a
+ *  date-sequence conflict one system anchors on vaccination_date and the
+ *  other on onset_date) — exact semantic equivalence across arbitrary AI
+ *  wording isn't attempted here, just same-cell collision. */
+function findingIdentity(issue: LineListIssue): string {
+  return `${issue.row}::${issue.column.trim().toLowerCase()}`;
+}
+
+/** Rule findings are always included — never suppressed by AI running
+ *  successfully. An AI finding that lands on the exact same cell as an
+ *  existing rule finding is treated as the same underlying issue and
+ *  dropped, rather than shown twice with different wording; anything else
+ *  AI reports is additive. */
+export function mergeFindings(
+  ruleIssues: LineListIssue[],
+  aiIssues: LineListIssue[],
+): LineListIssue[] {
+  const ruleKeys = new Set(ruleIssues.map(findingIdentity));
+  const dedupedAi = aiIssues.filter((i) => !ruleKeys.has(findingIdentity(i)));
+  return [...ruleIssues, ...dedupedAi];
 }
 
 export const linelist = {
@@ -744,7 +929,13 @@ export const linelist = {
     let job: LineListJobRow;
 
     try {
-      const { headers, rows, warnings: parseWarnings } = await parseTabularFile(file);
+      const {
+        headers,
+        rows,
+        warnings: parseWarnings,
+        sheetName,
+        headerRowNumber,
+      } = await parseTabularFile(file);
       const mapping = mapColumns(headers);
       const parsedRows = toParsedRows(headers, rows, mapping);
       const rawRows = toRawRows(headers, rows);
@@ -763,6 +954,8 @@ export const linelist = {
         parsedRows,
         rawRows,
         parseWarnings,
+        sheetName,
+        headerRowNumber,
       };
     } catch (err) {
       job = {
@@ -921,13 +1114,14 @@ export const linelist = {
         aiError = err instanceof Error ? err.message : "AI analysis unavailable.";
       }
 
-      // Rule-based checks are a fallback only, not a second opinion shown
-      // alongside AI: while AI validation is actually working, its
-      // findings are shown alone — deterministic findings only surface
-      // when AI wasn't used at all (not configured, request failed, or
-      // returned something unusable), so a reviewer never sees two
-      // overlapping, differently-worded detection layers at once.
-      issues = aiUsed ? aiIssues : [...ruleIssues, ...aiIssues];
+      // Rule-based findings are authoritative for the deterministic facts
+      // they check (missing fields, malformed dates, chronology, invalid
+      // codes, possible column shifts) and are never suppressed just
+      // because AI also ran — AI can only add findings on top, never erase
+      // one. Where both land on the exact same cell, that's the same
+      // underlying issue seen twice, so the AI-worded duplicate is dropped
+      // in favour of the rule's version (see mergeFindings).
+      issues = mergeFindings(ruleIssues, aiIssues);
       if (issues.length > 0) {
         const { error } = await supabase
           .from("pv_linelist_issues")
@@ -965,7 +1159,7 @@ export const linelist = {
       action: "LINELIST_VALIDATED",
       entity: "LineListJob",
       entityId: jobId,
-      newValue: `${next.validCases} valid / ${invalidCases} invalid / ${advisory.length} warning(s)${aiUsed ? " (AI)" : RULE_BASED_DETECTION_ENABLED ? " (rule-based fallback — AI unavailable)" : " (no detection engine available)"}`,
+      newValue: `${next.validCases} valid / ${invalidCases} invalid / ${advisory.length} warning(s)${aiUsed ? (RULE_BASED_DETECTION_ENABLED ? " (AI + rule-based)" : " (AI only — rule-based detection disabled)") : RULE_BASED_DETECTION_ENABLED ? " (rule-based only — AI unavailable)" : " (no detection engine available)"}`,
     });
     return { job: next, issues, aiUsed, aiError };
   },
@@ -1019,7 +1213,8 @@ export const linelist = {
     const needsReviewUnresolved = needsReview.map((i) => ({
       row: i.row,
       column: i.column,
-      reason: "Low-confidence AI finding — requires human review before an automatic fix is applied.",
+      reason:
+        "Low-confidence AI finding — requires human review before an automatic fix is applied.",
     }));
 
     if (autoFixable.length === 0) {
@@ -1029,7 +1224,12 @@ export const linelist = {
         lastFixCorrections: [],
         lastFixUnresolved: needsReviewUnresolved,
       });
-      return { ...revalidated, correctionsApplied: 0, unresolved: needsReviewUnresolved, aiUsed: false };
+      return {
+        ...revalidated,
+        correctionsApplied: 0,
+        unresolved: needsReviewUnresolved,
+        aiUsed: false,
+      };
     }
 
     const fixRows = (job.rawRows ?? job.parsedRows) as Record<string, string>[];
@@ -1160,7 +1360,9 @@ export const linelist = {
     const lines = job.rawRows
       ? [
           columns.map(escapeCell).join(","),
-          ...job.rawRows.map((row) => columns.map((header) => escapeCell(row[header] ?? "")).join(",")),
+          ...job.rawRows.map((row) =>
+            columns.map((header) => escapeCell(row[header] ?? "")).join(","),
+          ),
         ]
       : [
           columns.map(escapeCell).join(","),
@@ -1222,7 +1424,11 @@ export const linelist = {
     lines.push("LINE-LIST EXECUTIVE SUMMARY");
     lines.push("=".repeat(60));
     lines.push(`File: ${job.filename}`);
-    lines.push(`Uploaded by: ${job.uploadedBy} on ${job.uploadedAt.slice(0, 16).replace("T", " ")} UTC`);
+    if (job.sheetName) lines.push(`Sheet: ${job.sheetName}`);
+    if (job.headerRowNumber) lines.push(`Header row: ${job.headerRowNumber}`);
+    lines.push(
+      `Uploaded by: ${job.uploadedBy} on ${job.uploadedAt.slice(0, 16).replace("T", " ")} UTC`,
+    );
     if (job.validatedAt) {
       lines.push(`Last validated: ${job.validatedAt.slice(0, 16).replace("T", " ")} UTC`);
     }
