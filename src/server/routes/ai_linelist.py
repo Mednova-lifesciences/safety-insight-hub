@@ -61,6 +61,8 @@ class IssueOut(BaseModel):
     value: Optional[str] = None
     fixable: bool = False
     source: str = "ai"
+    issueType: Optional[str] = None
+    affectedFields: list[str] = []
 
 
 class AnalyzeResponse(BaseModel):
@@ -131,6 +133,8 @@ async def _adversarial_review(
                 value=f.value,
                 fixable=f.fixable,
                 source="ai",
+                issueType=f.issueType,
+                affectedFields=f.affectedFields,
             )
             for f in parsed.findings
         ]
@@ -175,6 +179,8 @@ async def analyze_linelist(
                     value=f.value,
                     fixable=f.fixable,
                     source="ai",
+                    issueType=f.issueType,
+                    affectedFields=f.affectedFields,
                 )
                 for f in parsed.findings
             )

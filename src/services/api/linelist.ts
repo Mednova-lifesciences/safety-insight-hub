@@ -3,7 +3,7 @@ import { currentActor, newId, recordAudit, toJson } from "./db";
 import { mapColumnsByKeywords, parseTabularFile } from "./tabular-parse";
 import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
-import type { LineListIssue, LineListJob } from "@/types/pv";
+import type { LineListIssue, LineListIssueType, LineListJob } from "@/types/pv";
 
 export interface ColumnInspection {
   jobId: string;
@@ -386,6 +386,9 @@ function checkCaseIdConsistency(rows: ParsedRow[], caseIdColumn: string): LineLi
       message: `"${r.id}" doesn't match the case/report ID format most other rows in this file use.`,
       value: r.id,
       source: "rule" as const,
+      sources: ["rule"] as const,
+      issueType: "FIELD_FORMAT_INVALID" as const,
+      affectedFields: ["case_id"],
       fixable: false,
     }));
 }
@@ -515,6 +518,9 @@ function detectColumnShifts(
             : ""),
         value: example,
         source: "rule",
+        sources: ["rule"],
+        issueType: "STRUCTURAL_COLUMN_SHIFT",
+        affectedFields: [field],
         fixable: false,
       });
       continue;
@@ -532,6 +538,9 @@ function detectColumnShifts(
         message: `"${m.value}" doesn't look like ${shape.describe} — worth a second look, but most other values in this column do match.`,
         value: m.value,
         source: "rule",
+        sources: ["rule"],
+        issueType: "FIELD_CONTENT_MISMATCH",
+        affectedFields: [field],
         fixable: false,
       });
     }
@@ -568,6 +577,10 @@ export function runValidation(
       message: `None of the columns (${headers.join(", ")}) could be automatically matched to an expected field (${TARGET_FIELDS.join(", ")}). Manual column mapping is required before this file can be validated.`,
       value: null,
       source: "rule",
+      sources: ["rule"],
+      // Deliberately no issueType/affectedFields: this is a whole-file
+      // finding, not about any specific field, and must never be treated
+      // as mergeable with anything.
       fixable: false,
     });
     return issues;
@@ -590,6 +603,9 @@ export function runValidation(
           message: `${field.replaceAll("_", " ")} is required.`,
           value: null,
           source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_MISSING",
+          affectedFields: [field],
           fixable: true,
         });
       }
@@ -605,6 +621,9 @@ export function runValidation(
         message: `"${row.product}" appears to list multiple products in one cell — these should be separate rows.`,
         value: row.product,
         source: "rule",
+        sources: ["rule"],
+        issueType: "FIELD_FORMAT_INVALID",
+        affectedFields: ["product"],
         fixable: false,
       });
     }
@@ -620,6 +639,9 @@ export function runValidation(
         message: "Onset date was not provided.",
         value: null,
         source: "rule",
+        sources: ["rule"],
+        issueType: "FIELD_MISSING",
+        affectedFields: ["onset_date"],
         fixable: true,
       });
     } else if (!DATE_RE.test(row.onset_date)) {
@@ -632,6 +654,9 @@ export function runValidation(
         message: `"${row.onset_date}" does not look like a valid date (expected YYYY-MM-DD or similar).`,
         value: row.onset_date,
         source: "rule",
+        sources: ["rule"],
+        issueType: "FIELD_FORMAT_INVALID",
+        affectedFields: ["onset_date"],
         fixable: true,
       });
     } else {
@@ -646,6 +671,9 @@ export function runValidation(
           message: "Onset date is in the future.",
           value: row.onset_date,
           source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_VALUE_INVALID",
+          affectedFields: ["onset_date"],
           fixable: false,
         });
       }
@@ -663,6 +691,9 @@ export function runValidation(
           message: `"${row.vaccination_date}" does not look like a valid date.`,
           value: row.vaccination_date,
           source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_FORMAT_INVALID",
+          affectedFields: ["vaccination_date"],
           fixable: true,
         });
       } else if (row.vaccination_date) {
@@ -677,6 +708,9 @@ export function runValidation(
             message: "Vaccination date is in the future.",
             value: row.vaccination_date,
             source: "rule",
+            sources: ["rule"],
+            issueType: "FIELD_VALUE_INVALID",
+            affectedFields: ["vaccination_date"],
             fixable: false,
           });
         }
@@ -691,6 +725,9 @@ export function runValidation(
           message: "Vaccination date is after the reaction's onset date.",
           value: row.vaccination_date ?? null,
           source: "rule",
+          sources: ["rule"],
+          issueType: "DATE_CHRONOLOGY",
+          affectedFields: ["vaccination_date", "onset_date"],
           fixable: false,
         });
       }
@@ -706,6 +743,9 @@ export function runValidation(
         message: `"${row.seriousness}" is not a recognised seriousness value (expected SERIOUS or NON_SERIOUS).`,
         value: row.seriousness,
         source: "rule",
+        sources: ["rule"],
+        issueType: "FIELD_VALUE_INVALID",
+        affectedFields: ["seriousness"],
         fixable: true,
       });
     }
@@ -721,6 +761,9 @@ export function runValidation(
           message: "Outcome was not provided.",
           value: null,
           source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_MISSING",
+          affectedFields: ["outcome"],
           fixable: true,
         });
       } else if (!OUTCOME_VALUES.has(row.outcome.toUpperCase())) {
@@ -733,6 +776,9 @@ export function runValidation(
           message: `"${row.outcome}" is not a recognised outcome value.`,
           value: row.outcome,
           source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_VALUE_INVALID",
+          affectedFields: ["outcome"],
           fixable: true,
         });
       } else if (
@@ -749,6 +795,9 @@ export function runValidation(
           message: "Outcome is fatal but seriousness is not marked serious.",
           value: row.seriousness,
           source: "rule",
+          sources: ["rule"],
+          issueType: "CROSS_FIELD_CONTRADICTION",
+          affectedFields: ["outcome", "seriousness"],
           fixable: true,
         });
       }
@@ -770,6 +819,9 @@ export function runValidation(
           message: `Row is marked non-serious but carries a serious-criteria code ("${row.serious_code}").`,
           value: row.serious_code ?? null,
           source: "rule",
+          sources: ["rule"],
+          issueType: "CROSS_FIELD_CONTRADICTION",
+          affectedFields: ["seriousness", "serious_code"],
           fixable: false,
         });
       } else if (isSerious && !hasSeriousCode) {
@@ -782,6 +834,9 @@ export function runValidation(
           message: "Row is marked serious but no serious-criteria code is recorded.",
           value: null,
           source: "rule",
+          sources: ["rule"],
+          issueType: "CROSS_FIELD_CONTRADICTION",
+          affectedFields: ["seriousness", "serious_code"],
           fixable: false,
         });
       }
@@ -805,6 +860,9 @@ export function runValidation(
           message: `"${row.reaction_code}" is not a valid AEFI reaction code (expected 1-28).`,
           value: row.reaction_code,
           source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_VALUE_INVALID",
+          affectedFields: ["reaction_code"],
           fixable: false,
         });
       }
@@ -820,6 +878,9 @@ export function runValidation(
         message: "Dose was not provided.",
         value: null,
         source: "rule",
+        sources: ["rule"],
+        issueType: "FIELD_MISSING",
+        affectedFields: ["dose"],
         fixable: true,
       });
     }
@@ -836,6 +897,9 @@ export function runValidation(
           message: "Vaccine batch/lot number was not provided.",
           value: row.vaccine_batch ?? null,
           source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_MISSING",
+          affectedFields: ["vaccine_batch"],
           fixable: true,
         });
       } else if (MULTI_VALUE_RE.test(batch)) {
@@ -848,6 +912,9 @@ export function runValidation(
           message: `"${batch}" appears to list multiple batch numbers in one cell — these should be separate rows.`,
           value: batch,
           source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_FORMAT_INVALID",
+          affectedFields: ["vaccine_batch"],
           fixable: false,
         });
       }
@@ -865,6 +932,9 @@ export function runValidation(
           message: "Reporter phone number was not provided.",
           value: null,
           source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_MISSING",
+          affectedFields: ["reporter_phone"],
           fixable: true,
         });
       } else if (digits.length < 10 || digits.length > 14) {
@@ -877,6 +947,9 @@ export function runValidation(
           message: `"${row.reporter_phone}" does not look like a valid phone number (expected 10-14 digits).`,
           value: row.reporter_phone,
           source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_FORMAT_INVALID",
+          affectedFields: ["reporter_phone"],
           fixable: false,
         });
       }
@@ -894,6 +967,9 @@ export function runValidation(
           message: `case_id "${row.case_id}" also appears on row ${firstRow}.`,
           value: row.case_id,
           source: "rule",
+          sources: ["rule"],
+          issueType: "DUPLICATE_RECORD",
+          affectedFields: ["case_id"],
           fixable: false,
         });
       } else {
@@ -908,30 +984,96 @@ export function runValidation(
   return issues;
 }
 
-/** A finding "identity" for deduplicating overlapping rule/AI findings
- *  that describe the same underlying cell — row + a normalised column
- *  name. Deliberately coarse: it collapses two differently-worded
- *  findings anchored on the same cell into one, but won't catch a rule/AI
- *  pair describing the same concept from two different columns (e.g. a
- *  date-sequence conflict one system anchors on vaccination_date and the
- *  other on onset_date) — exact semantic equivalence across arbitrary AI
- *  wording isn't attempted here, just same-cell collision. */
-function findingIdentity(issue: LineListIssue): string {
-  return `${issue.row}::${issue.column.trim().toLowerCase()}`;
+/** Trims/case-folds a finding's evidence value for comparison across
+ *  engines. Only ever used to check evidence *compatibility* between two
+ *  otherwise-matching findings — never as the primary identity signal on
+ *  its own, since freeform AI wording can't be trusted as an exact key. */
+function normalizeEvidence(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed.toLowerCase() : null;
+}
+
+/** A stable, engine-agnostic identity for a finding, used to decide
+ *  whether a rule finding and an AI finding describe the *same underlying
+ *  issue* — deliberately NOT based on `code` (a rule's fixed code and an
+ *  AI-invented one will essentially never match) or on freeform message
+ *  text (too fragile to key off). Requires the same row, the same
+ *  normalized issue classification, AND the same set of affected
+ *  canonical fields: a field-level finding on ["seriousness"] is never
+ *  equivalent to a cross-field finding on ["seriousness","outcome"], even
+ *  on the same row — see LineListIssueType's own doc comment. Returns
+ *  null for a finding with no issueType/affectedFields (e.g.
+ *  NO_COLUMNS_MAPPED, or an older/demo-seeded issue) — those are never
+ *  merge-eligible, which is the safe default when classification is
+ *  unavailable rather than guessing from row+column alone. */
+function findingIdentity(issue: LineListIssue): string | null {
+  if (!issue.issueType || !issue.affectedFields || issue.affectedFields.length === 0) return null;
+  const fields = [...issue.affectedFields]
+    .map((f) => f.trim().toLowerCase())
+    .sort()
+    .join("+");
+  return `${issue.row}::${issue.issueType}::${fields}`;
+}
+
+/** Two findings sharing an identity are only the same *occurrence* of
+ *  that issue if their evidence doesn't outright contradict — a rule
+ *  finding flagging value "ABC" and an AI finding flagging a different
+ *  value "XYZ" on the same row/field/type are not the same event and
+ *  must not be silently merged. When either side has no concrete value
+ *  (e.g. a FIELD_MISSING finding, which is never about a specific wrong
+ *  value), there's nothing to contradict, so they're compatible. */
+function evidenceCompatible(a: LineListIssue, b: LineListIssue): boolean {
+  const av = normalizeEvidence(a.value);
+  const bv = normalizeEvidence(b.value);
+  if (av === null || bv === null) return true;
+  return av === bv;
 }
 
 /** Rule findings are always included — never suppressed by AI running
- *  successfully. An AI finding that lands on the exact same cell as an
- *  existing rule finding is treated as the same underlying issue and
- *  dropped, rather than shown twice with different wording; anything else
- *  AI reports is additive. */
+ *  successfully, never erased by it. An AI finding is only folded into an
+ *  existing rule finding (as combined provenance, sources: ["rule","ai"])
+ *  when they share a stable semantic identity (findingIdentity) and don't
+ *  contradict on evidence (evidenceCompatible) — same cell alone is never
+ *  enough, since two genuinely different problems can land on the same
+ *  cell (e.g. a rule's UNRECOGNISED_SERIOUSNESS_VALUE and an AI's
+ *  cross-field seriousness/hospitalization contradiction both anchored at
+ *  "seriousness" on the same row must both survive, not collapse into
+ *  one). Anything AI reports that doesn't match an existing rule finding
+ *  this way is additive, exactly as before. Each rule finding can be
+ *  matched by at most one AI finding. */
 export function mergeFindings(
   ruleIssues: LineListIssue[],
   aiIssues: LineListIssue[],
 ): LineListIssue[] {
-  const ruleKeys = new Set(ruleIssues.map(findingIdentity));
-  const dedupedAi = aiIssues.filter((i) => !ruleKeys.has(findingIdentity(i)));
-  return [...ruleIssues, ...dedupedAi];
+  const matchedRuleIndexes = new Set<number>();
+  const additiveAi: LineListIssue[] = [];
+
+  for (const ai of aiIssues) {
+    const aiKey = findingIdentity(ai);
+    const matchIdx =
+      aiKey === null
+        ? -1
+        : ruleIssues.findIndex(
+            (rule, idx) =>
+              !matchedRuleIndexes.has(idx) &&
+              findingIdentity(rule) === aiKey &&
+              evidenceCompatible(rule, ai),
+          );
+    if (matchIdx >= 0) {
+      matchedRuleIndexes.add(matchIdx);
+    } else {
+      additiveAi.push({ ...ai, sources: ai.sources ?? ["ai"] });
+    }
+  }
+
+  const finalRules = ruleIssues.map((rule, idx) => ({
+    ...rule,
+    sources: matchedRuleIndexes.has(idx) ? (["rule", "ai"] as const) : (rule.sources ?? ["rule"]),
+    source: matchedRuleIndexes.has(idx) ? ("rule" as const) : rule.source,
+  }));
+
+  return [...finalRules, ...additiveAi];
 }
 
 export const linelist = {
@@ -1125,6 +1267,10 @@ export const linelist = {
           value: f.value,
           fixable: f.fixable,
           source: "ai" as const,
+          sources: ["ai"] as const,
+          issueType: (f.issueType ?? undefined) as LineListIssueType | undefined,
+          affectedFields:
+            f.affectedFields && f.affectedFields.length > 0 ? f.affectedFields : undefined,
         }));
       } catch (err) {
         // The AI endpoint itself is unreachable (network/deploy issue,

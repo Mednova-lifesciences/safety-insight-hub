@@ -180,14 +180,40 @@ function mergeSubHeaderRow(
   return { merged, consumed: matches >= 2 };
 }
 
+const SCIENTIFIC_NOTATION_RE = /^-?\d(\.\d+)?E[+-]\d+$/i;
+
 function buildMatrix(sheet: XLSX.WorkSheet): (string | number)[][] {
-  return XLSX.utils.sheet_to_json(sheet, {
+  const matrix = XLSX.utils.sheet_to_json(sheet, {
     header: 1,
     defval: "",
     // Read each cell through its own number format (so an Excel date cell
     // comes back as "2026-08-10", not the raw serial number 46239.4...).
     raw: false,
   }) as (string | number)[][];
+
+  // A phone/ID-like number typed into a plain "General"-formatted cell
+  // (rather than a text cell) gets rendered by Excel itself — and
+  // therefore by SheetJS's raw:false formatting above, which mirrors
+  // Excel's own display rules — in scientific notation once it's long
+  // enough (e.g. a 13-digit phone number as "2.34805E+12"). That's a
+  // lossy *display* convention, not the actual stored value: the cell's
+  // real numeric value is still fully precise. Recover the plain-integer
+  // form directly from the cell so downstream code (and a reviewer) sees
+  // the real digits instead of a rounded-looking exponential string —
+  // this reads back what was always in the file, it does not alter it.
+  for (let r = 0; r < matrix.length; r++) {
+    const row = matrix[r];
+    if (!row) continue;
+    for (let c = 0; c < row.length; c++) {
+      if (!SCIENTIFIC_NOTATION_RE.test(normalizeCell(row[c]))) continue;
+      const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+      if (cell?.t === "n" && typeof cell.v === "number" && Number.isFinite(cell.v)) {
+        row[c] = Number.isInteger(cell.v) ? cell.v.toFixed(0) : String(cell.v);
+      }
+    }
+  }
+
+  return matrix;
 }
 
 /** Reads a CSV or XLSX file into a header row + string matrix. Throws on

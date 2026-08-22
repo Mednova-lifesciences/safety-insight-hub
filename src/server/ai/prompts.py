@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-08-21.6"
+PROMPT_VERSION = "2026-08-22.1"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -170,6 +170,34 @@ invent a "correct" value in this step — you are only identifying issues here, 
 Do not fabricate example values, issue counts, or worked examples — count and report only what \
 is actually present in the data given to you.
 
+ISSUE CLASSIFICATION — in addition to "code" (your own short, specific label), classify every \
+finding with "issueType", one of exactly these values, matched by what kind of problem it actually \
+is, not by which field happens to be involved:
+- FIELD_MISSING: a required value is absent.
+- FIELD_VALUE_INVALID: a value is present but is not a valid value for that field (wrong enum \
+value, an impossible number, an out-of-range code).
+- FIELD_FORMAT_INVALID: a value's shape/format is wrong (bad date format, wrong digit count, \
+multiple values crammed into one cell).
+- FIELD_CONTENT_MISMATCH: a single value in an otherwise-fine column doesn't look like it belongs \
+to that field at all (an isolated anomaly, not a column-wide pattern).
+- CROSS_FIELD_CONTRADICTION: two or more fields on the same row directly contradict each other \
+(e.g. seriousness vs. a serious-outcome code, outcome=died vs. seriousness=non-serious).
+- DATE_CHRONOLOGY: a date-ordering violation across two date fields on the same row.
+- STRUCTURAL_COLUMN_SHIFT: a whole column's worth of values looks shifted/misaligned, not just one \
+row.
+- DUPLICATE_RECORD: this row appears to duplicate another row's identifying information.
+If a genuine finding doesn't fit any of these, still report it (with your own "code" and severity) \
+but omit "issueType" — do not force-fit a bad classification.
+
+Also set "affectedFields" to the canonical field name(s) (the values from the `mapping` you were \
+given, e.g. "seriousness", "onset_date" — not the original column header) this finding is actually \
+about. Use more than one entry only for a genuine cross-field/chronology finding (e.g. \
+["vaccination_date", "onset_date"]); a single-field finding gets exactly one entry. This is what \
+lets the application recognise when your finding describes the same underlying issue a \
+deterministic rule check already caught (so they're shown as one finding, not two) — get this \
+right rather than leaving it empty, since an empty/wrong value here just means your finding won't \
+get credited alongside a matching rule finding, not that anything breaks.
+
 Respond with JSON exactly in this shape:
 {
   "findings": [
@@ -181,7 +209,9 @@ Respond with JSON exactly in this shape:
       "code": "<SHORT_UPPER_SNAKE_CASE_CODE>",
       "message": "<one sentence, specific to this row>",
       "value": <the current value as a string, or null>,
-      "fixable": <true if a safe automatic correction is plausible, false if it needs a human to supply missing information>
+      "fixable": <true if a safe automatic correction is plausible, false if it needs a human to supply missing information>,
+      "issueType": "FIELD_MISSING" | "FIELD_VALUE_INVALID" | "FIELD_FORMAT_INVALID" | "FIELD_CONTENT_MISMATCH" | "CROSS_FIELD_CONTRADICTION" | "DATE_CHRONOLOGY" | "STRUCTURAL_COLUMN_SHIFT" | "DUPLICATE_RECORD" | null,
+      "affectedFields": ["<canonical field name(s) from mapping>"]
     }
   ]
 }
@@ -272,6 +302,13 @@ finding, row, or column that isn't grounded in the data you were given. Do not f
 duplicate of itself, and do not repeat the exact same message across multiple rows unless you have \
 individually verified each one independently supports it.
 
+Preserve or set "issueType" (FIELD_MISSING/FIELD_VALUE_INVALID/FIELD_FORMAT_INVALID/\
+FIELD_CONTENT_MISMATCH/CROSS_FIELD_CONTRADICTION/DATE_CHRONOLOGY/STRUCTURAL_COLUMN_SHIFT/\
+DUPLICATE_RECORD, or omit if none genuinely fits) and "affectedFields" (the canonical field name(s) \
+from the mapping this finding is about) on every finding exactly as described in the first pass's \
+instructions — this is what lets the application recognise a finding that matches a deterministic \
+rule check, so getting it right matters even though you're reviewing, not doing the first pass.
+
 Respond with JSON exactly in this shape — this is the FINAL list of findings that will actually be \
 shown to the human reviewer, so it must include every finding you are confirming or adjusting, plus \
 any you are adding, and must NOT include any you are dropping:
@@ -285,7 +322,9 @@ any you are adding, and must NOT include any you are dropping:
       "code": "<SHORT_UPPER_SNAKE_CASE_CODE>",
       "message": "<one sentence, specific to this row>",
       "value": <the current value as a string, or null>,
-      "fixable": <true if a safe automatic correction is plausible, false if it needs a human to supply missing information>
+      "fixable": <true if a safe automatic correction is plausible, false if it needs a human to supply missing information>,
+      "issueType": "FIELD_MISSING" | "FIELD_VALUE_INVALID" | "FIELD_FORMAT_INVALID" | "FIELD_CONTENT_MISMATCH" | "CROSS_FIELD_CONTRADICTION" | "DATE_CHRONOLOGY" | "STRUCTURAL_COLUMN_SHIFT" | "DUPLICATE_RECORD" | null,
+      "affectedFields": ["<canonical field name(s) from mapping>"]
     }
   ]
 }

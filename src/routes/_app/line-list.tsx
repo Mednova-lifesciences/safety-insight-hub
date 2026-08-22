@@ -415,8 +415,20 @@ function LineListPage() {
                               )}
                             </td>
                             <td className="px-3 py-2">
-                              <StatusPill tone={i.source === "ai" ? "assist" : "neutral"}>
-                                {i.source === "ai" ? "AI" : "rule"}
+                              <StatusPill
+                                tone={
+                                  i.sources && i.sources.length > 1
+                                    ? "success"
+                                    : i.source === "ai"
+                                      ? "assist"
+                                      : "neutral"
+                                }
+                              >
+                                {i.sources && i.sources.length > 1
+                                  ? "rule + AI"
+                                  : i.source === "ai"
+                                    ? "AI"
+                                    : "rule"}
                               </StatusPill>
                             </td>
                             <td className="mono-num px-3 py-2 text-xs">{i.code}</td>

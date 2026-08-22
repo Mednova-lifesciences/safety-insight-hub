@@ -27,6 +27,31 @@ class AiLineListFinding(BaseModel):
     # typo/near-miss judgment call, or a plausibility check rather than an
     # exact rule — the app gates auto-fix on this (see ai_linelist.py).
     confidence: Literal["HIGH", "LOW"]
+    # Normalized, engine-agnostic classification of *what kind* of problem
+    # this is — lets the app safely recognise when this finding describes
+    # the same underlying issue as a deterministic rule finding, without
+    # depending on `code` (freely invented by the model, and will not
+    # reliably match a rule's fixed code string). Optional: a response
+    # missing it still validates and the finding still displays, it just
+    # isn't eligible to merge with an equivalent rule finding. See
+    # LINELIST_ANALYSIS_PROMPT for the exact enum and merge semantics.
+    issueType: Optional[
+        Literal[
+            "FIELD_MISSING",
+            "FIELD_VALUE_INVALID",
+            "FIELD_FORMAT_INVALID",
+            "FIELD_CONTENT_MISMATCH",
+            "CROSS_FIELD_CONTRADICTION",
+            "DATE_CHRONOLOGY",
+            "STRUCTURAL_COLUMN_SHIFT",
+            "DUPLICATE_RECORD",
+        ]
+    ] = None
+    # Canonical field name(s) (from the `mapping` values given in the
+    # request, e.g. "seriousness", "onset_date") this finding is actually
+    # about — more than one for a cross-field finding, e.g.
+    # ["vaccination_date", "onset_date"] for a chronology conflict.
+    affectedFields: list[str] = Field(default_factory=list)
 
 
 class AiLineListAnalysis(BaseModel):

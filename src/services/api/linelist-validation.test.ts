@@ -224,30 +224,130 @@ describe("runValidation — seriousness value spelling variants", () => {
   });
 });
 
-describe("mergeFindings — AI can add, never erase, deterministic findings", () => {
-  it("keeps every rule finding even when AI returns nothing", () => {
-    const rule = [issue({ code: "SERIOUSNESS_CONTRADICTION", row: 4 })];
-    const merged = mergeFindings(rule, []);
-    expect(merged).toEqual(rule);
-  });
-
-  it("collapses an AI finding on the exact same cell into the rule's version", () => {
-    const rule = [issue({ code: "DATE_CHRONOLOGY_VIOLATION", row: 5, column: "Vaccination Date" })];
+describe("mergeFindings — semantic provenance/deduplication (not row+column alone)", () => {
+  // 1. Same row + same field + same issue → deduplicate.
+  it("merges a rule and AI finding that share row, issueType and affectedFields", () => {
+    const rule = [
+      issue({
+        code: "UNRECOGNISED_SERIOUSNESS_VALUE",
+        row: 109,
+        column: "Seriousness",
+        issueType: "FIELD_VALUE_INVALID",
+        affectedFields: ["seriousness"],
+        value: "ABC",
+      }),
+    ];
     const ai = [
       issue({
-        code: "AI_VACCINATION_AFTER_ONSET",
-        row: 5,
-        column: "vaccination date", // different case, same cell
+        code: "AI_BAD_SERIOUSNESS",
+        row: 109,
+        column: "seriousness",
         source: "ai",
-        message: "Vaccination date occurs after reporting date.",
+        message: "seriousness contains unrecognized value ABC",
+        issueType: "FIELD_VALUE_INVALID",
+        affectedFields: ["seriousness"],
+        value: "ABC",
       }),
     ];
     const merged = mergeFindings(rule, ai);
     expect(merged).toHaveLength(1);
-    expect(merged[0]!.code).toBe("DATE_CHRONOLOGY_VIOLATION");
+    expect(merged[0]!.code).toBe("UNRECOGNISED_SERIOUSNESS_VALUE");
+    expect(merged[0]!.sources).toEqual(["rule", "ai"]);
   });
 
-  it("keeps an AI finding on a different cell as additive", () => {
+  // 2. Same row + same field + DIFFERENT issue → preserve both.
+  it("keeps both findings when they're on the same row/field but a genuinely different issue", () => {
+    const rule = [
+      issue({
+        code: "UNRECOGNISED_SERIOUSNESS_VALUE",
+        row: 109,
+        column: "Seriousness",
+        issueType: "FIELD_VALUE_INVALID",
+        affectedFields: ["seriousness"],
+        value: "ABC",
+      }),
+    ];
+    const ai = [
+      issue({
+        code: "SERIOUSNESS_HOSPITALIZATION_CONTRADICTION",
+        row: 109,
+        column: "Seriousness",
+        source: "ai",
+        issueType: "CROSS_FIELD_CONTRADICTION",
+        affectedFields: ["seriousness", "hospitalization"],
+      }),
+    ];
+    const merged = mergeFindings(rule, ai);
+    expect(merged).toHaveLength(2);
+    expect(merged.map((i) => i.code).sort()).toEqual([
+      "SERIOUSNESS_HOSPITALIZATION_CONTRADICTION",
+      "UNRECOGNISED_SERIOUSNESS_VALUE",
+    ]);
+  });
+
+  // 3. Same row + different single field + same issueType → NOT merged (a
+  // different affectedFields set is never treated as "genuinely
+  // equivalent" — that's the safe default).
+  it("does not merge same-issueType findings on the same row but different fields", () => {
+    const rule = [
+      issue({
+        code: "MISSING_DOSE",
+        row: 6,
+        column: "Dose",
+        issueType: "FIELD_MISSING",
+        affectedFields: ["dose"],
+      }),
+    ];
+    const ai = [
+      issue({
+        code: "AI_MISSING_BATCH",
+        row: 6,
+        column: "Vaccine Batch",
+        source: "ai",
+        issueType: "FIELD_MISSING",
+        affectedFields: ["vaccine_batch"],
+      }),
+    ];
+    const merged = mergeFindings(rule, ai);
+    expect(merged).toHaveLength(2);
+  });
+
+  // 4. Field-level issue + cross-field issue → preserve both.
+  it("does not merge a field-level finding with a cross-field finding that includes that field", () => {
+    const rule = [
+      issue({
+        code: "UNRECOGNISED_SERIOUSNESS_VALUE",
+        row: 12,
+        column: "Seriousness",
+        issueType: "FIELD_VALUE_INVALID",
+        affectedFields: ["seriousness"],
+      }),
+    ];
+    const ai = [
+      issue({
+        code: "FATAL_NOT_SERIOUS",
+        row: 12,
+        column: "Seriousness",
+        source: "ai",
+        issueType: "CROSS_FIELD_CONTRADICTION",
+        affectedFields: ["seriousness", "outcome"],
+      }),
+    ];
+    const merged = mergeFindings(rule, ai);
+    expect(merged).toHaveLength(2);
+  });
+
+  // 5. Rule-only finding → preserved.
+  it("keeps every rule finding even when AI returns nothing, tagged sources: [rule]", () => {
+    const rule = [issue({ code: "SERIOUSNESS_CONTRADICTION", row: 4 })];
+    const merged = mergeFindings(rule, []);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.code).toBe("SERIOUSNESS_CONTRADICTION");
+    expect(merged[0]!.sources).toEqual(["rule"]);
+  });
+
+  // 6. AI-only finding → preserved, tagged sources: [ai].
+  it("keeps an AI finding with no matching rule finding, tagged sources: [ai]", () => {
     const rule = [issue({ code: "MISSING_DOSE", row: 2, column: "Dose" })];
     const ai = [
       issue({
@@ -259,6 +359,129 @@ describe("mergeFindings — AI can add, never erase, deterministic findings", ()
     ];
     const merged = mergeFindings(rule, ai);
     expect(merged).toHaveLength(2);
-    expect(merged.map((i) => i.code).sort()).toEqual(["AMBIGUOUS_REACTION_TERM", "MISSING_DOSE"]);
+    const aiFinding = merged.find((i) => i.code === "AMBIGUOUS_REACTION_TERM");
+    expect(aiFinding?.sources).toEqual(["ai"]);
+  });
+
+  // 7. Rule + AI equivalent finding → one merged finding with provenance
+  // ["rule","ai"] — covered by test 1 above too; this variant uses
+  // different code/message text to prove code-matching isn't the key.
+  it("merges regardless of completely different code/message wording", () => {
+    const rule = [
+      issue({
+        code: "MISSING_VACCINE_BATCH",
+        row: 20,
+        column: "Vaccine Batch",
+        issueType: "FIELD_MISSING",
+        affectedFields: ["vaccine_batch"],
+        value: null,
+      }),
+    ];
+    const ai = [
+      issue({
+        code: "COMPLETELY_DIFFERENT_AI_CODE_NAME",
+        row: 20,
+        column: "Vaccine Batch",
+        source: "ai",
+        message: "The lot number field appears empty for this record.",
+        issueType: "FIELD_MISSING",
+        affectedFields: ["vaccine_batch"],
+        value: null,
+      }),
+    ];
+    const merged = mergeFindings(rule, ai);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.sources).toEqual(["rule", "ai"]);
+  });
+
+  // 8. Two AI findings on same cell but different issues → both preserved
+  // (mergeFindings never deduplicates within aiIssues itself).
+  it("keeps two AI findings on the same cell when neither matches a rule finding", () => {
+    const rule: LineListIssue[] = [];
+    const ai = [
+      issue({
+        code: "AI_FINDING_ONE",
+        row: 9,
+        column: "Seriousness",
+        source: "ai",
+        issueType: "FIELD_VALUE_INVALID",
+        affectedFields: ["seriousness"],
+      }),
+      issue({
+        code: "AI_FINDING_TWO",
+        row: 9,
+        column: "Seriousness",
+        source: "ai",
+        issueType: "CROSS_FIELD_CONTRADICTION",
+        affectedFields: ["seriousness", "outcome"],
+      }),
+    ];
+    const merged = mergeFindings(rule, ai);
+    expect(merged).toHaveLength(2);
+  });
+
+  // 9. Different rows with the same issue type → both preserved.
+  it("keeps findings on different rows separate even with identical issueType/affectedFields", () => {
+    const rule = [
+      issue({
+        code: "MISSING_DOSE",
+        row: 3,
+        issueType: "FIELD_MISSING",
+        affectedFields: ["dose"],
+      }),
+    ];
+    const ai = [
+      issue({
+        code: "AI_MISSING_DOSE",
+        row: 8,
+        source: "ai",
+        issueType: "FIELD_MISSING",
+        affectedFields: ["dose"],
+      }),
+    ];
+    const merged = mergeFindings(rule, ai);
+    expect(merged).toHaveLength(2);
+  });
+
+  // 10. Different evidence values → do not incorrectly merge.
+  it("does not merge when the two findings' evidence values genuinely differ", () => {
+    const rule = [
+      issue({
+        code: "UNRECOGNISED_SERIOUSNESS_VALUE",
+        row: 15,
+        issueType: "FIELD_VALUE_INVALID",
+        affectedFields: ["seriousness"],
+        value: "ABC",
+      }),
+    ];
+    const ai = [
+      issue({
+        code: "AI_BAD_SERIOUSNESS",
+        row: 15,
+        source: "ai",
+        issueType: "FIELD_VALUE_INVALID",
+        affectedFields: ["seriousness"],
+        value: "XYZ",
+      }),
+    ];
+    const merged = mergeFindings(rule, ai);
+    expect(merged).toHaveLength(2);
+  });
+
+  it("a finding with no issueType/affectedFields is never merge-eligible (safe default)", () => {
+    // Mirrors real legacy/demo-seeded issues and the file-level
+    // NO_COLUMNS_MAPPED finding, neither of which carry a classification.
+    const rule = [issue({ code: "DATE_CHRONOLOGY_VIOLATION", row: 5, column: "Vaccination Date" })];
+    const ai = [
+      issue({
+        code: "AI_VACCINATION_AFTER_ONSET",
+        row: 5,
+        column: "vaccination date",
+        source: "ai",
+        message: "Vaccination date occurs after reporting date.",
+      }),
+    ];
+    const merged = mergeFindings(rule, ai);
+    expect(merged).toHaveLength(2);
   });
 });

@@ -307,6 +307,21 @@ export interface LineListJob {
 
 export type LineListSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 
+/** A normalized, engine-agnostic classification of *what kind* of problem
+ *  a finding represents — the stable identity dedup keys off, instead of
+ *  a rule's fixed code string or the AI's freeform one (which will never
+ *  reliably match each other verbatim). Only classifications that
+ *  actually correspond to existing validation behaviour are defined. */
+export type LineListIssueType =
+  | "FIELD_MISSING"
+  | "FIELD_VALUE_INVALID"
+  | "FIELD_FORMAT_INVALID"
+  | "FIELD_CONTENT_MISMATCH"
+  | "CROSS_FIELD_CONTRADICTION"
+  | "DATE_CHRONOLOGY"
+  | "STRUCTURAL_COLUMN_SHIFT"
+  | "DUPLICATE_RECORD";
+
 export interface LineListIssue {
   row: number;
   column: string;
@@ -319,8 +334,28 @@ export interface LineListIssue {
   fixable?: boolean;
   /** Which engine found this — shown in the UI so AI and deterministic
    *  findings are never presented as the same thing. Absent on
-   *  demo-seeded issues predating this distinction. */
+   *  demo-seeded issues predating this distinction. When a finding was
+   *  independently identified by both engines and merged, this is the
+   *  primary/authoritative one (rule, when both agree) — see `sources`
+   *  for the complete provenance. */
   source?: "ai" | "rule";
+  /** Complete provenance — ["rule"], ["ai"], or ["rule","ai"] when both
+   *  engines independently identified the same underlying issue and were
+   *  merged into one finding. Absent on issues predating this field;
+   *  callers should fall back to treating `source` as the only origin. */
+  sources?: ("ai" | "rule")[];
+  /** The normalized issue classification used for semantic deduplication
+   *  (see mergeFindings). Absent on findings that predate this field, or
+   *  on ones no classification was assigned to (e.g. the file-level
+   *  NO_COLUMNS_MAPPED finding) — those are never merged across engines,
+   *  which is the safe default. */
+  issueType?: LineListIssueType;
+  /** Canonical field name(s) this finding is actually about — more than
+   *  one for a cross-field finding (e.g. ["vaccination_date","onset_date"]
+   *  for a chronology conflict). A field-level finding on just
+   *  ["seriousness"] must never be treated as equivalent to a cross-field
+   *  finding on ["seriousness","outcome"], even on the same row. */
+  affectedFields?: string[];
   /** LOW means the finding depended on inferring an unfamiliar column's
    *  role or a judgment call rather than an exact rule — auto-fix skips
    *  these and leaves them for a human to decide either way. Rule-engine

@@ -239,6 +239,32 @@ describe("parseTabularFile — structural noise inside the data region", () => {
   });
 });
 
+describe("parseTabularFile — numeric cells that Excel would render in scientific notation", () => {
+  it("recovers the plain-integer phone number instead of a lossy-looking exponential string", async () => {
+    // Real regression: a phone number typed into a plain (General-format)
+    // numeric cell — not text — comes back from Excel/SheetJS as
+    // "2.34805E+12" once it's long enough. The cell's actual stored value
+    // is still the full 13 digits; only the display convention is lossy.
+    const file = xlsxFile([
+      ["S/N", "Patient Identifier", "Reporter Phone Number"],
+      [1, "P001", 2348054535217],
+    ]);
+    const result = await parseTabularFile(file);
+    const phoneColIndex = result.headers.indexOf("Reporter Phone Number");
+    expect(result.rows[0]![phoneColIndex]).toBe("2348054535217");
+  });
+
+  it("leaves an ordinary text-formatted phone number untouched", async () => {
+    const file = xlsxFile([
+      ["S/N", "Patient Identifier", "Reporter Phone Number"],
+      [1, "P001", "08012345678"],
+    ]);
+    const result = await parseTabularFile(file);
+    const phoneColIndex = result.headers.indexOf("Reporter Phone Number");
+    expect(result.rows[0]![phoneColIndex]).toBe("08012345678");
+  });
+});
+
 describe("parseTabularFile — multi-sheet workbooks", () => {
   it("picks the sheet that actually looks like the case table, not the first sheet", async () => {
     const notesSheet = XLSX.utils.aoa_to_sheet([

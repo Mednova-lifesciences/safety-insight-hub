@@ -24,6 +24,13 @@ export interface AiLineListIssueOut {
   value: string | null;
   fixable: boolean;
   source: "ai";
+  /** Normalized issue classification and affected canonical field(s),
+   *  used to safely merge this finding with a matching rule finding
+   *  instead of showing both. Absent/empty when the model didn't (or
+   *  couldn't) classify a particular finding — it still displays, just
+   *  isn't merge-eligible. */
+  issueType?: string | null;
+  affectedFields?: string[];
 }
 
 export interface AiAnalyzeResponse {
