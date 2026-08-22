@@ -18,7 +18,7 @@ DEMO_ORGANIZATION = "Safety Insight Hub Demo"
 DEMO_USERS = [
     ("field@demo.safetyinsighthub.com", "Demo Field Associate", "FIELD_ASSOCIATE"),
     ("coordinator@demo.safetyinsighthub.com", "Demo PV Coordinator", "PV_COORDINATOR"),
-    ("manager@demo.safetyinsighthub.com", "Demo PV Manager", "PV_MANAGER"),
+    ("manager@demo.safetyinsighthub.com", "Demo Administrator", "PV_MANAGER"),
     ("admin@demo.safetyinsighthub.com", "Demo Administrator", "ADMIN"),
 ]
 

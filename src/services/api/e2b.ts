@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { recordAudit, toJson } from "./db";
+import { currentActor, recordAudit, toJson } from "./db";
 import type { LineListJob } from "@/types/pv";
 
 export interface E2bReadiness {
@@ -10,6 +10,9 @@ export interface E2bReadiness {
   warnings: number;
   readyForExport: boolean;
   blockingIssues: string[];
+  /** True when invalidCases > 0 but a reviewer explicitly dismissed the
+   *  export gate — readyForExport is true despite outstanding issues. */
+  overridden: boolean;
   schema: string;
 }
 
@@ -56,7 +59,8 @@ function buildReadiness(job: LineListJobRow): E2bReadiness {
   if (job.stage !== "VALIDATED" && job.stage !== "E2B_GENERATED") {
     blockingIssues.push("Line-list validation has not completed for this job.");
   }
-  if (job.invalidCases > 0) {
+  const overridden = job.invalidCases > 0 && !!job.e2bOverride;
+  if (job.invalidCases > 0 && !job.e2bOverride) {
     blockingIssues.push(`${job.invalidCases} invalid case(s) must be resolved before export.`);
   }
   return {
@@ -67,6 +71,7 @@ function buildReadiness(job: LineListJobRow): E2bReadiness {
     warnings: job.warnings,
     readyForExport: blockingIssues.length === 0,
     blockingIssues,
+    overridden,
     schema: "ICH E2B(R3) ICSR — preparation draft",
   };
 }
@@ -159,6 +164,40 @@ export const e2b = {
   readiness: async (jobId: string): Promise<E2bReadiness> => {
     const job = await readJob(jobId);
     return buildReadiness(job);
+  },
+
+  /**
+   * Records an explicit human override of the "no outstanding errors" gate
+   * on E2B(R3) generation — for situations where the remaining line-list
+   * findings are judged intentional or incorrect for this dataset, not
+   * because the data actually changed. Never clears invalidCases or the
+   * underlying issues (they stay exactly as-is on the line-list page);
+   * only this job's export gate is bypassed, and the override is written
+   * to the audit trail (who, when) like every other consequential decision
+   * in this app. The caller (the E2B page) is responsible for confirming
+   * with the user before calling this — it takes effect immediately.
+   */
+  dismissErrors: async (jobId: string): Promise<LineListJob> => {
+    const job = await readJob(jobId);
+    const actor = currentActor();
+    const nextJob: LineListJobRow = {
+      ...job,
+      e2bOverride: { by: actor.name, at: new Date().toISOString() },
+    };
+    const { error } = await supabase
+      .from("pv_linelist_jobs")
+      .update({ data: toJson(nextJob) })
+      .eq("id", jobId);
+    if (error) throw new Error(error.message);
+
+    await recordAudit({
+      action: "E2B_ERRORS_OVERRIDDEN",
+      entity: "LineListJob",
+      entityId: jobId,
+      newValue: `${job.invalidCases} invalid case(s) dismissed for export by ${actor.name}`,
+    });
+
+    return nextJob;
   },
 
   generate: async (jobId: string): Promise<E2bArtifact> => {

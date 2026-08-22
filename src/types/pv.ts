@@ -295,6 +295,14 @@ export interface LineListJob {
   highCount?: number | undefined;
   mediumCount?: number | undefined;
   lowCount?: number | undefined;
+  /** Set when a reviewer has explicitly overridden the "no outstanding
+   *  errors" gate on E2B(R3) generation for this job — for cases where the
+   *  line-list validator's remaining findings are judged intentional or
+   *  incorrect for this dataset. Never clears invalidCases or the issues
+   *  themselves (still real, still shown on the line-list page); only
+   *  bypasses this job's export gate. Recorded for the audit trail like
+   *  every other consequential decision in this app. */
+  e2bOverride?: { by: string; at: string; reason?: string } | undefined;
 }
 
 export type LineListSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";

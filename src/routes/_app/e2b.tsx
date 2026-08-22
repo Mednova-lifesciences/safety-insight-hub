@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
-import { Download, FileStack, ShieldAlert } from "lucide-react";
+import { Download, FileStack, ShieldAlert, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 import { e2b as e2bApi } from "@/services/api/e2b";
 import { linelist as linelistApi } from "@/services/api/linelist";
@@ -17,6 +17,16 @@ import {
   StatusPill,
 } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/_app/e2b")({
   head: () => ({
@@ -49,6 +59,25 @@ function E2bPage() {
     () => demoLineListJobs,
   );
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  async function dismissErrors(jobId: string) {
+    setBusy(jobId);
+    try {
+      await e2bApi.dismissErrors(jobId);
+      toast.success("Outstanding errors dismissed. This job can now be exported.");
+      jobs.refetch();
+    } catch (err) {
+      toast.error(
+        isNotConfigured(err)
+          ? "Backend not connected — the override was not saved."
+          : "Could not dismiss errors.",
+      );
+    } finally {
+      setBusy(null);
+      setConfirmingId(null);
+    }
+  }
 
   return (
     <>
@@ -84,7 +113,8 @@ function E2bPage() {
               return (
                 <ul className="space-y-3">
                   {ready.map((j) => {
-                    const exportable = j.invalidCases === 0;
+                    const overridden = j.invalidCases > 0 && !!j.e2bOverride;
+                    const exportable = j.invalidCases === 0 || overridden;
                     return (
                       <li key={j.id} className="rounded-md border border-border p-3">
                         <div className="flex flex-wrap items-center gap-2">
@@ -98,12 +128,17 @@ function E2bPage() {
                           <StatusPill tone={exportable ? "success" : "critical"}>
                             {exportable ? "Ready for export" : "Not ready for export"}
                           </StatusPill>
+                          {overridden ? (
+                            <StatusPill tone="warning">Errors overridden</StatusPill>
+                          ) : null}
                         </div>
 
                         <p className="mt-2 text-xs text-muted-foreground">
-                          {exportable
-                            ? "No outstanding line-listing issues. This dataset — including any AI-applied corrections — is what will be used to generate E2B(R3) output."
-                            : `${j.invalidCases} outstanding line-listing issue(s) on this dataset must be resolved before it can be exported.`}
+                          {overridden
+                            ? `${j.invalidCases} outstanding line-listing issue(s) remain, but ${j.e2bOverride?.by ?? "a reviewer"} dismissed them for export on ${new Date(j.e2bOverride!.at).toLocaleString()}. They are still shown in full on the line-list page.`
+                            : exportable
+                              ? "No outstanding line-listing issues. This dataset — including any AI-applied corrections — is what will be used to generate E2B(R3) output."
+                              : `${j.invalidCases} outstanding line-listing issue(s) on this dataset must be resolved before it can be exported.`}
                         </p>
 
                         <dl className="mt-3 grid gap-3 sm:grid-cols-4">
@@ -167,6 +202,48 @@ function E2bPage() {
                           >
                             <Download className="size-4" /> Download XML
                           </Button>
+                          {j.invalidCases > 0 && !j.e2bOverride ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy === j.id}
+                                onClick={() => setConfirmingId(j.id)}
+                              >
+                                <ShieldOff className="size-4" /> Dismiss Errors
+                              </Button>
+                              <AlertDialog
+                                open={confirmingId === j.id}
+                                onOpenChange={(open) => {
+                                  if (!open) setConfirmingId(null);
+                                }}
+                              >
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>
+                                      Override outstanding errors?
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      This job has {j.invalidCases} outstanding line-listing
+                                      issue(s). Dismissing them unlocks{" "}
+                                      <strong>Generate E2B(R3)</strong> for this job without
+                                      resolving them — use this only when those findings are
+                                      intentional or incorrect for this dataset. The issues are not
+                                      removed or resolved; they'll still show in full on the
+                                      line-list page, and this override is recorded in the audit
+                                      trail under your name.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => dismissErrors(j.id)}>
+                                      Dismiss errors
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </>
+                          ) : null}
                           {!exportable ? (
                             <span className="self-center text-xs text-muted-foreground">
                               {j.invalidCases} invalid case(s) must be resolved in line-list
