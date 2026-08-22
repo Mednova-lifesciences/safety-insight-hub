@@ -40,17 +40,20 @@ export const TARGET_FIELDS = [
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
-const SERIOUSNESS_VALUES = new Set([
-  "SERIOUS",
-  "NON_SERIOUS",
-  "NON-SERIOUS",
-  "NONSERIOUS",
-  "YES",
-  "NO",
-  "Y",
-  "N",
-]);
-const NON_SERIOUS_VALUES = new Set(["NON_SERIOUS", "NON-SERIOUS", "NONSERIOUS", "NO", "N"]);
+/** Collapses whatever separator (or none at all) a form uses between "non"
+ *  and "serious" — "NON_SERIOUS", "NON-SERIOUS", "NON SERIOUS",
+ *  "NONSERIOUS" — to one canonical form, so a real file isn't flagged
+ *  UNRECOGNISED_SERIOUSNESS_VALUE merely for spelling "non-serious" with a
+ *  space instead of an underscore. Found on a real AEFI form that used
+ *  "NON SERIOUS". */
+function normalizeSeriousness(value: string): string {
+  const upper = value.toUpperCase().trim();
+  if (upper.replace(/[\s_-]+/g, "") === "NONSERIOUS") return "NON_SERIOUS";
+  return upper.replace(/[\s_-]+/g, "_");
+}
+
+const SERIOUSNESS_VALUES = new Set(["SERIOUS", "NON_SERIOUS", "YES", "NO", "Y", "N"]);
+const NON_SERIOUS_VALUES = new Set(["NON_SERIOUS", "NO", "N"]);
 const SERIOUS_TEXT_VALUES = new Set(["SERIOUS", "YES", "Y"]);
 const OUTCOME_VALUES = new Set([
   "RECOVERED",
@@ -693,7 +696,7 @@ export function runValidation(
       }
     }
 
-    if (row.seriousness && !SERIOUSNESS_VALUES.has(row.seriousness.toUpperCase())) {
+    if (row.seriousness && !SERIOUSNESS_VALUES.has(normalizeSeriousness(row.seriousness))) {
       issues.push({
         row: rowNum,
         column: col("seriousness"),
@@ -735,7 +738,7 @@ export function runValidation(
       } else if (
         row.outcome.toUpperCase() === "FATAL" &&
         row.seriousness &&
-        NON_SERIOUS_VALUES.has(row.seriousness.toUpperCase())
+        NON_SERIOUS_VALUES.has(normalizeSeriousness(row.seriousness))
       ) {
         issues.push({
           row: rowNum,
@@ -755,8 +758,8 @@ export function runValidation(
       const hasSeriousCode =
         !!row.serious_code &&
         !["0", "none", "n/a", "-", "nil"].includes(row.serious_code.trim().toLowerCase());
-      const isNonSerious = NON_SERIOUS_VALUES.has(row.seriousness.toUpperCase());
-      const isSerious = SERIOUS_TEXT_VALUES.has(row.seriousness.toUpperCase());
+      const isNonSerious = NON_SERIOUS_VALUES.has(normalizeSeriousness(row.seriousness));
+      const isSerious = SERIOUS_TEXT_VALUES.has(normalizeSeriousness(row.seriousness));
       if (isNonSerious && hasSeriousCode) {
         issues.push({
           row: rowNum,

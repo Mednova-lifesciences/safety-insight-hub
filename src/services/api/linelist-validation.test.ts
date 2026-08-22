@@ -200,6 +200,30 @@ describe("runValidation — column-shift detection (whole column vs single value
   });
 });
 
+describe("runValidation — seriousness value spelling variants", () => {
+  it("does not flag real seriousness spellings that use a space instead of an underscore/hyphen", () => {
+    // Real regression: a real AEFI form spelled it "NON SERIOUS" (space),
+    // which the old exact-string set didn't recognise at all.
+    const mapping: Record<string, TargetField> = { Seriousness: "seriousness" };
+    const rows: ParsedRow[] = [
+      { seriousness: "NON SERIOUS" },
+      { seriousness: "NON-SERIOUS" },
+      { seriousness: "NONSERIOUS" },
+      { seriousness: "NON_SERIOUS" },
+      { seriousness: "SERIOUS" },
+    ];
+    const issues = runValidation(["Seriousness"], mapping, rows);
+    expect(issues.some((i) => i.code === "UNRECOGNISED_SERIOUSNESS_VALUE")).toBe(false);
+  });
+
+  it("still flags a genuinely unrecognised seriousness value", () => {
+    const mapping: Record<string, TargetField> = { Seriousness: "seriousness" };
+    const rows: ParsedRow[] = [{ seriousness: "MAYBE" }];
+    const issues = runValidation(["Seriousness"], mapping, rows);
+    expect(issues.some((i) => i.code === "UNRECOGNISED_SERIOUSNESS_VALUE")).toBe(true);
+  });
+});
+
 describe("mergeFindings — AI can add, never erase, deterministic findings", () => {
   it("keeps every rule finding even when AI returns nothing", () => {
     const rule = [issue({ code: "SERIOUSNESS_CONTRADICTION", row: 4 })];
