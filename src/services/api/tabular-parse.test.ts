@@ -183,6 +183,37 @@ describe("parseTabularFile — structural noise inside the data region", () => {
     expect(result.rows).toHaveLength(2);
     expect(result.rows.map((r) => r[0])).toEqual(["C001", "C002"]);
   });
+
+  it("drops a repeated federal letterhead band reappearing mid-sheet (real Ondo AEFI regression)", async () => {
+    // Reproduces an actual failure observed against "2026, ONDO STATE
+    // AEFI.xlsx": a real prior run's executive summary showed 41
+    // STRUCTURAL_ROW findings at rows 201-203+, each row containing only
+    // "FEDERAL REPUBLIC OF NIGERIA" — the letterhead is reprinted partway
+    // down the sheet (a paginated government-form export flattened into
+    // one sheet), well past the real header, so it isn't caught by the
+    // pre-header letterhead skip at all. Only the AI's own structural-row
+    // judgement caught it before this fix; the parser now drops it
+    // deterministically, before validation ever sees it.
+    const rows: (string | number)[][] = [
+      ["S/N", "Patient Identifier", "Sex", "Age", "Suspect Product", "Reaction", "Onset Date"],
+    ];
+    for (let i = 1; i <= 200; i++) {
+      rows.push([i, `P${i}`, i % 2 ? "F" : "M", 5, "MR", "Fever", "2026-02-03"]);
+    }
+    // The repeated letterhead band — one populated cell per row, exactly
+    // matching what was actually observed.
+    rows.push(["FEDERAL REPUBLIC OF NIGERIA"]);
+    rows.push(["FEDERAL MINISTRY OF HEALTH"]);
+    rows.push(["AEFI LINE LIST FORM — ONDO STATE"]);
+    rows.push([201, "P201", "F", 6, "OPV", "Rash", "2026-02-04"]);
+
+    const file = xlsxFile(rows);
+    const result = await parseTabularFile(file);
+
+    expect(result.rows).toHaveLength(201);
+    expect(result.rows.every((r) => r[1] !== "" && !r[1]!.includes("FEDERAL"))).toBe(true);
+    expect(result.warnings.join(" ")).toMatch(/sparse row/i);
+  });
 });
 
 describe("parseTabularFile — multi-sheet workbooks", () => {

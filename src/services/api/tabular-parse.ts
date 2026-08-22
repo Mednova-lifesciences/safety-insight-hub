@@ -290,13 +290,33 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
   }
 
   const headers = headerRow;
-  const headerKey = headers.join("");
+  const headerKey = headers.join("");
+  // A real case record populates more than a single field even when
+  // sparse — a row with only one populated cell is essentially always a
+  // banner/title/letterhead band reprinted partway down the sheet (a
+  // common artefact in paginated government-form exports flattened into
+  // one sheet), never genuine case data. Only applied when the table has
+  // enough columns for "more than one populated cell" to mean anything.
+  const minPopulatedCells = headers.length >= 3 ? 2 : 1;
+  let structuralRowsDropped = 0;
   const rows = matrix
     .slice(dataStartIndex)
     .map((r) => headers.map((_, i) => normalizeCell(r[i])))
-    // Drop fully-blank rows and exact repeats of the header row (a common
-    // artefact when a form's header is reprinted partway down the sheet).
-    .filter((r) => r.some((cell) => cell.length > 0) && r.join("") !== headerKey);
+    .filter((r) => {
+      const populated = r.filter((cell) => cell.length > 0).length;
+      if (populated === 0) return false; // fully blank
+      if (r.join("") === headerKey) return false; // exact repeat of the header row
+      if (populated < minPopulatedCells) {
+        structuralRowsDropped++;
+        return false;
+      }
+      return true;
+    });
+  if (structuralRowsDropped > 0) {
+    warnings.push(
+      `Dropped ${structuralRowsDropped} sparse row(s) within the data region (fewer than ${minPopulatedCells} populated cell(s)) as non-data structural content, e.g. a repeated letterhead/title band.`,
+    );
+  }
 
   return {
     headers,
