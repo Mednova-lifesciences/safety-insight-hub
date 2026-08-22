@@ -55,6 +55,26 @@ BASE_BACKOFF_SECONDS = 1.0
 # instead of burning the retry budget on a guaranteed repeat failure.
 _RETRYABLE_ERRORS = (APITimeoutError, APIConnectionError, RateLimitError, InternalServerError)
 
+# Some models (typically newer reasoning-optimized ones) reject any explicit
+# temperature, including 0, and only support their own fixed default — which
+# model that is here is controlled by env vars this code doesn't choose, so
+# rather than hardcode a per-model list, a model is added here the first
+# time it actually rejects one, and every call for that model skips sending
+# temperature at all from then on for the life of this process.
+_MODELS_WITHOUT_CUSTOM_TEMPERATURE: set[str] = set()
+
+
+def _is_unsupported_temperature_error(exc: APIError) -> bool:
+    body = getattr(exc, "body", None)
+    error = body.get("error", body) if isinstance(body, dict) else None
+    if isinstance(error, dict) and error.get("param") == "temperature":
+        return True
+    # Fall back to matching the rendered error text in case the SDK's body
+    # shape differs across versions — still specific enough not to
+    # misfire on an unrelated 400.
+    text = str(exc)
+    return "'param': 'temperature'" in text or '"param": "temperature"' in text
+
 
 class AiNotConfiguredError(Exception):
     """OPENAI_API_KEY is missing. Callers should catch this and fall back
@@ -124,10 +144,11 @@ async def structured_completion(
     """Text-only JSON-mode completion, with retry on transient failures."""
     client = get_client()
     last_error: Optional[Exception] = None
+    send_temperature = model not in _MODELS_WITHOUT_CUSTOM_TEMPERATURE
 
     for attempt in range(MAX_RETRIES + 1):
         try:
-            response = await client.chat.completions.create(
+            kwargs: dict[str, Any] = dict(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -141,8 +162,10 @@ async def structured_completion(
                 # configured here is controlled by env vars that can change
                 # independently of this code.
                 max_completion_tokens=max_output_tokens,
-                temperature=0,
             )
+            if send_temperature:
+                kwargs["temperature"] = 0
+            response = await client.chat.completions.create(**kwargs)
             raw = response.choices[0].message.content
             if not raw:
                 raise AiRequestError("OpenAI returned an empty response.")
@@ -166,6 +189,12 @@ async def structured_completion(
                 logger.warning("OpenAI request attempt %s/%s failed: %s", attempt + 1, MAX_RETRIES + 1, exc)
             continue
         except APIError as exc:
+            if send_temperature and _is_unsupported_temperature_error(exc):
+                logger.warning("Model %s rejects an explicit temperature; retrying without it.", model)
+                _MODELS_WITHOUT_CUSTOM_TEMPERATURE.add(model)
+                send_temperature = False
+                last_error = exc
+                continue
             logger.error("OpenAI API error (not retried — not a transient failure): %s", exc)
             raise AiRequestError(f"OpenAI API error: {exc}") from exc
 
@@ -186,10 +215,11 @@ async def vision_structured_completion(
     data: URI (base64) — nothing is uploaded to third-party storage."""
     client = get_client()
     last_error: Optional[Exception] = None
+    send_temperature = model not in _MODELS_WITHOUT_CUSTOM_TEMPERATURE
 
     for attempt in range(MAX_RETRIES + 1):
         try:
-            response = await client.chat.completions.create(
+            kwargs: dict[str, Any] = dict(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -209,8 +239,10 @@ async def vision_structured_completion(
                 # configured here is controlled by env vars that can change
                 # independently of this code.
                 max_completion_tokens=max_output_tokens,
-                temperature=0,
             )
+            if send_temperature:
+                kwargs["temperature"] = 0
+            response = await client.chat.completions.create(**kwargs)
             raw = response.choices[0].message.content
             if not raw:
                 raise AiRequestError("OpenAI returned an empty response.")
@@ -234,6 +266,12 @@ async def vision_structured_completion(
                 logger.warning("OpenAI vision request attempt %s/%s failed: %s", attempt + 1, MAX_RETRIES + 1, exc)
             continue
         except APIError as exc:
+            if send_temperature and _is_unsupported_temperature_error(exc):
+                logger.warning("Model %s rejects an explicit temperature; retrying without it.", model)
+                _MODELS_WITHOUT_CUSTOM_TEMPERATURE.add(model)
+                send_temperature = False
+                last_error = exc
+                continue
             logger.error("OpenAI vision API error (not retried — not a transient failure): %s", exc)
             raise AiRequestError(f"OpenAI API error: {exc}") from exc
 
