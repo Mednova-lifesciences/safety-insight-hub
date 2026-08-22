@@ -1,0 +1,234 @@
+
+# IMPLEMENTATION BRIEF: PSUR + ICSR IMAGE ACCURACY & DATA PROPAGATION
+
+Self-contained instruction set — paste this whole file to a Claude Code
+session working in this repo (safety-insight-hub) and say "implement
+this." Assumes zero prior conversation context; every claim below was
+verified against the actual code, not assumed. Line-list accuracy (column
+generalization, four-tier severity, the fix/download reliability fix, the
+executive summary export) has already been implemented separately and is
+out of scope here — do not touch `src/services/api/linelist.ts`'s
+line-list-specific logic, `LINELIST_ANALYSIS_PROMPT`, or
+`LINELIST_FIX_PROMPT` as part of this brief. Being demonstrated to NAFDAC
+leadership — a silent gap (a field quietly never captured, a "fix" that
+didn't actually change anything, a downloaded file that doesn't match
+what was on screen, a case that shows fewer products than the source
+document had) is worse than an extra flagged issue a reviewer dismisses.
+
+## THE ONE PRINCIPLE THIS BRIEF IMPLEMENTS
+
+Whatever gets uploaded — a PSUR spreadsheet with unfamiliar columns, or a
+scanned/handwritten ICSR form with multiple drug rows — every field in it
+must actually reach review/extraction, every AI-proposed fix must
+actually get written to the stored data, every download must reflect
+what's actually stored (post-fix, not stale), and if a document carries
+more structure than today's data model holds (e.g. multiple suspected
+drugs on one form), that structure must be captured and then shown
+everywhere that data is displayed — case detail, dashboards, exports —
+not silently dropped at the point of least resistance. Line-list already
+had exactly this problem and it's already fixed there; PSUR and ICSR
+image extraction have the same shortcut — "collapse to a fixed field
+list, drop the rest" — still in them, which is what this brief removes.
+
+---
+
+## PART B — PSUR (`src/services/api/psur.ts`, `src/server/ai/*`)
+
+### B0. Current state (verified — same shape of bug line-list had)
+
+`psur.ts` builds `parsedRows: ParsedCaseRow[]` from
+`mapColumnsByKeywords(headers, PSUR_FIELD_KEYWORDS)` (line ~292),
+discarding any column that doesn't match the fixed `PsurField` set — the
+same drop-on-ingest problem line-list's `toParsedRows` had. The fix
+write-back (line ~573) has the identical guard: `if (!(field in
+PSUR_FIELD_KEYWORDS)) continue;` — same silent-discard risk once findings
+can reference non-canonical columns. The export/CSV builder (line
+~614-621) reads from `mapping[header]` and blanks anything unmapped —
+same gap line-list's `downloadCsv()` had. `review_spreadsheet` in
+`src/server/routes/ai_psur.py` already forwards `rows: list[dict]`
+untouched to the backend — no backend change needed there.
+
+### B1. Stop dropping columns
+
+Add a raw-row store (e.g. `rawRows: Record<string, string>[]`) alongside
+the existing `parsedRows` in the PSUR document type
+(`src/services/api/psur.ts`), populated at parse time with every original
+column keyed by its real header text. Send `rawRows` (falling back to
+`parsedRows` if absent, e.g. for any PSUR document not sourced from a raw
+file) to `review_spreadsheet` and `fix` instead of the collapsed
+`parsedRows`. Keep `PSUR_FIELD_KEYWORDS`/the mapper as a hint for the
+deterministic parts and for anything that still needs the canonical
+`PsurField` shape.
+
+### B2. Rewrite `PSUR_REVIEW_SPREADSHEET_PROMPT` (and PDF prompt where applicable)
+
+Apply the same "infer every column's role from its header and sample
+values, don't assume a fixed field list" instruction used for line-list's
+analysis prompt — for the spreadsheet variant specifically, since that's
+the one driven by a fixed column mapping today. Keep everything
+`PSUR_REVIEW_PDF_PROMPT`/`PSUR_REVIEW_SPREADSHEET_PROMPT`
+(`src/server/ai/prompts.py`) already do well: only assert what's actually
+observable in the given text/rows, and — for the PDF variant, given
+`MAX_PDF_CHARS = 60_000` truncation in `ai_psur.py` — never assert a
+section is missing purely because it was truncated and unseen. Make sure
+`PSUR_FULL_FIX_PROMPT` never fabricates a resolution for a section it
+never actually saw in the extracted text.
+
+### B3. Fix the write-back and export — the actual "does the fix work" bug
+
+Fix the guard at `psur.ts` line ~573 (`if (!(field in
+PSUR_FIELD_KEYWORDS)) continue;`) to write into the raw-row store by
+original header instead of silently dropping corrections for
+non-canonical columns — in addition to `parsedRows` when the column is
+also canonical. Fix the CSV/export builder (line ~614-621) to read each
+column's value from the raw-row store (post-fix) instead of blanking any
+column that never mapped to a canonical field.
+
+### B4. Guarantee "PSUR fix" actually changes the data and downloads correctly
+
+After B1-B3 land: a correction proposed for a PSUR spreadsheet row must
+(a) not be silently dropped for a non-canonical column, (b) be reflected
+the next time the document is reviewed, and (c) be reflected in whatever
+the PSUR page's download/export produces. This must be verified with a
+real spreadsheet upload — see End-to-End Verification below, not assumed
+from reading the code.
+
+---
+
+## PART C — ICSR IMAGE/FORM EXTRACTION (`src/server/routes/ai_icsr.py`, `src/routes/_app/icsr.new.tsx`)
+
+### C0. Current state (verified against a real scanned NAFDAC ICSR form)
+
+`AiIcsrExtraction` (`src/server/ai/schemas.py`) models exactly one
+suspected product (`productName`, `productDose`, `productRoute`,
+`productIndication`, `therapyStartDate`, `productAction`) and has no
+field at all for batch number or expiry date. The actual NAFDAC ICSR form
+(Annexure 1, PVRMS-003-01) has a *table* of suspected drugs (each row
+with its own batch no. and expiry date) and a *separate table* of
+concomitant medicines — none of which the schema can hold. Seriousness on
+the form is a set of checkboxes (Death / Life-threatening /
+Hospitalization / Disability / Congenital Anomaly / Required intervention
+/ Other), but the schema flattens this to a single `SERIOUS` /
+`NON_SERIOUS` / `UNASSESSED` value, discarding which specific criterion
+was checked. `icsr.new.tsx:181-207` maps every schema field 1:1 into the
+form correctly — the gap is entirely in the schema/prompt, not the
+frontend wiring. `casesApi.create()` (`icsr.new.tsx:248-255`) and
+`CaseSummary`/`CaseDetail` (`src/types/pv.ts`) also only carry a single
+`product: string` — this is a data-model limit, not just an extraction
+limit (see Part D for the propagation fix).
+
+The prompt already correctly returns `null` rather than guessing on
+illegible handwriting (`prompts.py:242-246`) — keep that; the fix here is
+giving it somewhere to put what it *can* read, not making it guess more.
+
+### C1. Extend the extraction schema to arrays
+
+In `src/server/ai/schemas.py`, change `AiIcsrExtraction` to hold:
+- `suspectedDrugs: list[...]` — each entry: `name`, `dose`, `route`,
+  `indication`, `batchNumber`, `expiryDate`, `therapyStartDate`, `action`
+  — all optional/nullable per entry, same "null if not confident" rule as
+  every other field.
+- `concomitantMedicines: list[...]` — each entry: `name`, `dose`, `route`,
+  `startDate`, `endDate`.
+- `seriousnessCriteria: list[str]` (or a set of typed literals matching
+  the form's checkbox labels: death, life_threatening, hospitalization,
+  disability, congenital_anomaly, required_intervention, other) instead
+  of collapsing to one tri-state value. Keep `reportedSeriousness` too,
+  derived as `SERIOUS` if `seriousnessCriteria` is non-empty else
+  `NON_SERIOUS`/`UNASSESSED` — additive, not a breaking rename.
+Keep every other field (reporter/patient/reaction/outcome/narrative) as
+today — those are genuinely one-per-case on this form.
+
+### C2. Rewrite `ICSR_IMAGE_EXTRACTION_PROMPT`
+
+Instruct the model explicitly to look for tables with multiple rows in
+the suspected-drug and concomitant-medicine sections and extract each row
+as its own array entry rather than collapsing to one, the same
+"understand the document, don't assume a fixed single-value form"
+principle used for line-list's column-role inference. Instruct it to read
+every seriousness checkbox independently rather than picking one value.
+Keep the existing low-confidence/`lowConfidenceFields` behaviour,
+extended to per-entry confidence where useful (e.g. one drug row
+confidently read, another illegible) rather than an all-or-nothing
+field-level flag.
+
+### C3. Update the frontend mapping and the Case creation payload
+
+`icsr.new.tsx` needs to render a repeatable drug-row editor (add/remove
+rows) instead of a single product section, pre-populated from
+`suspectedDrugs`/`concomitantMedicines`, editable before submission (same
+"review everything before submitting" pattern already used for the
+single-product fields today). `casesApi.create()`'s payload needs a
+`products: [...]` array instead of (or alongside, see Part D) the single
+`product` object.
+
+---
+
+## PART D — PROPAGATE MULTI-PRODUCT DATA EVERYWHERE IT'S SHOWN
+
+`CaseSummary.product: string` and `CaseDetail`'s single product fields
+(`src/types/pv.ts`) are read in multiple places — case list/search
+(`src/routes/_app/cases.index.tsx`, filters on `c.product`), case detail
+(`src/routes/_app/cases.$caseId.tsx`), and dashboards
+(`src/routes/_app/dashboard.tsx`, `signals.tsx`). Do **not** rip out the
+single `product: string` field and break every existing call site in one
+pass. Instead, additive:
+
+- Add `products: { name: string; dose?: string; route?: string;
+  batchNumber?: string; expiryDate?: string; indication?: string;
+  isPrimarySuspect?: boolean }[]` to `CaseDetail` (and `CaseSummary` if
+  list views need to show "N products" at a glance).
+- Keep `product: string` populated as today — set it to the primary/first
+  suspected drug's name — so every existing list, filter, search, and
+  dashboard aggregation that reads `.product` keeps working unmodified.
+- Case detail page (`cases.$caseId.tsx`) gets a new section rendering the
+  full `products` array (and `concomitantMedicines` if carried through to
+  `CaseDetail` too) instead of just the single product line.
+- Dashboard/signals aggregations that count or group by product
+  (`dashboard.tsx`, `signals.tsx` — check both for `.product` usage)
+  should be reviewed to decide whether they should count by primary
+  product only (current behaviour, unchanged) or explode across all
+  products on a case (a real behavioural choice, not a bug — flag it for
+  a human decision rather than silently picking one, since it changes
+  signal-detection denominators).
+
+---
+
+## END-TO-END VERIFICATION (no automated test harness exists in this repo —
+## no vitest/jest/pytest config, no `"test"` script in `package.json` — these
+## are real manual walkthroughs to run after implementing, not optional)
+
+1. **PSUR:** upload a PSUR spreadsheet with an issue in a non-canonical
+   column → Review → confirm the issue is found → Fix → confirm the
+   correction is reported (not silently absent) → re-review → confirm
+   it's reflected → download/export the document → confirm the corrected
+   value is actually present in that exact column, not blank and not
+   stale.
+2. **ICSR image, multi-drug form:** upload a scanned form with 2+
+   suspected drugs and 1+ concomitant medicine → confirm all drug rows
+   populate as separate entries (not one row overwriting another) →
+   confirm batch number and expiry date are captured → confirm seriousness
+   checkboxes map to `seriousnessCriteria`, not a single flattened value →
+   submit the case → open the created case's detail page and confirm all
+   products show, not just one → check the dashboard reflects the new
+   case correctly.
+If either step above doesn't hold, the corresponding "it works" claim is
+not true yet — do not report this brief as fully implemented until both
+pass on real uploaded files/images, not just on reading the code.
+
+## WHAT NOT TO BUILD
+
+- No markdown narrative report baked into PSUR's per-finding AI JSON
+  response — findings stay whatever shape `AiPsurReview`/`AiPsurFix`
+  already define.
+- No fabricated content inside any prompt — PSUR findings must trace to
+  actual text/rows given, ICSR extraction must trace to what's actually
+  visible in the image; leave anything else null/unresolved.
+- No claiming a PSUR or ICSR "fix"/extraction succeeded without the
+  corresponding End-to-End Verification step actually passing on a real
+  file/image — a correction that isn't reflected on re-review and in the
+  download is not a fix; a drug row that isn't reflected on the created
+  case's detail page isn't captured.
+- No ripping out `product: string` from the Case model in one pass — add
+  `products` alongside it (Part D); breaking every existing call site at
+  once is not required to solve the actual problem.

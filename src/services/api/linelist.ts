@@ -86,6 +86,12 @@ interface LineListJobRow extends LineListJob {
    *  (createFromCases) — those are already fully canonical with no
    *  original file to preserve. */
   rawRows?: Record<string, string>[];
+  /** Parser notes from ingestion (e.g. "skipped 9 title/letterhead rows
+   *  above the detected header on row 10", "combined a two-row header") —
+   *  kept for traceability back to how the raw file was actually read, not
+   *  shown as validation issues. Empty for a file whose first row was
+   *  already the real header. */
+  parseWarnings?: string[];
   validatedAt?: string;
   /** The AI prompt version last used to analyse this job, surfaced on the
    *  executive summary so it's traceable to exactly what ran. */
@@ -131,7 +137,7 @@ async function saveJob(job: LineListJobRow): Promise<LineListJobRow> {
  * headers are assigned to fields in descending score order — the most
  * confident matches win regardless of column order.
  */
-const FIELD_KEYWORDS: Record<TargetField, [string, number][]> = {
+export const FIELD_KEYWORDS: Record<TargetField, [string, number][]> = {
   case_id: [
     ["otherreportid", 90],
     ["caseid", 90],
@@ -738,7 +744,7 @@ export const linelist = {
     let job: LineListJobRow;
 
     try {
-      const { headers, rows } = await parseTabularFile(file);
+      const { headers, rows, warnings: parseWarnings } = await parseTabularFile(file);
       const mapping = mapColumns(headers);
       const parsedRows = toParsedRows(headers, rows, mapping);
       const rawRows = toRawRows(headers, rows);
@@ -756,6 +762,7 @@ export const linelist = {
         mapping,
         parsedRows,
         rawRows,
+        parseWarnings,
       };
     } catch (err) {
       job = {
@@ -804,11 +811,12 @@ export const linelist = {
       .from("pv_linelist_jobs")
       .insert({ id: job.id, data: toJson(job) });
     if (error) throw new Error(error.message);
+    const parseNote = job.parseWarnings?.length ? ` — ${job.parseWarnings.join(" ")}` : "";
     await recordAudit({
       action: "LINELIST_UPLOADED",
       entity: "LineListJob",
       entityId: job.id,
-      newValue: `${file.name} (${job.rows} rows, ${Object.keys(job.mapping ?? {}).length}/${TARGET_FIELDS.length} canonical columns matched, ${job.columns?.length ?? 0} total columns retained)`,
+      newValue: `${file.name} (${job.rows} rows, ${Object.keys(job.mapping ?? {}).length}/${TARGET_FIELDS.length} canonical columns matched, ${job.columns?.length ?? 0} total columns retained)${parseNote}`,
     });
     return job;
   },
