@@ -921,7 +921,13 @@ export const linelist = {
         aiError = err instanceof Error ? err.message : "AI analysis unavailable.";
       }
 
-      issues = [...ruleIssues, ...aiIssues];
+      // Rule-based checks are a fallback only, not a second opinion shown
+      // alongside AI: while AI validation is actually working, its
+      // findings are shown alone — deterministic findings only surface
+      // when AI wasn't used at all (not configured, request failed, or
+      // returned something unusable), so a reviewer never sees two
+      // overlapping, differently-worded detection layers at once.
+      issues = aiUsed ? aiIssues : [...ruleIssues, ...aiIssues];
       if (issues.length > 0) {
         const { error } = await supabase
           .from("pv_linelist_issues")
@@ -959,7 +965,7 @@ export const linelist = {
       action: "LINELIST_VALIDATED",
       entity: "LineListJob",
       entityId: jobId,
-      newValue: `${next.validCases} valid / ${invalidCases} invalid / ${advisory.length} warning(s)${aiUsed ? (RULE_BASED_DETECTION_ENABLED ? " (AI + rule-based)" : " (AI only — rule-based detection disabled)") : RULE_BASED_DETECTION_ENABLED ? " (rule-based only)" : " (no detection engine available)"}`,
+      newValue: `${next.validCases} valid / ${invalidCases} invalid / ${advisory.length} warning(s)${aiUsed ? " (AI)" : RULE_BASED_DETECTION_ENABLED ? " (rule-based fallback — AI unavailable)" : " (no detection engine available)"}`,
     });
     return { job: next, issues, aiUsed, aiError };
   },

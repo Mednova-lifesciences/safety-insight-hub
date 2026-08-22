@@ -102,11 +102,9 @@ function LineListPage() {
       );
       toast.success(
         result.aiUsed
-          ? RULE_BASED_DETECTION_ENABLED
-            ? "Validated with AI + rule-based checks."
-            : "Validated with AI (rule-based detection disabled)."
+          ? "Validated with AI."
           : RULE_BASED_DETECTION_ENABLED
-            ? "Validated (rule-based checks only)."
+            ? "Validated with rule-based checks (AI unavailable)."
             : "Validated — no findings (AI unavailable, rule-based detection disabled).",
       );
       issues.refetch();
