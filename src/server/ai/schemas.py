@@ -12,6 +12,18 @@ from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------- Line-list --
 
+_KNOWN_LINELIST_ISSUE_TYPES = {
+    "FIELD_MISSING",
+    "FIELD_VALUE_INVALID",
+    "FIELD_FORMAT_INVALID",
+    "FIELD_CONTENT_MISMATCH",
+    "CROSS_FIELD_CONTRADICTION",
+    "DATE_CHRONOLOGY",
+    "STRUCTURAL_COLUMN_SHIFT",
+    "DUPLICATE_RECORD",
+}
+
+
 class AiLineListFinding(BaseModel):
     row: int
     column: str
@@ -52,6 +64,33 @@ class AiLineListFinding(BaseModel):
     # about — more than one for a cross-field finding, e.g.
     # ["vaccination_date", "onset_date"] for a chronology conflict.
     affectedFields: list[str] = Field(default_factory=list)
+
+    @field_validator("issueType", mode="before")
+    @classmethod
+    def _normalize_issue_type(cls, v):
+        # This app uses plain JSON mode, not OpenAI's schema-constrained
+        # output — nothing stops the model from returning a slightly-off
+        # or invented classification for one finding among many. A strict
+        # Literal would fail *the entire batch's* validation over that one
+        # field on one finding, which is exactly the kind of fragility
+        # that turned a working endpoint into one that reproducibly failed
+        # after this field was added. Degrade an unrecognised value to
+        # "not classified" instead of rejecting the whole response.
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_LINELIST_ISSUE_TYPES:
+            return v.strip().upper()
+        return None
+
+    @field_validator("affectedFields", mode="before")
+    @classmethod
+    def _normalize_affected_fields(cls, v):
+        # Same reasoning as issueType: a model returning null, a bare
+        # string, or something else non-list here must degrade to "no
+        # fields given" rather than fail the whole response's validation.
+        if isinstance(v, list):
+            return [str(item) for item in v if isinstance(item, str)]
+        if isinstance(v, str) and v.strip():
+            return [v.strip()]
+        return []
 
 
 class AiLineListAnalysis(BaseModel):

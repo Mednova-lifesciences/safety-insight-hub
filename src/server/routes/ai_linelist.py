@@ -40,6 +40,15 @@ MAX_ROWS_PER_ANALYSIS_CALL = 200
 # redoing Pass 1's scan from scratch.
 MAX_ADVERSARIAL_SAMPLE_ROWS = 20
 
+# structured_completion()'s 4000-token default was sized for the original,
+# smaller per-finding shape — each finding now also carries issueType and
+# affectedFields, and a 200-row chunk on a genuinely issue-heavy file (the
+# real Ondo AEFI workbook has 500+ rule findings alone) can produce enough
+# findings that the response gets truncated mid-JSON against the old
+# default, which fails as a terminal (non-retried) JSON-decode error, not
+# a transient one — that's a real, reproduced-live regression this fixes.
+MAX_ANALYSIS_OUTPUT_TOKENS = 8000
+
 
 class RowIn(BaseModel):
     model_config = {"extra": "allow"}
@@ -120,6 +129,7 @@ async def _adversarial_review(
             system_prompt=LINELIST_ADVERSARIAL_REVIEW_PROMPT,
             user_content=json.dumps(payload),
             model=VALIDATION_MODEL,
+            max_output_tokens=MAX_ANALYSIS_OUTPUT_TOKENS,
         )
         parsed = AiLineListAdversarialReview.model_validate(completion.data)
         return [
@@ -165,6 +175,7 @@ async def analyze_linelist(
                 system_prompt=LINELIST_ANALYSIS_PROMPT,
                 user_content=json.dumps(payload),
                 model=VALIDATION_MODEL,
+                max_output_tokens=MAX_ANALYSIS_OUTPUT_TOKENS,
             )
             model_used = completion.model
             parsed = AiLineListAnalysis.model_validate(completion.data)
