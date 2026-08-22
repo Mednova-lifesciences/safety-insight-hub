@@ -4,6 +4,7 @@ import { linelist, type ParsedRow } from "./linelist";
 import type {
   CaseDetail,
   CaseSummary,
+  CodedTerm,
   DynamicField,
   FollowUpRequest,
   LineListJob,
@@ -470,6 +471,49 @@ export const cases = {
       previousValue: detail.workflowStep,
       newValue: "INTAKE",
       reason,
+    });
+    return next;
+  },
+
+  /**
+   * Writes an accepted coding decision onto the case itself — called by
+   * coding.accept() so "accepted" actually means something beyond the
+   * suggestion row's own status. Attaches to index 0 of reactions/
+   * suspectProducts (the case's primary reaction/product), matching the
+   * same primary-item simplification already used for
+   * CaseSummary.product/reaction elsewhere in this file: a case's coding
+   * workspace only ever generates/accepts suggestions against the
+   * case-level verbatim text, not a specific one of several reactions or
+   * products, so there is no more specific target to attach to yet.
+   */
+  applyCodedTerm: async (
+    caseId: string,
+    kind: "DRUG" | "REACTION",
+    codedTerm: CodedTerm,
+  ): Promise<CaseDetail> => {
+    const detail = await cases.get(caseId);
+    const next: CaseDetail =
+      kind === "REACTION"
+        ? {
+            ...detail,
+            reactions: detail.reactions.map((r, i) => (i === 0 ? { ...r, codedTerm } : r)),
+          }
+        : {
+            ...detail,
+            suspectProducts: detail.suspectProducts.map((p, i) =>
+              i === 0 ? { ...p, codedTerm } : p,
+            ),
+          };
+    const { error } = await supabase
+      .from("pv_cases")
+      .update({ data: toJson(next), updated_at: new Date().toISOString() })
+      .eq("id", caseId);
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      action: "CODED_TERM_ATTACHED",
+      entity: "Case",
+      entityId: caseId,
+      newValue: `${codedTerm.dictionary} ${codedTerm.code} — ${codedTerm.term}`,
     });
     return next;
   },

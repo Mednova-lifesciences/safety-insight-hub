@@ -186,6 +186,20 @@ export interface AiIcsrExtractionResponse {
   extraction_summary?: AiIcsrExtractionSummary | null;
 }
 
+export interface AiCodingCandidate {
+  term: string;
+  rationale: string;
+  confidence: number;
+}
+
+export interface AiCodingSuggestResponse {
+  candidates: AiCodingCandidate[];
+  ai_used: boolean;
+  prompt_version: string;
+  model?: string | null;
+  error?: string | null;
+}
+
 export const ai = {
   status: () => apiRequest<{ configured: boolean }>("/api/ai/linelist/status"),
 
@@ -236,5 +250,15 @@ export const ai = {
   icsr: {
     extractImage: (file: File) =>
       apiUpload<AiIcsrExtractionResponse>("/api/ai/icsr/extract-image", file),
+  },
+
+  coding: {
+    /** Never returns a dictionary code — only a candidate standardised term
+     *  name for a human to verify against the real MedDRA/WHODrug
+     *  dictionary. See CODING_TERM_SUGGEST_PROMPT and AiCodingCandidate's
+     *  code-shaped-term rejection (src/server/ai/schemas.py) for the two
+     *  layers that enforce this server-side. */
+    suggest: (body: { dictionary: "MedDRA" | "WHODrug"; text: string }) =>
+      apiRequest<AiCodingSuggestResponse>("/api/ai/coding/suggest", { method: "POST", body }),
   },
 };

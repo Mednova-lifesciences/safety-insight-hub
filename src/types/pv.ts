@@ -57,6 +57,10 @@ export interface SuspectProduct {
    *  before per-drug batch/expiry tracking existed. */
   batchNumber?: string | undefined;
   expiryDate?: string | undefined;
+  /** Set once a coding suggestion for this product has been accepted in
+   *  the coding workspace — mirrors ReactionEvent.codedTerm. Only ever
+   *  written by coding.accept(), never guessed or pre-filled. */
+  codedTerm?: CodedTerm | null | undefined;
 }
 
 export interface ConcomitantMedicine {
@@ -220,7 +224,7 @@ export interface CodingSuggestion {
   code: string;
   dictionary: "MedDRA" | "WHODrug";
   dictionaryVersion: string;
-  matchType: "EXACT" | "SYNONYM" | "FUZZY" | "LLM_RANKED_CANDIDATE";
+  matchType: "EXACT" | "SYNONYM" | "FUZZY" | "LLM_RANKED_CANDIDATE" | "AI_SUGGESTED";
   confidence: number;
   evidence: string;
   status: "PENDING" | "ACCEPTED" | "REJECTED";

@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-08-22.1"
+PROMPT_VERSION = "2026-08-23.1"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -562,5 +562,55 @@ confidently extracted):
   ],
   "lowConfidenceFields": [<array of field names above that you extracted but are not fully confident in>]
 }
+"""
+)
+
+
+CODING_TERM_SUGGEST_PROMPT = (
+    SAFETY_PREAMBLE
+    + """
+TASK: A pharmacovigilance reviewer is coding a case's verbatim drug or reaction text against a \
+standard medical terminology (MedDRA for reactions/adverse events, WHODrug for drugs/products). \
+You do not have access to the actual licensed MedDRA or WHODrug dictionary — you are not \
+looking anything up, you are drawing on your own general medical/pharmaceutical knowledge to \
+propose the standardised term name(s) that verbatim text most plausibly corresponds to, for a \
+human coder to then verify against the real licensed dictionary themselves.
+
+CRITICAL RULE — READ CAREFULLY: You must NEVER output a dictionary code (no MedDRA code number, \
+no WHODrug code, nothing that looks like an identifier). You do not know the real codes and any \
+code you produced would be fabricated and could be mistaken for a real, verified one. Only \
+propose the standardised TERM NAME itself (e.g. "Pyrexia" for a MedDRA reaction PT, or \
+"Paracetamol" for a WHODrug drug name) — never a code, never a version string, never a claim that \
+this is the officially assigned term. Every candidate you return is explicitly unverified and \
+will be labelled as such before a human ever sees it.
+
+You will be given: which dictionary applies ("MedDRA" or "WHODrug"), and the verbatim text (either \
+a case's actual clinical text, or a free-text search query a reviewer typed).
+
+For each candidate:
+- "term": the standardised name you believe this text most plausibly maps to.
+- "rationale": one sentence explaining why, in terms a reviewer can quickly sanity-check (e.g. \
+"'panadol' is a common brand name for paracetamol/acetaminophen" or "'runny nose' is commonly \
+coded as the MedDRA PT Rhinorrhoea").
+- "confidence": 0-1, reflecting how confident you are this is the right standardised term for this \
+verbatim text specifically — not how common the underlying concept is in general.
+
+Return at most 3 candidates, ordered most-confident first. If the input text is too vague, \
+garbled, or generic to responsibly propose a specific standardised term (e.g. a bare number, an \
+empty-feeling fragment, or something with no plausible clinical/pharmaceutical meaning at all), \
+return an empty candidates list rather than guessing. Do not invent a candidate you would not be \
+willing to defend to a human reviewer checking it against the real dictionary.
+
+Respond with JSON exactly in this shape:
+{
+  "candidates": [
+    {
+      "term": "<standardised term name only — never a code>",
+      "rationale": "<one sentence>",
+      "confidence": <number between 0 and 1>
+    }
+  ]
+}
+If no responsible candidate exists, return {"candidates": []}.
 """
 )

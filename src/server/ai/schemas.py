@@ -5,6 +5,7 @@ parse untrusted model output" — not the JSON-mode request itself. A
 response that doesn't validate is treated exactly like a failed request:
 the caller falls back to deterministic behaviour.
 """
+import re
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -251,3 +252,34 @@ class AiIcsrExtraction(BaseModel):
         if isinstance(v, str) and v.strip().lower() in ("", "unknown", "n/a", "none", "null"):
             return None
         return v
+
+
+# ------------------------------------------------------------------ Coding --
+
+_CODE_LIKE_TERM = re.compile(r"^[\d.\-]+$|^[A-Za-z]{1,4}-?\d+$")
+
+
+class AiCodingCandidate(BaseModel):
+    term: str
+    rationale: str
+    confidence: float = Field(ge=0, le=1)
+
+    @field_validator("term")
+    @classmethod
+    def reject_code_like_terms(cls, v: str) -> str:
+        # Defense in depth on top of CODING_TERM_SUGGEST_PROMPT's explicit
+        # "never output a code" rule: a genuine standardised MedDRA/WHODrug
+        # term name is always a real word/phrase, never a bare number or a
+        # short letter+digit code pattern. If the model slips and returns
+        # something code-shaped anyway, fail validation for this candidate
+        # rather than risk a fabricated code reaching a reviewer looking
+        # like a verified one — the caller falls back the same way it does
+        # for any other unusable AI response.
+        stripped = v.strip()
+        if not stripped or _CODE_LIKE_TERM.match(stripped):
+            raise ValueError("term looks like a fabricated code, not a standardised term name")
+        return stripped
+
+
+class AiCodingSuggestion(BaseModel):
+    candidates: list[AiCodingCandidate] = Field(default_factory=list)

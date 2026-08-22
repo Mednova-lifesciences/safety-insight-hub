@@ -46,14 +46,7 @@ export const Route = createFileRoute("/_app/psur")({
   ),
 });
 
-const FLOW = [
-  "Upload PDF or XLSX/CSV",
-  "AI review",
-  "Findings displayed",
-  "Accept / dismiss",
-  "Run Full Fix",
-  "Download fixed document",
-];
+const FLOW = ["Upload PDF or XLSX/CSV", "AI review", "Findings displayed", "Accept / dismiss"];
 
 const categoryTone: Record<PsurFinding["category"], Tone> = {
   MISSING_SECTION: "critical",

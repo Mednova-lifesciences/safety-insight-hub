@@ -1,6 +1,37 @@
 import { supabase } from "@/integrations/supabase/client";
 import { currentActor, newId, recordAudit, toJson } from "./db";
+import { ai } from "./ai";
 import type { CodingHistoryEntry, CodingSuggestion } from "@/types/pv";
+
+/** Placeholder code/version used for an AI-suggested candidate — deliberately
+ *  never a real-looking code, so it can never be mistaken for an actual
+ *  MedDRA/WHODrug dictionary hit at a glance or in a downloaded/exported
+ *  record. The AI backend (ai_coding.py) never returns a code at all;
+ *  this is filled in client-side, not by the model. */
+const AI_SUGGESTED_CODE = "AI-SUGGESTED";
+const AI_SUGGESTED_VERSION = "AI-SUGGESTED — not a licensed dictionary version";
+
+/**
+ * Best-effort call to the AI coding-suggestion endpoint — never throws.
+ * Any failure (AI not configured, request error, unusable output) resolves
+ * to an empty candidate list so callers can always treat this the same way
+ * as "the model had nothing responsible to suggest," matching how AI is
+ * used as an enhancement (never a hard dependency) everywhere else in this
+ * app.
+ */
+async function aiCandidates(
+  dictionary: "MedDRA" | "WHODrug",
+  text: string,
+): Promise<{ term: string; rationale: string; confidence: number }[]> {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  try {
+    const result = await ai.coding.suggest({ dictionary, text: trimmed });
+    return result.ai_used ? result.candidates : [];
+  } catch {
+    return [];
+  }
+}
 
 interface DictionaryTermRow {
   id: string;
@@ -86,6 +117,19 @@ export const coding = {
     const drugHits = matchTerms(drugTerms, drugText);
     const reactionHits = matchTerms(reactionTerms, reactionText);
 
+    // The demo dictionary only has a handful of terms — AI candidates fill
+    // the gap for everything else, always additive and always clearly
+    // labelled (see aiCandidates' doc comment and AI_SUGGESTED_CODE), never
+    // replacing a real dictionary hit. A term the demo dictionary already
+    // matched isn't duplicated as an AI suggestion too.
+    const [drugAi, reactionAi] = await Promise.all([
+      aiCandidates("WHODrug", drugText),
+      aiCandidates("MedDRA", reactionText),
+    ]);
+    const notAlreadyMatched =
+      (hits: { row: DictionaryTermRow }[]) => (candidate: { term: string }) =>
+        !hits.some((h) => h.row.term.toLowerCase() === candidate.term.toLowerCase());
+
     const suggestions: CodingSuggestion[] = [
       ...drugHits.map(({ row, matchType, confidence }) => ({
         id: newId("cs"),
@@ -100,6 +144,19 @@ export const coding = {
         evidence: `Matched against demo dictionary term "${row.term}".`,
         status: "PENDING" as const,
       })),
+      ...drugAi.filter(notAlreadyMatched(drugHits)).map((c) => ({
+        id: newId("cs"),
+        sourceText: detail.product,
+        kind: "DRUG" as const,
+        term: c.term,
+        code: AI_SUGGESTED_CODE,
+        dictionary: "WHODrug" as const,
+        dictionaryVersion: AI_SUGGESTED_VERSION,
+        matchType: "AI_SUGGESTED" as const,
+        confidence: c.confidence,
+        evidence: `AI-suggested candidate, not verified against the licensed dictionary — ${c.rationale}`,
+        status: "PENDING" as const,
+      })),
       ...reactionHits.map(({ row, matchType, confidence }) => ({
         id: newId("cs"),
         sourceText: detail.reaction,
@@ -111,6 +168,19 @@ export const coding = {
         matchType,
         confidence,
         evidence: `Matched against demo dictionary term "${row.term}".`,
+        status: "PENDING" as const,
+      })),
+      ...reactionAi.filter(notAlreadyMatched(reactionHits)).map((c) => ({
+        id: newId("cs"),
+        sourceText: detail.reaction,
+        kind: "REACTION" as const,
+        term: c.term,
+        code: AI_SUGGESTED_CODE,
+        dictionary: "MedDRA" as const,
+        dictionaryVersion: AI_SUGGESTED_VERSION,
+        matchType: "AI_SUGGESTED" as const,
+        confidence: c.confidence,
+        evidence: `AI-suggested candidate, not verified against the licensed dictionary — ${c.rationale}`,
         status: "PENDING" as const,
       })),
     ];
@@ -134,6 +204,11 @@ export const coding = {
     return suggestions;
   },
 
+  /** Real dictionary matches (source "dictionary") come straight from
+   *  pv_dictionary_terms, same as always. When the query text is non-empty,
+   *  AI candidates (source "ai") are appended for terms the small demo
+   *  dictionary doesn't have — never a real code, never mixed in
+   *  indistinguishably (see aiCandidates' doc comment). */
   searchDictionary: async (
     dictionary: "MedDRA" | "WHODrug",
     query: string,
@@ -144,6 +219,7 @@ export const coding = {
       dictionary: "MedDRA" | "WHODrug";
       dictionaryVersion: string;
       synonyms: string[];
+      source: "dictionary" | "ai";
     }[]
   > => {
     let request = supabase.from("pv_dictionary_terms").select("*").eq("dictionary", dictionary);
@@ -151,7 +227,7 @@ export const coding = {
     if (q) request = request.ilike("term", `%${q}%`);
     const { data, error } = await request.limit(20);
     if (error) throw new Error(error.message);
-    return (data ?? []).map((r) => {
+    const dictionaryResults = (data ?? []).map((r) => {
       const row = r as unknown as DictionaryTermRow;
       return {
         term: row.term,
@@ -159,11 +235,27 @@ export const coding = {
         dictionary: row.dictionary,
         dictionaryVersion: row.dictionary_version,
         synonyms: row.synonyms,
+        source: "dictionary" as const,
       };
     });
+
+    if (!q) return dictionaryResults;
+    const candidates = await aiCandidates(dictionary, q);
+    const aiResults = candidates
+      .filter((c) => !dictionaryResults.some((d) => d.term.toLowerCase() === c.term.toLowerCase()))
+      .map((c) => ({
+        term: c.term,
+        code: AI_SUGGESTED_CODE,
+        dictionary,
+        dictionaryVersion: AI_SUGGESTED_VERSION,
+        synonyms: [],
+        source: "ai" as const,
+      }));
+    return [...dictionaryResults, ...aiResults];
   },
 
-  /** Adds a dictionary search result as a pending coding candidate for a case. */
+  /** Adds a dictionary/AI search result as a pending coding candidate for a
+   *  case — matchType and evidence reflect which one it actually was. */
   addCandidate: async (
     caseId: string,
     kind: "DRUG" | "REACTION",
@@ -173,6 +265,7 @@ export const coding = {
       code: string;
       dictionary: "MedDRA" | "WHODrug";
       dictionaryVersion: string;
+      source: "dictionary" | "ai";
     },
   ): Promise<CodingSuggestion> => {
     const suggestion: CodingSuggestion = {
@@ -183,9 +276,12 @@ export const coding = {
       code: term.code,
       dictionary: term.dictionary,
       dictionaryVersion: term.dictionaryVersion,
-      matchType: "LLM_RANKED_CANDIDATE",
-      confidence: 1,
-      evidence: "Added manually from dictionary search.",
+      matchType: term.source === "ai" ? "AI_SUGGESTED" : "LLM_RANKED_CANDIDATE",
+      confidence: term.source === "ai" ? 0.6 : 1,
+      evidence:
+        term.source === "ai"
+          ? "AI-suggested candidate, not verified against the licensed dictionary — added from dictionary search."
+          : "Added manually from dictionary search.",
       status: "PENDING",
     };
     const { error } = await supabase
@@ -258,5 +354,20 @@ async function setStatus(
     newValue: `${next.dictionary} ${next.code}`,
     reason: rationale,
   });
+
+  if (status === "ACCEPTED") {
+    // Accepting isn't just a status flag on the suggestion row — it has to
+    // actually change the case, or "accepted" doesn't mean anything to a
+    // reviewer reading the case detail page afterwards.
+    const { cases } = await import("./cases");
+    await cases.applyCodedTerm(caseId, next.kind, {
+      term: next.term,
+      code: next.code,
+      dictionary: next.dictionary,
+      dictionaryVersion: next.dictionaryVersion,
+      acceptedBy: actor.name,
+      acceptedAt: new Date().toISOString(),
+    });
+  }
   return next;
 }

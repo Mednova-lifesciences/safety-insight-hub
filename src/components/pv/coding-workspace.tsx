@@ -23,6 +23,7 @@ const matchTone: Record<CodingSuggestion["matchType"], Tone> = {
   SYNONYM: "info",
   FUZZY: "warning",
   LLM_RANKED_CANDIDATE: "assist",
+  AI_SUGGESTED: "assist",
 };
 
 function SuggestionRow({ s, caseId }: { s: CodingSuggestion; caseId: string }) {
@@ -110,6 +111,7 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
         dictionary: "MedDRA" | "WHODrug";
         dictionaryVersion: string;
         synonyms: string[];
+        source: "dictionary" | "ai";
       }[]
     | null
   >(null);
@@ -120,7 +122,7 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
     <div className="space-y-4">
       <Section
         title="Coding assist"
-        description="Candidate terms are retrieved from the dictionary services behind the API. The system never generates MedDRA or WHODrug codes."
+        description="Candidate terms are matched against the demo dictionary and, where it has no match, supplemented with AI-suggested standardised term names — clearly labelled and never a real code. The system never fabricates or presents an invented value as an actual MedDRA/WHODrug dictionary entry."
         actions={
           <div className="flex items-center gap-2">
             <AssistLabel>Recommendations — confirmation required</AssistLabel>
@@ -147,7 +149,7 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
                           const found = await codingApi.suggest(caseId);
                           if (found.length === 0)
                             toast.info(
-                              "No dictionary matches found for this case's product or reaction text.",
+                              "No dictionary or AI-suggested candidates found for this case's product or reaction text.",
                             );
                           else toast.success(`${found.length} candidate(s) generated.`);
                           suggestions.refetch();
@@ -252,13 +254,17 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
             <ul className="mt-3 divide-y divide-border rounded-md border border-border">
               {dictResults.map((r) => (
                 <li
-                  key={`${r.dictionary}-${r.code}`}
+                  key={`${r.source}-${r.dictionary}-${r.code}-${r.term}`}
                   className="flex flex-wrap items-center gap-2 px-3 py-2"
                 >
                   <span className="text-sm font-medium">{r.term}</span>
-                  <span className="mono-num text-xs text-muted-foreground">
-                    {r.dictionary} {r.code} · {r.dictionaryVersion}
-                  </span>
+                  {r.source === "ai" ? (
+                    <StatusPill tone="assist">AI-suggested — unverified</StatusPill>
+                  ) : (
+                    <span className="mono-num text-xs text-muted-foreground">
+                      {r.dictionary} {r.code} · {r.dictionaryVersion}
+                    </span>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"

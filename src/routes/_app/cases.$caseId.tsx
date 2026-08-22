@@ -650,7 +650,12 @@ function DynamicFieldsSection({
                         setDraft((prev) =>
                           prev.map((f) =>
                             f.id === field.id
-                              ? { ...f, label: v, status: "edited", updatedAt: new Date().toISOString() }
+                              ? {
+                                  ...f,
+                                  label: v,
+                                  status: "edited",
+                                  updatedAt: new Date().toISOString(),
+                                }
                               : f,
                           ),
                         );
@@ -667,7 +672,12 @@ function DynamicFieldsSection({
                         setDraft((prev) =>
                           prev.map((f) =>
                             f.id === field.id
-                              ? { ...f, value: v, status: "edited", updatedAt: new Date().toISOString() }
+                              ? {
+                                  ...f,
+                                  value: v,
+                                  status: "edited",
+                                  updatedAt: new Date().toISOString(),
+                                }
                               : f,
                           ),
                         );
@@ -901,6 +911,18 @@ function CaseDetailPage() {
                             <Field label="Action taken" value={p.action} />
                             <Field label="Batch / lot number" value={p.batchNumber} mono />
                             <Field label="Expiry date" value={p.expiryDate} mono />
+                            <Field
+                              label="Coded term"
+                              value={
+                                p.codedTerm ? (
+                                  <span className="mono-num">
+                                    {p.codedTerm.term} · {p.codedTerm.dictionary} {p.codedTerm.code}
+                                  </span>
+                                ) : (
+                                  <StatusPill tone="warning">Not yet coded</StatusPill>
+                                )
+                              }
+                            />
                           </div>
                         ))}
                       </div>
