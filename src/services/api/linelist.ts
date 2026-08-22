@@ -152,7 +152,10 @@ export const FIELD_KEYWORDS: Record<TargetField, [string, number][]> = {
     ["reportno", 80],
     ["reportnumber", 80],
     ["reference", 40],
-    ["case", 20],
+    // Deliberately no bare "case" fallback: real AEFI forms routinely use
+    // "case" inside unrelated headers ("If serious case select...", "Type
+    // of AEFI (Non-serious or Serious) case") — a generic substring match
+    // there mapped a seriousness-code column to case_id on a real file.
   ],
   patient_identifier: [
     ["patientidentifier", 95],
@@ -190,7 +193,10 @@ export const FIELD_KEYWORDS: Record<TargetField, [string, number][]> = {
     ["eventdate", 60],
     ["datestarted", 60],
     ["startdate", 30],
-    ["onset", 20],
+    // Deliberately no bare "onset" fallback: several real AEFI forms have
+    // an "Onset Time interval (hours, days, weeks)" column — a *duration*
+    // since vaccination, not a date — which the generic keyword mapped
+    // straight into onset_date, tripping INVALID_DATE_FORMAT on every row.
   ],
   seriousness: [
     ["seriousness", 95],
@@ -222,6 +228,11 @@ export const FIELD_KEYWORDS: Record<TargetField, [string, number][]> = {
     ["reactioncode", 95],
     ["aefireactioncode", 95],
     ["eventcode", 70],
+    // "Reaction Type (Codes — see 1 below)" is a common real-world AEFI
+    // phrasing for the coded reaction column, distinct from a free-text
+    // "Reaction Term"/"Reaction/Event" column — "type" alongside "reaction"
+    // is a specific enough signal that this doesn't also match those.
+    ["reactiontype", 60],
   ],
   serious_code: [
     ["seriouscode", 90],
