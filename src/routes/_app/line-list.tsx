@@ -162,8 +162,15 @@ function LineListPage() {
               type="file"
               accept=".csv,.xlsx"
               className="sr-only"
+              disabled={uploading}
               onChange={(e) => {
                 const f = e.target.files?.[0];
+                // Clear the input immediately (before the async upload
+                // even starts) so the browser never retains this File on
+                // the element — otherwise a later stray event on the same
+                // input can silently resubmit the same file as a second
+                // upload, without the user choosing a file again.
+                e.target.value = "";
                 if (f) onFile(f);
               }}
             />

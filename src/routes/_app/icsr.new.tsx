@@ -456,8 +456,13 @@ function NewIcsrPage() {
                 type="file"
                 accept="image/png,image/jpeg,image/webp,image/gif"
                 className="sr-only"
+                disabled={extracting}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
+                  // Clear immediately so the element never retains this
+                  // File — a stray later event on the same input could
+                  // otherwise silently resubmit it as a second extraction.
+                  e.target.value = "";
                   if (f) extractFromImage(f);
                 }}
               />
@@ -495,100 +500,100 @@ function NewIcsrPage() {
           title="Additional fields detected"
           description="These fields were found in the source document but are not part of the standard ICSR fields. Review, edit, or remove them — nothing here is required to submit."
         >
-            <div className="space-y-2">
-              {dynamicFields.map((field) => {
-                const needsReview =
-                  field.source === "ai_extraction" &&
-                  typeof field.confidence === "number" &&
-                  field.confidence < 0.7;
-                return (
-                  <div
-                    key={field.id}
-                    className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-                  >
-                    <FieldRow id={`dyn-${field.id}-label`} label="Field name">
-                      <Input
-                        id={`dyn-${field.id}-label`}
-                        value={field.label}
-                        onChange={(e) =>
-                          setDynamicFields((prev) =>
-                            prev.map((f) =>
-                              f.id === field.id
-                                ? {
-                                    ...f,
-                                    label: e.target.value,
-                                    status: f.source === "ai_extraction" ? "edited" : f.status,
-                                    updatedAt: new Date().toISOString(),
-                                  }
-                                : f,
-                            ),
-                          )
-                        }
-                      />
-                    </FieldRow>
-                    <FieldRow id={`dyn-${field.id}-value`} label="Value">
-                      <Input
-                        id={`dyn-${field.id}-value`}
-                        value={field.value}
-                        onChange={(e) =>
-                          setDynamicFields((prev) =>
-                            prev.map((f) =>
-                              f.id === field.id
-                                ? {
-                                    ...f,
-                                    value: e.target.value,
-                                    status: f.source === "ai_extraction" ? "edited" : f.status,
-                                    updatedAt: new Date().toISOString(),
-                                  }
-                                : f,
-                            ),
-                          )
-                        }
-                      />
-                    </FieldRow>
-                    <div className="flex items-center gap-2">
-                      <StatusPill tone={field.source === "ai_extraction" ? "assist" : "neutral"}>
-                        {field.source === "ai_extraction" ? "AI detected" : "Added"}
-                      </StatusPill>
-                      {needsReview ? <StatusPill tone="warning">Needs review</StatusPill> : null}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          setDynamicFields((prev) => prev.filter((f) => f.id !== field.id))
-                        }
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
+          <div className="space-y-2">
+            {dynamicFields.map((field) => {
+              const needsReview =
+                field.source === "ai_extraction" &&
+                typeof field.confidence === "number" &&
+                field.confidence < 0.7;
+              return (
+                <div
+                  key={field.id}
+                  className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+                >
+                  <FieldRow id={`dyn-${field.id}-label`} label="Field name">
+                    <Input
+                      id={`dyn-${field.id}-label`}
+                      value={field.label}
+                      onChange={(e) =>
+                        setDynamicFields((prev) =>
+                          prev.map((f) =>
+                            f.id === field.id
+                              ? {
+                                  ...f,
+                                  label: e.target.value,
+                                  status: f.source === "ai_extraction" ? "edited" : f.status,
+                                  updatedAt: new Date().toISOString(),
+                                }
+                              : f,
+                          ),
+                        )
+                      }
+                    />
+                  </FieldRow>
+                  <FieldRow id={`dyn-${field.id}-value`} label="Value">
+                    <Input
+                      id={`dyn-${field.id}-value`}
+                      value={field.value}
+                      onChange={(e) =>
+                        setDynamicFields((prev) =>
+                          prev.map((f) =>
+                            f.id === field.id
+                              ? {
+                                  ...f,
+                                  value: e.target.value,
+                                  status: f.source === "ai_extraction" ? "edited" : f.status,
+                                  updatedAt: new Date().toISOString(),
+                                }
+                              : f,
+                          ),
+                        )
+                      }
+                    />
+                  </FieldRow>
+                  <div className="flex items-center gap-2">
+                    <StatusPill tone={field.source === "ai_extraction" ? "assist" : "neutral"}>
+                      {field.source === "ai_extraction" ? "AI detected" : "Added"}
+                    </StatusPill>
+                    {needsReview ? <StatusPill tone="warning">Needs review</StatusPill> : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setDynamicFields((prev) => prev.filter((f) => f.id !== field.id))
+                      }
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
                   </div>
-                );
-              })}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const now = new Date().toISOString();
-                  setDynamicFields((prev) => [
-                    ...prev,
-                    {
-                      id: newId("dyn"),
-                      label: "",
-                      value: "",
-                      source: "user_added",
-                      status: "confirmed",
-                      createdAt: now,
-                      updatedAt: now,
-                    },
-                  ]);
-                }}
-              >
-                <Plus className="size-4" /> Add a field
-              </Button>
-            </div>
-          </Section>
+                </div>
+              );
+            })}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const now = new Date().toISOString();
+                setDynamicFields((prev) => [
+                  ...prev,
+                  {
+                    id: newId("dyn"),
+                    label: "",
+                    value: "",
+                    source: "user_added",
+                    status: "confirmed",
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                ]);
+              }}
+            >
+              <Plus className="size-4" /> Add a field
+            </Button>
+          </div>
+        </Section>
 
         <Section
           title="Minimum ICSR criteria"
@@ -801,7 +806,9 @@ function NewIcsrPage() {
                       value={row.reportedName}
                       onChange={(e) =>
                         setAdditionalProducts((rows) =>
-                          rows.map((r, i) => (i === idx ? { ...r, reportedName: e.target.value } : r)),
+                          rows.map((r, i) =>
+                            i === idx ? { ...r, reportedName: e.target.value } : r,
+                          ),
                         )
                       }
                     />
@@ -823,7 +830,9 @@ function NewIcsrPage() {
                       value={row.batchNumber}
                       onChange={(e) =>
                         setAdditionalProducts((rows) =>
-                          rows.map((r, i) => (i === idx ? { ...r, batchNumber: e.target.value } : r)),
+                          rows.map((r, i) =>
+                            i === idx ? { ...r, batchNumber: e.target.value } : r,
+                          ),
                         )
                       }
                     />
@@ -886,13 +895,19 @@ function NewIcsrPage() {
                     />
                   </FieldRow>
                   <div className="flex items-end justify-between gap-2">
-                    <FieldRow id={`concomitant-${idx}-indication`} label="Indication" className="flex-1">
+                    <FieldRow
+                      id={`concomitant-${idx}-indication`}
+                      label="Indication"
+                      className="flex-1"
+                    >
                       <Input
                         id={`concomitant-${idx}-indication`}
                         value={row.indication}
                         onChange={(e) =>
                           setConcomitantMeds((rows) =>
-                            rows.map((r, i) => (i === idx ? { ...r, indication: e.target.value } : r)),
+                            rows.map((r, i) =>
+                              i === idx ? { ...r, indication: e.target.value } : r,
+                            ),
                           )
                         }
                       />

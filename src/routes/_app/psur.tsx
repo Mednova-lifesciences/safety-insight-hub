@@ -127,8 +127,13 @@ function PsurPage() {
               type="file"
               accept="application/pdf,.pdf,.xlsx,.xls,.csv"
               className="sr-only"
+              disabled={uploading}
               onChange={async (e) => {
                 const f = e.target.files?.[0];
+                // Clear immediately so the element never retains this
+                // File — a stray later event on the same input could
+                // otherwise silently resubmit it as a second upload.
+                e.target.value = "";
                 if (!f) return;
                 setUploading(true);
                 try {
@@ -236,7 +241,8 @@ function PsurPage() {
                                   const result = await psurApi.runFullFix(activeDoc.id);
                                   if (!result.aiUsed) {
                                     toast.error(
-                                      result.aiError ?? "AI fix unavailable — no changes were made.",
+                                      result.aiError ??
+                                        "AI fix unavailable — no changes were made.",
                                     );
                                   } else {
                                     toast.success(

@@ -19,13 +19,22 @@ the actual safety boundary, not a schema hint to the model.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import random
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from openai import APIConnectionError, APIError, APITimeoutError, AsyncOpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    APIError,
+    APITimeoutError,
+    AsyncOpenAI,
+    InternalServerError,
+    RateLimitError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +46,14 @@ VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
 VALIDATION_MODEL = os.getenv("OPENAI_VALIDATION_MODEL", DEFAULT_MODEL)
 DEFAULT_TIMEOUT_SECONDS = 60.0
 MAX_RETRIES = 2
+BASE_BACKOFF_SECONDS = 1.0
+
+# Only genuinely transient failures are retried: network/timeout issues,
+# rate limits, and the API's own 5xx errors. Everything else (bad request,
+# auth, not found, unprocessable entity, ...) means the request or config
+# itself is wrong — retrying can't fix that, so those raise immediately
+# instead of burning the retry budget on a guaranteed repeat failure.
+_RETRYABLE_ERRORS = (APITimeoutError, APIConnectionError, RateLimitError, InternalServerError)
 
 
 class AiNotConfiguredError(Exception):
@@ -82,6 +99,21 @@ def _record_usage(response) -> tuple[int, int]:
     return usage.prompt_tokens or 0, usage.completion_tokens or 0
 
 
+def _backoff_seconds(attempt: int, exc: Exception) -> float:
+    """Exponential backoff with jitter, honouring the API's own Retry-After
+    header when the error carries one — rate limits especially are only
+    worth retrying after actually waiting, not immediately again."""
+    response = getattr(exc, "response", None)
+    if response is not None:
+        header = response.headers.get("retry-after")
+        if header:
+            try:
+                return max(0.0, float(header))
+            except ValueError:
+                pass
+    return BASE_BACKOFF_SECONDS * (2**attempt) + random.uniform(0, 0.5)
+
+
 async def structured_completion(
     *,
     system_prompt: str,
@@ -115,12 +147,20 @@ async def structured_completion(
 
             in_tok, out_tok = _record_usage(response)
             return StructuredCompletion(data=data, model=response.model, usage_input_tokens=in_tok, usage_output_tokens=out_tok)
-        except (APITimeoutError, APIConnectionError, RateLimitError) as exc:
+        except _RETRYABLE_ERRORS as exc:
             last_error = exc
-            logger.warning("OpenAI request attempt %s/%s failed: %s", attempt + 1, MAX_RETRIES + 1, exc)
+            if attempt < MAX_RETRIES:
+                delay = _backoff_seconds(attempt, exc)
+                logger.warning(
+                    "OpenAI request attempt %s/%s failed (%s), retrying in %.1fs: %s",
+                    attempt + 1, MAX_RETRIES + 1, type(exc).__name__, delay, exc,
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.warning("OpenAI request attempt %s/%s failed: %s", attempt + 1, MAX_RETRIES + 1, exc)
             continue
         except APIError as exc:
-            logger.error("OpenAI API error: %s", exc)
+            logger.error("OpenAI API error (not retried — not a transient failure): %s", exc)
             raise AiRequestError(f"OpenAI API error: {exc}") from exc
 
     logger.error("OpenAI request failed after %s attempts: %s", MAX_RETRIES + 1, last_error)
@@ -169,12 +209,20 @@ async def vision_structured_completion(
 
             in_tok, out_tok = _record_usage(response)
             return StructuredCompletion(data=data, model=response.model, usage_input_tokens=in_tok, usage_output_tokens=out_tok)
-        except (APITimeoutError, APIConnectionError, RateLimitError) as exc:
+        except _RETRYABLE_ERRORS as exc:
             last_error = exc
-            logger.warning("OpenAI vision request attempt %s/%s failed: %s", attempt + 1, MAX_RETRIES + 1, exc)
+            if attempt < MAX_RETRIES:
+                delay = _backoff_seconds(attempt, exc)
+                logger.warning(
+                    "OpenAI vision request attempt %s/%s failed (%s), retrying in %.1fs: %s",
+                    attempt + 1, MAX_RETRIES + 1, type(exc).__name__, delay, exc,
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.warning("OpenAI vision request attempt %s/%s failed: %s", attempt + 1, MAX_RETRIES + 1, exc)
             continue
         except APIError as exc:
-            logger.error("OpenAI vision API error: %s", exc)
+            logger.error("OpenAI vision API error (not retried — not a transient failure): %s", exc)
             raise AiRequestError(f"OpenAI API error: {exc}") from exc
 
     logger.error("OpenAI vision request failed after %s attempts: %s", MAX_RETRIES + 1, last_error)
