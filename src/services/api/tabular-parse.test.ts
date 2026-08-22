@@ -146,6 +146,29 @@ describe("parseTabularFile — government-form letterhead before the real header
     expect(mapping["Date of Last Immunisation"]).toBe("vaccination_date");
     expect(mapping["Reporter Phone Number"]).toBe("reporter_phone");
   });
+
+  it("maps a form's only reaction-ish column to the required `reaction` field, not the optional `reaction_code`", async () => {
+    // Real regression: a real AEFI form's only reaction column is phrased
+    // "Reaction type (Codes -see 1 below )" — a keyword change meant to
+    // catch a *separately-coded* reaction column instead claimed this one
+    // for reaction_code, leaving the required `reaction` field completely
+    // unmapped and flagging every single row MISSING_REACTION.
+    const file = xlsxFile([
+      [
+        "S/N",
+        "Patient Identifier",
+        "Sex",
+        "Age",
+        "Suspect Product",
+        "Reaction type (Codes -see 1 below )",
+        "Outcome",
+      ],
+      [1, "P001", "F", 2, "MR", "8", "Recovered"],
+    ]);
+    const result = await parseTabularFile(file);
+    const mapping = mapColumnsByKeywords(result.headers, FIELD_KEYWORDS);
+    expect(mapping["Reaction type (Codes -see 1 below )"]).toBe("reaction");
+  });
 });
 
 describe("parseTabularFile — two-row (merged) headers", () => {

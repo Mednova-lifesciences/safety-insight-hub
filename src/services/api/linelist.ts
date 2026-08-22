@@ -228,11 +228,16 @@ export const FIELD_KEYWORDS: Record<TargetField, [string, number][]> = {
     ["reactioncode", 95],
     ["aefireactioncode", 95],
     ["eventcode", 70],
-    // "Reaction Type (Codes — see 1 below)" is a common real-world AEFI
-    // phrasing for the coded reaction column, distinct from a free-text
-    // "Reaction Term"/"Reaction/Event" column — "type" alongside "reaction"
-    // is a specific enough signal that this doesn't also match those.
-    ["reactiontype", 60],
+    // Deliberately excludes a generic "reactiontype"-style keyword: tried
+    // it at weight 60 and verified against the real Ondo file that many
+    // real forms have exactly ONE reaction-ish column, phrased as "Reaction
+    // type (Codes — see 1 below)" — with that keyword in place, this single
+    // column got claimed by reaction_code instead of the required `reaction`
+    // field, which then had nothing mapped to it at all and flagged every
+    // row MISSING_REACTION. `reaction`'s own generic "reaction" keyword
+    // (below) must keep winning a column like this when it's the only
+    // reaction-ish column in the file; reaction_code only helps when a
+    // file has a genuinely separate, additional coded column.
   ],
   serious_code: [
     ["seriouscode", 90],
