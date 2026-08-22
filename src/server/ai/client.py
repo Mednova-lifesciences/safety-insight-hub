@@ -134,7 +134,13 @@ async def structured_completion(
                     {"role": "user", "content": user_content},
                 ],
                 response_format={"type": "json_object"},
-                max_tokens=max_output_tokens,
+                # max_completion_tokens (not the legacy max_tokens) works
+                # across both older and newer OpenAI chat-completions models
+                # — newer reasoning-family models reject max_tokens outright
+                # (400 unsupported_parameter), and which model is actually
+                # configured here is controlled by env vars that can change
+                # independently of this code.
+                max_completion_tokens=max_output_tokens,
                 temperature=0,
             )
             raw = response.choices[0].message.content
@@ -196,7 +202,13 @@ async def vision_structured_completion(
                     },
                 ],
                 response_format={"type": "json_object"},
-                max_tokens=max_output_tokens,
+                # max_completion_tokens (not the legacy max_tokens) works
+                # across both older and newer OpenAI chat-completions models
+                # — newer reasoning-family models reject max_tokens outright
+                # (400 unsupported_parameter), and which model is actually
+                # configured here is controlled by env vars that can change
+                # independently of this code.
+                max_completion_tokens=max_output_tokens,
                 temperature=0,
             )
             raw = response.choices[0].message.content
