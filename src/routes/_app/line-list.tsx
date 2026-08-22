@@ -340,79 +340,91 @@ function LineListPage() {
               </div>
             ) : null}
             <QueryBoundary query={issues}>
-              {(rows) => (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px] text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/50 text-left">
-                        {[
-                          "Row",
-                          "Column",
-                          "Severity",
-                          "Confidence",
-                          "Source",
-                          "Code",
-                          "Message",
-                          "Value",
-                          "Fixable",
-                        ].map((h) => (
-                          <th key={h} className="label-caps px-3 py-2">
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((i, idx) => (
-                        <tr
-                          key={`${i.row}-${i.column}-${idx}`}
-                          className="border-b border-border last:border-0"
-                        >
-                          <td className="mono-num px-3 py-2">{i.row}</td>
-                          <td className="mono-num px-3 py-2">{i.column}</td>
-                          <td className="px-3 py-2">
-                            <StatusPill
-                              tone={
-                                i.severity === "CRITICAL"
-                                  ? "critical"
-                                  : i.severity === "HIGH"
-                                    ? "warning"
-                                    : i.severity === "MEDIUM"
-                                      ? "info"
-                                      : "neutral"
-                              }
-                            >
-                              {i.severity.toLowerCase()}
-                            </StatusPill>
-                          </td>
-                          <td className="px-3 py-2">
-                            {i.confidence ? (
-                              <StatusPill tone={i.confidence === "LOW" ? "warning" : "neutral"}>
-                                {i.confidence.toLowerCase()}
-                              </StatusPill>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            <StatusPill tone={i.source === "ai" ? "assist" : "neutral"}>
-                              {i.source === "ai" ? "AI" : "rule"}
-                            </StatusPill>
-                          </td>
-                          <td className="mono-num px-3 py-2 text-xs">{i.code}</td>
-                          <td className="px-3 py-2">{i.message}</td>
-                          <td className="mono-num px-3 py-2 text-muted-foreground">
-                            {i.value ?? "—"}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-muted-foreground">
-                            {i.fixable ? "Yes" : "No"}
-                          </td>
+              {(rows) =>
+                rows.length === 0 ? (
+                  <EmptyState
+                    title={
+                      activeJob.stage === "VALIDATED" || activeJob.stage === "E2B_GENERATED"
+                        ? "Validation completed. No issues were detected in this file."
+                        : activeJob.stage === "FAILED"
+                          ? "This file could not be parsed — see the job's status above."
+                          : 'This file has not been validated yet — click "Re-run validation" above to check it.'
+                    }
+                  />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[900px] text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/50 text-left">
+                          {[
+                            "Row",
+                            "Column",
+                            "Severity",
+                            "Confidence",
+                            "Source",
+                            "Code",
+                            "Message",
+                            "Value",
+                            "Fixable",
+                          ].map((h) => (
+                            <th key={h} className="label-caps px-3 py-2">
+                              {h}
+                            </th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                      </thead>
+                      <tbody>
+                        {rows.map((i, idx) => (
+                          <tr
+                            key={`${i.row}-${i.column}-${idx}`}
+                            className="border-b border-border last:border-0"
+                          >
+                            <td className="mono-num px-3 py-2">{i.row}</td>
+                            <td className="mono-num px-3 py-2">{i.column}</td>
+                            <td className="px-3 py-2">
+                              <StatusPill
+                                tone={
+                                  i.severity === "CRITICAL"
+                                    ? "critical"
+                                    : i.severity === "HIGH"
+                                      ? "warning"
+                                      : i.severity === "MEDIUM"
+                                        ? "info"
+                                        : "neutral"
+                                }
+                              >
+                                {i.severity.toLowerCase()}
+                              </StatusPill>
+                            </td>
+                            <td className="px-3 py-2">
+                              {i.confidence ? (
+                                <StatusPill tone={i.confidence === "LOW" ? "warning" : "neutral"}>
+                                  {i.confidence.toLowerCase()}
+                                </StatusPill>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <StatusPill tone={i.source === "ai" ? "assist" : "neutral"}>
+                                {i.source === "ai" ? "AI" : "rule"}
+                              </StatusPill>
+                            </td>
+                            <td className="mono-num px-3 py-2 text-xs">{i.code}</td>
+                            <td className="px-3 py-2">{i.message}</td>
+                            <td className="mono-num px-3 py-2 text-muted-foreground">
+                              {i.value ?? "—"}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">
+                              {i.fixable ? "Yes" : "No"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              }
             </QueryBoundary>
           </Section>
         ) : null}
