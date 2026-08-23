@@ -1641,7 +1641,7 @@ export const linelist = {
       const corrections = job.lastFixCorrections ?? [];
       const unresolved = job.lastFixUnresolved ?? [];
       if (corrections.length === 0 && unresolved.length === 0) {
-        lines.push("No fix has been run on this job yet.");
+        lines.push("Fix Issues was run and found nothing it could safely auto-correct.");
       }
       for (const c of corrections) {
         lines.push(`CORRECTED — Row ${c.row}, ${c.column}: "${c.new_value}" (${c.reason})`);

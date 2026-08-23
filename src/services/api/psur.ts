@@ -1,3 +1,14 @@
+import {
+  Document,
+  HeadingLevel,
+  Packer,
+  Paragraph,
+  Table,
+  TableCell,
+  TableRow,
+  TextRun,
+  WidthType,
+} from "docx";
 import { supabase } from "@/integrations/supabase/client";
 import { currentActor, newId, recordAudit, toJson } from "./db";
 import { isSpreadsheetFile, mapColumnsByKeywords, parseTabularFile } from "./tabular-parse";
@@ -632,75 +643,156 @@ export const psur = {
     };
   },
 
-  /** Downloads the corrected document: a rebuilt CSV for a spreadsheet
-   *  source (preserving original column order), or a plain-text
-   *  corrections report for a PDF source, since the original PDF bytes
-   *  were never stored and cannot be rewritten in place. */
+  /**
+   * Downloads the corrected report as a Word (.docx) document — for a
+   * spreadsheet source, the current (post-fix) data as a table; for a PDF
+   * source, a reconstructed narrative built from every ACCEPTED finding,
+   * with an AI-resolved MISSING_SECTION finding rendered as an actual
+   * heading + body text (the section the AI added), and every other
+   * accepted finding rendered as a correction note. The original PDF bytes
+   * are never stored by this app, so this is a rebuilt document reflecting
+   * the reviewed content, not a byte-for-byte edit of the upload.
+   */
   downloadFixedDocument: async (documentId: string): Promise<void> => {
     const doc = await readDocument(documentId);
     const findings = await readFindings(documentId);
+    const accepted = findings.filter((f) => f.humanAssessment === "ACCEPTED");
 
-    if (doc.sourceType === "SPREADSHEET" && doc.columns && (doc.rawRows || (doc.mapping && doc.parsedRows))) {
+    const metadataParagraphs = [
+      new Paragraph({
+        text: doc.filename,
+        heading: HeadingLevel.TITLE,
+      }),
+      new Paragraph({ text: `Product: ${doc.product}` }),
+      new Paragraph({ text: `Reporting period: ${doc.reportingPeriod}` }),
+      new Paragraph({
+        text:
+          `Generated ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC` +
+          (doc.fixedAt
+            ? ` — corrections last applied ${doc.fixedAt.slice(0, 16).replace("T", " ")} UTC`
+            : ""),
+      }),
+      new Paragraph({ text: "" }),
+    ];
+
+    let bodyChildren: (Paragraph | Table)[];
+
+    if (
+      doc.sourceType === "SPREADSHEET" &&
+      doc.columns &&
+      (doc.rawRows || (doc.mapping && doc.parsedRows))
+    ) {
       const { columns } = doc;
-      const escapeCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-      // Read from rawRows (every original column, post-fix) when present
-      // — falling back to the canonical-field reconstruction only for a
-      // document with no raw parse at all, which would otherwise blank
-      // every column outside the fixed PsurField list.
-      const lines = doc.rawRows
-        ? [
-            columns.map(escapeCell).join(","),
-            ...doc.rawRows.map((row) => columns.map((header) => escapeCell(row[header] ?? "")).join(",")),
-          ]
-        : [
-            columns.map(escapeCell).join(","),
-            ...doc.parsedRows!.map((row) =>
-              columns
-                .map((header) => escapeCell(doc.mapping![header] ? (row[doc.mapping![header]!] ?? "") : ""))
-                .join(","),
+      // Read from rawRows (every original column, post-fix) when present —
+      // falling back to the canonical-field reconstruction only for a
+      // document with no raw parse at all.
+      const dataRows: string[][] = doc.rawRows
+        ? doc.rawRows.map((row) => columns.map((header) => row[header] ?? ""))
+        : doc.parsedRows!.map((row) =>
+            columns.map((header) =>
+              doc.mapping![header] ? (row[doc.mapping![header]!] ?? "") : "",
             ),
-          ];
-      const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      try {
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = doc.filename.replace(/\.[^.]+$/, "") + "-fixed.csv";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-      return;
+          );
+
+      const headerRow = new TableRow({
+        tableHeader: true,
+        children: columns.map(
+          (h) =>
+            new TableCell({
+              width: {
+                size: Math.max(1, Math.floor(100 / columns.length)),
+                type: WidthType.PERCENTAGE,
+              },
+              children: [new Paragraph({ children: [new TextRun({ text: h, bold: true })] })],
+            }),
+        ),
+      });
+      const dataTableRows = dataRows.map(
+        (row) =>
+          new TableRow({
+            children: row.map(
+              (cell) =>
+                new TableCell({
+                  children: [new Paragraph(cell)],
+                }),
+            ),
+          }),
+      );
+
+      bodyChildren = [
+        new Paragraph({
+          text: `Case data (${dataRows.length} row(s)) — reflects any AI corrections applied.`,
+        }),
+        new Paragraph({ text: "" }),
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [headerRow, ...dataTableRows],
+        }),
+      ];
+    } else if (accepted.length === 0) {
+      bodyChildren = [
+        new Paragraph({
+          text: "No findings have been accepted yet, so there is nothing to add to this report. Accept a finding and run Run Full Fix first.",
+        }),
+      ];
+    } else {
+      bodyChildren = accepted.flatMap((f) => {
+        const isAddedSection = f.category === "MISSING_SECTION" && f.resolved && f.resolution;
+        return [
+          new Paragraph({
+            text: f.section,
+            heading: HeadingLevel.HEADING_1,
+          }),
+          ...(isAddedSection
+            ? [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: "AI-drafted section content — requires human sign-off",
+                      italics: true,
+                    }),
+                  ],
+                }),
+                new Paragraph({ text: f.resolution! }),
+              ]
+            : [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: `${f.category.replaceAll("_", " ")} · ${f.severity} severity`,
+                      bold: true,
+                    }),
+                  ],
+                }),
+                new Paragraph({ text: f.description }),
+                new Paragraph({
+                  children: [new TextRun({ text: `Evidence: ${f.evidence}`, italics: true })],
+                }),
+                new Paragraph({
+                  text: f.resolved
+                    ? `Correction applied: ${f.resolution}`
+                    : `Unresolved: ${f.resolution ?? "not yet processed by Run Full Fix"}`,
+                }),
+              ]),
+          new Paragraph({ text: "" }),
+        ];
+      });
     }
 
-    const accepted = findings.filter((f) => f.humanAssessment === "ACCEPTED");
-    const lines = [
-      `PSUR/PBRER CORRECTIONS REPORT`,
-      `Document: ${doc.filename}`,
-      `Generated: ${new Date().toISOString()}`,
-      ``,
-      `This is a corrections report, not a modified copy of the original document —`,
-      `this application does not store or re-generate PDF files. Apply these`,
-      `corrections to the source document manually.`,
-      ``,
-      ...accepted.flatMap((f) => [
-        `--- ${f.section} (${f.category}, ${f.severity}) ---`,
-        `Finding: ${f.description}`,
-        `Evidence: ${f.evidence}`,
-        f.resolved
-          ? `Proposed correction: ${f.resolution}`
-          : `Status: UNRESOLVED — ${f.resolution ?? "not yet processed by Run Full Fix"}`,
-        ``,
-      ]),
-    ];
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const wordDoc = new Document({
+      sections: [
+        {
+          properties: {},
+          children: [...metadataParagraphs, ...bodyChildren],
+        },
+      ],
+    });
+    const blob = await Packer.toBlob(wordDoc);
     const url = URL.createObjectURL(blob);
     try {
       const a = document.createElement("a");
       a.href = url;
-      a.download = doc.filename.replace(/\.[^.]+$/, "") + "-corrections-report.txt";
+      a.download = doc.filename.replace(/\.[^.]+$/, "") + "-fixed.docx";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -736,7 +828,9 @@ export const psur = {
     lines.push(`Document: ${doc.filename}`);
     lines.push(`Product: ${doc.product}`);
     lines.push(`Reporting period: ${doc.reportingPeriod}`);
-    lines.push(`Uploaded by: ${doc.uploadedBy} on ${doc.uploadedAt.slice(0, 16).replace("T", " ")} UTC`);
+    lines.push(
+      `Uploaded by: ${doc.uploadedBy} on ${doc.uploadedAt.slice(0, 16).replace("T", " ")} UTC`,
+    );
     lines.push("");
 
     lines.push("TOTALS");

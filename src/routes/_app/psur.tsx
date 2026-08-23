@@ -278,10 +278,7 @@ function PsurPage() {
                                 }
                               }}
                             >
-                              <Download className="size-4" />{" "}
-                              {activeDoc.sourceType === "SPREADSHEET"
-                                ? "Download Fixed Document"
-                                : "Download Corrections Report"}
+                              <Download className="size-4" /> Download Fixed Document (Word)
                             </Button>
                           </>
                         );

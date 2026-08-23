@@ -9,14 +9,13 @@
 export const RULE_BASED_DETECTION_ENABLED = true;
 
 /**
- * Temporary switch to hide auto-fix workflows across line-list and PSUR/
- * PBRER review. While false, "Fix Issues"/"Run Full Fix" and their paired
- * "Download Fixed ..." buttons never appear — issues/findings can only be
- * reviewed on screen and exported via the deterministic executive summary
- * (which only ever includes what a human has actually accepted, for PSUR;
- * line-list's summary reports everything detected, since line-list has no
- * accept/dismiss step). The underlying fix code (linelist.fixIssues/
- * downloadCsv, psur.runFullFix/downloadFixedDocument) is untouched, so this
- * can be flipped back on with no other code changes.
+ * Switch for the auto-fix workflows across line-list and PSUR/PBRER review.
+ * While true, "Fix Issues"/"Run Full Fix" and their paired "Download Fixed
+ * ..." buttons appear once there's something to fix — issues/findings can
+ * still always be reviewed on screen and exported via the executive summary
+ * regardless of this flag (which only ever includes what a human has
+ * actually accepted, for PSUR; line-list's summary reports everything
+ * detected, since line-list has no accept/dismiss step). Flip to false to
+ * hide the fix workflows again with no other code changes needed.
  */
-export const AUTO_FIX_ENABLED = false;
+export const AUTO_FIX_ENABLED = true;
