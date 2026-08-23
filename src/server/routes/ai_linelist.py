@@ -47,7 +47,24 @@ MAX_ADVERSARIAL_SAMPLE_ROWS = 20
 # findings that the response gets truncated mid-JSON against the old
 # default, which fails as a terminal (non-retried) JSON-decode error, not
 # a transient one — that's a real, reproduced-live regression this fixes.
-MAX_ANALYSIS_OUTPUT_TOKENS = 8000
+#
+# Reproduced live again at 8000: the configured model (a reasoning-tier
+# model — see client.py's temperature/max_completion_tokens handling)
+# spends part of this budget on its own hidden reasoning tokens before
+# writing the visible JSON answer, so on a genuinely large/issue-heavy
+# chunk 8000 wasn't enough headroom for *both* reasoning and the answer —
+# finish_reason came back "length" with an empty visible response on all
+# 3 retry attempts (a systematic shortfall for that request, not a fluke
+# worth just retrying past). Raised with real margin for both.
+MAX_ANALYSIS_OUTPUT_TOKENS = 20000
+
+# /fix's response shape (row/column/new_value/reason per issue) is smaller
+# per-item than an analysis finding, but a genuinely issue-heavy file can
+# still send hundreds of fixable issues in one call — the same reasoning-
+# budget risk as MAX_ANALYSIS_OUTPUT_TOKENS applies, so this gets its own
+# explicit, larger-than-the-4000-token-default budget rather than relying
+# on structured_completion()'s default sized for smaller requests.
+MAX_FIX_OUTPUT_TOKENS = 12000
 
 
 class RowIn(BaseModel):
@@ -274,6 +291,7 @@ async def fix_linelist(
         completion = await structured_completion(
             system_prompt=LINELIST_FIX_PROMPT,
             user_content=json.dumps(payload),
+            max_output_tokens=MAX_FIX_OUTPUT_TOKENS,
         )
         parsed = AiLineListFix.model_validate(completion.data)
         return FixResponse(
