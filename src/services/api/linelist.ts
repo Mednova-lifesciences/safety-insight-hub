@@ -606,7 +606,7 @@ export function runValidation(
           sources: ["rule"],
           issueType: "FIELD_MISSING",
           affectedFields: [field],
-          fixable: true,
+          fixable: false,
         });
       }
     });
@@ -642,7 +642,7 @@ export function runValidation(
         sources: ["rule"],
         issueType: "FIELD_MISSING",
         affectedFields: ["onset_date"],
-        fixable: true,
+        fixable: false,
       });
     } else if (!DATE_RE.test(row.onset_date)) {
       issues.push({
@@ -764,7 +764,7 @@ export function runValidation(
           sources: ["rule"],
           issueType: "FIELD_MISSING",
           affectedFields: ["outcome"],
-          fixable: true,
+          fixable: false,
         });
       } else if (!OUTCOME_VALUES.has(row.outcome.toUpperCase())) {
         issues.push({
@@ -779,7 +779,7 @@ export function runValidation(
           sources: ["rule"],
           issueType: "FIELD_VALUE_INVALID",
           affectedFields: ["outcome"],
-          fixable: true,
+          fixable: false,
         });
       } else if (
         row.outcome.toUpperCase() === "FATAL" &&
@@ -881,7 +881,7 @@ export function runValidation(
         sources: ["rule"],
         issueType: "FIELD_MISSING",
         affectedFields: ["dose"],
-        fixable: true,
+        fixable: false,
       });
     }
 
@@ -900,7 +900,7 @@ export function runValidation(
           sources: ["rule"],
           issueType: "FIELD_MISSING",
           affectedFields: ["vaccine_batch"],
-          fixable: true,
+          fixable: false,
         });
       } else if (MULTI_VALUE_RE.test(batch)) {
         issues.push({
@@ -935,7 +935,7 @@ export function runValidation(
           sources: ["rule"],
           issueType: "FIELD_MISSING",
           affectedFields: ["reporter_phone"],
-          fixable: true,
+          fixable: false,
         });
       } else if (digits.length < 10 || digits.length > 14) {
         issues.push({
