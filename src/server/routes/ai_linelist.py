@@ -291,6 +291,7 @@ async def fix_linelist(
         completion = await structured_completion(
             system_prompt=LINELIST_FIX_PROMPT,
             user_content=json.dumps(payload),
+            model=VALIDATION_MODEL,
             max_output_tokens=MAX_FIX_OUTPUT_TOKENS,
         )
         parsed = AiLineListFix.model_validate(completion.data)
