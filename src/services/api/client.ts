@@ -10,9 +10,15 @@
  * every call rejects with `ApiNotConfiguredError` and the UI renders an
  * explicit "pending integration" state instead of inventing results.
  *
- * Authentication: JWT token is stored in localStorage and sent as Bearer token.
- * No API keys or model credentials ever live in this client.
+ * Authentication: the bearer token comes from the Supabase JS client's own
+ * session (see getAuthToken below), not a static copy — Supabase auto-
+ * refreshes that session in the background (autoRefreshToken: true), so a
+ * call made after the ~1 hour access-token lifetime still gets a valid
+ * token instead of a stale one that 401s. No API keys or model credentials
+ * ever live in this client.
  */
+
+import { supabase } from "@/integrations/supabase/client";
 
 export const API_BASE_URL: string =
   (import.meta.env["VITE_PV_API_BASE_URL"] as string | undefined)?.replace(/\/$/, "") ?? "";
@@ -39,6 +45,25 @@ export const setStoredToken = (token: string | null): void => {
     // Silent fail for localStorage access issues
   }
 };
+
+/**
+ * The token actually sent on every FastAPI request. Prefers the Supabase
+ * client's current session token — Supabase transparently refreshes this
+ * in the background, so it's still valid long after sign-in — falling
+ * back to the static localStorage copy only if no Supabase session exists
+ * (e.g. a call made before syncSupabaseSession() has run). Never throws:
+ * an errored/missing session just means no token is attached, same as
+ * before this existed.
+ */
+async function getAuthToken(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (!error && data.session?.access_token) return data.session.access_token;
+  } catch {
+    /* fall through to the static copy below */
+  }
+  return getStoredToken();
+}
 
 export class ApiNotConfiguredError extends Error {
   readonly kind = "not_configured";
@@ -86,8 +111,9 @@ export async function apiRequest<T>(
     }
   }
 
-  // Use provided token or retrieve from localStorage
-  const authToken = token || getStoredToken();
+  // Use the explicitly provided token (rare — a caller doing its own
+  // token handling) or the current, Supabase-refreshed session token.
+  const authToken = token || (await getAuthToken());
   const headers: Record<string, string> = {};
 
   if (!body || !(body instanceof FormData)) {
