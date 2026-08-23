@@ -9,6 +9,7 @@ OPENAI_API_KEY not configured server-side — see /status).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Optional
@@ -178,10 +179,18 @@ async def analyze_linelist(
     if not request.rows:
         return AnalyzeResponse(findings=[], ai_used=False, prompt_version=PROMPT_VERSION)
 
-    all_findings: list[IssueOut] = []
     model_used: Optional[str] = None
     try:
-        for offset in range(0, len(request.rows), MAX_ROWS_PER_ANALYSIS_CALL):
+        # Each row-chunk is an independent OpenAI call, so they're fired
+        # concurrently rather than awaited one at a time — for a file with
+        # more than MAX_ROWS_PER_ANALYSIS_CALL rows (the real Ondo AEFI
+        # workbook needs 2), sequential awaiting means the platform-level
+        # HTTP timeout between browser and backend has to survive the SUM
+        # of every chunk's (possibly retried, reasoning-model-slow) call —
+        # reproduced live as a client-side "Failed to fetch" after the
+        # backend had, in fact, finished successfully ~2.5 minutes later.
+        # Concurrent calls bound total wall-clock to the slowest chunk.
+        async def analyze_chunk(offset: int) -> tuple[str, list[IssueOut]]:
             chunk = request.rows[offset : offset + MAX_ROWS_PER_ANALYSIS_CALL]
             payload = {
                 "columns": request.headers,
@@ -194,9 +203,8 @@ async def analyze_linelist(
                 model=VALIDATION_MODEL,
                 max_output_tokens=MAX_ANALYSIS_OUTPUT_TOKENS,
             )
-            model_used = completion.model
             parsed = AiLineListAnalysis.model_validate(completion.data)
-            all_findings.extend(
+            return completion.model, [
                 IssueOut(
                     row=f.row,
                     column=f.column,
@@ -211,7 +219,14 @@ async def analyze_linelist(
                     affectedFields=f.affectedFields,
                 )
                 for f in parsed.findings
-            )
+            ]
+
+        chunk_offsets = list(range(0, len(request.rows), MAX_ROWS_PER_ANALYSIS_CALL))
+        chunk_results = await asyncio.gather(*(analyze_chunk(offset) for offset in chunk_offsets))
+        all_findings: list[IssueOut] = []
+        for model, findings in chunk_results:
+            model_used = model
+            all_findings.extend(findings)
 
         all_findings = await _adversarial_review(
             headers=request.headers,
