@@ -32,8 +32,15 @@ export function currentActor(): ActorInfo {
   return { name: "Unknown user", role: "UNKNOWN" };
 }
 
+/** Collision-safe id generation: crypto.randomUUID() has 122 bits of
+ *  entropy, unlike the previous timestamp+4-random-chars scheme, which had
+ *  a realistic collision chance in a single synchronous batch insert of
+ *  hundreds of rows generated in the same millisecond (e.g. inserting
+ *  every issue found on a large line-list validation pass) — reproduced
+ *  live as a `pv_linelist_issues_pkey` duplicate-key error. `id` columns
+ *  are plain `text`, so the extra length is otherwise inconsequential. */
 export function newId(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 export function stepStates(

@@ -168,7 +168,25 @@ async def structured_completion(
             response = await client.chat.completions.create(**kwargs)
             raw = response.choices[0].message.content
             if not raw:
-                raise AiRequestError("OpenAI returned an empty response.")
+                # Seen in practice with reasoning-tier models: the token
+                # budget gets spent on hidden reasoning tokens, leaving
+                # nothing for the visible JSON answer (finish_reason
+                # "length" with empty content). This varies call to call
+                # for the same input, so it's worth retrying rather than
+                # failing the whole request on the first empty response.
+                last_error = AiRequestError(
+                    f"OpenAI returned an empty response (finish_reason={response.choices[0].finish_reason!r})."
+                )
+                if attempt < MAX_RETRIES:
+                    delay = _backoff_seconds(attempt, last_error)
+                    logger.warning(
+                        "OpenAI request attempt %s/%s returned an empty response, retrying in %.1fs",
+                        attempt + 1, MAX_RETRIES + 1, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error("OpenAI request failed after %s attempts: %s", MAX_RETRIES + 1, last_error)
+                raise last_error
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError as exc:
@@ -245,7 +263,19 @@ async def vision_structured_completion(
             response = await client.chat.completions.create(**kwargs)
             raw = response.choices[0].message.content
             if not raw:
-                raise AiRequestError("OpenAI returned an empty response.")
+                last_error = AiRequestError(
+                    f"OpenAI returned an empty response (finish_reason={response.choices[0].finish_reason!r})."
+                )
+                if attempt < MAX_RETRIES:
+                    delay = _backoff_seconds(attempt, last_error)
+                    logger.warning(
+                        "OpenAI vision request attempt %s/%s returned an empty response, retrying in %.1fs",
+                        attempt + 1, MAX_RETRIES + 1, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error("OpenAI vision request failed after %s attempts: %s", MAX_RETRIES + 1, last_error)
+                raise last_error
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError as exc:
