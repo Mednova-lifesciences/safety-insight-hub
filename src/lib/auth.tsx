@@ -26,16 +26,16 @@ import { supabase } from "@/integrations/supabase/client";
 export type Role = "FIELD_ASSOCIATE" | "PV_COORDINATOR" | "PV_MANAGER" | "ADMIN";
 
 /**
- * PV_MANAGER now displays as "Administrator" and carries every permission
- * FIELD_ASSOCIATE/PV_COORDINATOR/PV_MANAGER previously had between them
- * (see ROLE_PERMISSIONS below) — the standalone ADMIN role still exists
- * server-side and keeps its own label, but its sign-in card is hidden
- * (src/routes/index.tsx) since PV_MANAGER now covers the same ground.
+ * Four distinct, visible roles. PV_MANAGER carries every permission
+ * FIELD_ASSOCIATE/PV_COORDINATOR/PV_MANAGER previously had between them,
+ * on top of manager-level permissions — the same full set ADMIN has (see
+ * ROLE_PERMISSIONS below) — but is its own labelled identity, not an
+ * alias for Administrator.
  */
 export const ROLE_LABELS: Record<Role, string> = {
   FIELD_ASSOCIATE: "PV Field Associate",
   PV_COORDINATOR: "PV Coordinator",
-  PV_MANAGER: "Administrator",
+  PV_MANAGER: "PV Manager",
   ADMIN: "Administrator",
 };
 

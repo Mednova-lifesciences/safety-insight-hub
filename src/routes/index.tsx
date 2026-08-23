@@ -37,9 +37,7 @@ const ROLE_DESCRIPTIONS: Record<Role, string> = {
   ADMIN: "Manage access, operations and the complete audit surface.",
 };
 
-// The standalone Administrator role card is hidden for now — PV_MANAGER
-// (labelled "Administrator" via ROLE_LABELS) covers the same ground.
-const VISIBLE_ROLES: Role[] = ["FIELD_ASSOCIATE", "PV_COORDINATOR", "PV_MANAGER"];
+const VISIBLE_ROLES: Role[] = ["FIELD_ASSOCIATE", "PV_COORDINATOR", "PV_MANAGER", "ADMIN"];
 
 const DEMO_PASSWORD = "demo123";
 const DEMO_CREDENTIALS: Record<Role, { email: string; password: string }> = {
