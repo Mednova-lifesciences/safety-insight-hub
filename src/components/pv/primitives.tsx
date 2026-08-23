@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleDashed,
   Info,
   Loader2,
@@ -12,6 +14,7 @@ import {
 import type { Priority, Seriousness, WorkflowStep, WorkflowStepState } from "@/types/pv";
 import { WORKFLOW_LABELS, WORKFLOW_STEPS } from "@/types/pv";
 import { isNotConfigured } from "@/services/api/client";
+import { Button } from "@/components/ui/button";
 
 /* ------------------------------------------------------------------ layout */
 
@@ -156,7 +159,11 @@ export function WorkflowBadge({ value }: { value: WorkflowStep }) {
   return <StatusPill tone={tone}>{WORKFLOW_LABELS[value]}</StatusPill>;
 }
 
-export function AssistLabel({ children = "AI assistance — requires human confirmation" }: { children?: ReactNode }) {
+export function AssistLabel({
+  children = "AI assistance — requires human confirmation",
+}: {
+  children?: ReactNode;
+}) {
   return (
     <StatusPill tone="assist" icon={<Sparkles className="size-3" />}>
       {children}
@@ -235,9 +242,7 @@ export function EmptyState({
     <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border px-6 py-10 text-center">
       <CircleDashed className="size-5 text-muted-foreground" />
       <p className="text-sm font-medium text-foreground">{title}</p>
-      {description ? (
-        <p className="max-w-md text-sm text-muted-foreground">{description}</p>
-      ) : null}
+      {description ? <p className="max-w-md text-sm text-muted-foreground">{description}</p> : null}
       {action}
     </div>
   );
@@ -298,4 +303,63 @@ export function QueryBoundary<T>({
   if (query.error) return <BackendUnavailable error={query.error} />;
   if (!query.data) return <EmptyState title="No data returned" />;
   return <>{children(query.data.data, query.data.source)}</>;
+}
+
+/* -------------------------------------------------------------- pagination */
+
+export const PAGE_SIZE = 10;
+
+/** Slices an already-fetched, already-sorted list to one page. Purely a
+ *  display concern — lists here are small enough that fetching everything
+ *  and paging client-side is simpler than a server-paginated API, and
+ *  keeps "newest upload sorts to the top" (each list's own sort, upstream
+ *  of this) working unchanged regardless of page. */
+export function paginate<T>(items: T[], page: number): T[] {
+  const start = (page - 1) * PAGE_SIZE;
+  return items.slice(start, start + PAGE_SIZE);
+}
+
+/** Prev/Next pager for a paginate()'d list. Renders nothing when everything
+ *  fits on one page, so it never clutters a short list. */
+export function Pager({
+  page,
+  total,
+  onPageChange,
+}: {
+  page: number;
+  total: number;
+  onPageChange: (page: number) => void;
+}) {
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (pageCount <= 1) return null;
+  const start = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const end = Math.min(page * PAGE_SIZE, total);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-sm text-muted-foreground">
+      <span>
+        Showing {start}–{end} of {total}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+        >
+          <ChevronLeft className="size-4" /> Previous
+        </Button>
+        <span className="mono-num px-1">
+          Page {page} of {pageCount}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={page >= pageCount}
+          onClick={() => onPageChange(page + 1)}
+        >
+          Next <ChevronRight className="size-4" />
+        </Button>
+      </div>
+    </div>
+  );
 }

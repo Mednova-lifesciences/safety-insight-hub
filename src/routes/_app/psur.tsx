@@ -12,7 +12,9 @@ import {
   AssistLabel,
   EmptyState,
   Field,
+  Pager,
   PageHeader,
+  paginate,
   QueryBoundary,
   Section,
   SourceTag,
@@ -77,6 +79,7 @@ function PsurPage() {
   );
   const [uploading, setUploading] = useState(false);
   const [fixing, setFixing] = useState(false);
+  const [docsPage, setDocsPage] = useState(1);
 
   return (
     <>
@@ -136,6 +139,7 @@ function PsurPage() {
                       ? "Document uploaded and reviewed."
                       : "Document uploaded.",
                   );
+                  setDocsPage(1);
                   docs.refetch();
                 } catch (err) {
                   toast.error(
@@ -160,37 +164,40 @@ function PsurPage() {
                   description="Upload a PSUR/PBRER to begin a review."
                 />
               ) : (
-                <ul className="divide-y divide-border">
-                  {items.map((d) => (
-                    <li key={d.id} className="flex flex-wrap items-center gap-3 py-3">
-                      <span className="text-sm font-medium">{d.filename}</span>
-                      <StatusPill tone="neutral">{d.product}</StatusPill>
-                      <StatusPill tone="info">{d.reportingPeriod}</StatusPill>
-                      <StatusPill
-                        tone={
-                          d.stage === "FAILED"
-                            ? "critical"
-                            : d.stage === "REVIEWED"
-                              ? "success"
-                              : "info"
-                        }
-                      >
-                        {d.stage.toLowerCase()}
-                      </StatusPill>
-                      <span className="mono-num text-xs text-muted-foreground">
-                        {d.pages} {d.sourceType === "SPREADSHEET" ? "case rows" : "pages"}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="ml-auto"
-                        onClick={() => setSelected(d.id)}
-                      >
-                        Open review
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="divide-y divide-border">
+                    {paginate(items, docsPage).map((d) => (
+                      <li key={d.id} className="flex flex-wrap items-center gap-3 py-3">
+                        <span className="text-sm font-medium">{d.filename}</span>
+                        <StatusPill tone="neutral">{d.product}</StatusPill>
+                        <StatusPill tone="info">{d.reportingPeriod}</StatusPill>
+                        <StatusPill
+                          tone={
+                            d.stage === "FAILED"
+                              ? "critical"
+                              : d.stage === "REVIEWED"
+                                ? "success"
+                                : "info"
+                          }
+                        >
+                          {d.stage.toLowerCase()}
+                        </StatusPill>
+                        <span className="mono-num text-xs text-muted-foreground">
+                          {d.pages} {d.sourceType === "SPREADSHEET" ? "case rows" : "pages"}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="ml-auto"
+                          onClick={() => setSelected(d.id)}
+                        >
+                          Open review
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                  <Pager page={docsPage} total={items.length} onPageChange={setDocsPage} />
+                </>
               )
             }
           </QueryBoundary>

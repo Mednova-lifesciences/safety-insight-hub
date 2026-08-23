@@ -10,7 +10,9 @@ import { isNotConfigured } from "@/services/api/client";
 import { AUTO_FIX_ENABLED, RULE_BASED_DETECTION_ENABLED } from "@/services/api/feature-flags";
 import {
   EmptyState,
+  Pager,
   PageHeader,
+  paginate,
   QueryBoundary,
   Section,
   SourceTag,
@@ -70,12 +72,14 @@ function LineListPage() {
   const [validating, setValidating] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [aiNotice, setAiNotice] = useState<string | null>(null);
+  const [jobsPage, setJobsPage] = useState(1);
 
   async function onFile(file: File) {
     setUploading(true);
     try {
       await linelistApi.upload(file);
       toast.success("File uploaded.");
+      setJobsPage(1);
       jobs.refetch();
     } catch (err) {
       toast.error(
@@ -206,7 +210,7 @@ function LineListPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((j) => (
+                      {paginate(items, jobsPage).map((j) => (
                         <tr
                           key={j.id}
                           className={cn(
@@ -244,6 +248,7 @@ function LineListPage() {
                       ))}
                     </tbody>
                   </table>
+                  <Pager page={jobsPage} total={items.length} onPageChange={setJobsPage} />
                 </div>
               )
             }
