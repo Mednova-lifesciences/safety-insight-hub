@@ -26,7 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useCurrentUser, usePermission, useRole } from "@/lib/auth";
+import { usePermission, useRole } from "@/lib/auth";
 import {
   WORKFLOW_LABELS,
   WORKFLOW_STEPS,
@@ -756,7 +756,6 @@ function DynamicFieldsSection({
 function CaseDetailPage() {
   const { caseId } = Route.useParams();
   const canCode = usePermission("coding.review");
-  const currentUser = useCurrentUser();
   const role = useRole();
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const query = usePvQuery(
@@ -777,13 +776,13 @@ function CaseDetailPage() {
         // by hand; an "Advance" click always jumps it to the new stage's
         // tab regardless of whatever was manually selected before.
         const tab = activeTab ?? tabForStep(c.workflowStep, canCode);
-        // A field associate can only fix and resubmit a case they own, and
-        // only until review has actually been completed — editable through
-        // Review itself, but locked the moment the case moves on to QC (or
-        // any stage after), no matter who advanced it there.
+        // A field associate can fix and resubmit any case, regardless of
+        // assignment, but only until review has actually been completed —
+        // editable through Review itself, but locked the moment the case
+        // moves on to QC (or any stage after), no matter who advanced it
+        // there.
         const canEditThisCase =
           role === "FIELD_ASSOCIATE" &&
-          c.assignedTo === currentUser?.name &&
           WORKFLOW_STEPS.indexOf(c.workflowStep) < WORKFLOW_STEPS.indexOf("QC");
         return (
           <>
