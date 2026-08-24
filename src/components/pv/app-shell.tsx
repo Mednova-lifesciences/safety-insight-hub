@@ -17,7 +17,7 @@ import {
   Timer,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { ROLE_LABELS, useAuth, type Permission } from "@/lib/auth";
+import { ROLE_LABELS, useAuth, type Permission, type Role } from "@/lib/auth";
 import { useDataSource } from "@/lib/data-source";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,7 @@ interface NavItem {
   label: string;
   icon: typeof Gauge;
   permission?: Permission;
+  hiddenForRoles?: Role[];
 }
 
 interface NavGroup {
@@ -66,9 +67,22 @@ const NAV: NavGroup[] = [
         label: "Line-list processing",
         icon: FileSpreadsheet,
         permission: "linelist.process",
+        hiddenForRoles: ["PV_MANAGER", "PV_COORDINATOR"],
       },
-      { to: "/e2b", label: "E2B(R3) preparation", icon: FileStack, permission: "e2b.generate" },
-      { to: "/psur", label: "PSUR / PBRER review", icon: FileText, permission: "psur.review" },
+      {
+        to: "/e2b",
+        label: "E2B(R3) preparation",
+        icon: FileStack,
+        permission: "e2b.generate",
+        hiddenForRoles: ["PV_MANAGER", "PV_COORDINATOR"],
+      },
+      {
+        to: "/psur",
+        label: "PSUR / PBRER review",
+        icon: FileText,
+        permission: "psur.review",
+        hiddenForRoles: ["PV_MANAGER", "PV_COORDINATOR"],
+      },
     ],
   },
   {
@@ -109,7 +123,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <nav className="flex-1 overflow-y-auto px-2 py-3">
           {NAV.map((group) => {
-            const items = group.items.filter((i) => !i.permission || can(i.permission));
+            const items = group.items.filter(
+              (i) =>
+                (!i.permission || can(i.permission)) && !i.hiddenForRoles?.includes(user.role),
+            );
             if (items.length === 0) return null;
             return (
               <div key={group.label} className="mb-4">
