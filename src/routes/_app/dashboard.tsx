@@ -235,7 +235,7 @@ function FieldAssociateDashboard() {
         <QueryBoundary query={casesQuery} loadingLabel="Loading cases">
           {(all, source) => {
             const mine = all.filter(
-              (c) => c.assignedTo === "A. Okafor" || user?.role !== "FIELD_ASSOCIATE",
+              (c) => c.assignedTo === user?.name || user?.role !== "FIELD_ASSOCIATE",
             );
             const open = mine.filter((c) => c.workflowStep !== "CLOSED");
             const serious = open.filter((c) => c.seriousness === "SERIOUS");
