@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Check, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { coding as codingApi } from "@/services/api/coding";
@@ -28,6 +29,7 @@ const matchTone: Record<CodingSuggestion["matchType"], Tone> = {
 
 function SuggestionRow({ s, caseId }: { s: CodingSuggestion; caseId: string }) {
   const [busy, setBusy] = useState(false);
+  const queryClient = useQueryClient();
 
   async function act(kind: "accept" | "reject") {
     setBusy(true);
@@ -35,6 +37,14 @@ function SuggestionRow({ s, caseId }: { s: CodingSuggestion; caseId: string }) {
       if (kind === "accept") await codingApi.accept(caseId, s.id);
       else await codingApi.reject(caseId, s.id, "Rejected by reviewer");
       toast.success(`Coding ${kind}ed and recorded in the audit trail.`);
+      // Accepting writes the coded term onto the case itself (see
+      // coding.ts's applyCodedTerm) — the case detail page's own query
+      // won't see that until its cache is invalidated. Reject only flips
+      // this suggestion's status, but that status lives in the same
+      // ["coding", caseId] query these rows are rendered from.
+      await queryClient.invalidateQueries({ queryKey: ["case", caseId] });
+      await queryClient.invalidateQueries({ queryKey: ["coding", caseId] });
+      await queryClient.invalidateQueries({ queryKey: ["coding-history", caseId] });
     } catch (err) {
       toast.error(
         isNotConfigured(err)
