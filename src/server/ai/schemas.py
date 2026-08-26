@@ -283,3 +283,37 @@ class AiCodingCandidate(BaseModel):
 
 class AiCodingSuggestion(BaseModel):
     candidates: list[AiCodingCandidate] = Field(default_factory=list)
+
+
+# ------------------------------------------------------------- Literature --
+
+_KNOWN_RISK_LEVELS = {"HIGH", "MODERATE", "LOW"}
+
+
+class AiLiteratureAnalysis(BaseModel):
+    is_safety_relevant: bool
+    products: list[str] = Field(default_factory=list)
+    reaction_terms: list[str] = Field(default_factory=list)
+    seriousness_criteria: list[str] = Field(default_factory=list)
+    risk_level: Literal["HIGH", "MODERATE", "LOW"]
+    summary: str
+    rationale: str
+
+    @field_validator("risk_level", mode="before")
+    @classmethod
+    def _normalize_risk_level(cls, v):
+        # Plain JSON mode — nothing constrains the model to the enum. An
+        # off-enum risk level should degrade to the keyword engine's
+        # conservative default (MODERATE) rather than fail the whole
+        # response; the caller merges this with its own deterministic
+        # rating and always shows the human both.
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_RISK_LEVELS:
+            return v.strip().upper()
+        return "MODERATE"
+
+    @field_validator("products", "reaction_terms", "seriousness_criteria", mode="before")
+    @classmethod
+    def _drop_blank_entries(cls, v):
+        if not isinstance(v, list):
+            return []
+        return [item.strip() for item in v if isinstance(item, str) and item.strip()]

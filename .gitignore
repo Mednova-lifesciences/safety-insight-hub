@@ -43,3 +43,9 @@ venv/
 *.sw?
 
 .worktrees/
+
+# Tooling artifacts
+.playwright-mcp/
+
+# Reference spreadsheets may contain real patient/report data — never commit
+src/types/*.xlsx

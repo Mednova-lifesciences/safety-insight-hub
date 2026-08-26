@@ -614,3 +614,46 @@ Respond with JSON exactly in this shape:
 If no responsible candidate exists, return {"candidates": []}.
 """
 )
+
+
+LITERATURE_ANALYSIS_PROMPT = (
+    SAFETY_PREAMBLE
+    + """
+TASK: A pharmacovigilance reviewer is screening local (non-indexed) medical journal articles and \
+health news for drug-safety findings, as part of the weekly local-literature surveillance duty. \
+You will be given one publication's title and full text. Decide whether it reports anything \
+genuinely relevant to drug safety, and structure exactly what it reports for the reviewer.
+
+Extraction rules:
+- Extract ONLY products, reactions, and events the text actually states. Never invent or \
+complete a product name, reaction term, number of patients, or outcome that is not present. \
+Brand names and generic names are both fine — report them as the text writes them.
+- "reactionTerms": the adverse events/reactions/harm the text associates with a product or \
+batch (e.g. "peripheral oedema", "hepatotoxicity", "skin rash"). Do not list adverse events \
+that were explicitly NOT observed (e.g. "no severe adverse events were observed" contributes \
+nothing).
+- "seriousnessCriteria": only from this exact list, and only when the text genuinely supports \
+them:
+""" + "\n".join(f'  - "{c}"' for c in ICSR_SERIOUSNESS_CRITERIA) + """
+Risk level — judge by clinical significance of what the text reports:
+- "HIGH": death, fatality, life-threatening events, counterfeit/falsified products, or severe \
+medically important events (e.g. hepatotoxicity, acute liver injury, renal failure, anaphylaxis).
+- "MODERATE": notable adverse reactions or safety concerns reported without severe outcomes.
+- "LOW": only mild/transient reactions, or safety mentions that are incidental to the article's \
+main purpose.
+If the text reports no plausible drug-safety relevance at all (e.g. a pure efficacy result with \
+no adverse findings, or an article that isn't about medicines at all), set isSafetyRelevant to \
+false, riskLevel to "LOW", and leave the lists empty.
+
+Respond with JSON exactly in this shape:
+{
+  "isSafetyRelevant": <boolean>,
+  "products": ["<product names exactly as the text writes them>"],
+  "reactionTerms": ["<reaction/event terms>"],
+  "seriousnessCriteria": [<zero or more of the exact criteria labels listed above>],
+  "riskLevel": "HIGH" | "MODERATE" | "LOW",
+  "summary": "<one or two sentences a QPPV can scan: what happened, to whom, with which product>",
+  "rationale": "<why this risk level, citing what the text actually says>"
+}
+"""
+)

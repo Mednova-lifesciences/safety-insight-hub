@@ -143,6 +143,7 @@ interface AuthState {
   user: CurrentUser | null;
   status: "loading" | "authenticated" | "unauthenticated";
   signIn: (email: string, password: string, mockRole?: Role) => Promise<void>;
+  signInFieldAssociate: () => Promise<void>;
   signUp: (email: string, password: string, name: string, org?: string) => Promise<void>;
   signOut: () => void;
   can: (permission: Permission) => boolean;
@@ -253,6 +254,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
           }
         }
+        // Fall back to a locally-stored session even when the API is
+        // configured — this is how the credential-free Field Associate
+        // entry (signInFieldAssociate) survives a page refresh, since it
+        // never mints a backend token.
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          setUser(JSON.parse(raw) as CurrentUser);
+          setStatus("authenticated");
+          return;
+        }
       } catch (error) {
         console.error("Failed to restore session:", error);
         // Clear invalid token
@@ -296,6 +307,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  /**
+   * Credential-free entry for field associates. Deliberately local-only:
+   * it never contacts the backend identity service, so anyone can open
+   * the field-associate workspace without an account. Every permission-
+   * sensitive action still requires a real, server-verified session.
+   */
+  const signInFieldAssociate = useCallback(async () => {
+    const next: CurrentUser = {
+      id: "usr_field_associate",
+      name: "Field Associate",
+      initials: "FA",
+      email: "field@demo.safetyinsighthub.com",
+      role: "FIELD_ASSOCIATE",
+      organisation: "MedNova Drug Safety",
+    };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    setUser(next);
+    setStatus("authenticated");
+  }, []);
+
   const signUp = useCallback(
     async (email: string, password: string, name: string, org?: string) => {
       if (isApiConfigured()) {
@@ -337,6 +368,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    // Clear the local session FIRST so the UI is immediately
+    // unauthenticated — the network cleanup below can be slow or fail
+    // (e.g. backend not running), and the signed-out state must never
+    // depend on it.
+    window.localStorage.removeItem(STORAGE_KEY);
+    setStoredToken(null);
+    setUser(null);
+    setStatus("unauthenticated");
     try {
       if (isApiConfigured()) {
         await apiAuth.signout();
@@ -344,11 +383,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await supabase.auth.signOut();
     } catch (error) {
       console.error("Sign out error:", error);
-    } finally {
-      window.localStorage.removeItem(STORAGE_KEY);
-      setStoredToken(null);
-      setUser(null);
-      setStatus("unauthenticated");
     }
   }, []);
 
@@ -358,8 +392,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthState>(
-    () => ({ user, status, signIn, signUp, signOut, can }),
-    [user, status, signIn, signUp, signOut, can],
+    () => ({ user, status, signIn, signInFieldAssociate, signUp, signOut, can }),
+    [user, status, signIn, signInFieldAssociate, signUp, signOut, can],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

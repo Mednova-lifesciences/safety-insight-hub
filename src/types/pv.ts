@@ -417,6 +417,22 @@ export interface Signal {
   reviewer?: string | null | undefined;
   rationale?: string | null | undefined;
   decidedAt?: string | null | undefined;
+  /** Present when this signal was raised from local literature screening
+   *  (the weekly NAFDAC GVP surveillance duty) rather than from case-data
+   *  disproportionality — the flagged article's provenance, so triage can
+   *  happen without hunting down the original publication. */
+  literature?:
+    | {
+        articleId: string;
+        publication: string;
+        headline: string;
+        publicationDate: string;
+        author: string;
+        keywords: string[];
+        contextSnippet: string;
+        riskLevel: "HIGH" | "MODERATE" | "LOW";
+      }
+    | undefined;
 }
 
 export interface Notification {

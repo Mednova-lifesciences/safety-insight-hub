@@ -168,6 +168,45 @@ export const signals = {
   },
 
   /**
+   * Raises a POTENTIAL signal from a flagged local-literature article
+   * (the weekly NAFDAC GVP screening duty). Literature signals carry no
+   * supporting cases of their own — the article's provenance rides along
+   * in `literature` so the Signal review page can triage without leaving
+   * the app. Only a human with signal.decide can ever confirm or refute
+   * it afterwards, same as any other signal.
+   */
+  createLiteratureSignal: async (payload: {
+    product: string;
+    reaction: string;
+    literature: NonNullable<Signal["literature"]>;
+  }): Promise<Signal> => {
+    const today = new Date().toISOString();
+    const row: Signal = {
+      id: newId("sig"),
+      reference: `SIG-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      product: payload.product,
+      reaction: payload.reaction,
+      detectionMethod: "Local literature screening (keyword match)",
+      detectionPeriod: `Screened ${today.slice(0, 10)}`,
+      caseCount: 0,
+      statistic: [{ name: "Risk level", value: payload.literature.riskLevel }],
+      supportingCaseIds: [],
+      status: "POTENTIAL",
+      literature: payload.literature,
+    };
+    const { error } = await supabase.from("pv_signals").insert({ id: row.id, data: toJson(row) });
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      action: "SIGNAL_LITERATURE_CREATED",
+      entity: "Signal",
+      entityId: row.id,
+      newValue: `${row.reference} — ${payload.literature.publication}: ${payload.literature.headline}`,
+      reason: `Keywords: ${payload.literature.keywords.join(", ")}`,
+    });
+    return row;
+  },
+
+  /**
    * Actually scans pv_cases for disproportionate product/reaction pairs
    * (see computeCandidates) instead of relying on hand-seeded rows. Existing
    * signals are matched by (product, reaction) and refreshed in place —

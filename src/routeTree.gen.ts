@@ -11,15 +11,18 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AppAuditRouteImport } from './routes/_app/audit'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppE2bRouteImport } from './routes/_app/e2b'
 import { Route as AppFollowUpsRouteImport } from './routes/_app/follow-ups'
 import { Route as AppLineListRouteImport } from './routes/_app/line-list'
+import { Route as AppLiteratureRouteImport } from './routes/_app/literature'
 import { Route as AppNotificationsRouteImport } from './routes/_app/notifications'
 import { Route as AppOversightRouteImport } from './routes/_app/oversight'
 import { Route as AppPsurRouteImport } from './routes/_app/psur'
 import { Route as AppSignalsRouteImport } from './routes/_app/signals'
+import { Route as AppWhatsappIntakeRouteImport } from './routes/_app/whatsapp-intake'
 import { Route as AppCasesIndexRouteImport } from './routes/_app/cases.index'
 import { Route as AppCasesCaseIdRouteImport } from './routes/_app/cases.$caseId'
 import { Route as AppIcsrNewRouteImport } from './routes/_app/icsr.new'
@@ -33,6 +36,11 @@ const IndexRoute = IndexRouteImport.update({
 } as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppAuditRoute = AppAuditRouteImport.update({
@@ -60,6 +68,11 @@ const AppLineListRoute = AppLineListRouteImport.update({
   path: '/line-list',
   getParentRoute: () => AppRoute,
 } as any)
+const AppLiteratureRoute = AppLiteratureRouteImport.update({
+  id: '/literature',
+  path: '/literature',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppNotificationsRoute = AppNotificationsRouteImport.update({
   id: '/notifications',
   path: '/notifications',
@@ -78,6 +91,11 @@ const AppPsurRoute = AppPsurRouteImport.update({
 const AppSignalsRoute = AppSignalsRouteImport.update({
   id: '/signals',
   path: '/signals',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWhatsappIntakeRoute = AppWhatsappIntakeRouteImport.update({
+  id: '/whatsapp-intake',
+  path: '/whatsapp-intake',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCasesIndexRoute = AppCasesIndexRouteImport.update({
@@ -108,15 +126,18 @@ const AppIntakeConversationIdRoute = AppIntakeConversationIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/audit': typeof AppAuditRoute
   '/dashboard': typeof AppDashboardRoute
   '/e2b': typeof AppE2bRoute
   '/follow-ups': typeof AppFollowUpsRoute
   '/line-list': typeof AppLineListRoute
+  '/literature': typeof AppLiteratureRoute
   '/notifications': typeof AppNotificationsRoute
   '/oversight': typeof AppOversightRoute
   '/psur': typeof AppPsurRoute
   '/signals': typeof AppSignalsRoute
+  '/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
   '/intake/$conversationId': typeof AppIntakeConversationIdRoute
@@ -125,15 +146,18 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/audit': typeof AppAuditRoute
   '/dashboard': typeof AppDashboardRoute
   '/e2b': typeof AppE2bRoute
   '/follow-ups': typeof AppFollowUpsRoute
   '/line-list': typeof AppLineListRoute
+  '/literature': typeof AppLiteratureRoute
   '/notifications': typeof AppNotificationsRoute
   '/oversight': typeof AppOversightRoute
   '/psur': typeof AppPsurRoute
   '/signals': typeof AppSignalsRoute
+  '/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
   '/intake/$conversationId': typeof AppIntakeConversationIdRoute
@@ -144,15 +168,18 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/auth': typeof AuthRoute
   '/_app/audit': typeof AppAuditRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/e2b': typeof AppE2bRoute
   '/_app/follow-ups': typeof AppFollowUpsRoute
   '/_app/line-list': typeof AppLineListRoute
+  '/_app/literature': typeof AppLiteratureRoute
   '/_app/notifications': typeof AppNotificationsRoute
   '/_app/oversight': typeof AppOversightRoute
   '/_app/psur': typeof AppPsurRoute
   '/_app/signals': typeof AppSignalsRoute
+  '/_app/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/_app/cases/$caseId': typeof AppCasesCaseIdRoute
   '/_app/icsr/new': typeof AppIcsrNewRoute
   '/_app/intake/$conversationId': typeof AppIntakeConversationIdRoute
@@ -163,15 +190,18 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/auth'
     | '/audit'
     | '/dashboard'
     | '/e2b'
     | '/follow-ups'
     | '/line-list'
+    | '/literature'
     | '/notifications'
     | '/oversight'
     | '/psur'
     | '/signals'
+    | '/whatsapp-intake'
     | '/cases/$caseId'
     | '/icsr/new'
     | '/intake/$conversationId'
@@ -180,15 +210,18 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/auth'
     | '/audit'
     | '/dashboard'
     | '/e2b'
     | '/follow-ups'
     | '/line-list'
+    | '/literature'
     | '/notifications'
     | '/oversight'
     | '/psur'
     | '/signals'
+    | '/whatsapp-intake'
     | '/cases/$caseId'
     | '/icsr/new'
     | '/intake/$conversationId'
@@ -198,15 +231,18 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_app'
+    | '/auth'
     | '/_app/audit'
     | '/_app/dashboard'
     | '/_app/e2b'
     | '/_app/follow-ups'
     | '/_app/line-list'
+    | '/_app/literature'
     | '/_app/notifications'
     | '/_app/oversight'
     | '/_app/psur'
     | '/_app/signals'
+    | '/_app/whatsapp-intake'
     | '/_app/cases/$caseId'
     | '/_app/icsr/new'
     | '/_app/intake/$conversationId'
@@ -217,6 +253,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  AuthRoute: typeof AuthRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -233,6 +270,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/audit': {
@@ -270,6 +314,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppLineListRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/literature': {
+      id: '/_app/literature'
+      path: '/literature'
+      fullPath: '/literature'
+      preLoaderRoute: typeof AppLiteratureRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/notifications': {
       id: '/_app/notifications'
       path: '/notifications'
@@ -296,6 +347,13 @@ declare module '@tanstack/react-router' {
       path: '/signals'
       fullPath: '/signals'
       preLoaderRoute: typeof AppSignalsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/whatsapp-intake': {
+      id: '/_app/whatsapp-intake'
+      path: '/whatsapp-intake'
+      fullPath: '/whatsapp-intake'
+      preLoaderRoute: typeof AppWhatsappIntakeRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/cases/': {
@@ -342,10 +400,12 @@ interface AppRouteChildren {
   AppE2bRoute: typeof AppE2bRoute
   AppFollowUpsRoute: typeof AppFollowUpsRoute
   AppLineListRoute: typeof AppLineListRoute
+  AppLiteratureRoute: typeof AppLiteratureRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppOversightRoute: typeof AppOversightRoute
   AppPsurRoute: typeof AppPsurRoute
   AppSignalsRoute: typeof AppSignalsRoute
+  AppWhatsappIntakeRoute: typeof AppWhatsappIntakeRoute
   AppCasesCaseIdRoute: typeof AppCasesCaseIdRoute
   AppIcsrNewRoute: typeof AppIcsrNewRoute
   AppIntakeConversationIdRoute: typeof AppIntakeConversationIdRoute
@@ -359,10 +419,12 @@ const AppRouteChildren: AppRouteChildren = {
   AppE2bRoute: AppE2bRoute,
   AppFollowUpsRoute: AppFollowUpsRoute,
   AppLineListRoute: AppLineListRoute,
+  AppLiteratureRoute: AppLiteratureRoute,
   AppNotificationsRoute: AppNotificationsRoute,
   AppOversightRoute: AppOversightRoute,
   AppPsurRoute: AppPsurRoute,
   AppSignalsRoute: AppSignalsRoute,
+  AppWhatsappIntakeRoute: AppWhatsappIntakeRoute,
   AppCasesCaseIdRoute: AppCasesCaseIdRoute,
   AppIcsrNewRoute: AppIcsrNewRoute,
   AppIntakeConversationIdRoute: AppIntakeConversationIdRoute,
@@ -375,6 +437,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  AuthRoute: AuthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

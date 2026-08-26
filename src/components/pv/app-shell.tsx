@@ -11,7 +11,9 @@ import {
   Gauge,
   LayoutDashboard,
   LogOut,
+  MessageCircle,
   MessageSquare,
+  Newspaper,
   Radar,
   ShieldCheck,
   Timer,
@@ -56,6 +58,12 @@ const NAV: NavGroup[] = [
       { to: "/icsr/new", label: "New ICSR", icon: ClipboardPlus, permission: "case.create" },
       { to: "/cases", label: "Cases", icon: BriefcaseMedical, permission: "case.view" },
       { to: "/intake", label: "Inbound intake", icon: MessageSquare, permission: "intake.manage" },
+      {
+        to: "/whatsapp-intake",
+        label: "WhatsApp intake",
+        icon: MessageCircle,
+        permission: "intake.manage",
+      },
       { to: "/follow-ups", label: "Follow-ups", icon: Timer, permission: "case.view" },
     ],
   },
@@ -89,6 +97,12 @@ const NAV: NavGroup[] = [
     label: "Oversight",
     items: [
       { to: "/oversight", label: "Operational overview", icon: Gauge, permission: "team.view" },
+      {
+        to: "/literature",
+        label: "Literature screening",
+        icon: Newspaper,
+        permission: "signal.view",
+      },
       { to: "/signals", label: "Signal review", icon: Radar, permission: "signal.view" },
       { to: "/audit", label: "Audit trail", icon: Activity, permission: "audit.view.all" },
       { to: "/notifications", label: "Notifications", icon: Bell },
@@ -222,9 +236,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onSelect={() => {
-                    signOut();
-                    navigate({ to: "/", replace: true });
+                  onSelect={async () => {
+                    // Await the full local sign-out before navigating —
+                    // /auth bounces authenticated users back to the
+                    // dashboard, so navigating mid-signout used to undo it.
+                    await signOut();
+                    navigate({ to: "/auth", replace: true });
                   }}
                 >
                   <LogOut className="size-4" /> Sign out

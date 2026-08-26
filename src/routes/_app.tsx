@@ -21,7 +21,7 @@ function AppLayout() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (status === "unauthenticated") navigate({ to: "/", replace: true });
+    if (status === "unauthenticated") navigate({ to: "/auth", replace: true });
   }, [status, navigate]);
 
   if (status !== "authenticated") {

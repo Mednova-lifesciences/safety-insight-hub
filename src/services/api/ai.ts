@@ -200,6 +200,24 @@ export interface AiCodingSuggestResponse {
   error?: string | null;
 }
 
+export interface AiLiteratureAnalysis {
+  is_safety_relevant: boolean;
+  products: string[];
+  reaction_terms: string[];
+  seriousness_criteria: string[];
+  risk_level: "HIGH" | "MODERATE" | "LOW";
+  summary: string;
+  rationale: string;
+}
+
+export interface AiLiteratureAnalyzeResponse {
+  analysis: AiLiteratureAnalysis | null;
+  ai_used: boolean;
+  prompt_version: string;
+  model?: string | null;
+  error?: string | null;
+}
+
 export const ai = {
   status: () => apiRequest<{ configured: boolean }>("/api/ai/linelist/status"),
 
@@ -257,8 +275,20 @@ export const ai = {
      *  name for a human to verify against the real MedDRA/WHODrug
      *  dictionary. See CODING_TERM_SUGGEST_PROMPT and AiCodingCandidate's
      *  code-shaped-term rejection (src/server/ai/schemas.py) for the two
-     *  layers that enforce this server-side. */
+     *  layers that enforce this. */
     suggest: (body: { dictionary: "MedDRA" | "WHODrug"; text: string }) =>
       apiRequest<AiCodingSuggestResponse>("/api/ai/coding/suggest", { method: "POST", body }),
+  },
+
+  literature: {
+    /** Structured clinical reading of one screened article — layered on
+     *  top of the deterministic keyword engine, never a replacement for
+     *  it. Output is labelled AI assist; a human decides what becomes a
+     *  signal or case. */
+    analyze: (body: { title: string; text: string }) =>
+      apiRequest<AiLiteratureAnalyzeResponse>("/api/ai/literature/analyze", {
+        method: "POST",
+        body,
+      }),
   },
 };
