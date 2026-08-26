@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-08-23.1"
+PROMPT_VERSION = "2026-08-26.1"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -647,11 +647,11 @@ false, riskLevel to "LOW", and leave the lists empty.
 
 Respond with JSON exactly in this shape:
 {
-  "isSafetyRelevant": <boolean>,
+  "is_safety_relevant": <boolean>,
   "products": ["<product names exactly as the text writes them>"],
-  "reactionTerms": ["<reaction/event terms>"],
-  "seriousnessCriteria": [<zero or more of the exact criteria labels listed above>],
-  "riskLevel": "HIGH" | "MODERATE" | "LOW",
+  "reaction_terms": ["<reaction/event terms>"],
+  "seriousness_criteria": [<zero or more of the exact criteria labels listed above>],
+  "risk_level": "HIGH" | "MODERATE" | "LOW",
   "summary": "<one or two sentences a QPPV can scan: what happened, to whom, with which product>",
   "rationale": "<why this risk level, citing what the text actually says>"
 }

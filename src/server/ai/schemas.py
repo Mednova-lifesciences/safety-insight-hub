@@ -8,7 +8,7 @@ the caller falls back to deterministic behaviour.
 import re
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------- Line-list --
@@ -291,13 +291,45 @@ _KNOWN_RISK_LEVELS = {"HIGH", "MODERATE", "LOW"}
 
 
 class AiLiteratureAnalysis(BaseModel):
-    is_safety_relevant: bool
+    # Defaults (rather than required fields) so one omitted key degrades to
+    # an empty reading instead of failing the whole response — the caller
+    # always shows the keyword engine's result alongside this anyway.
+    is_safety_relevant: bool = False
     products: list[str] = Field(default_factory=list)
     reaction_terms: list[str] = Field(default_factory=list)
     seriousness_criteria: list[str] = Field(default_factory=list)
-    risk_level: Literal["HIGH", "MODERATE", "LOW"]
-    summary: str
-    rationale: str
+    risk_level: Literal["HIGH", "MODERATE", "LOW"] = "MODERATE"
+    summary: str = ""
+    rationale: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_camel_case_keys(cls, data):
+        # The prompt demands snake_case keys, but models occasionally drift
+        # back to camelCase — accept either rather than failing validation
+        # over key spelling (the same fragility that sank issueType once).
+        if isinstance(data, dict):
+            for src, dst in {
+                "isSafetyRelevant": "is_safety_relevant",
+                "reactionTerms": "reaction_terms",
+                "seriousnessCriteria": "seriousness_criteria",
+                "riskLevel": "risk_level",
+            }.items():
+                if src in data and dst not in data:
+                    data[dst] = data[src]
+        return data
+
+    @field_validator("is_safety_relevant", mode="before")
+    @classmethod
+    def _normalize_boolean(cls, v):
+        # Models sometimes answer "true"/"yes"/"false" as strings.
+        if isinstance(v, str):
+            lowered = v.strip().lower()
+            if lowered in ("true", "yes", "1"):
+                return True
+            if lowered in ("false", "no", "0"):
+                return False
+        return v
 
     @field_validator("risk_level", mode="before")
     @classmethod

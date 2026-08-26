@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ArrowRight, Lock, LogIn, ShieldCheck } from "lucide-react";
 import { ROLE_LABELS, useAuth, type Role } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -58,7 +58,7 @@ const DEMO_CREDENTIALS: Record<Role, { email: string; password: string }> = {
 
 function AuthPage() {
   const { role: requestedRole } = Route.useSearch();
-  const { user, status, signIn, signInFieldAssociate } = useAuth();
+  const { signIn, signInFieldAssociate } = useAuth();
   const navigate = useNavigate();
   const initialRole: Role =
     requestedRole && SIGN_IN_ROLES.includes(requestedRole) ? requestedRole : "PV_COORDINATOR";
@@ -69,9 +69,10 @@ function AuthPage() {
   const [enteringAsFieldAssociate, setEnteringAsFieldAssociate] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (status === "authenticated" && user) navigate({ to: "/dashboard", replace: true });
-  }, [status, user, navigate]);
+  // Deliberately no "already authenticated → /dashboard" redirect here:
+  // staff must be able to open this page while signed in (e.g. a field
+  // associate switching to a coordinator account) without being bounced
+  // back. Both sign-in paths below navigate on success themselves.
 
   async function enterAsFieldAssociate() {
     setError(null);

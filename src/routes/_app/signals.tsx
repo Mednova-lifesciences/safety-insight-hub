@@ -55,10 +55,12 @@ const statusTone: Record<Signal["status"], Tone> = {
 function SignalCard({
   s,
   canDecide,
+  canTriage,
   onChanged,
 }: {
   s: Signal;
   canDecide: boolean;
+  canTriage: boolean;
   onChanged: () => void;
 }) {
   const [mode, setMode] = useState<"CONFIRMED" | "REFUTED" | null>(null);
@@ -136,6 +138,26 @@ function SignalCard({
         </div>
       </div>
 
+      {s.literature ? (
+        <div className="mt-3 rounded-md border border-assist/30 bg-assist-soft px-3 py-2 text-sm">
+          <p className="label-caps">Literature source</p>
+          <p className="mono-num mt-1 text-xs">
+            {s.literature.publication} · {s.literature.publicationDate} · {s.literature.author}
+          </p>
+          <p className="mt-0.5 text-xs">{s.literature.headline}</p>
+          <p className="mt-1.5 border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
+            {s.literature.contextSnippet}
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {s.literature.keywords.map((k) => (
+              <StatusPill key={k} tone="neutral">
+                {k}
+              </StatusPill>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {s.rationale ? (
         <div className="mt-3 rounded-md border border-border bg-muted/50 px-3 py-2">
           <p className="label-caps">Recorded rationale</p>
@@ -146,30 +168,34 @@ function SignalCard({
         </div>
       ) : null}
 
+      {canTriage && s.status === "POTENTIAL" ? (
+        <div className="mt-3">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={async () => {
+              try {
+                await signalsApi.startReview(s.id);
+                toast.success("Review started.");
+                onChanged();
+              } catch (err) {
+                toast.error(
+                  isNotConfigured(err)
+                    ? "Backend not connected — review not started."
+                    : "Could not start review.",
+                );
+              }
+            }}
+          >
+            Start review
+          </Button>
+        </div>
+      ) : null}
+
       {canDecide && (s.status === "POTENTIAL" || s.status === "UNDER_REVIEW") ? (
         <div className="mt-3 space-y-2">
           <div className="flex flex-wrap gap-2">
-            {s.status === "POTENTIAL" ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={async () => {
-                  try {
-                    await signalsApi.startReview(s.id);
-                    toast.success("Review started.");
-                    onChanged();
-                  } catch (err) {
-                    toast.error(
-                      isNotConfigured(err)
-                        ? "Backend not connected — review not started."
-                        : "Could not start review.",
-                    );
-                  }
-                }}
-              >
-                Start review
-              </Button>
-            ) : null}
             <Button
               size="sm"
               variant={mode === "CONFIRMED" ? "default" : "outline"}
@@ -209,12 +235,21 @@ function SignalCard({
           ) : null}
         </div>
       ) : null}
+
+      {!canDecide && (s.status === "POTENTIAL" || s.status === "UNDER_REVIEW") ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {s.status === "POTENTIAL" && canTriage
+            ? "You can start the review; confirming or refuting this signal requires a PV Manager or Administrator."
+            : "Confirming or refuting this signal requires a PV Manager or Administrator."}
+        </p>
+      ) : null}
     </li>
   );
 }
 
 function SignalsPage() {
   const canDecide = usePermission("signal.decide");
+  const canTriage = usePermission("signal.view");
   const query = usePvQuery(
     ["signals"],
     () => signalsApi.list(),
@@ -296,6 +331,7 @@ function SignalsPage() {
                               key={s.id}
                               s={s}
                               canDecide={canDecide}
+                              canTriage={canTriage}
                               onChanged={() => query.refetch()}
                             />
                           ))}

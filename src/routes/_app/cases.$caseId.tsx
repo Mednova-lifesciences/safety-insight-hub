@@ -285,9 +285,14 @@ function AdvanceWorkflow({
 
   const idx = WORKFLOW_STEPS.indexOf(currentStep);
   // Field associates hand a case off at Coding — only a coordinator/admin
-  // can move it into Review and beyond.
+  // can move it into Review and beyond. Coordinators in turn stop at
+  // Regulatory readiness: closing a case is a manager-only decision.
   const roleCapIdx =
-    role === "FIELD_ASSOCIATE" ? WORKFLOW_STEPS.indexOf("CODING") : WORKFLOW_STEPS.length - 1;
+    role === "FIELD_ASSOCIATE"
+      ? WORKFLOW_STEPS.indexOf("CODING")
+      : role === "PV_COORDINATOR"
+        ? WORKFLOW_STEPS.indexOf("REGULATORY_READY")
+        : WORKFLOW_STEPS.length - 1;
   const nextStep = idx >= 0 && idx < roleCapIdx ? WORKFLOW_STEPS[idx + 1] : null;
   // Closing a case is gated behind a manager authorization password.
   const requiresClosurePassword = nextStep === "CLOSED";
@@ -298,6 +303,13 @@ function AdvanceWorkflow({
         <p className="mt-3 text-sm text-muted-foreground">
           This case is ready for review — a PV Coordinator or Administrator needs to advance it past
           Coding.
+        </p>
+      );
+    }
+    if (role === "PV_COORDINATOR" && idx === WORKFLOW_STEPS.indexOf("REGULATORY_READY")) {
+      return (
+        <p className="mt-3 text-sm text-muted-foreground">
+          This case is ready to close — closing a case requires a PV Manager or Administrator.
         </p>
       );
     }
