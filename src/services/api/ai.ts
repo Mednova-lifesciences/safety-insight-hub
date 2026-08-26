@@ -218,6 +218,17 @@ export interface AiLiteratureAnalyzeResponse {
   error?: string | null;
 }
 
+export interface AiLiteratureDocumentResponse {
+  extracted_text: string;
+  truncated: boolean;
+  pages_extracted?: number | null;
+  analysis: AiLiteratureAnalysis | null;
+  ai_used: boolean;
+  prompt_version: string;
+  model?: string | null;
+  error?: string | null;
+}
+
 export const ai = {
   status: () => apiRequest<{ configured: boolean }>("/api/ai/linelist/status"),
 
@@ -290,5 +301,11 @@ export const ai = {
         method: "POST",
         body,
       }),
+    /** Upload an actual article document (PDF / Word / plain text): the
+     *  backend extracts the text server-side and analyses it in one
+     *  request. The extracted text always comes back so the keyword
+     *  engine can screen it even when the AI layer is unavailable. */
+    analyzeDocument: (file: File) =>
+      apiUpload<AiLiteratureDocumentResponse>("/api/ai/literature/analyze-document", file),
   },
 };

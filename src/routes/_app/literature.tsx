@@ -62,6 +62,7 @@ function LiteratureScreeningPage() {
   const [pastedText, setPastedText] = useState("");
   const [screenedAt, setScreenedAt] = useState<string | null>(null);
   const [screening, setScreening] = useState(false);
+  const [extractingDoc, setExtractingDoc] = useState(false);
   const [results, setResults] = useState<ScreeningResult[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -99,51 +100,103 @@ function LiteratureScreeningPage() {
     );
   }
 
-  async function screenPasted() {
-    const text = pastedText.trim();
-    if (!text) return;
-    const firstLine = text.split("\n")[0]?.trim() ?? "";
+  function addUserArticle(
+    title: string,
+    text: string,
+    ai?: { analysis: AiLiteratureAnalysis | null; note: string | null },
+    sourceLabel = "Pasted by reviewer",
+  ) {
     const article: LiteratureArticle = {
       id: newUserId(),
-      title: firstLine.length > 8 ? firstLine.slice(0, 120) : "Pasted article text",
-      publication: "Pasted by reviewer",
+      title,
+      publication: sourceLabel,
       date: new Date().toISOString().slice(0, 10),
       author: "Manual submission",
       text,
       origin: "user",
     };
     setUserArticles((prev) => [...prev, article]);
-    setPastedText("");
     const flag = screenArticles([article])[0];
     if (!flag) {
-      toast.info("No safety keywords matched the pasted text.");
+      toast.info("No safety keywords matched this text.");
       return;
     }
     setResults((prev) => [
       ...prev.filter((r) => r.flag.article.id !== article.id),
       {
         flag,
-        ai: null,
-        aiState: "idle",
-        aiNote: null,
+        ai: ai?.analysis ?? null,
+        aiState: ai ? (ai.analysis ? ("done" as const) : ("unavailable" as const)) : ("idle" as const),
+        aiNote: ai?.note ?? null,
         dismissed: false,
         signalReference: null,
       },
     ]);
     setScreenedAt((prev) => prev ?? new Date().toISOString());
-    toast.success(`Pasted text flagged (${flag.riskLevel} risk).`);
+    toast.success(`Added and screened — flagged (${flag.riskLevel} risk).`);
   }
 
-  function onFileChosen(file: File) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = typeof reader.result === "string" ? reader.result : "";
-      if (text.trim()) {
-        setPastedText(text.slice(0, 20_000));
-        toast.info("File loaded — review the text, then screen it.");
+  function screenPasted() {
+    const text = pastedText.trim();
+    if (!text) return;
+    const firstLine = text.split("\n")[0]?.trim() ?? "";
+    const title = firstLine.length > 8 ? firstLine.slice(0, 120) : "Pasted article text";
+    addUserArticle(title, text);
+    setPastedText("");
+  }
+
+  async function onFileChosen(file: File) {
+    const name = file.name.toLowerCase();
+
+    if (name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".csv")) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = typeof reader.result === "string" ? reader.result.trim() : "";
+        if (!text) {
+          toast.error("That file appears to be empty.");
+          return;
+        }
+        addUserArticle(file.name.replace(/\.[^.]+$/, ""), text.slice(0, 20_000), undefined, "Uploaded document");
+      };
+      reader.readAsText(file);
+      return;
+    }
+
+    if (name.endsWith(".pdf") || name.endsWith(".docx")) {
+      setExtractingDoc(true);
+      try {
+        const res = await ai.literature.analyzeDocument(file);
+        if (!res.extracted_text.trim()) {
+          toast.error(res.error ?? "Could not extract text from this document.");
+          return;
+        }
+        addUserArticle(
+          file.name.replace(/\.[^.]+$/, ""),
+          res.extracted_text,
+          {
+            analysis: res.ai_used ? res.analysis : null,
+            note: res.ai_used
+              ? (res.model ?? null)
+              : (res.error ?? "AI analysis unavailable — keyword results only."),
+          },
+          "Uploaded document",
+        );
+        if (res.truncated) {
+          toast.info("Document was long — only the first portion was screened.");
+        }
+      } catch (err) {
+        toast.error(
+          isNotConfigured(err)
+            ? "Backend not connected — document extraction requires the API."
+            : "Could not process this document.",
+        );
+      } finally {
+        setExtractingDoc(false);
       }
-    };
-    reader.readAsText(file);
+      return;
+    }
+
+    toast.error("Unsupported file type — upload a PDF, Word (.docx) or plain-text file.");
   }
 
   async function analyzeWithAi(result: ScreeningResult) {
@@ -275,6 +328,10 @@ function LiteratureScreeningPage() {
 
           <section className="panel space-y-3 p-4">
             <p className="label-caps">Screen your own article</p>
+            <p className="text-xs text-muted-foreground">
+              Paste the article's text, or upload the actual document — PDFs and Word files are
+              extracted server-side and read with AI before the keyword screen runs.
+            </p>
             <Textarea
               rows={5}
               placeholder="Paste the article's text here (title on the first line helps), then screen it…"
@@ -285,14 +342,16 @@ function LiteratureScreeningPage() {
               <Button size="sm" variant="outline" disabled={!pastedText.trim()} onClick={screenPasted}>
                 <ScanSearch className="size-4" /> Screen pasted text
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => fileRef.current?.click()}>
-                <Upload className="size-4" /> Load .txt / .md file
+              <Button size="sm" variant="ghost" disabled={extractingDoc} onClick={() => fileRef.current?.click()}>
+                <Upload className="size-4" />
+                {extractingDoc ? "Extracting & analyzing…" : "Upload PDF / Word / text"}
               </Button>
               <input
                 ref={fileRef}
                 type="file"
-                accept=".txt,.md,.csv,text/plain"
+                accept=".pdf,.docx,.txt,.md,.csv"
                 className="sr-only"
+                disabled={extractingDoc}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   e.target.value = "";
