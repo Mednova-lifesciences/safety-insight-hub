@@ -217,7 +217,7 @@ function SignupPage() {
               <Input
                 id="orgCode"
                 required
-                placeholder="e.g. MEDN-7X2K"
+                placeholder="Paste the code your manager shared"
                 value={orgCode}
                 onChange={(e) => setOrgCode(e.target.value)}
               />

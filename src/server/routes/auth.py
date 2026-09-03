@@ -57,18 +57,27 @@ def _slugify(value: str) -> str:
 
 
 def _random_suffix(length: int = 4) -> str:
-    alphabet = string.ascii_uppercase + string.digits
+    """Low-entropy suffix for the public slug only — not a secret, just
+    enough to avoid two companies with similar names colliding."""
+    alphabet = string.ascii_lowercase + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _generate_invite_code() -> str:
+    """The invite code is a real credential — it gates joining an
+    organization as PV_COORDINATOR — so it needs cryptographic entropy,
+    not a short human-guessable string derived from public fields like the
+    org name. 18 random bytes = 144 bits, URL-safe for copy/paste."""
+    return secrets.token_urlsafe(18)
 
 
 async def _create_organization_with_unique_codes(db, name: str) -> dict:
     """Creates an organization with a globally-unique public slug and a
     private invite code, retrying on the rare random collision instead of
     trusting a single guess against the unique DB indexes."""
-    base_prefix = re.sub(r"[^A-Z0-9]", "", name.upper())[:4] or "ORG"
     for _ in range(5):
-        slug = f"{_slugify(name)}-{_random_suffix().lower()}"
-        invite_code = f"{base_prefix}-{_random_suffix()}"
+        slug = f"{_slugify(name)}-{_random_suffix()}"
+        invite_code = _generate_invite_code()
         existing = await db.query(
             "organizations",
             filters={"slug": slug},
@@ -130,7 +139,7 @@ async def sign_up(request: SignUpRequest):
                 )
             matches = await db.query(
                 "organizations",
-                filters={"invite_code": request.org_code.strip().upper()},
+                filters={"invite_code": request.org_code.strip()},
                 select="*",
             )
             if not matches:
