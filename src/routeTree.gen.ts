@@ -12,8 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as SignupRouteImport } from './routes/signup'
 import { Route as AppAuditRouteImport } from './routes/_app/audit'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppDrugsRouteImport } from './routes/_app/drugs'
 import { Route as AppE2bRouteImport } from './routes/_app/e2b'
 import { Route as AppFollowUpsRouteImport } from './routes/_app/follow-ups'
 import { Route as AppLineListRouteImport } from './routes/_app/line-list'
@@ -28,6 +30,8 @@ import { Route as AppCasesCaseIdRouteImport } from './routes/_app/cases.$caseId'
 import { Route as AppIcsrNewRouteImport } from './routes/_app/icsr.new'
 import { Route as AppIntakeIndexRouteImport } from './routes/_app/intake.index'
 import { Route as AppIntakeConversationIdRouteImport } from './routes/_app/intake.$conversationId'
+import { Route as ROrgSlugIndexRouteImport } from './routes/r.$orgSlug.index'
+import { Route as ROrgSlugReportRouteImport } from './routes/r.$orgSlug.report'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -43,6 +47,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppAuditRoute = AppAuditRouteImport.update({
   id: '/audit',
   path: '/audit',
@@ -51,6 +60,11 @@ const AppAuditRoute = AppAuditRouteImport.update({
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDrugsRoute = AppDrugsRouteImport.update({
+  id: '/drugs',
+  path: '/drugs',
   getParentRoute: () => AppRoute,
 } as any)
 const AppE2bRoute = AppE2bRouteImport.update({
@@ -123,12 +137,24 @@ const AppIntakeConversationIdRoute = AppIntakeConversationIdRouteImport.update({
   path: '/intake/$conversationId',
   getParentRoute: () => AppRoute,
 } as any)
+const ROrgSlugIndexRoute = ROrgSlugIndexRouteImport.update({
+  id: '/r/$orgSlug/',
+  path: '/r/$orgSlug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ROrgSlugReportRoute = ROrgSlugReportRouteImport.update({
+  id: '/r/$orgSlug/report',
+  path: '/r/$orgSlug/report',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/signup': typeof SignupRoute
   '/audit': typeof AppAuditRoute
   '/dashboard': typeof AppDashboardRoute
+  '/drugs': typeof AppDrugsRoute
   '/e2b': typeof AppE2bRoute
   '/follow-ups': typeof AppFollowUpsRoute
   '/line-list': typeof AppLineListRoute
@@ -141,14 +167,18 @@ export interface FileRoutesByFullPath {
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
   '/intake/$conversationId': typeof AppIntakeConversationIdRoute
+  '/r/$orgSlug/report': typeof ROrgSlugReportRoute
   '/cases/': typeof AppCasesIndexRoute
   '/intake/': typeof AppIntakeIndexRoute
+  '/r/$orgSlug/': typeof ROrgSlugIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/signup': typeof SignupRoute
   '/audit': typeof AppAuditRoute
   '/dashboard': typeof AppDashboardRoute
+  '/drugs': typeof AppDrugsRoute
   '/e2b': typeof AppE2bRoute
   '/follow-ups': typeof AppFollowUpsRoute
   '/line-list': typeof AppLineListRoute
@@ -161,16 +191,20 @@ export interface FileRoutesByTo {
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
   '/intake/$conversationId': typeof AppIntakeConversationIdRoute
+  '/r/$orgSlug/report': typeof ROrgSlugReportRoute
   '/cases': typeof AppCasesIndexRoute
   '/intake': typeof AppIntakeIndexRoute
+  '/r/$orgSlug': typeof ROrgSlugIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/auth': typeof AuthRoute
+  '/signup': typeof SignupRoute
   '/_app/audit': typeof AppAuditRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/drugs': typeof AppDrugsRoute
   '/_app/e2b': typeof AppE2bRoute
   '/_app/follow-ups': typeof AppFollowUpsRoute
   '/_app/line-list': typeof AppLineListRoute
@@ -183,16 +217,20 @@ export interface FileRoutesById {
   '/_app/cases/$caseId': typeof AppCasesCaseIdRoute
   '/_app/icsr/new': typeof AppIcsrNewRoute
   '/_app/intake/$conversationId': typeof AppIntakeConversationIdRoute
+  '/r/$orgSlug/report': typeof ROrgSlugReportRoute
   '/_app/cases/': typeof AppCasesIndexRoute
   '/_app/intake/': typeof AppIntakeIndexRoute
+  '/r/$orgSlug/': typeof ROrgSlugIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/auth'
+    | '/signup'
     | '/audit'
     | '/dashboard'
+    | '/drugs'
     | '/e2b'
     | '/follow-ups'
     | '/line-list'
@@ -205,14 +243,18 @@ export interface FileRouteTypes {
     | '/cases/$caseId'
     | '/icsr/new'
     | '/intake/$conversationId'
+    | '/r/$orgSlug/report'
     | '/cases/'
     | '/intake/'
+    | '/r/$orgSlug/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
+    | '/signup'
     | '/audit'
     | '/dashboard'
+    | '/drugs'
     | '/e2b'
     | '/follow-ups'
     | '/line-list'
@@ -225,15 +267,19 @@ export interface FileRouteTypes {
     | '/cases/$caseId'
     | '/icsr/new'
     | '/intake/$conversationId'
+    | '/r/$orgSlug/report'
     | '/cases'
     | '/intake'
+    | '/r/$orgSlug'
   id:
     | '__root__'
     | '/'
     | '/_app'
     | '/auth'
+    | '/signup'
     | '/_app/audit'
     | '/_app/dashboard'
+    | '/_app/drugs'
     | '/_app/e2b'
     | '/_app/follow-ups'
     | '/_app/line-list'
@@ -246,14 +292,19 @@ export interface FileRouteTypes {
     | '/_app/cases/$caseId'
     | '/_app/icsr/new'
     | '/_app/intake/$conversationId'
+    | '/r/$orgSlug/report'
     | '/_app/cases/'
     | '/_app/intake/'
+    | '/r/$orgSlug/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRoute
+  SignupRoute: typeof SignupRoute
+  ROrgSlugReportRoute: typeof ROrgSlugReportRoute
+  ROrgSlugIndexRoute: typeof ROrgSlugIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -279,6 +330,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/audit': {
       id: '/_app/audit'
       path: '/audit'
@@ -291,6 +349,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/drugs': {
+      id: '/_app/drugs'
+      path: '/drugs'
+      fullPath: '/drugs'
+      preLoaderRoute: typeof AppDrugsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/e2b': {
@@ -391,12 +456,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIntakeConversationIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/r/$orgSlug/': {
+      id: '/r/$orgSlug/'
+      path: '/r/$orgSlug'
+      fullPath: '/r/$orgSlug/'
+      preLoaderRoute: typeof ROrgSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/r/$orgSlug/report': {
+      id: '/r/$orgSlug/report'
+      path: '/r/$orgSlug/report'
+      fullPath: '/r/$orgSlug/report'
+      preLoaderRoute: typeof ROrgSlugReportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AppRouteChildren {
   AppAuditRoute: typeof AppAuditRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppDrugsRoute: typeof AppDrugsRoute
   AppE2bRoute: typeof AppE2bRoute
   AppFollowUpsRoute: typeof AppFollowUpsRoute
   AppLineListRoute: typeof AppLineListRoute
@@ -416,6 +496,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAuditRoute: AppAuditRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppDrugsRoute: AppDrugsRoute,
   AppE2bRoute: AppE2bRoute,
   AppFollowUpsRoute: AppFollowUpsRoute,
   AppLineListRoute: AppLineListRoute,
@@ -438,6 +519,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRoute,
+  SignupRoute: SignupRoute,
+  ROrgSlugReportRoute: ROrgSlugReportRoute,
+  ROrgSlugIndexRoute: ROrgSlugIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -14,6 +14,7 @@ import {
   MessageCircle,
   MessageSquare,
   Newspaper,
+  Pill,
   Radar,
   ShieldCheck,
   Timer,
@@ -65,6 +66,7 @@ const NAV: NavGroup[] = [
         permission: "intake.manage",
       },
       { to: "/follow-ups", label: "Follow-ups", icon: Timer, permission: "case.view" },
+      { to: "/drugs", label: "Drug Catalog", icon: Pill, permission: "catalog.view" },
     ],
   },
   {

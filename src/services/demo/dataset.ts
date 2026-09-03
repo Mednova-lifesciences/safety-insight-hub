@@ -48,6 +48,12 @@ const stepState = (
   return { ...out, ...overrides };
 };
 
+export const demoProducts: import("@/services/api/products").CatalogDrug[] = [
+  { id: "drug-demo-1", name: "Amoxicillin", activeIngredient: "Amoxicillin", strength: "500mg", route: "Oral" },
+  { id: "drug-demo-2", name: "Artemether/Lumefantrine", activeIngredient: "Artemether, Lumefantrine", strength: "20/120mg", route: "Oral" },
+  { id: "drug-demo-3", name: "Oxytocin Injection", activeIngredient: "Oxytocin", strength: "10IU/mL", route: "Intramuscular" },
+];
+
 export const demoCases: CaseSummary[] = [
   {
     id: "MN-2026-000841",

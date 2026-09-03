@@ -9,7 +9,9 @@ export interface SignupRequest {
   email: string;
   password: string;
   name: string;
+  mode: "CREATE_ORG" | "JOIN_ORG";
   organization_name?: string;
+  org_code?: string;
 }
 
 export interface SigninRequest {
@@ -38,6 +40,10 @@ export interface AuthResponse {
   organization: {
     id: string;
     name: string;
+    slug: string;
+    /** Present only on the response to a CREATE_ORG signup — never
+     *  returned to a user joining an existing org via JOIN_ORG. */
+    invite_code?: string;
   };
 }
 

@@ -70,6 +70,107 @@ function addDays(days: number) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Pure mapping from the intake form's payload to a stored CaseDetail —
+ *  shared by the authenticated `/icsr/new` flow and the unauthenticated
+ *  public field-associate flow (`src/services/api/public-intake.ts`), so
+ *  the two never drift apart on how a case gets built. */
+export function buildCaseDetail(
+  caseId: string,
+  payload: NewIcsrPayload,
+  assignedTo: string,
+): CaseDetail {
+  const seriousness = (payload.reportedSeriousness as Seriousness) ?? "UNASSESSED";
+  const product = str(payload.product["reportedName"], "Unspecified product");
+  const reaction = str(payload.reaction["reportedTerm"], "Unspecified reaction");
+
+  return {
+    id: caseId,
+    patientIdentifier: str(payload.patient["identifier"], "Unknown"),
+    product,
+    reaction,
+    seriousness,
+    outcome: (str(payload.reaction["outcome"], "UNKNOWN") as CaseDetail["outcome"]) ?? "UNKNOWN",
+    workflowStep: "INTAKE",
+    assignedTo,
+    receivedDate: new Date().toISOString().slice(0, 10),
+    dueDate: addDays(seriousness === "SERIOUS" ? 7 : 14),
+    priority: seriousness === "SERIOUS" ? "HIGH" : "MEDIUM",
+    flags: seriousness === "SERIOUS" ? ["EXPEDITED"] : [],
+    source: "MANUAL",
+    reporter: {
+      name: str(payload.reporter["name"], "Unknown reporter"),
+      qualification: str(payload.reporter["qualification"], "Not stated"),
+      country: str(payload.reporter["country"], "Not stated"),
+      contact: str(payload.reporter["contact"]),
+      consentToContact: true,
+    },
+    patient: {
+      identifier: str(payload.patient["identifier"], "Unknown"),
+      age: str(payload.patient["age"]),
+      sex: (str(payload.patient["sex"], "UNKNOWN") as "MALE" | "FEMALE" | "UNKNOWN") ?? "UNKNOWN",
+      weightKg: str(payload.patient["weightKg"]),
+      medicalHistory: str(payload.patient["medicalHistory"]),
+    },
+    suspectProducts: [
+      {
+        reportedName: product,
+        dose: str(payload.product["dose"]),
+        route: str(payload.product["route"]),
+        indication: str(payload.product["indication"]),
+        therapyStart: str(payload.product["therapyStart"]),
+        action: str(payload.product["action"]),
+        batchNumber: str(payload.product["batchNumber"]),
+        expiryDate: str(payload.product["expiryDate"]),
+      },
+      ...(payload.additionalProducts ?? [])
+        .filter((p) => str(p["reportedName"]).length > 0)
+        .map((p) => ({
+          reportedName: str(p["reportedName"]),
+          dose: str(p["dose"]),
+          route: str(p["route"]),
+          indication: str(p["indication"]),
+          therapyStart: str(p["therapyStart"]),
+          action: str(p["action"]),
+          batchNumber: str(p["batchNumber"]),
+          expiryDate: str(p["expiryDate"]),
+        })),
+    ],
+    concomitantMedicines: (payload.concomitantMedicines ?? [])
+      .filter((m) => str(m["name"]).length > 0)
+      .map((m) => ({
+        name: str(m["name"]),
+        dose: str(m["dose"]),
+        indication: str(m["indication"]),
+      })),
+    reactions: [
+      {
+        reportedTerm: reaction,
+        onsetDate: str(payload.reaction["onsetDate"]),
+        outcome: (str(payload.reaction["outcome"], "UNKNOWN") as CaseDetail["outcome"]) ?? "UNKNOWN",
+        codedTerm: null,
+      },
+    ],
+    narrative: payload.narrative,
+    reportedSeriousnessCriteria: payload.seriousnessCriteria,
+    dynamicFields: (payload.dynamicFields ?? [])
+      .filter((f) => f.label.trim().length > 0)
+      .map((f) => ({
+        id: f.id ?? newId("dyn"),
+        label: f.label.trim(),
+        value: str(f.value),
+        originalLabel: f.originalLabel ?? f.label.trim(),
+        confidence: typeof f.confidence === "number" ? f.confidence : undefined,
+        source: f.source ?? "ai_extraction",
+        status: f.status ?? "detected",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })),
+    rawExtraction: payload.rawExtraction,
+    followUpRequests: [],
+    workflowState: stepStates("INTAKE"),
+  };
+}
+
 export const cases = {
   list: async (filters: CaseFilters = {}): Promise<CaseSummary[]> => {
     const rows = await allCases();
@@ -126,97 +227,9 @@ export const cases = {
     const actor = currentActor();
     const { count } = await supabase.from("pv_cases").select("id", { count: "exact", head: true });
     const caseId = `MN-${new Date().getFullYear()}-${String(900000 + (count ?? 0) + 1).slice(0, 6)}`;
-    const seriousness = (payload.reportedSeriousness as Seriousness) ?? "UNASSESSED";
-    const product = str(payload.product["reportedName"], "Unspecified product");
-    const reaction = str(payload.reaction["reportedTerm"], "Unspecified reaction");
-
-    const detail: CaseDetail = {
-      id: caseId,
-      patientIdentifier: str(payload.patient["identifier"], "Unknown"),
-      product,
-      reaction,
-      seriousness,
-      outcome: (str(payload.reaction["outcome"], "UNKNOWN") as CaseDetail["outcome"]) ?? "UNKNOWN",
-      workflowStep: "INTAKE",
-      assignedTo: actor.name,
-      receivedDate: new Date().toISOString().slice(0, 10),
-      dueDate: addDays(seriousness === "SERIOUS" ? 7 : 14),
-      priority: seriousness === "SERIOUS" ? "HIGH" : "MEDIUM",
-      flags: seriousness === "SERIOUS" ? ["EXPEDITED"] : [],
-      source: "MANUAL",
-      reporter: {
-        name: str(payload.reporter["name"], "Unknown reporter"),
-        qualification: str(payload.reporter["qualification"], "Not stated"),
-        country: str(payload.reporter["country"], "Not stated"),
-        contact: str(payload.reporter["contact"]),
-        consentToContact: true,
-      },
-      patient: {
-        identifier: str(payload.patient["identifier"], "Unknown"),
-        age: str(payload.patient["age"]),
-        sex: (str(payload.patient["sex"], "UNKNOWN") as "MALE" | "FEMALE" | "UNKNOWN") ?? "UNKNOWN",
-        weightKg: str(payload.patient["weightKg"]),
-        medicalHistory: str(payload.patient["medicalHistory"]),
-      },
-      suspectProducts: [
-        {
-          reportedName: product,
-          dose: str(payload.product["dose"]),
-          route: str(payload.product["route"]),
-          indication: str(payload.product["indication"]),
-          therapyStart: str(payload.product["therapyStart"]),
-          action: str(payload.product["action"]),
-          batchNumber: str(payload.product["batchNumber"]),
-          expiryDate: str(payload.product["expiryDate"]),
-        },
-        ...(payload.additionalProducts ?? [])
-          .filter((p) => str(p["reportedName"]).length > 0)
-          .map((p) => ({
-            reportedName: str(p["reportedName"]),
-            dose: str(p["dose"]),
-            route: str(p["route"]),
-            indication: str(p["indication"]),
-            therapyStart: str(p["therapyStart"]),
-            action: str(p["action"]),
-            batchNumber: str(p["batchNumber"]),
-            expiryDate: str(p["expiryDate"]),
-          })),
-      ],
-      concomitantMedicines: (payload.concomitantMedicines ?? [])
-        .filter((m) => str(m["name"]).length > 0)
-        .map((m) => ({
-          name: str(m["name"]),
-          dose: str(m["dose"]),
-          indication: str(m["indication"]),
-        })),
-      reactions: [
-        {
-          reportedTerm: reaction,
-          onsetDate: str(payload.reaction["onsetDate"]),
-          outcome:
-            (str(payload.reaction["outcome"], "UNKNOWN") as CaseDetail["outcome"]) ?? "UNKNOWN",
-          codedTerm: null,
-        },
-      ],
-      narrative: payload.narrative,
-      reportedSeriousnessCriteria: payload.seriousnessCriteria,
-      dynamicFields: (payload.dynamicFields ?? [])
-        .filter((f) => f.label.trim().length > 0)
-        .map((f) => ({
-          id: f.id ?? newId("dyn"),
-          label: f.label.trim(),
-          value: str(f.value),
-          originalLabel: f.originalLabel ?? f.label.trim(),
-          confidence: typeof f.confidence === "number" ? f.confidence : undefined,
-          source: f.source ?? "ai_extraction",
-          status: f.status ?? "detected",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        })),
-      rawExtraction: payload.rawExtraction,
-      followUpRequests: [],
-      workflowState: stepStates("INTAKE"),
-    };
+    const detail = buildCaseDetail(caseId, payload, actor.name);
+    const product = detail.product;
+    const reaction = detail.reaction;
 
     const { error } = await supabase.from("pv_cases").insert({ id: caseId, data: toJson(detail) });
     if (error) throw new Error(error.message);

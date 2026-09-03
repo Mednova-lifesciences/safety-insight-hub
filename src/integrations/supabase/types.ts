@@ -19,16 +19,19 @@ export type Database = {
           data: Json
           id: string
           occurred_at: string
+          organization_id: string
         }
         Insert: {
           data: Json
           id: string
           occurred_at?: string
+          organization_id?: string
         }
         Update: {
           data?: Json
           id?: string
           occurred_at?: string
+          organization_id?: string
         }
         Relationships: []
       }
@@ -37,18 +40,45 @@ export type Database = {
           created_at: string
           data: Json
           id: string
+          organization_id: string
           updated_at: string
         }
         Insert: {
           created_at?: string
           data: Json
           id: string
+          organization_id?: string
           updated_at?: string
         }
         Update: {
           created_at?: string
           data?: Json
           id?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      pv_products: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          id: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+          organization_id?: string
           updated_at?: string
         }
         Relationships: []
@@ -290,6 +320,33 @@ export type Database = {
           created_at?: string
           data?: Json
           id?: string
+        }
+        Relationships: []
+      }
+      organizations: {
+        Row: {
+          created_at: string
+          id: string
+          invite_code: string
+          name: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          invite_code: string
+          name: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          invite_code?: string
+          name?: string
+          slug?: string
+          updated_at?: string
         }
         Relationships: []
       }

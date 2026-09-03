@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ArrowRight, Lock, LogIn, ShieldCheck } from "lucide-react";
 import { ROLE_LABELS, useAuth, type Role } from "@/lib/auth";
@@ -278,6 +278,14 @@ function AuthPage() {
               <Lock className="size-4" /> Sign in
             </Button>
           </form>
+
+          <p className="mt-4 text-xs text-muted-foreground">
+            New organization?{" "}
+            <Link to="/signup" className="underline">
+              Sign up
+            </Link>
+            .
+          </p>
 
           <p className="mt-6 text-xs text-muted-foreground">
             {isApiConfigured()

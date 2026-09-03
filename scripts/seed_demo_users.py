@@ -15,6 +15,8 @@ import httpx
 
 DEMO_PASSWORD = os.getenv("DEMO_USER_PASSWORD", "demo123")
 DEMO_ORGANIZATION = "Safety Insight Hub Demo"
+DEMO_ORG_SLUG = "demo"
+DEMO_ORG_INVITE_CODE = "DEMO-0000"
 DEMO_USERS = [
     ("field@demo.safetyinsighthub.com", "Demo Field Associate", "FIELD_ASSOCIATE"),
     ("coordinator@demo.safetyinsighthub.com", "Demo PV Coordinator", "PV_COORDINATOR"),
@@ -58,13 +60,24 @@ def main() -> int:
         )
         if organizations:
             organization_id = organizations[0]["id"]
+            request(
+                client,
+                "PATCH",
+                "/rest/v1/organizations",
+                params={"id": f"eq.{organization_id}"},
+                json={"slug": DEMO_ORG_SLUG, "invite_code": DEMO_ORG_INVITE_CODE},
+            )
         else:
             created = request(
                 client,
                 "POST",
                 "/rest/v1/organizations",
                 headers={"Prefer": "return=representation"},
-                json={"name": DEMO_ORGANIZATION},
+                json={
+                    "name": DEMO_ORGANIZATION,
+                    "slug": DEMO_ORG_SLUG,
+                    "invite_code": DEMO_ORG_INVITE_CODE,
+                },
             )
             organization_id = created[0]["id"]
 

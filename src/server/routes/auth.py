@@ -4,9 +4,12 @@ Authentication routes
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
 import httpx
 import os
+import re
+import secrets
+import string
 import logging
 
 from ..db import get_supabase_client
@@ -24,7 +27,9 @@ class SignUpRequest(BaseModel):
     email: str
     password: str
     name: str
+    mode: Literal["CREATE_ORG", "JOIN_ORG"] = "CREATE_ORG"
     organization_name: Optional[str] = None
+    org_code: Optional[str] = None
 
 class SignInRequest(BaseModel):
     email: str
@@ -44,6 +49,43 @@ class AuthResponse(BaseModel):
     user: dict
     profile: UserProfile
     organization: Optional[dict] = None
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    return slug or "org"
+
+
+def _random_suffix(length: int = 4) -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+async def _create_organization_with_unique_codes(db, name: str) -> dict:
+    """Creates an organization with a globally-unique public slug and a
+    private invite code, retrying on the rare random collision instead of
+    trusting a single guess against the unique DB indexes."""
+    base_prefix = re.sub(r"[^A-Z0-9]", "", name.upper())[:4] or "ORG"
+    for _ in range(5):
+        slug = f"{_slugify(name)}-{_random_suffix().lower()}"
+        invite_code = f"{base_prefix}-{_random_suffix()}"
+        existing = await db.query(
+            "organizations",
+            filters={"slug": slug},
+            select="id",
+        )
+        if existing:
+            continue
+        created = await db.query(
+            "organizations",
+            method="POST",
+            data={"name": name, "slug": slug, "invite_code": invite_code},
+        )
+        return created[0]
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Could not allocate a unique organization link — try again",
+    )
 
 
 async def _load_profile_async(user_id: str, email: str) -> tuple[UserProfile, Optional[dict]]:
@@ -68,9 +110,42 @@ async def _load_profile_async(user_id: str, email: str) -> tuple[UserProfile, Op
 @router.post("/signup")
 async def sign_up(request: SignUpRequest):
     """
-    Sign up a new user with email/password
+    Sign up a new user with email/password.
+
+    CREATE_ORG mints a brand-new organization (a new public slug and a
+    private invite code) and makes the signing-up user its PV_MANAGER.
+    JOIN_ORG requires an existing organization's exact invite_code and
+    attaches the user as a PV_COORDINATOR — organizations are never
+    resolved by matching name text, which used to let anyone claim ADMIN
+    on an existing company by typing its name.
     """
     try:
+        db = get_supabase_client()
+
+        if request.mode == "JOIN_ORG":
+            if not request.org_code or not request.org_code.strip():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="An organization code is required to join an existing organization",
+                )
+            matches = await db.query(
+                "organizations",
+                filters={"invite_code": request.org_code.strip().upper()},
+                select="*",
+            )
+            if not matches:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No organization matches that code",
+                )
+            organization = matches[0]
+            new_member_role = "PV_COORDINATOR"
+        else:
+            organization = await _create_organization_with_unique_codes(
+                db, request.organization_name or f"{request.email}'s Organization"
+            )
+            new_member_role = "PV_MANAGER"
+
         async with httpx.AsyncClient() as client:
             # Create auth user
             auth_response = await client.post(
@@ -85,38 +160,23 @@ async def sign_up(request: SignUpRequest):
                     "data": {"name": request.name},
                 }
             )
-        
+
         if auth_response.status_code >= 400:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Failed to create user"
             )
-        
+
         auth_data = auth_response.json()
         user_id = auth_data.get("user", {}).get("id")
         access_token = auth_data.get("access_token")
-        
+
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="User creation failed"
             )
-        
-        db = get_supabase_client()
-        organizations = await db.query(
-            "organizations",
-            filters={"name": request.organization_name or f"{request.email}'s Organization"},
-            select="*",
-        )
-        if organizations:
-            organization = organizations[0]
-        else:
-            created_organizations = await db.query(
-                "organizations",
-                method="POST",
-                data={"name": request.organization_name or f"{request.email}'s Organization"},
-            )
-            organization = created_organizations[0]
+
         await db.query(
             "profiles",
             method="POST",
@@ -125,16 +185,22 @@ async def sign_up(request: SignUpRequest):
                 "organization_id": organization["id"],
                 "full_name": request.name,
                 "email": request.email,
-                "role": "ADMIN",
+                "role": new_member_role,
             },
         )
         profile = UserProfile(
             user_id=user_id,
             email=request.email,
             organization_id=organization["id"],
-            role="ADMIN"  # First user is admin
+            role=new_member_role,
         )
-        
+
+        # The invite code is a credential — only ever return it to the
+        # person creating the organization, never to someone joining it.
+        organization_payload = dict(organization)
+        if request.mode == "JOIN_ORG":
+            organization_payload.pop("invite_code", None)
+
         return AuthResponse(
             access_token=access_token,
             refresh_token=auth_data.get("refresh_token"),
@@ -146,9 +212,9 @@ async def sign_up(request: SignUpRequest):
                 }
             },
             profile=profile,
-            organization=organization,
+            organization=organization_payload,
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:

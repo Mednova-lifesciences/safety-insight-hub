@@ -56,7 +56,9 @@ export type Permission =
   | "audit.view.all"
   | "team.view"
   | "follow_up.view"
-  | "follow_up.create";
+  | "follow_up.create"
+  | "catalog.view"
+  | "catalog.manage";
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   FIELD_ASSOCIATE: [
@@ -86,6 +88,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "signal.view",
     "audit.view.all",
     "team.view",
+    "catalog.view",
   ],
   // Merged: PV_MANAGER now gets everything FIELD_ASSOCIATE and
   // PV_COORDINATOR have, on top of its own manager-level permissions —
@@ -108,6 +111,8 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "signal.decide",
     "audit.view.all",
     "team.view",
+    "catalog.view",
+    "catalog.manage",
   ],
   ADMIN: [
     "case.create",
@@ -127,6 +132,8 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "signal.decide",
     "audit.view.all",
     "team.view",
+    "catalog.view",
+    "catalog.manage",
   ],
 };
 
@@ -137,14 +144,26 @@ export interface CurrentUser {
   email: string;
   role: Role;
   organisation: string;
+  organizationId: string;
+  /** Public, shareable slug — the field-associate link is `/r/<slug>`. */
+  organizationSlug: string;
+  /** Only ever populated immediately after CREATE_ORG signup — the private
+   *  code a coordinator needs to join this same org. Never re-fetched or
+   *  shown again after that first response (see the Drug Catalog / Team
+   *  surface for a persisted copy once that's built). */
+  organizationInviteCode?: string | undefined;
 }
+
+export type SignUpOptions =
+  | { mode: "CREATE_ORG"; orgName: string }
+  | { mode: "JOIN_ORG"; orgCode: string };
 
 interface AuthState {
   user: CurrentUser | null;
   status: "loading" | "authenticated" | "unauthenticated";
   signIn: (email: string, password: string, mockRole?: Role) => Promise<void>;
   signInFieldAssociate: () => Promise<void>;
-  signUp: (email: string, password: string, name: string, org?: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string, opts: SignUpOptions) => Promise<void>;
   signOut: () => void;
   can: (permission: Permission) => boolean;
 }
@@ -214,6 +233,9 @@ function buildCurrentUser(authResponse: AuthResponse): CurrentUser {
     email,
     role,
     organisation,
+    organizationId: authResponse.organization?.id ?? authResponse.profile.organization_id,
+    organizationSlug: authResponse.organization?.slug ?? "",
+    organizationInviteCode: authResponse.organization?.invite_code,
   };
 }
 
@@ -300,6 +322,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email,
         role: mockRole || "PV_COORDINATOR",
         organisation: "MedNova Drug Safety",
+        organizationId: "mock-org",
+        organizationSlug: "mednova-demo",
+        organizationInviteCode: "MOCK-0000",
       };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       setUser(next);
@@ -321,51 +346,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: "field@demo.safetyinsighthub.com",
       role: "FIELD_ASSOCIATE",
       organisation: "MedNova Drug Safety",
+      organizationId: "mock-org",
+      organizationSlug: "mednova-demo",
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     setUser(next);
     setStatus("authenticated");
   }, []);
 
-  const signUp = useCallback(
-    async (email: string, password: string, name: string, org?: string) => {
-      if (isApiConfigured()) {
-        // Use real backend authentication
-        const response = await apiAuth.signup({
-          email,
-          password,
-          name,
-          ...(org ? { organization_name: org } : {}),
-        });
-        await syncSupabaseSession(response);
-        const currentUser = buildCurrentUser(response);
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
-        setUser(currentUser);
-        setStatus("authenticated");
-      } else {
-        // Mock authentication (dev mode without backend)
-        const n = deriveName(email);
-        const next: CurrentUser = {
-          id: `usr_${email.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`,
-          name: n,
-          initials:
-            n
-              .split(" ")
-              .map((p) => p[0])
-              .join("")
-              .slice(0, 2)
-              .toUpperCase() || "PV",
-          email,
-          role: "ADMIN",
-          organisation: org || "MedNova Drug Safety",
-        };
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        setUser(next);
-        setStatus("authenticated");
-      }
-    },
-    [],
-  );
+  const signUp = useCallback(async (email: string, password: string, name: string, opts: SignUpOptions) => {
+    if (isApiConfigured()) {
+      // Use real backend authentication
+      const response = await apiAuth.signup({
+        email,
+        password,
+        name,
+        mode: opts.mode,
+        ...(opts.mode === "CREATE_ORG" ? { organization_name: opts.orgName } : { org_code: opts.orgCode }),
+      });
+      await syncSupabaseSession(response);
+      const currentUser = buildCurrentUser(response);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
+      setUser(currentUser);
+      setStatus("authenticated");
+    } else {
+      // Mock authentication (dev mode without backend)
+      const n = deriveName(email);
+      const orgName = opts.mode === "CREATE_ORG" ? opts.orgName : "MedNova Drug Safety";
+      const next: CurrentUser = {
+        id: `usr_${email.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`,
+        name: n,
+        initials:
+          n
+            .split(" ")
+            .map((p) => p[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase() || "PV",
+        email,
+        role: opts.mode === "CREATE_ORG" ? "PV_MANAGER" : "PV_COORDINATOR",
+        organisation: orgName,
+        organizationId: "mock-org",
+        organizationSlug: "mednova-demo",
+        organizationInviteCode: opts.mode === "CREATE_ORG" ? "MOCK-0000" : undefined,
+      };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      setUser(next);
+      setStatus("authenticated");
+    }
+  }, []);
 
   const signOut = useCallback(async () => {
     // Clear the local session FIRST so the UI is immediately

@@ -1,8 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, ImageUp, Plus, Save, Sparkles, Trash2 } from "lucide-react";
-import { cases as casesApi } from "@/services/api/cases";
+import { ArrowRight, ImageUp, Pencil, Plus, Save, Sparkles, Trash2 } from "lucide-react";
+import { cases as casesApi, type NewIcsrPayload } from "@/services/api/cases";
 import { ai } from "@/services/api/ai";
 import { isNotConfigured } from "@/services/api/client";
 import { newId } from "@/services/api/db";
@@ -163,30 +163,67 @@ function FieldRow({
   );
 }
 
+/** A drug picked from a company's catalog — its identity is locked on the
+ *  form until the reporter explicitly goes back and picks a different one. */
+export interface LockedDrug {
+  id: string;
+  name: string;
+  activeIngredient?: string | undefined;
+  strength?: string | undefined;
+  doseUnit?: string | undefined;
+  route?: string | undefined;
+}
+
 /**
  * The full ICSR capture experience, used both by signed-in staff at
- * /icsr/new and by anonymous visitors on the public home page.
+ * /icsr/new and by anonymous field associates via a company's public
+ * `/r/:orgSlug/report` link.
  *
  * When the caller is authenticated, submitting navigates to the created
  * case's workspace. Anonymous visitors stay put: the case is still created
  * and its ID confirmed, then the form resets so the next report can be
  * captured immediately — the protected case workspace stays behind sign-in.
+ *
+ * `lockedProduct` renders the suspect-product section as a read-only
+ * summary seeded from a catalog drug instead of free-text inputs — used by
+ * the public field-associate flow, where the drug is chosen on a prior
+ * picker page and must not be changed except by going back to it
+ * (`onChangeDrug`). `submitOverride` lets that same public flow create the
+ * case through the unauthenticated path instead of the normal
+ * authenticated one.
  */
-export function IcsrIntakeForm() {
+export function IcsrIntakeForm({
+  lockedProduct,
+  onChangeDrug,
+  submitOverride,
+}: {
+  lockedProduct?: LockedDrug | undefined;
+  onChangeDrug?: (() => void) | undefined;
+  submitOverride?: ((payload: NewIcsrPayload) => Promise<{ caseId: string }>) | undefined;
+} = {}) {
   const [instanceKey, setInstanceKey] = useState(0);
   const reset = () => setInstanceKey((k) => k + 1);
   return (
     <IcsrIntakeFormFields
       key={instanceKey}
       onResetAfterAnonymousSubmit={reset}
+      lockedProduct={lockedProduct}
+      onChangeDrug={onChangeDrug}
+      submitOverride={submitOverride}
     />
   );
 }
 
 function IcsrIntakeFormFields({
   onResetAfterAnonymousSubmit,
+  lockedProduct,
+  onChangeDrug,
+  submitOverride,
 }: {
   onResetAfterAnonymousSubmit: () => void;
+  lockedProduct?: LockedDrug | undefined;
+  onChangeDrug?: (() => void) | undefined;
+  submitOverride?: ((payload: NewIcsrPayload) => Promise<{ caseId: string }>) | undefined;
 }) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -194,7 +231,14 @@ function IcsrIntakeFormFields({
   const [extracting, setExtracting] = useState(false);
   const [criteria, setCriteria] = useState<string[]>([]);
   const [seriousnessValue, setSeriousnessValue] = useState("NON_SERIOUS");
-  const [form, setForm] = useState<Record<string, string>>({});
+  const [form, setForm] = useState<Record<string, string>>(() =>
+    lockedProduct
+      ? {
+          productName: lockedProduct.name,
+          productRoute: lockedProduct.route ?? "",
+        }
+      : {},
+  );
   const [additionalProducts, setAdditionalProducts] = useState<DrugRow[]>([]);
   const [concomitantMeds, setConcomitantMeds] = useState<ConcomitantRow[]>([]);
   const [dynamicFields, setDynamicFields] = useState<DynamicField[]>([]);
@@ -367,7 +411,8 @@ function IcsrIntakeFormFields({
     }
     setSubmitting(true);
     try {
-      const created = await casesApi.create({
+      const create = submitOverride ?? casesApi.create;
+      const created = await create({
         reporter: {
           name: form["reporterName"],
           qualification: form["reporterQual"],
@@ -724,19 +769,47 @@ function IcsrIntakeFormFields({
 
           <Section title="Suspect product">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              <FieldRow
-                id="productName"
-                label="Product as reported"
-                required
-                hint="Coding candidates are retrieved from WHODrug after submission."
-              >
-                <Input
+              {lockedProduct ? (
+                <div className="space-y-1.5 sm:col-span-2 xl:col-span-3">
+                  <Label>Product as reported</Label>
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/40 bg-accent px-3 py-2.5">
+                    <div className="text-sm">
+                      <p className="font-medium">{lockedProduct.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {[
+                          lockedProduct.activeIngredient,
+                          lockedProduct.strength,
+                          lockedProduct.route,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "No further catalog detail"}
+                      </p>
+                    </div>
+                    {onChangeDrug ? (
+                      <Button type="button" variant="outline" size="sm" onClick={onChangeDrug}>
+                        <Pencil className="size-3.5" /> Change drug
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Picked from the company drug list — go back to change it.
+                  </p>
+                </div>
+              ) : (
+                <FieldRow
                   id="productName"
+                  label="Product as reported"
                   required
-                  value={form["productName"] ?? ""}
-                  onChange={set("productName")}
-                />
-              </FieldRow>
+                  hint="Coding candidates are retrieved from WHODrug after submission."
+                >
+                  <Input
+                    id="productName"
+                    required
+                    value={form["productName"] ?? ""}
+                    onChange={set("productName")}
+                  />
+                </FieldRow>
+              )}
               <FieldRow id="productDose" label="Dose">
                 <Input
                   id="productDose"
@@ -744,13 +817,15 @@ function IcsrIntakeFormFields({
                   onChange={set("productDose")}
                 />
               </FieldRow>
-              <FieldRow id="productRoute" label="Route">
-                <Input
-                  id="productRoute"
-                  value={form["productRoute"] ?? ""}
-                  onChange={set("productRoute")}
-                />
-              </FieldRow>
+              {lockedProduct ? null : (
+                <FieldRow id="productRoute" label="Route">
+                  <Input
+                    id="productRoute"
+                    value={form["productRoute"] ?? ""}
+                    onChange={set("productRoute")}
+                  />
+                </FieldRow>
+              )}
               <FieldRow id="productIndication" label="Indication">
                 <Input
                   id="productIndication"
