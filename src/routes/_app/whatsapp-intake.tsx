@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, MessageCircle, Send, Trash2, XCircle } from "lucide-react";
@@ -50,8 +51,27 @@ const STATUS_LABEL = {
 function WhatsAppIntakePage() {
   const { conversation: conversationIdFromUrl } = Route.useSearch();
   const [selectedId, setSelectedId] = useState<string | undefined>(conversationIdFromUrl);
+  const queryClient = useQueryClient();
 
   const query = usePvQuery(["whatsapp-conversations"], () => whatsapp.listConversations(), () => []);
+
+  // Keeps the conversation list itself live — a brand new inbound message
+  // (a new conversation, or a status change on an existing one) should
+  // show up without a manual reload, the same way the open thread already
+  // does via its own message-level subscription in ConversationPanel.
+  useEffect(() => {
+    const channel = supabase
+      .channel("intake-conversations-list")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pv_intake_conversations" },
+        () => queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] }),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   return (
     <>
