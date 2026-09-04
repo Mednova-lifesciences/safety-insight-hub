@@ -166,6 +166,23 @@ interface AuthState {
   signUp: (email: string, password: string, name: string, opts: SignUpOptions) => Promise<void>;
   signOut: () => void;
   can: (permission: Permission) => boolean;
+  /** Re-checks the current user's password against the real backend
+   *  (Supabase Auth's own sign-in) without ending the current session —
+   *  used to gate sensitive actions (revealing the invite code, changing
+   *  the password itself). In mock mode (no FastAPI configured, so there
+   *  is no real backing account to check against) any non-empty password
+   *  is accepted, matching how mock sign-in already behaves. */
+  verifyPassword: (password: string) => Promise<boolean>;
+  updateName: (name: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  /** Redirects to Google's OAuth consent screen via Supabase Auth. Requires
+   *  the Google provider to be configured in the Supabase project — until
+   *  then this rejects with Supabase's own "provider not enabled" error. */
+  signInWithGoogle: () => Promise<void>;
+  /** Sends a password-reset email via Supabase Auth. The link lands on
+   *  /reset-password, which reads the recovery session Supabase attaches
+   *  to that URL and lets the user set a new password. */
+  sendPasswordResetEmail: (email: string) => Promise<void>;
 }
 
 const STORAGE_KEY = "mednova.pv.session";
@@ -420,9 +437,98 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  const verifyPassword = useCallback(
+    async (password: string) => {
+      if (!user) return false;
+      if (!isApiConfigured()) return password.length > 0;
+      const { error } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password,
+      });
+      return !error;
+    },
+    [user],
+  );
+
+  const updateName = useCallback(
+    async (name: string) => {
+      if (!user) throw new Error("Not signed in");
+      const trimmed = name.trim();
+      if (!trimmed) throw new Error("Name cannot be empty");
+      if (isApiConfigured()) {
+        const { error } = await supabase.from("profiles").update({ full_name: trimmed }).eq("id", user.id);
+        if (error) throw new Error(error.message);
+      }
+      const initials =
+        trimmed
+          .split(" ")
+          .map((p) => p[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase() || "PV";
+      const next: CurrentUser = { ...user, name: trimmed, initials };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      setUser(next);
+    },
+    [user],
+  );
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      if (!user) throw new Error("Not signed in");
+      if (!isApiConfigured()) return; // mock mode: nothing real to change
+      const ok = await verifyPassword(currentPassword);
+      if (!ok) throw new Error("Current password is incorrect");
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw new Error(error.message);
+    },
+    [user, verifyPassword],
+  );
+
+  const signInWithGoogle = useCallback(async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/dashboard` },
+    });
+    if (error) throw new Error(error.message);
+  }, []);
+
+  const sendPasswordResetEmail = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (error) throw new Error(error.message);
+  }, []);
+
   const value = useMemo<AuthState>(
-    () => ({ user, status, signIn, signInFieldAssociate, signUp, signOut, can }),
-    [user, status, signIn, signInFieldAssociate, signUp, signOut, can],
+    () => ({
+      user,
+      status,
+      signIn,
+      signInFieldAssociate,
+      signUp,
+      signOut,
+      can,
+      verifyPassword,
+      updateName,
+      changePassword,
+      signInWithGoogle,
+      sendPasswordResetEmail,
+    }),
+    [
+      user,
+      status,
+      signIn,
+      signInFieldAssociate,
+      signUp,
+      signOut,
+      can,
+      verifyPassword,
+      updateName,
+      changePassword,
+      signInWithGoogle,
+      sendPasswordResetEmail,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

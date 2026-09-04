@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Building2, Copy, KeyRound, ShieldCheck, UserPlus } from "lucide-react";
+import { Building2, Chrome, Copy, KeyRound, ShieldCheck, UserPlus } from "lucide-react";
 import { useAuth, useCurrentUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,7 @@ export const Route = createFileRoute("/signup")({
 type SignupMode = "CREATE_ORG" | "JOIN_ORG";
 
 function SignupPage() {
-  const { signUp } = useAuth();
+  const { signUp, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState<SignupMode>("CREATE_ORG");
   const [name, setName] = useState("");
@@ -235,6 +235,27 @@ function SignupPage() {
             <UserPlus className="size-4" /> {submitting ? "Creating account…" : "Create account"}
           </Button>
         </form>
+
+        <div className="my-4 flex items-center gap-3">
+          <span className="h-px flex-1 bg-border" />
+          <span className="text-xs tracking-wide text-muted-foreground">OR</span>
+          <span className="h-px flex-1 bg-border" />
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={async () => {
+            try {
+              await signInWithGoogle();
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "Google sign-in isn't set up yet.");
+            }
+          }}
+        >
+          <Chrome className="size-4" /> Sign up with Google
+        </Button>
 
         <p className="mt-6 text-xs text-muted-foreground">
           Already have an account?{" "}

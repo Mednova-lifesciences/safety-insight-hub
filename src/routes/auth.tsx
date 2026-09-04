@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { ArrowRight, Lock, LogIn, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
+import { ArrowRight, Chrome, Lock, LogIn, ShieldCheck } from "lucide-react";
 import { ROLE_LABELS, useAuth, type Role } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,7 +59,8 @@ const DEMO_CREDENTIALS: Record<Role, { email: string; password: string }> = {
 
 function AuthPage() {
   const { role: requestedRole } = Route.useSearch();
-  const { signIn, signInFieldAssociate } = useAuth();
+  const { signIn, signInFieldAssociate, signInWithGoogle, sendPasswordResetEmail } = useAuth();
+  const [sendingReset, setSendingReset] = useState(false);
   const navigate = useNavigate();
   const initialRole: Role =
     requestedRole && SIGN_IN_ROLES.includes(requestedRole) ? requestedRole : "PV_COORDINATOR";
@@ -256,6 +258,28 @@ function AuthPage() {
               <p className="text-xs text-muted-foreground">
                 Credential verification is performed by the backend identity service once connected.
               </p>
+              <button
+                type="button"
+                disabled={sendingReset || !isApiConfigured()}
+                className="text-xs text-primary underline disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={async () => {
+                  if (!email.trim()) {
+                    setError("Enter your email above first, then click \"Forgot password?\"");
+                    return;
+                  }
+                  setSendingReset(true);
+                  try {
+                    await sendPasswordResetEmail(email.trim());
+                    toast.success("If an account exists for that email, a reset link has been sent.");
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : "Could not send the reset email.");
+                  } finally {
+                    setSendingReset(false);
+                  }
+                }}
+              >
+                Forgot password?
+              </button>
               {!isApiConfigured() &&
                 (role === "PV_COORDINATOR" || role === "PV_MANAGER" || role === "ADMIN") && (
                   <p className="text-xs text-muted-foreground">
@@ -278,6 +302,27 @@ function AuthPage() {
               <Lock className="size-4" /> Sign in
             </Button>
           </form>
+
+          <div className="my-4 flex items-center gap-3">
+            <span className="h-px flex-1 bg-border" />
+            <span className="text-xs tracking-wide text-muted-foreground">OR</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={async () => {
+              try {
+                await signInWithGoogle();
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Google sign-in isn't set up yet.");
+              }
+            }}
+          >
+            <Chrome className="size-4" /> Continue with Google
+          </Button>
 
           <p className="mt-4 text-xs text-muted-foreground">
             New organization?{" "}

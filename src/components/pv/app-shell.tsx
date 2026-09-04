@@ -16,6 +16,7 @@ import {
   Newspaper,
   Pill,
   Radar,
+  Settings,
   ShieldCheck,
   Timer,
 } from "lucide-react";
@@ -236,6 +237,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <p className="text-xs font-normal text-muted-foreground">{user.email}</p>
                   <p className="text-xs font-normal text-muted-foreground">{user.organisation}</p>
                 </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => navigate({ to: "/settings" })}>
+                  <Settings className="size-4" /> Settings
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={async () => {

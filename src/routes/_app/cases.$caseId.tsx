@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { usePermission, useRole } from "@/lib/auth";
+import { useAuth, usePermission, useRole } from "@/lib/auth";
 import {
   WORKFLOW_LABELS,
   WORKFLOW_STEPS,
@@ -259,13 +259,6 @@ function tabForStep(step: WorkflowStep, canCode: boolean): string {
   return tab === "coding" && !canCode ? "overview" : tab;
 }
 
-/**
- * Hardcoded authorization password required to move a case into Closed.
- * Intentionally client-side for now; replace with a server-side check
- * before this becomes a real control.
- */
-const CLOSE_AUTHORIZATION_PASSWORD = "Faithacademy1";
-
 function AdvanceWorkflow({
   caseId,
   currentStep,
@@ -277,6 +270,7 @@ function AdvanceWorkflow({
 }) {
   const canEdit = usePermission("case.edit");
   const role = useRole();
+  const { verifyPassword } = useAuth();
   const [reason, setReason] = useState("");
   const [closurePassword, setClosurePassword] = useState("");
   const [advancing, setAdvancing] = useState(false);
@@ -340,7 +334,7 @@ function AdvanceWorkflow({
             onChange={(e) => setClosurePassword(e.target.value)}
           />
           <p className="text-xs text-muted-foreground">
-            Closing a case requires manager authorization.
+            Closing a case requires re-entering your own account password.
           </p>
         </div>
       ) : null}
@@ -352,12 +346,12 @@ function AdvanceWorkflow({
           (requiresClosurePassword && closurePassword.length === 0)
         }
         onClick={async () => {
-          if (
-            requiresClosurePassword &&
-            closurePassword !== CLOSE_AUTHORIZATION_PASSWORD
-          ) {
-            toast.error("Incorrect authorization password — the case was not closed.");
-            return;
+          if (requiresClosurePassword) {
+            const ok = await verifyPassword(closurePassword);
+            if (!ok) {
+              toast.error("Incorrect password — the case was not closed.");
+              return;
+            }
           }
           setAdvancing(true);
           try {

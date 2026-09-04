@@ -105,6 +105,16 @@ async def _load_profile_async(user_id: str, email: str) -> tuple[UserProfile, Op
     organization = profile.get("organizations")
     if isinstance(organization, list):
         organization = organization[0] if organization else None
+    if organization:
+        # This service-role lookup bypasses the DB's column-level grants
+        # that keep invite_code out of anon/authenticated SELECTs — every
+        # sign-in must strip it back out here, or it re-leaks to every
+        # user regardless of role. The one deliberate exception is the
+        # CREATE_ORG branch of sign_up below, which shows it once at
+        # creation time; everywhere else (including this shared helper,
+        # used by both /signin and /me) it's manager-gated via the
+        # get_organization_invite_code() RPC instead.
+        organization = {k: v for k, v in organization.items() if k != "invite_code"}
     return (
         UserProfile(
             user_id=user_id,

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as AppAuditRouteImport } from './routes/_app/audit'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
@@ -23,6 +24,7 @@ import { Route as AppLiteratureRouteImport } from './routes/_app/literature'
 import { Route as AppNotificationsRouteImport } from './routes/_app/notifications'
 import { Route as AppOversightRouteImport } from './routes/_app/oversight'
 import { Route as AppPsurRouteImport } from './routes/_app/psur'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSignalsRouteImport } from './routes/_app/signals'
 import { Route as AppWhatsappIntakeRouteImport } from './routes/_app/whatsapp-intake'
 import { Route as AppCasesIndexRouteImport } from './routes/_app/cases.index'
@@ -45,6 +47,11 @@ const AppRoute = AppRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignupRoute = SignupRouteImport.update({
@@ -102,6 +109,11 @@ const AppPsurRoute = AppPsurRouteImport.update({
   path: '/psur',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSignalsRoute = AppSignalsRouteImport.update({
   id: '/signals',
   path: '/signals',
@@ -151,6 +163,7 @@ const ROrgSlugReportRoute = ROrgSlugReportRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/audit': typeof AppAuditRoute
   '/dashboard': typeof AppDashboardRoute
@@ -162,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/notifications': typeof AppNotificationsRoute
   '/oversight': typeof AppOversightRoute
   '/psur': typeof AppPsurRoute
+  '/settings': typeof AppSettingsRoute
   '/signals': typeof AppSignalsRoute
   '/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/cases/$caseId': typeof AppCasesCaseIdRoute
@@ -175,6 +189,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/audit': typeof AppAuditRoute
   '/dashboard': typeof AppDashboardRoute
@@ -186,6 +201,7 @@ export interface FileRoutesByTo {
   '/notifications': typeof AppNotificationsRoute
   '/oversight': typeof AppOversightRoute
   '/psur': typeof AppPsurRoute
+  '/settings': typeof AppSettingsRoute
   '/signals': typeof AppSignalsRoute
   '/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/cases/$caseId': typeof AppCasesCaseIdRoute
@@ -201,6 +217,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/auth': typeof AuthRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/_app/audit': typeof AppAuditRoute
   '/_app/dashboard': typeof AppDashboardRoute
@@ -212,6 +229,7 @@ export interface FileRoutesById {
   '/_app/notifications': typeof AppNotificationsRoute
   '/_app/oversight': typeof AppOversightRoute
   '/_app/psur': typeof AppPsurRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/signals': typeof AppSignalsRoute
   '/_app/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/_app/cases/$caseId': typeof AppCasesCaseIdRoute
@@ -227,6 +245,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/reset-password'
     | '/signup'
     | '/audit'
     | '/dashboard'
@@ -238,6 +257,7 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/oversight'
     | '/psur'
+    | '/settings'
     | '/signals'
     | '/whatsapp-intake'
     | '/cases/$caseId'
@@ -251,6 +271,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/reset-password'
     | '/signup'
     | '/audit'
     | '/dashboard'
@@ -262,6 +283,7 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/oversight'
     | '/psur'
+    | '/settings'
     | '/signals'
     | '/whatsapp-intake'
     | '/cases/$caseId'
@@ -276,6 +298,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_app'
     | '/auth'
+    | '/reset-password'
     | '/signup'
     | '/_app/audit'
     | '/_app/dashboard'
@@ -287,6 +310,7 @@ export interface FileRouteTypes {
     | '/_app/notifications'
     | '/_app/oversight'
     | '/_app/psur'
+    | '/_app/settings'
     | '/_app/signals'
     | '/_app/whatsapp-intake'
     | '/_app/cases/$caseId'
@@ -302,6 +326,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   SignupRoute: typeof SignupRoute
   ROrgSlugReportRoute: typeof ROrgSlugReportRoute
   ROrgSlugIndexRoute: typeof ROrgSlugIndexRoute
@@ -328,6 +353,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/signup': {
@@ -407,6 +439,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPsurRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/signals': {
       id: '/_app/signals'
       path: '/signals'
@@ -484,6 +523,7 @@ interface AppRouteChildren {
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppOversightRoute: typeof AppOversightRoute
   AppPsurRoute: typeof AppPsurRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppSignalsRoute: typeof AppSignalsRoute
   AppWhatsappIntakeRoute: typeof AppWhatsappIntakeRoute
   AppCasesCaseIdRoute: typeof AppCasesCaseIdRoute
@@ -504,6 +544,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppNotificationsRoute: AppNotificationsRoute,
   AppOversightRoute: AppOversightRoute,
   AppPsurRoute: AppPsurRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppSignalsRoute: AppSignalsRoute,
   AppWhatsappIntakeRoute: AppWhatsappIntakeRoute,
   AppCasesCaseIdRoute: AppCasesCaseIdRoute,
@@ -519,6 +560,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   SignupRoute: SignupRoute,
   ROrgSlugReportRoute: ROrgSlugReportRoute,
   ROrgSlugIndexRoute: ROrgSlugIndexRoute,
