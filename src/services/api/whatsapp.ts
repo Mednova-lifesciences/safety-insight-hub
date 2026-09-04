@@ -129,7 +129,16 @@ export const whatsapp = {
       .select("id,data")
       .order("updated_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return (data ?? []).map(conversationFromRow);
+    // pv_intake_conversations is shared with the older, separate generic
+    // "Inbound intake" feature (src/routes/_app/intake.*.tsx) — its own
+    // seeded demo rows live in this same table under a completely
+    // different shape (flat reporterName, a different status enum, no
+    // phoneNumber at all). Only this feature's own rows ever have
+    // phoneNumber, so that's the cheapest reliable discriminator without
+    // touching the other feature's data.
+    return (data ?? [])
+      .filter((row) => typeof (row.data as { phoneNumber?: unknown } | null)?.phoneNumber === "string")
+      .map(conversationFromRow);
   },
 
   getConversation: async (id: string): Promise<WhatsAppConversation> => {
