@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Copy, Eye, KeyRound, User } from "lucide-react";
-import { useAuth, useCurrentUser } from "@/lib/auth";
+import { ROLE_LABELS, useAuth, useCurrentUser } from "@/lib/auth";
 import { getMyOrganizationInviteCode, deleteMyOrganization } from "@/services/api/organizations";
 import { isApiConfigured } from "@/services/api/client";
 import { PageHeader, Section } from "@/components/pv/primitives";
@@ -52,6 +52,10 @@ function ProfileSection() {
         </div>
         <div className="space-y-1.5">
           <Label>Role</Label>
+          <Input value={ROLE_LABELS[user.role]} disabled />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Organization</Label>
           <Input value={user.organisation} disabled />
         </div>
         <Button
