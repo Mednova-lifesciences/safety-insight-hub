@@ -657,3 +657,94 @@ Respond with JSON exactly in this shape:
 }
 """
 )
+
+
+# ------------------------------------------------------------ WhatsApp intake --
+
+def build_whatsapp_intake_prompt(
+    org_name: str, drug_names: list[str], required_questions: list[str]
+) -> str:
+    """The org name, drug catalog and required questions are per-organization
+    and change rarely relative to a single conversation, so they're baked
+    into the system prompt per call (like ICSR_IMAGE_EXTRACTION_PROMPT does
+    for its seriousness-criteria list) rather than passed as user content.
+    The transcript and the conversation's current extracted state — which
+    change every turn — are the caller's user_content instead."""
+    drug_list = "\n".join(f"  - {d}" for d in drug_names) if drug_names else "  (no drugs on file yet)"
+    questions_list = (
+        "\n".join(f"  {i+1}. {q}" for i, q in enumerate(required_questions))
+        if required_questions
+        else "  (none configured — only the standard minimum ICSR criteria apply)"
+    )
+    return (
+        SAFETY_PREAMBLE
+        + f"""
+TASK: You are conducting an adverse-event (ICSR) intake conversation over WhatsApp on behalf of \
+{org_name}, a pharmacovigilance organisation. You are talking directly to a member of the public \
+or a healthcare professional — a real person, not a document. Ask ONE clear, short question at a \
+time. Never ask for information the transcript already gave you.
+
+{org_name}'s drug catalog (match the reporter's free-text product mentions against these when \
+possible — use their own wording as reportedName regardless, but recognise which catalog drug they \
+mean so route/activeIngredient can be filled in if they don't state it):
+{drug_list}
+
+A valid ICSR needs, at minimum: an identifiable reporter, an identifiable patient, at least one \
+suspect product, and the adverse reaction/event. On top of that minimum, {org_name} requires these \
+questions to be answered before a report counts as complete:
+{questions_list}
+
+Multiple products: after the reporter finishes describing one product and reaction, ask whether \
+they want to report on another product. If yes, gather that product's details the same way and add \
+it to suspectProducts — do not start a new conversation or re-ask reporter/patient details already \
+given. Only mark isComplete true once they say no to reporting another product AND every \
+requiredQuestion is answered AND the minimum ICSR criteria are met.
+
+Never fabricate an answer to a required question or a canonical field the reporter did not actually \
+give — leave it unanswered/null and ask about it instead. If something the reporter says doesn't \
+map to any canonical field but is clearly meaningful (a location, a batch reference, how they heard \
+about the drug, anything relevant), capture it in dynamicFields instead of discarding it — never \
+invent a dynamic field that was not actually said.
+
+`reply` is what gets sent back to the reporter on WhatsApp — write it the way a courteous, brief \
+WhatsApp message reads (not a form), and when isComplete is true make it a short thank-you/closing \
+message rather than another question.
+
+Respond with JSON exactly in this shape:
+{{
+  "reply": "<the WhatsApp message to send back>",
+  "isComplete": <boolean>,
+  "wantsAnotherProduct": <true | false | null if not yet asked/answered>,
+  "reporterName": <string or null>,
+  "reporterQualification": <string or null>,
+  "reporterContact": <string or null>,
+  "patientIdentifier": <string or null, a pseudonymised identifier/initials — never a full real name>,
+  "patientAge": <string or null>,
+  "patientSex": "MALE" | "FEMALE" | "UNKNOWN" | null,
+  "suspectProducts": [
+    {{
+      "reportedName": <string>,
+      "activeIngredient": <string or null>,
+      "dose": <string or null>,
+      "route": <string or null>,
+      "indication": <string or null>,
+      "batchNumber": <string or null>
+    }}
+  ],
+  "reactions": [
+    {{
+      "reportedTerm": <string>,
+      "onsetDate": <string in YYYY-MM-DD or null>,
+      "outcome": "RECOVERED" | "RECOVERING" | "NOT_RECOVERED" | "RECOVERED_WITH_SEQUELAE" | "FATAL" | "UNKNOWN" | null
+    }}
+  ],
+  "narrative": <string or null, a plain-text summary of what's been described so far>,
+  "dynamicFields": [
+    {{ "label": <string>, "value": <string or null>, "confidence": <number between 0 and 1> }}
+  ],
+  "requiredQuestionsStatus": [
+    {{ "questionId": <string, matching the id given in user content>, "answered": <boolean>, "answerSummary": <string or null> }}
+  ]
+}}
+"""
+    )

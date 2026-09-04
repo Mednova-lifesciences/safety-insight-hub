@@ -254,6 +254,79 @@ class AiIcsrExtraction(BaseModel):
         return v
 
 
+# ----------------------------------------------------------- WhatsApp intake --
+
+class AiWhatsAppSuspectProduct(BaseModel):
+    reportedName: str
+    activeIngredient: Optional[str] = None
+    dose: Optional[str] = None
+    route: Optional[str] = None
+    indication: Optional[str] = None
+    batchNumber: Optional[str] = None
+
+
+class AiWhatsAppReaction(BaseModel):
+    reportedTerm: str
+    onsetDate: Optional[str] = None
+    outcome: Optional[
+        Literal["RECOVERED", "RECOVERING", "NOT_RECOVERED", "RECOVERED_WITH_SEQUELAE", "FATAL", "UNKNOWN"]
+    ] = None
+
+
+class AiWhatsAppDynamicField(BaseModel):
+    """Same purpose as AiIcsrDynamicField: meaningful information the
+    reporter gave that doesn't map to any canonical ICSR field — surfaced
+    to the human reviewer to keep or dismiss, never silently dropped or
+    silently added to the case record."""
+
+    label: str
+    value: Optional[str] = None
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
+class AiWhatsAppRequiredQuestionStatus(BaseModel):
+    questionId: str
+    answered: bool = False
+    answerSummary: Optional[str] = None
+
+
+class AiWhatsAppTurnResult(BaseModel):
+    """One turn of the WhatsApp intake conversation. `reply` is always
+    required — even when isComplete is true, it should be a closing
+    message (e.g. thanking the reporter), since the human on WhatsApp
+    always needs *something* sent back. Every other field mirrors the
+    conversation's accumulated state, not just what was said in this
+    turn — the caller replaces its stored state with these values
+    wholesale rather than trying to merge deltas, since the model has the
+    full transcript already."""
+
+    reply: str
+    isComplete: bool = False
+    # None = not asked yet; True/False once the reporter has answered.
+    wantsAnotherProduct: Optional[bool] = None
+    reporterName: Optional[str] = None
+    reporterQualification: Optional[str] = None
+    reporterContact: Optional[str] = None
+    patientIdentifier: Optional[str] = None
+    patientAge: Optional[str] = None
+    patientSex: Optional[Literal["MALE", "FEMALE", "UNKNOWN"]] = None
+    suspectProducts: list[AiWhatsAppSuspectProduct] = Field(default_factory=list)
+    reactions: list[AiWhatsAppReaction] = Field(default_factory=list)
+    narrative: Optional[str] = None
+    dynamicFields: list[AiWhatsAppDynamicField] = Field(default_factory=list)
+    requiredQuestionsStatus: list[AiWhatsAppRequiredQuestionStatus] = Field(default_factory=list)
+
+    @field_validator(
+        "reporterName", "reporterQualification", "reporterContact",
+        "patientIdentifier", "patientAge", "narrative", mode="before",
+    )
+    @classmethod
+    def _blank_to_none(cls, v):
+        if isinstance(v, str) and v.strip().lower() in ("", "unknown", "n/a", "none", "null"):
+            return None
+        return v
+
+
 # ------------------------------------------------------------------ Coding --
 
 _CODE_LIKE_TERM = re.compile(r"^[\d.\-]+$|^[A-Za-z]{1,4}-?\d+$")

@@ -43,7 +43,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Import routes
-from .routes import auth, cases, seriousness, coding, audit, signals, followups, compatibility
+from .routes import auth, cases, seriousness, coding, audit, signals, followups, compatibility, whatsapp
 from .routes import ai_linelist, ai_psur, ai_icsr, ai_coding, ai_literature
 
 def _get_env(*names: str) -> Optional[str]:
@@ -107,6 +107,7 @@ app.include_router(ai_psur.router, prefix="/api/ai/psur", tags=["ai-psur"])
 app.include_router(ai_icsr.router, prefix="/api/ai/icsr", tags=["ai-icsr"])
 app.include_router(ai_coding.router, prefix="/api/ai/coding", tags=["ai-coding"])
 app.include_router(ai_literature.router, prefix="/api/ai/literature", tags=["ai-literature"])
+app.include_router(whatsapp.router, prefix="/api/whatsapp", tags=["whatsapp"])
 
 # Health check
 @app.get("/health")

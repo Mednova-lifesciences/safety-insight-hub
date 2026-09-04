@@ -1,14 +1,17 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Copy, Eye, KeyRound, User } from "lucide-react";
+import { AlertTriangle, Copy, Eye, KeyRound, MessageCircle, Phone, Plus, Trash2, User } from "lucide-react";
 import { ROLE_LABELS, useAuth, useCurrentUser } from "@/lib/auth";
 import { getMyOrganizationInviteCode, deleteMyOrganization } from "@/services/api/organizations";
+import { whatsapp, type RequiredQuestion } from "@/services/api/whatsapp";
+import { supabase } from "@/integrations/supabase/client";
 import { isApiConfigured } from "@/services/api/client";
 import { PageHeader, Section } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +38,23 @@ function ProfileSection() {
   const { updateName } = useAuth();
   const [name, setName] = useState(user?.name ?? "");
   const [saving, setSaving] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [initialPhone, setInitialPhone] = useState("");
+  const [savingPhone, setSavingPhone] = useState(false);
+
+  useEffect(() => {
+    if (!user || !isApiConfigured()) return;
+    supabase
+      .from("profiles")
+      .select("phone")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        const value = (data?.phone as string | null) ?? "";
+        setPhone(value);
+        setInitialPhone(value);
+      });
+  }, [user]);
 
   if (!user) return null;
 
@@ -75,6 +95,43 @@ function ProfileSection() {
         >
           <User className="size-4" /> Save name
         </Button>
+
+        <div className="space-y-1.5 border-t border-border pt-4">
+          <Label htmlFor="settings-phone">Phone number</Label>
+          <Input
+            id="settings-phone"
+            type="tel"
+            placeholder="e.g. 2348012345678"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Used to text you when a WhatsApp report is ready for your review.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={savingPhone || phone.trim() === initialPhone}
+            onClick={async () => {
+              setSavingPhone(true);
+              try {
+                const { error } = await supabase
+                  .from("profiles")
+                  .update({ phone: phone.trim() || null })
+                  .eq("id", user.id);
+                if (error) throw new Error(error.message);
+                setInitialPhone(phone.trim());
+                toast.success("Phone number updated.");
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Could not update your phone number.");
+              } finally {
+                setSavingPhone(false);
+              }
+            }}
+          >
+            <Phone className="size-4" /> Save phone number
+          </Button>
+        </div>
       </div>
     </Section>
   );
@@ -326,9 +383,141 @@ function DangerZone() {
   );
 }
 
+function newQuestionId() {
+  return `q-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function WhatsAppIntakeSection() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [whatsappNumber, setWhatsappNumber] = useState("");
+  const [autoRespondDefault, setAutoRespondDefault] = useState(true);
+  const [questions, setQuestions] = useState<RequiredQuestion[]>([]);
+  const [newQuestion, setNewQuestion] = useState("");
+
+  useEffect(() => {
+    if (!isApiConfigured()) {
+      setLoading(false);
+      return;
+    }
+    whatsapp
+      .getSettings()
+      .then((s) => {
+        setWhatsappNumber(s.whatsappNumber ?? "");
+        setAutoRespondDefault(s.autoRespondDefault);
+        setQuestions(s.requiredQuestions);
+      })
+      .catch(() => toast.error("Could not load WhatsApp intake settings."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save(next: { requiredQuestions?: RequiredQuestion[] } = {}) {
+    setSaving(true);
+    try {
+      await whatsapp.saveSettings({
+        whatsappNumber: whatsappNumber.trim() || null,
+        autoRespondDefault,
+        requiredQuestions: next.requiredQuestions ?? questions,
+      });
+      toast.success("WhatsApp intake settings saved.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return null;
+
+  return (
+    <Section
+      title="WhatsApp intake"
+      description="Field reporters message this number and an AI conducts the intake conversation until your required questions are answered."
+    >
+      <div className="max-w-lg space-y-5">
+        <div className="space-y-1.5">
+          <Label htmlFor="whatsapp-number">WhatsApp number</Label>
+          <Input
+            id="whatsapp-number"
+            placeholder="e.g. 2348012345678"
+            value={whatsappNumber}
+            onChange={(e) => setWhatsappNumber(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            The Termii-registered number field associates and reporters text.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between rounded-md border border-border px-3 py-2.5">
+          <div>
+            <p className="text-sm font-medium">Auto-respond by default</p>
+            <p className="text-xs text-muted-foreground">
+              New conversations start with the AI replying automatically. Staff can turn this off
+              per-conversation to take over manually.
+            </p>
+          </div>
+          <Switch checked={autoRespondDefault} onCheckedChange={setAutoRespondDefault} />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Required questions</Label>
+          <p className="text-xs text-muted-foreground">
+            The AI keeps asking questions until every one of these is answered (on top of the
+            minimum reporter/patient/product/reaction ICSR criteria).
+          </p>
+          <div className="space-y-2">
+            {questions.map((q, i) => (
+              <div key={q.id} className="flex items-center gap-2 rounded-md border border-border px-3 py-2">
+                <span className="flex-1 text-sm">{q.text}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    const next = questions.filter((_, idx) => idx !== i);
+                    setQuestions(next);
+                    save({ requiredQuestions: next });
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="e.g. What is the batch number?"
+              value={newQuestion}
+              onChange={(e) => setNewQuestion(e.target.value)}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!newQuestion.trim()}
+              onClick={() => {
+                const next = [...questions, { id: newQuestionId(), text: newQuestion.trim() }];
+                setQuestions(next);
+                setNewQuestion("");
+                save({ requiredQuestions: next });
+              }}
+            >
+              <Plus className="size-4" /> Add
+            </Button>
+          </div>
+        </div>
+
+        <Button size="sm" disabled={saving} onClick={() => save()}>
+          <MessageCircle className="size-4" /> Save WhatsApp settings
+        </Button>
+      </div>
+    </Section>
+  );
+}
+
 function SettingsPage() {
   const user = useCurrentUser();
   const isManager = user?.role === "PV_MANAGER" || user?.role === "ADMIN";
+  const canConfigureIntake =
+    user?.role === "PV_MANAGER" || user?.role === "PV_COORDINATOR" || user?.role === "ADMIN";
 
   return (
     <>
@@ -336,6 +525,7 @@ function SettingsPage() {
       <div className="space-y-4 p-6">
         <ProfileSection />
         <ChangePasswordSection />
+        {canConfigureIntake ? <WhatsAppIntakeSection /> : null}
         {isManager ? <OrganizationSection /> : null}
         {isManager ? <DangerZone /> : null}
       </div>

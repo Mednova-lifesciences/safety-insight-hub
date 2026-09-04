@@ -155,6 +155,90 @@ export type Database = {
         }
         Relationships: []
       }
+      pv_intake_conversations: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          id: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      pv_intake_messages: {
+        Row: {
+          body: string
+          conversation_id: string
+          created_at: string
+          direction: string
+          id: string
+          organization_id: string
+          sender: string
+          staff_user_id: string | null
+          termii_message_id: string | null
+        }
+        Insert: {
+          body: string
+          conversation_id: string
+          created_at?: string
+          direction: string
+          id: string
+          organization_id?: string
+          sender: string
+          staff_user_id?: string | null
+          termii_message_id?: string | null
+        }
+        Update: {
+          body?: string
+          conversation_id?: string
+          created_at?: string
+          direction?: string
+          id?: string
+          organization_id?: string
+          sender?: string
+          staff_user_id?: string | null
+          termii_message_id?: string | null
+        }
+        Relationships: []
+      }
+      pv_intake_settings: {
+        Row: {
+          auto_respond_default: boolean
+          organization_id: string
+          required_questions: Json
+          updated_at: string
+          whatsapp_number: string | null
+        }
+        Insert: {
+          auto_respond_default?: boolean
+          organization_id?: string
+          required_questions?: Json
+          updated_at?: string
+          whatsapp_number?: string | null
+        }
+        Update: {
+          auto_respond_default?: boolean
+          organization_id?: string
+          required_questions?: Json
+          updated_at?: string
+          whatsapp_number?: string | null
+        }
+        Relationships: []
+      }
       pv_follow_ups: {
         Row: {
           case_id: string
@@ -173,27 +257,6 @@ export type Database = {
           created_at?: string
           data?: Json
           id?: string
-        }
-        Relationships: []
-      }
-      pv_intake_conversations: {
-        Row: {
-          created_at: string
-          data: Json
-          id: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          data: Json
-          id: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          data?: Json
-          id?: string
-          updated_at?: string
         }
         Relationships: []
       }
@@ -357,6 +420,7 @@ export type Database = {
           full_name: string | null
           id: string
           organization_id: string
+          phone: string | null
           role: string
           updated_at: string
         }
@@ -366,6 +430,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           organization_id: string
+          phone?: string | null
           role: string
           updated_at?: string
         }
@@ -375,6 +440,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           organization_id?: string
+          phone?: string | null
           role?: string
           updated_at?: string
         }
