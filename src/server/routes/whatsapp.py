@@ -17,13 +17,14 @@ the manual intake form does.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from ..ai.client import AiNotConfiguredError, AiRequestError, structured_completion
@@ -180,15 +181,23 @@ async def _run_ai_turn(
 
 
 @router.post("/webhook")
-async def receive_whatsapp_webhook(request: Request, secret: str = Query(default="")):
+async def receive_whatsapp_webhook(
+    request: Request,
+    secret: str = Query(default=""),
+    x_webhook_secret: str = Header(default=""),
+):
     # Fails closed, always — an unauthenticated public endpoint that
     # triggers OpenAI calls and writes conversations/notifications must
     # never have a "warn and proceed anyway" fallback for the
-    # not-yet-configured state. Set TERMII_WEBHOOK_SECRET on this server
-    # and register the same value as `?secret=` on the webhook URL you
-    # give Termii — do this before Termii can deliver anything for real.
+    # not-yet-configured state. Set TERMII_WEBHOOK_SECRET on this server;
+    # if Termii's webhook config lets you set a custom header, send it as
+    # `X-Webhook-Secret` (preferred — never appears in access logs). If it
+    # only accepts a bare URL, `?secret=` still works as a fallback, but
+    # prefer the header when you have the choice. Either way, compare in
+    # constant time — a naive `==`/`!=` on a secret leaks timing info.
     expected = os.getenv("TERMII_WEBHOOK_SECRET", "").strip()
-    if not webhook_secret_configured() or secret != expected:
+    provided = x_webhook_secret or secret
+    if not webhook_secret_configured() or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing webhook secret")
 
     payload = await request.json()
