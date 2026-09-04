@@ -17,6 +17,32 @@ export const Route = createFileRoute("/")({
         property: "og:description",
         content: "ICSR intake, triage, coding assistance and signal review — organized per company.",
       },
+      // Overrides the root's default `noindex` — this is the one page
+      // meant to be publicly discoverable. Every authenticated page
+      // (dashboard, cases, audit, …) and every per-org field-associate
+      // link (/r/:orgSlug) stays noindex: nothing behind login should be
+      // indexed, and a company's own drug catalog isn't public information.
+      { name: "robots", content: "index, follow" },
+    ],
+    // `scripts` (unlike the component body below, which is client-rendered
+    // — this route sets ssr:false) is assembled server-side regardless, so
+    // this JSON-LD is actually present in the HTML a crawler fetches.
+    // Facts only: no fabricated ratings, pricing, or org details not
+    // already stated in this app's own meta tags above.
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "SoftwareApplication",
+          name: "MedNova PV Assist",
+          applicationCategory: "BusinessApplication",
+          operatingSystem: "Web",
+          description:
+            "Pharmacovigilance operations platform for ICSR triage, MedDRA/WHODrug coding, line-list processing, E2B(R3) preparation, PSUR/PBRER review and signal management.",
+          url: "https://pv-assist.mednovalife.com",
+        }),
+      },
     ],
   }),
   component: HomePage,

@@ -11,7 +11,14 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/signup")({
   ssr: false,
   head: () => ({
-    meta: [{ title: "Sign up — MedNova PV Assist" }],
+    meta: [
+      { title: "Sign up — MedNova PV Assist" },
+      {
+        name: "description",
+        content: "Set up your organization on MedNova PV Assist, or join an existing one with an invite code.",
+      },
+      { name: "robots", content: "index, follow" },
+    ],
   }),
   component: SignupPage,
 });

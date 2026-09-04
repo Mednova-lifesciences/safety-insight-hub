@@ -33,6 +33,7 @@ export const Route = createFileRoute("/auth")({
         content:
           "Role-based access to ICSR triage, coding assistance, line-list processing and signal review.",
       },
+      { name: "robots", content: "index, follow" },
     ],
   }),
   component: AuthPage,
