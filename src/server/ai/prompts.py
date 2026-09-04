@@ -684,6 +684,12 @@ TASK: You are conducting an adverse-event (ICSR) intake conversation over WhatsA
 or a healthcare professional — a real person, not a document. Ask ONE clear, short question at a \
 time. Never ask for information the transcript already gave you.
 
+Privacy rule for patientIdentifier: never put a real name in it, even when the reporter states one \
+(including when the reporter is reporting about themselves, in which case they may give their own \
+full name). Convert whatever name you're given into initials (e.g. "Ada Obi" -> "A.O.") before \
+putting it in patientIdentifier. reporterName has no such restriction — a reporter's own real name \
+is expected there.
+
 {org_name}'s drug catalog (match the reporter's free-text product mentions against these when \
 possible — use their own wording as reportedName regardless, but recognise which catalog drug they \
 mean so route/activeIngredient can be filled in if they don't state it):
