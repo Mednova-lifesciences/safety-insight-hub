@@ -225,14 +225,31 @@ export const cases = {
     payload: NewIcsrPayload,
   ): Promise<{ caseId: string; workflowStep: WorkflowStep }> => {
     const actor = currentActor();
-    const { count } = await supabase.from("pv_cases").select("id", { count: "exact", head: true });
-    const caseId = `MN-${new Date().getFullYear()}-${String(900000 + (count ?? 0) + 1).slice(0, 6)}`;
-    const detail = buildCaseDetail(caseId, payload, actor.name);
+
+    // `count` is RLS-scoped to the caller's own organization, but
+    // `pv_cases.id` is a single global primary key — two different
+    // organizations each creating their first case both compute count=0
+    // and would otherwise generate the exact same id (MN-2026-900001),
+    // colliding on insert (surfaced once real multi-org data existed).
+    // Retrying with a random jitter on a 23505 unique-violation makes the
+    // scheme collision-safe without changing the visible id format.
+    let detail: CaseDetail | undefined;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { count } = await supabase.from("pv_cases").select("id", { count: "exact", head: true });
+      const jitter = attempt === 0 ? 0 : Math.floor(Math.random() * 900) + 1;
+      const caseId = `MN-${new Date().getFullYear()}-${String(900000 + (count ?? 0) + 1 + jitter).slice(0, 6)}`;
+      const candidate = buildCaseDetail(caseId, payload, actor.name);
+      const { error } = await supabase.from("pv_cases").insert({ id: caseId, data: toJson(candidate) });
+      if (!error) {
+        detail = candidate;
+        break;
+      }
+      if (error.code !== "23505" || attempt === 4) throw new Error(error.message);
+    }
+    if (!detail) throw new Error("Could not allocate a unique case id.");
+    const caseId = detail.id;
     const product = detail.product;
     const reaction = detail.reaction;
-
-    const { error } = await supabase.from("pv_cases").insert({ id: caseId, data: toJson(detail) });
-    if (error) throw new Error(error.message);
 
     await recordAudit({
       action: "CASE_CREATED",
