@@ -171,6 +171,7 @@ function E2bPage() {
                                 toast.success(
                                   `Generated ${artifact.filename} (${artifact.caseCount} cases). Not transmitted.`,
                                 );
+                                jobs.refetch();
                               } catch (err) {
                                 toast.error(
                                   isNotConfigured(err)
