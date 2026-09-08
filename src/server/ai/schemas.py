@@ -25,6 +25,9 @@ _KNOWN_LINELIST_ISSUE_TYPES = {
 }
 
 
+_KNOWN_LINELIST_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+
+
 class AiLineListFinding(BaseModel):
     row: int
     column: str
@@ -65,6 +68,21 @@ class AiLineListFinding(BaseModel):
     # about — more than one for a cross-field finding, e.g.
     # ["vaccination_date", "onset_date"] for a chronology conflict.
     affectedFields: list[str] = Field(default_factory=list)
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _normalize_severity(cls, v):
+        # Reproduced live: a real response otherwise well-formed across 30+
+        # findings had one finding's severity come back as
+        # "FIELD_CONTENT_MISMATCH" (an issueType value, not a severity) —
+        # a strict Literal here rejected the *entire* batch over that one
+        # field on one finding, discarding every other valid finding along
+        # with it. Same reasoning as issueType below: degrade an
+        # unrecognised value to a safe default so one bad field doesn't
+        # sink the whole response.
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_LINELIST_SEVERITIES:
+            return v.strip().upper()
+        return "MEDIUM"
 
     @field_validator("issueType", mode="before")
     @classmethod
@@ -134,12 +152,33 @@ class AiLineListFix(BaseModel):
 
 # ---------------------------------------------------------------------- PSUR --
 
+_KNOWN_PSUR_CATEGORIES = {"MISSING_SECTION", "CONSISTENCY", "NUMERICAL", "SIGNAL", "BENEFIT_RISK"}
+_KNOWN_PSUR_SEVERITIES = {"HIGH", "MEDIUM", "LOW"}
+
+
 class AiPsurFinding(BaseModel):
     category: Literal["MISSING_SECTION", "CONSISTENCY", "NUMERICAL", "SIGNAL", "BENEFIT_RISK"]
     severity: Literal["HIGH", "MEDIUM", "LOW"]
     section: str
     description: str
     evidence: str
+
+    # Same fragility as AiLineListFinding.severity above, and the same fix:
+    # one finding with an off-enum category or severity would otherwise
+    # fail the entire review's validation, discarding every other finding.
+    @field_validator("category", mode="before")
+    @classmethod
+    def _normalize_category(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_PSUR_CATEGORIES:
+            return v.strip().upper()
+        return "CONSISTENCY"
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _normalize_severity(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_PSUR_SEVERITIES:
+            return v.strip().upper()
+        return "MEDIUM"
 
 
 class AiPsurReview(BaseModel):
