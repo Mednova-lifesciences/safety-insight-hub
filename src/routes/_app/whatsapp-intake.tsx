@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, MessageCircle, RotateCcw, ShieldAlert } from "lucide-react";
 import { cases as casesApi } from "@/services/api/cases";
@@ -29,29 +29,330 @@ interface ChatMessage {
   at: Date;
 }
 
-const REPORTER_FIRST = "Unknown reporter";
-const REPORTER_FULL = "Kemi Tijani";
-const REPORTER_NUMBER = "+234 802 966 2269";
+/** One scripted reporter + case for the demo conversation. A fresh one is
+ *  picked at random each time the page loads or "New simulation" is
+ *  clicked, so repeat demos don't always show the same Astymin Forte case. */
+interface Scenario {
+  reporterFull: string;
+  /** How staff address them in the consent message, e.g. "Nurse Tijani". */
+  addressForm: string;
+  qualification: string;
+  /** Shown under the reporter name in the chat header. */
+  qualificationLabel: string;
+  reporterNumber: string;
+  intro: [string, string, string];
+  infoReply: string;
+  patientInitials: string;
+  patientAge: string;
+  patientSex: "MALE" | "FEMALE";
+  medicalHistory: string;
+  product: string;
+  batchNumber: string;
+  route: string;
+  indication: string;
+  action: string;
+  reactionTerm: string;
+  onsetDaysAgo: number;
+  outcome: "RECOVERED" | "RECOVERING" | "NOT_RECOVERED";
+  narrative: string;
+}
 
-const R_INTRO_1 = "Good afternoon. I am a nurse at a clinic in Ikeja.";
-const R_INTRO_2 =
-  "A patient took Astymin Forte yesterday and now has swelling of the face and difficulty breathing.";
-const R_INTRO_3 = "We referred her to the hospital this morning.";
+const SCENARIOS: Scenario[] = [
+  {
+    reporterFull: "Kemi Tijani",
+    addressForm: "Nurse Tijani",
+    qualification: "Nurse",
+    qualificationLabel: "Healthcare Professional",
+    reporterNumber: "+234 802 966 2269",
+    intro: [
+      "Good afternoon. I am a nurse at a clinic in Ikeja.",
+      "A patient took Astymin Forte yesterday and now has swelling of the face and difficulty breathing.",
+      "We referred her to the hospital this morning.",
+    ],
+    infoReply:
+      "My name is Kemi Tijani, and you can reach me on this number. The patient's initials are A.S., she is 34 years old. The medicine is Astymin Forte syrup, batch number AF-2209.",
+    patientInitials: "A.S.",
+    patientAge: "34",
+    patientSex: "FEMALE",
+    medicalHistory: "Anaemia — reported by the caller",
+    product: "Astymin Forte",
+    batchNumber: "AF-2209",
+    route: "Oral",
+    indication: "Anaemia",
+    action: "Dose not changed",
+    reactionTerm: "Angioedema",
+    onsetDaysAgo: 1,
+    outcome: "NOT_RECOVERED",
+    narrative:
+      "Nurse Kemi Tijani (clinic in Ikeja, reachable on +234 802 966 2269) reported that a 34-year-old female patient (initials A.S.) took Astymin Forte syrup (batch AF-2209) yesterday for anaemia and developed facial swelling with difficulty breathing (suspected angioedema). She was referred to the hospital this morning; outcome not yet recovered. Received via WhatsApp.",
+  },
+  {
+    reporterFull: "Chidinma Okoro",
+    addressForm: "Pharm. Okoro",
+    qualification: "Pharmacist",
+    qualificationLabel: "Pharmacist",
+    reporterNumber: "+234 803 214 5567",
+    intro: [
+      "Good day. I am a community pharmacist in Surulere, Lagos.",
+      "A customer bought Paracetamol tablets two days ago for fever and now has a blistering skin rash all over her body.",
+      "She has been admitted for observation at a nearby hospital.",
+    ],
+    infoReply:
+      "My name is Chidinma Okoro, and you can reach me on this number. The patient's initials are O.A., she is 22 years old. The medicine is Paracetamol tablets, batch number PC-1187.",
+    patientInitials: "O.A.",
+    patientAge: "22",
+    patientSex: "FEMALE",
+    medicalHistory: "No known drug allergies — reported by the caller",
+    product: "Paracetamol",
+    batchNumber: "PC-1187",
+    route: "Oral",
+    indication: "Fever",
+    action: "Product withdrawn",
+    reactionTerm: "Blistering skin rash",
+    onsetDaysAgo: 2,
+    outcome: "RECOVERING",
+    narrative:
+      "Pharmacist Chidinma Okoro (community pharmacy, Surulere, Lagos, reachable on +234 803 214 5567) reported that a 22-year-old female patient (initials O.A.) took Paracetamol tablets (batch PC-1187) two days ago for fever and developed a blistering skin rash over her whole body. She has been admitted to hospital for observation; recovering. Received via WhatsApp.",
+  },
+  {
+    reporterFull: "Femi Adebayo",
+    addressForm: "Dr. Adebayo",
+    qualification: "Physician",
+    qualificationLabel: "Physician",
+    reporterNumber: "+234 805 990 2231",
+    intro: [
+      "Good morning, I'm a physician at a clinic in Wuse, Abuja.",
+      "One of my patients received an Amoxicillin injection this morning and immediately developed swelling, wheezing and low blood pressure.",
+      "We gave emergency treatment and are monitoring him in the ICU.",
+    ],
+    infoReply:
+      "My name is Femi Adebayo, and you can reach me on this number. The patient's initials are T.O., he is 8 years old. The medicine is Amoxicillin injection, batch number AMX-3390.",
+    patientInitials: "T.O.",
+    patientAge: "8",
+    patientSex: "MALE",
+    medicalHistory: "No known drug allergies — reported by the caller",
+    product: "Amoxicillin",
+    batchNumber: "AMX-3390",
+    route: "Intramuscular",
+    indication: "Ear infection",
+    action: "Drug withdrawn",
+    reactionTerm: "Anaphylaxis",
+    onsetDaysAgo: 0,
+    outcome: "RECOVERING",
+    narrative:
+      "Dr. Femi Adebayo (clinic in Wuse, Abuja, reachable on +234 805 990 2231) reported that an 8-year-old male patient (initials T.O.) received an Amoxicillin injection (batch AMX-3390) for an ear infection and immediately developed swelling, wheezing and hypotension consistent with anaphylaxis. He received emergency treatment and is being monitored in the ICU; recovering. Received via WhatsApp.",
+  },
+  {
+    reporterFull: "Musa Ibrahim",
+    addressForm: "Mr. Ibrahim",
+    qualification: "Consumer/patient",
+    qualificationLabel: "Consumer/patient",
+    reporterNumber: "+234 807 662 9911",
+    intro: [
+      "Hello, I want to report something about a drug I have been taking.",
+      "I have been taking Ibuprofen tablets for my back pain and yesterday I noticed blood in my stool and felt very weak.",
+      "I went to the hospital and they say it is bleeding in my stomach.",
+    ],
+    infoReply:
+      "My name is Musa Ibrahim, and you can reach me on this number. It is me, I am 51 years old. The medicine is Ibuprofen tablets, batch number IBU-7742.",
+    patientInitials: "M.I.",
+    patientAge: "51",
+    patientSex: "MALE",
+    medicalHistory: "Chronic back pain — reported by the caller",
+    product: "Ibuprofen",
+    batchNumber: "IBU-7742",
+    route: "Oral",
+    indication: "Back pain",
+    action: "Drug withdrawn",
+    reactionTerm: "Gastrointestinal haemorrhage",
+    onsetDaysAgo: 1,
+    outcome: "NOT_RECOVERED",
+    narrative:
+      "Mr. Musa Ibrahim (reachable on +234 807 662 9911) self-reported that he took Ibuprofen tablets (batch IBU-7742) for chronic back pain and developed melena and weakness, diagnosed at hospital as gastrointestinal haemorrhage; not yet recovered. Received via WhatsApp.",
+  },
+  {
+    reporterFull: "Ngozi Umeh",
+    addressForm: "Nurse Umeh",
+    qualification: "Nurse",
+    qualificationLabel: "Healthcare Professional",
+    reporterNumber: "+234 809 441 7765",
+    intro: [
+      "Good afternoon, I'm a nurse at a diabetes clinic in Port Harcourt.",
+      "A patient started Metformin last week and has had persistent nausea and dizziness since.",
+      "She is otherwise stable and managing at home.",
+    ],
+    infoReply:
+      "My name is Ngozi Umeh, and you can reach me on this number. The patient's initials are E.N., she is 46 years old. The medicine is Metformin tablets, batch number MET-5561.",
+    patientInitials: "E.N.",
+    patientAge: "46",
+    patientSex: "FEMALE",
+    medicalHistory: "Type 2 diabetes — reported by the caller",
+    product: "Metformin",
+    batchNumber: "MET-5561",
+    route: "Oral",
+    indication: "Type 2 diabetes",
+    action: "Dose not changed",
+    reactionTerm: "Nausea and dizziness",
+    onsetDaysAgo: 7,
+    outcome: "RECOVERING",
+    narrative:
+      "Nurse Ngozi Umeh (diabetes clinic, Port Harcourt, reachable on +234 809 441 7765) reported that a 46-year-old female patient (initials E.N.) started Metformin (batch MET-5561) a week ago for type 2 diabetes and has had persistent nausea and dizziness since; managing at home, recovering. Received via WhatsApp.",
+  },
+  {
+    reporterFull: "Bola Balogun",
+    addressForm: "Pharm. Balogun",
+    qualification: "Pharmacist",
+    qualificationLabel: "Pharmacist",
+    reporterNumber: "+234 810 332 8890",
+    intro: [
+      "Good evening. I am a pharmacist here in Enugu.",
+      "A customer who took Ciprofloxacin for a urinary infection is now complaining of severe pain and swelling in his Achilles tendon.",
+      "He says he can barely walk.",
+    ],
+    infoReply:
+      "My name is Bola Balogun, and you can reach me on this number. The patient's initials are K.C., he is 60 years old. The medicine is Ciprofloxacin tablets, batch number CIP-2204.",
+    patientInitials: "K.C.",
+    patientAge: "60",
+    patientSex: "MALE",
+    medicalHistory: "No known drug allergies — reported by the caller",
+    product: "Ciprofloxacin",
+    batchNumber: "CIP-2204",
+    route: "Oral",
+    indication: "Urinary tract infection",
+    action: "Drug withdrawn",
+    reactionTerm: "Tendon pain and swelling",
+    onsetDaysAgo: 3,
+    outcome: "NOT_RECOVERED",
+    narrative:
+      "Pharmacist Bola Balogun (community pharmacy, Enugu, reachable on +234 810 332 8890) reported that a 60-year-old male patient (initials K.C.) took Ciprofloxacin (batch CIP-2204) for a urinary tract infection and developed severe Achilles tendon pain and swelling, now unable to walk normally; not yet recovered. Received via WhatsApp.",
+  },
+  {
+    reporterFull: "Yetunde Fashola",
+    addressForm: "Nurse Fashola",
+    qualification: "Nurse",
+    qualificationLabel: "Healthcare Professional",
+    reporterNumber: "+234 812 556 0034",
+    intro: [
+      "Good morning, I'm a nurse at a primary health centre in Ibadan.",
+      "A child was given Coartem for malaria and has been vomiting repeatedly and seems dizzy.",
+      "The mother is very worried and the child has not been able to keep any food down.",
+    ],
+    infoReply:
+      "My name is Yetunde Fashola, and you can reach me on this number. The patient's initials are B.F., he is 6 years old. The medicine is Coartem tablets, batch number CRT-9013.",
+    patientInitials: "B.F.",
+    patientAge: "6",
+    patientSex: "MALE",
+    medicalHistory: "No known drug allergies — reported by the caller",
+    product: "Artemether-Lumefantrine (Coartem)",
+    batchNumber: "CRT-9013",
+    route: "Oral",
+    indication: "Malaria",
+    action: "Dose not changed",
+    reactionTerm: "Persistent vomiting and dizziness",
+    onsetDaysAgo: 1,
+    outcome: "RECOVERING",
+    narrative:
+      "Nurse Yetunde Fashola (primary health centre, Ibadan, reachable on +234 812 556 0034) reported that a 6-year-old male patient (initials B.F.) was given Artemether-Lumefantrine (Coartem, batch CRT-9013) for malaria and developed persistent vomiting and dizziness, unable to retain food; recovering. Received via WhatsApp.",
+  },
+  {
+    reporterFull: "Grace Effiong",
+    addressForm: "Dr. Effiong",
+    qualification: "Physician",
+    qualificationLabel: "Physician",
+    reporterNumber: "+234 813 771 4420",
+    intro: [
+      "Good afternoon, I'm a physician in Kaduna.",
+      "A patient on Omeprazole for acid reflux has reported a persistent headache for the past three days.",
+      "Nothing else notable — she is still able to go about her daily activities.",
+    ],
+    infoReply:
+      "My name is Grace Effiong, and you can reach me on this number. The patient's initials are R.E., she is 39 years old. The medicine is Omeprazole capsules, batch number OMP-4471.",
+    patientInitials: "R.E.",
+    patientAge: "39",
+    patientSex: "FEMALE",
+    medicalHistory: "Acid reflux — reported by the caller",
+    product: "Omeprazole",
+    batchNumber: "OMP-4471",
+    route: "Oral",
+    indication: "Acid reflux",
+    action: "Dose not changed",
+    reactionTerm: "Headache",
+    onsetDaysAgo: 3,
+    outcome: "RECOVERED",
+    narrative:
+      "Dr. Grace Effiong (clinic in Kaduna, reachable on +234 813 771 4420) reported that a 39-year-old female patient (initials R.E.) on Omeprazole (batch OMP-4471) for acid reflux experienced a persistent headache for three days, otherwise able to continue daily activities; recovered. Received via WhatsApp.",
+  },
+  {
+    reporterFull: "Chika Nwosu",
+    addressForm: "Ms. Nwosu",
+    qualification: "Consumer/patient",
+    qualificationLabel: "Reporting on a family member",
+    reporterNumber: "+234 814 220 9987",
+    intro: [
+      "Hello, I need to report something about my brother's medication.",
+      "He started Sertraline three weeks ago for depression and has become withdrawn, and this week mentioned thoughts of ending his life.",
+      "We took him to the emergency department yesterday and he is currently admitted for psychiatric observation.",
+    ],
+    infoReply:
+      "My name is Chika Nwosu, and you can reach me on this number. The patient's initials are U.N., he is 27 years old. The medicine is Sertraline tablets, batch number SER-6650.",
+    patientInitials: "U.N.",
+    patientAge: "27",
+    patientSex: "MALE",
+    medicalHistory: "Depression — reported by the caller",
+    product: "Sertraline",
+    batchNumber: "SER-6650",
+    route: "Oral",
+    indication: "Depression",
+    action: "Drug withdrawn",
+    reactionTerm: "Suicidal ideation",
+    onsetDaysAgo: 2,
+    outcome: "NOT_RECOVERED",
+    narrative:
+      "Chika Nwosu (reachable on +234 814 220 9987) reported that her 27-year-old brother (initials U.N.) started Sertraline (batch SER-6650) three weeks ago for depression, became withdrawn, and this week expressed suicidal ideation. He was taken to the emergency department and is currently admitted for psychiatric observation; not yet recovered. Received via WhatsApp.",
+  },
+  {
+    reporterFull: "Amaka Eze",
+    addressForm: "Nurse Eze",
+    qualification: "Nurse",
+    qualificationLabel: "Healthcare Professional",
+    reporterNumber: "+234 816 903 1256",
+    intro: [
+      "Good afternoon, I'm a nurse at a hospital in Benin City.",
+      "A patient received a Ceftriaxone injection yesterday and now has significant swelling, redness and pain at the injection site.",
+      "It has not improved since yesterday, but she is otherwise well.",
+    ],
+    infoReply:
+      "My name is Amaka Eze, and you can reach me on this number. The patient's initials are P.O., she is 33 years old. The medicine is Ceftriaxone injection, batch number CFX-3387.",
+    patientInitials: "P.O.",
+    patientAge: "33",
+    patientSex: "FEMALE",
+    medicalHistory: "No known drug allergies — reported by the caller",
+    product: "Ceftriaxone",
+    batchNumber: "CFX-3387",
+    route: "Intramuscular",
+    indication: "Bacterial infection",
+    action: "Dose not changed",
+    reactionTerm: "Injection site swelling and pain",
+    onsetDaysAgo: 1,
+    outcome: "RECOVERING",
+    narrative:
+      "Nurse Amaka Eze (hospital, Benin City, reachable on +234 816 903 1256) reported that a 33-year-old female patient (initials P.O.) received a Ceftriaxone injection (batch CFX-3387) for a bacterial infection and developed significant swelling, redness and pain at the injection site, unimproved since onset; otherwise well, recovering. Received via WhatsApp.",
+  },
+];
+
+function pickScenario(): Scenario {
+  return SCENARIOS[Math.floor(Math.random() * SCENARIOS.length)]!;
+}
+
+const REPORTER_FIRST = "Unknown reporter";
 
 const STAFF_INFO_REQUEST =
   "Thank you for the report. To register this safety report we still need: your full name; the patient's initials, age and sex; and the exact medicine name with its batch number. Please reply with these details.";
-const R_INFO_REPLY =
-  "My name is Kemi Tijani, and you can reach me on this number. The patient's initials are A.S., she is 34 years old. The medicine is Astymin Forte syrup, batch number AF-2209.";
 
-const STAFF_CONSENT_REQUEST =
-  "Thank you, Nurse Tijani. One more thing: do you consent to the information you have provided being used for drug safety monitoring and regulatory reporting, in line with the NDPR?";
 const R_CONSENT_REPLY = "Yes, I consent to my information being used for drug safety monitoring.";
 
 const STAFF_NOT_REPORTABLE =
   "Thank you for reaching out. Based on the information provided, this report does not meet the criteria for an individual case safety report, so no case record will be created. Please contact us again if anything changes or if the patient's condition changes.";
-
-const NARRATIVE =
-  "Nurse Kemi Tijani (clinic in Ikeja, reachable on +234 802 966 2269) reported that a 34-year-old female patient (initials A.S.) took Astymin Forte syrup (batch AF-2209) yesterday for anaemia and developed facial swelling with difficulty breathing (suspected angioedema). She was referred to the hospital this morning; outcome not yet recovered. Received via WhatsApp.";
 
 const CRITERIA: { key: string; label: string }[] = [
   { key: "reporter", label: "Identifiable reporter" },
@@ -62,10 +363,17 @@ const CRITERIA: { key: string; label: string }[] = [
 
 function WhatsAppIntakePage() {
   const [nonce, setNonce] = useState(0);
-  return <WhatsAppIntakeDemo key={nonce} onReset={() => setNonce((n) => n + 1)} />;
+  const scenario = useMemo(() => pickScenario(), [nonce]);
+  return <WhatsAppIntakeDemo key={nonce} scenario={scenario} onReset={() => setNonce((n) => n + 1)} />;
 }
 
-function WhatsAppIntakeDemo({ onReset }: { onReset: () => void }) {
+function WhatsAppIntakeDemo({
+  scenario,
+  onReset,
+}: {
+  scenario: Scenario;
+  onReset: () => void;
+}) {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [typing, setTyping] = useState(false);
@@ -102,17 +410,17 @@ function WhatsAppIntakeDemo({ onReset }: { onReset: () => void }) {
       setTyping(true);
       if (!(await wait(1100))) return;
       setTyping(false);
-      push("reporter", R_INTRO_1);
+      push("reporter", scenario.intro[0]);
       if (!(await wait(1300))) return;
       setTyping(true);
       if (!(await wait(1400))) return;
       setTyping(false);
-      push("reporter", R_INTRO_2);
+      push("reporter", scenario.intro[1]);
       if (!(await wait(1300))) return;
       setTyping(true);
       if (!(await wait(1200))) return;
       setTyping(false);
-      push("reporter", R_INTRO_3);
+      push("reporter", scenario.intro[2]);
       setIntroDone(true);
     })();
     return () => {
@@ -152,7 +460,7 @@ function WhatsAppIntakeDemo({ onReset }: { onReset: () => void }) {
     setTyping(true);
     if (!(await wait(1900))) return;
     setTyping(false);
-    push("reporter", R_INFO_REPLY);
+    push("reporter", scenario.infoReply);
     setInfoComplete(true);
     setBusy(false);
   }
@@ -161,7 +469,10 @@ function WhatsAppIntakeDemo({ onReset }: { onReset: () => void }) {
     if (busy || closed || consentRecorded || consentRequested) return;
     setBusy(true);
     setConsentRequested(true);
-    push("staff", STAFF_CONSENT_REQUEST);
+    push(
+      "staff",
+      `Thank you, ${scenario.addressForm}. One more thing: do you consent to the information you have provided being used for drug safety monitoring and regulatory reporting, in line with the NDPR?`,
+    );
     setTyping(true);
     if (!(await wait(1700))) return;
     setTyping(false);
@@ -200,34 +511,36 @@ function WhatsAppIntakeDemo({ onReset }: { onReset: () => void }) {
     try {
       const created = await casesApi.create({
         reporter: {
-          name: REPORTER_FULL,
-          qualification: "Nurse",
+          name: scenario.reporterFull,
+          qualification: scenario.qualification,
           country: "Nigeria",
-          contact: REPORTER_NUMBER,
+          contact: scenario.reporterNumber,
         },
         patient: {
-          identifier: "A.S.",
-          age: "34",
-          sex: "FEMALE",
+          identifier: scenario.patientInitials,
+          age: scenario.patientAge,
+          sex: scenario.patientSex,
           weightKg: "",
-          medicalHistory: "Anaemia — reported by the caller",
+          medicalHistory: scenario.medicalHistory,
         },
         product: {
-          reportedName: "Astymin Forte",
+          reportedName: scenario.product,
           dose: "",
-          route: "Oral",
-          indication: "Anaemia",
+          route: scenario.route,
+          indication: scenario.indication,
           therapyStart: "",
-          action: "Dose not changed",
-          batchNumber: "AF-2209",
+          action: scenario.action,
+          batchNumber: scenario.batchNumber,
           expiryDate: "",
         },
         reaction: {
-          reportedTerm: "Angioedema",
-          onsetDate: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
-          outcome: "NOT_RECOVERED",
+          reportedTerm: scenario.reactionTerm,
+          onsetDate: new Date(Date.now() - scenario.onsetDaysAgo * 86_400_000)
+            .toISOString()
+            .slice(0, 10),
+          outcome: scenario.outcome,
         },
-        narrative: NARRATIVE,
+        narrative: scenario.narrative,
         reportedSeriousness: seriousness ?? "UNASSESSED",
         seriousnessCriteria:
           seriousness === "SERIOUS" ? ["Requires or prolongs hospitalisation"] : [],
@@ -250,7 +563,7 @@ function WhatsAppIntakeDemo({ onReset }: { onReset: () => void }) {
     }
   }
 
-  const reporterName = infoComplete ? REPORTER_FULL : REPORTER_FIRST;
+  const reporterName = infoComplete ? scenario.reporterFull : REPORTER_FIRST;
 
   return (
     <>
@@ -288,7 +601,9 @@ function WhatsAppIntakeDemo({ onReset }: { onReset: () => void }) {
                   Just now
                 </span>
               </div>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{REPORTER_NUMBER}</p>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {scenario.reporterNumber}
+              </p>
               <div className="mt-1.5">
                 <StatusPill tone={closed ? "neutral" : canCreate ? "success" : "warning"}>
                   {closed ? "Not reportable" : canCreate ? "Ready to convert" : "New"}
@@ -312,7 +627,7 @@ function WhatsAppIntakeDemo({ onReset }: { onReset: () => void }) {
                   <span className="font-normal text-muted-foreground">(simulated)</span>
                 </p>
                 <p className="mono-num truncate text-xs text-muted-foreground">
-                  {REPORTER_NUMBER} · Healthcare Professional
+                  {scenario.reporterNumber} · {scenario.qualificationLabel}
                 </p>
               </div>
               <StatusPill tone="assist" className="ml-auto">
@@ -396,16 +711,16 @@ function WhatsAppIntakeDemo({ onReset }: { onReset: () => void }) {
               <div className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                 <p>
                   <span className="text-muted-foreground">Product: </span>
-                  <span className="font-medium">{introDone ? "Astymin Forte" : "—"}</span>
+                  <span className="font-medium">{introDone ? scenario.product : "—"}</span>
                 </p>
                 <p>
                   <span className="text-muted-foreground">Suspected term: </span>
-                  <span className="font-medium">{introDone ? "Angioedema" : "—"}</span>
+                  <span className="font-medium">{introDone ? scenario.reactionTerm : "—"}</span>
                 </p>
               </div>
               <p className="mt-1 text-sm">
                 <span className="text-muted-foreground">Draft narrative: </span>
-                {introDone ? NARRATIVE : "Waiting for the reporter's opening messages…"}
+                {introDone ? scenario.narrative : "Waiting for the reporter's opening messages…"}
               </p>
               <p className="mt-1 text-sm">
                 <span className="text-muted-foreground">Reviewer seriousness decision: </span>
