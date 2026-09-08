@@ -184,13 +184,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen bg-background">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex">
-        <div className="flex items-center gap-2 border-b border-sidebar-border px-4 py-4">
+        <Link
+          to="/dashboard"
+          className="flex items-center gap-2 border-b border-sidebar-border px-4 py-4"
+        >
           <ShieldCheck className="size-5 text-sidebar-primary" />
           <div className="leading-tight">
             <p className="text-sm font-semibold text-sidebar-accent-foreground">MedNova</p>
             <p className="text-[11px] tracking-wide text-sidebar-foreground/70">PV ASSIST</p>
           </div>
-        </div>
+        </Link>
 
         <nav className="flex-1 overflow-y-auto px-2 py-3">
           {NAV.map((group) => {
