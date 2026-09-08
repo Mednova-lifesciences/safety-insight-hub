@@ -2,8 +2,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, MessageCircle, RotateCcw, ShieldAlert } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { cases as casesApi } from "@/services/api/cases";
 import { isNotConfigured } from "@/services/api/client";
+import { newId, toJson } from "@/services/api/db";
 import { PageHeader, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -344,6 +346,13 @@ function pickScenario(): Scenario {
   return SCENARIOS[Math.floor(Math.random() * SCENARIOS.length)]!;
 }
 
+/** "+234 802 966 2269" -> "+234 80... 2269", matching the masked format
+ *  the Inbound intake inbox (src/routes/_app/intake.index.tsx) displays. */
+function maskPhone(number: string): string {
+  const trimmed = number.trim();
+  return `${trimmed.slice(0, 7)}... ${trimmed.slice(-4)}`;
+}
+
 const REPORTER_FIRST = "Unknown reporter";
 
 const STAFF_INFO_REQUEST =
@@ -551,6 +560,52 @@ function WhatsAppIntakeDemo({
       });
       push("system", `Case ${created.caseId} created from this WhatsApp conversation.`);
       toast.success(`Case ${created.caseId} created from WhatsApp intake.`);
+
+      // Persist this conversation to the Inbound intake inbox (same table
+      // the older generic intake feature reads from) so a converted
+      // WhatsApp report shows up there for real, alongside its linked
+      // case — instead of that inbox only ever showing hardcoded demo
+      // rows. Only written on a successful conversion: an abandoned or
+      // "not reportable" simulation never had a real ICSR come out of it,
+      // so there's nothing worth keeping for that inbox.
+      const lastReporterMessage = [...messages].reverse().find((m) => m.from === "reporter");
+      const conversationRow = {
+        id: newId("conv"),
+        channel: "WHATSAPP" as const,
+        reporterName: scenario.reporterFull,
+        reporterNumberMasked: maskPhone(scenario.reporterNumber),
+        lastMessage: lastReporterMessage?.text ?? scenario.intro[2],
+        lastMessageAt: (lastReporterMessage?.at ?? new Date()).toISOString(),
+        consent: "GRANTED" as const,
+        criteria: { reporter: true, patient: true, product: true, event: true },
+        status: "CONVERTED" as const,
+        linkedCaseId: created.caseId,
+        messages: messages
+          .filter((m) => m.from !== "system")
+          .map((m) => ({
+            id: String(m.id),
+            direction: m.from === "reporter" ? ("INBOUND" as const) : ("OUTBOUND" as const),
+            at: m.at.toISOString(),
+            body: m.text,
+          })),
+        extracted: [
+          { field: "Reporter", value: scenario.reporterFull },
+          { field: "Consent", value: "Granted" },
+          { field: "Patient", value: scenario.patientInitials },
+          { field: "Suspect product", value: scenario.product },
+          { field: "Adverse event", value: scenario.reactionTerm },
+        ],
+        missing: [] as string[],
+      };
+      const { error: intakeError } = await supabase
+        .from("pv_intake_conversations")
+        .insert({ id: conversationRow.id, data: toJson(conversationRow) });
+      if (intakeError) {
+        // Non-fatal: the case itself was already created successfully.
+        // Losing the inbox record shouldn't block the reviewer.
+        console.error("Could not save this conversation to the inbound intake inbox:", intakeError);
+      }
+
       navigate({ to: "/cases/$caseId", params: { caseId: created.caseId } });
     } catch (err) {
       toast.error(

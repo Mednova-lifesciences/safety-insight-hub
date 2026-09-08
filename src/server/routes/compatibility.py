@@ -1,5 +1,6 @@
 """Protected compatibility endpoints for frontend modules not yet persisted server-side."""
 
+import random
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -83,7 +84,17 @@ async def list_linelist_jobs(
 async def list_intake_conversations(
     user: AuthenticatedUser = Depends(require_permission("intake.manage")),
 ):
-    return await _list_data_table("pv_intake_conversations")
+    # This client uses the service-role key (bypasses RLS) — every query
+    # here must filter by organization_id itself. This one didn't, so any
+    # signed-in user could list every organization's conversations; only
+    # went unnoticed because this table held nothing but one org's demo
+    # seed rows until now.
+    rows = await get_supabase_client().query(
+        "pv_intake_conversations",
+        filters={"organization_id": user.organization_id},
+        select="data",
+    )
+    return [row.get("data") for row in rows if row.get("data") is not None]
 
 
 @router.get("/intake/conversations/{conversation_id}")
@@ -93,7 +104,7 @@ async def get_intake_conversation(
 ):
     rows = await get_supabase_client().query(
         "pv_intake_conversations",
-        filters={"id": conversation_id},
+        filters={"id": conversation_id, "organization_id": user.organization_id},
         select="data",
     )
     if not rows:
@@ -128,10 +139,10 @@ async def get_intake_conversation(
     return data
 
 
-async def _get_conversation_row(conversation_id: str) -> dict:
+async def _get_conversation_row(conversation_id: str, organization_id: str) -> dict:
     rows = await get_supabase_client().query(
         "pv_intake_conversations",
-        filters={"id": conversation_id},
+        filters={"id": conversation_id, "organization_id": organization_id},
         select="*",
     )
     if not rows:
@@ -145,7 +156,7 @@ async def request_intake_information(
     body: RequestInformationBody,
     user: AuthenticatedUser = Depends(require_permission("intake.manage")),
 ):
-    row = await _get_conversation_row(conversation_id)
+    row = await _get_conversation_row(conversation_id, user.organization_id)
     data = row.get("data", {})
     now = datetime.now(timezone.utc).isoformat()
 
@@ -185,7 +196,7 @@ async def convert_intake_conversation(
     conversation_id: str,
     user: AuthenticatedUser = Depends(require_permission("intake.manage")),
 ):
-    row = await _get_conversation_row(conversation_id)
+    row = await _get_conversation_row(conversation_id, user.organization_id)
     data = row.get("data", {})
 
     if data.get("linkedCaseId"):
@@ -199,13 +210,10 @@ async def convert_intake_conversation(
         )
 
     db = get_supabase_client()
-    existing = await db.query("pv_cases", select="id")
-    case_id = f"MN-{datetime.now(timezone.utc).year}-{900000 + len(existing) + 1}"
 
     extracted = {e.get("field"): e.get("value") for e in data.get("extracted", []) if e.get("field")}
     now_date = datetime.now(timezone.utc).date().isoformat()
     case_detail = {
-        "id": case_id,
         "patientIdentifier": extracted.get("Patient") or "Unknown",
         "product": extracted.get("Suspect product") or "Unspecified product",
         "reaction": extracted.get("Adverse event") or "Unspecified reaction",
@@ -252,7 +260,35 @@ async def convert_intake_conversation(
         },
     }
 
-    await db.query("pv_cases", method="POST", data={"id": case_id, "organization_id": user.organization_id, "data": case_detail})
+    # `existing` is a global count against a table with no organization
+    # filter here (this client uses the service-role key), while
+    # pv_cases.id is a single global primary key — two organizations
+    # converting their first conversation in the same request window would
+    # otherwise compute the identical id and collide on insert. Retry with
+    # a random jitter on a unique-violation instead of failing, matching
+    # the same fix already applied to the frontend's cases.create().
+    case_id = None
+    for attempt in range(5):
+        existing = await db.query("pv_cases", select="id")
+        jitter = 0 if attempt == 0 else random.randint(1, 900)
+        candidate_id = f"MN-{datetime.now(timezone.utc).year}-{900000 + len(existing) + 1 + jitter}"
+        case_detail["id"] = candidate_id
+        try:
+            await db.query(
+                "pv_cases",
+                method="POST",
+                data={"id": candidate_id, "organization_id": user.organization_id, "data": case_detail},
+            )
+            case_id = candidate_id
+            break
+        except Exception as exc:
+            if "23505" not in str(exc) or attempt == 4:
+                raise
+    if case_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not allocate a unique case id.",
+        )
 
     data["status"] = "CONVERTED"
     data["linkedCaseId"] = case_id
