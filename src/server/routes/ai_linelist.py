@@ -190,43 +190,72 @@ async def analyze_linelist(
         # reproduced live as a client-side "Failed to fetch" after the
         # backend had, in fact, finished successfully ~2.5 minutes later.
         # Concurrent calls bound total wall-clock to the slowest chunk.
-        async def analyze_chunk(offset: int) -> tuple[str, list[IssueOut]]:
+        async def analyze_chunk(offset: int) -> tuple[Optional[str], list[IssueOut]]:
             chunk = request.rows[offset : offset + MAX_ROWS_PER_ANALYSIS_CALL]
             payload = {
                 "columns": request.headers,
                 "mapping": request.mapping,
                 "rows": [{"row": offset + i + 1, **row} for i, row in enumerate(chunk)],
             }
-            completion = await structured_completion(
-                system_prompt=LINELIST_ANALYSIS_PROMPT,
-                user_content=json.dumps(payload),
-                model=VALIDATION_MODEL,
-                max_output_tokens=MAX_ANALYSIS_OUTPUT_TOKENS,
-            )
-            parsed = AiLineListAnalysis.model_validate(completion.data)
-            return completion.model, [
-                IssueOut(
-                    row=f.row,
-                    column=f.column,
-                    severity=f.severity,
-                    confidence=f.confidence,
-                    code=f.code,
-                    message=f.message,
-                    value=f.value,
-                    fixable=f.fixable,
-                    source="ai",
-                    issueType=f.issueType,
-                    affectedFields=f.affectedFields,
+            try:
+                completion = await structured_completion(
+                    system_prompt=LINELIST_ANALYSIS_PROMPT,
+                    user_content=json.dumps(payload),
+                    model=VALIDATION_MODEL,
+                    max_output_tokens=MAX_ANALYSIS_OUTPUT_TOKENS,
                 )
-                for f in parsed.findings
-            ]
+                parsed = AiLineListAnalysis.model_validate(completion.data)
+                return completion.model, [
+                    IssueOut(
+                        row=f.row,
+                        column=f.column,
+                        severity=f.severity,
+                        confidence=f.confidence,
+                        code=f.code,
+                        message=f.message,
+                        value=f.value,
+                        fixable=f.fixable,
+                        source="ai",
+                        issueType=f.issueType,
+                        affectedFields=f.affectedFields,
+                    )
+                    for f in parsed.findings
+                ]
+            except AiNotConfiguredError:
+                # Every chunk would fail identically — let this propagate to
+                # the outer handler's dedicated "not configured" response
+                # instead of being reported as a generic per-chunk failure.
+                raise
+            except Exception as exc:
+                # A single chunk (e.g. one that hit OpenAI's timeout on
+                # every retry) used to fail the *entire* file's AI review via
+                # asyncio.gather's fail-fast behaviour — other chunks that
+                # had already succeeded got silently discarded, so the same
+                # file could show a full AI+rule finding set on one run and
+                # rule-only findings on the next, with nothing wrong with
+                # the file itself. Now only this chunk's rows fall back to
+                # rule-based findings; chunks that succeeded are kept.
+                logger.warning(
+                    "Line-list AI analysis chunk (rows %s-%s) failed, those rows get rule-based findings only: %s",
+                    offset + 1, offset + len(chunk), exc,
+                )
+                return None, []
 
         chunk_offsets = list(range(0, len(request.rows), MAX_ROWS_PER_ANALYSIS_CALL))
         chunk_results = await asyncio.gather(*(analyze_chunk(offset) for offset in chunk_offsets))
         all_findings: list[IssueOut] = []
+        any_chunk_succeeded = False
         for model, findings in chunk_results:
-            model_used = model
+            if model is not None:
+                any_chunk_succeeded = True
+                model_used = model
             all_findings.extend(findings)
+
+        if not any_chunk_succeeded:
+            return AnalyzeResponse(
+                findings=[], ai_used=False, prompt_version=PROMPT_VERSION,
+                error="AI analysis unavailable; showing rule-based findings only.",
+            )
 
         all_findings = await _adversarial_review(
             headers=request.headers,
