@@ -45,6 +45,10 @@ interface NavItem {
   icon: typeof Gauge;
   permission?: Permission;
   hiddenForRoles?: Role[];
+  /** Per-role label override — same destination, different framing. Used
+   *  for New ICSR: administrators (who use this to demo capture/extraction
+   *  rather than file operational cases) see "Intelligent Intake" instead. */
+  roleLabels?: Partial<Record<Role, string>>;
 }
 
 interface NavGroup {
@@ -57,7 +61,13 @@ const NAV: NavGroup[] = [
     label: "Operations",
     items: [
       { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, hiddenForRoles: ["ADMIN"] },
-      { to: "/icsr/new", label: "New ICSR", icon: ClipboardPlus, permission: "case.create" },
+      {
+        to: "/icsr/new",
+        label: "New ICSR",
+        icon: ClipboardPlus,
+        permission: "case.create",
+        roleLabels: { ADMIN: "Intelligent Intake" },
+      },
       {
         to: "/cases",
         label: "Cases",
@@ -210,7 +220,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                           )}
                         >
                           <item.icon className="size-4 shrink-0" />
-                          <span className="truncate">{item.label}</span>
+                          <span className="truncate">
+                            {item.roleLabels?.[user.role] ?? item.label}
+                          </span>
                           {item.to === "/notifications" && unread > 0 ? (
                             <span className="mono-num ml-auto rounded bg-sidebar-primary px-1.5 text-[11px] text-sidebar-primary-foreground">
                               {unread}

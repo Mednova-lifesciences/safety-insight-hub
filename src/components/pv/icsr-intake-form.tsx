@@ -139,6 +139,7 @@ function FieldRow({
   hint,
   children,
   className,
+  aiExtracted,
 }: {
   id: string;
   label: string;
@@ -146,16 +147,26 @@ function FieldRow({
   hint?: string;
   children: React.ReactNode;
   className?: string;
+  /** This field's current value was populated by image extraction and
+   *  hasn't been edited since — shown as a small badge next to the label
+   *  so reviewers can see at a glance what the model filled in vs. what
+   *  was typed. */
+  aiExtracted?: boolean;
 }) {
   return (
     <div className={cn("space-y-1.5", className)}>
-      <Label htmlFor={id}>
+      <Label htmlFor={id} className="flex flex-wrap items-center gap-1.5">
         {label}
         {required ? (
           <Req />
         ) : (
           <span className="ml-1 text-xs text-muted-foreground">(optional)</span>
         )}
+        {aiExtracted ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+            <Sparkles className="size-2.5" /> AI-extracted
+          </span>
+        ) : null}
       </Label>
       {children}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
@@ -251,10 +262,27 @@ function IcsrIntakeFormFields({
   const [lowConfidenceFields, setLowConfidenceFields] = useState<string[]>([]);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [aiUnavailableNote, setAiUnavailableNote] = useState<string | null>(null);
+  // Which form fields currently hold a value populated by image extraction,
+  // never touched since. Purely cosmetic (an "AI-extracted" badge) — drops
+  // a key the moment the user edits that field, since the value is then
+  // theirs, not the model's.
+  const [extractedFieldKeys, setExtractedFieldKeys] = useState<Set<string>>(new Set());
 
-  const set = (k: string) => (e: { target: { value: string } }) =>
+  const clearExtractedFlag = (k: string) =>
+    setExtractedFieldKeys((prev) => {
+      if (!prev.has(k)) return prev;
+      const next = new Set(prev);
+      next.delete(k);
+      return next;
+    });
+  const set = (k: string) => (e: { target: { value: string } }) => {
     setForm((f) => ({ ...f, [k]: e.target.value }));
-  const setField = (k: string) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
+    clearExtractedFlag(k);
+  };
+  const setField = (k: string) => (v: string) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    clearExtractedFlag(k);
+  };
 
   const minimumCriteria = [
     { label: "Identifiable reporter", ok: !!form["reporterName"] },
@@ -305,6 +333,7 @@ function IcsrIntakeFormFields({
       if (drugs[0]?.expiryDate) mapped["productExpiry"] = drugs[0].expiryDate;
 
       setForm((f) => ({ ...f, ...mapped }));
+      setExtractedFieldKeys((prev) => new Set([...prev, ...Object.keys(mapped)]));
       if (e.reportedSeriousness) setSeriousnessValue(e.reportedSeriousness);
       setLowConfidenceFields(e.lowConfidenceFields ?? []);
 
@@ -475,27 +504,12 @@ function IcsrIntakeFormFields({
       />
 
       <div className="space-y-4 p-6">
-        <Section title="Workflow" description="Where this report goes after submission.">
-          <ol className="flex flex-wrap items-center gap-2 text-sm">
-            {PIPELINE.map((s, i) => (
-              <li key={s} className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    "rounded-md border px-2.5 py-1",
-                    i === 0
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-muted text-muted-foreground",
-                  )}
-                >
-                  {s}
-                </span>
-                {i < PIPELINE.length - 1 ? (
-                  <ArrowRight className="size-3.5 text-muted-foreground" />
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        </Section>
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Sparkles className="size-4 shrink-0 text-primary" />
+          Upload a photo or scan of a paper adverse-event form and watch it turn into structured
+          data below — every field stays editable, and nothing is saved until you review and
+          submit it yourself.
+        </p>
 
         <Section
           title="Extract from an image"
@@ -550,6 +564,28 @@ function IcsrIntakeFormFields({
               {lowConfidenceFields.map((f) => FIELD_LABELS[f] ?? f).join(", ")}
             </div>
           ) : null}
+        </Section>
+
+        <Section title="Workflow" description="Where this report goes after submission.">
+          <ol className="flex flex-wrap items-center gap-2 text-sm">
+            {PIPELINE.map((s, i) => (
+              <li key={s} className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    "rounded-md border px-2.5 py-1",
+                    i === 0
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-muted text-muted-foreground",
+                  )}
+                >
+                  {s}
+                </span>
+                {i < PIPELINE.length - 1 ? (
+                  <ArrowRight className="size-3.5 text-muted-foreground" />
+                ) : null}
+              </li>
+            ))}
+          </ol>
         </Section>
 
         <Section
@@ -673,7 +709,12 @@ function IcsrIntakeFormFields({
         <form onSubmit={submit} className="space-y-4">
           <Section title="Reporter information">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <FieldRow id="reporterName" label="Reporter name" required>
+              <FieldRow
+                id="reporterName"
+                label="Reporter name"
+                required
+                aiExtracted={extractedFieldKeys.has("reporterName")}
+              >
                 <Input
                   id="reporterName"
                   required
@@ -681,7 +722,12 @@ function IcsrIntakeFormFields({
                   onChange={set("reporterName")}
                 />
               </FieldRow>
-              <FieldRow id="reporterQual" label="Qualification" required>
+              <FieldRow
+                id="reporterQual"
+                label="Qualification"
+                required
+                aiExtracted={extractedFieldKeys.has("reporterQual")}
+              >
                 <Select value={form["reporterQual"] ?? ""} onValueChange={setField("reporterQual")}>
                   <SelectTrigger id="reporterQual">
                     <SelectValue placeholder="Select" />
@@ -695,7 +741,12 @@ function IcsrIntakeFormFields({
                   </SelectContent>
                 </Select>
               </FieldRow>
-              <FieldRow id="reporterCountry" label="Country" required>
+              <FieldRow
+                id="reporterCountry"
+                label="Country"
+                required
+                aiExtracted={extractedFieldKeys.has("reporterCountry")}
+              >
                 <Input
                   id="reporterCountry"
                   required
@@ -707,6 +758,7 @@ function IcsrIntakeFormFields({
                 id="reporterContact"
                 label="Contact"
                 hint="Stored server-side; masked in listings."
+                aiExtracted={extractedFieldKeys.has("reporterContact")}
               >
                 <Input
                   id="reporterContact"
@@ -722,7 +774,12 @@ function IcsrIntakeFormFields({
             description="Use a pseudonymised identifier — do not enter direct identifiers."
           >
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-              <FieldRow id="patientId" label="Patient identifier" required>
+              <FieldRow
+                id="patientId"
+                label="Patient identifier"
+                required
+                aiExtracted={extractedFieldKeys.has("patientId")}
+              >
                 <Input
                   id="patientId"
                   required
@@ -731,14 +788,22 @@ function IcsrIntakeFormFields({
                   onChange={set("patientId")}
                 />
               </FieldRow>
-              <FieldRow id="patientAge" label="Age">
+              <FieldRow
+                id="patientAge"
+                label="Age"
+                aiExtracted={extractedFieldKeys.has("patientAge")}
+              >
                 <Input
                   id="patientAge"
                   value={form["patientAge"] ?? ""}
                   onChange={set("patientAge")}
                 />
               </FieldRow>
-              <FieldRow id="patientSex" label="Sex">
+              <FieldRow
+                id="patientSex"
+                label="Sex"
+                aiExtracted={extractedFieldKeys.has("patientSex")}
+              >
                 <Select value={form["patientSex"] ?? ""} onValueChange={setField("patientSex")}>
                   <SelectTrigger id="patientSex">
                     <SelectValue placeholder="Select" />
@@ -750,14 +815,22 @@ function IcsrIntakeFormFields({
                   </SelectContent>
                 </Select>
               </FieldRow>
-              <FieldRow id="patientWeight" label="Weight (kg)">
+              <FieldRow
+                id="patientWeight"
+                label="Weight (kg)"
+                aiExtracted={extractedFieldKeys.has("patientWeight")}
+              >
                 <Input
                   id="patientWeight"
                   value={form["patientWeight"] ?? ""}
                   onChange={set("patientWeight")}
                 />
               </FieldRow>
-              <FieldRow id="patientHistory" label="Relevant medical history">
+              <FieldRow
+                id="patientHistory"
+                label="Relevant medical history"
+                aiExtracted={extractedFieldKeys.has("patientHistory")}
+              >
                 <Input
                   id="patientHistory"
                   value={form["patientHistory"] ?? ""}
@@ -801,6 +874,7 @@ function IcsrIntakeFormFields({
                   label="Product as reported"
                   required
                   hint="Coding candidates are retrieved from WHODrug after submission."
+                  aiExtracted={extractedFieldKeys.has("productName")}
                 >
                   <Input
                     id="productName"
@@ -810,7 +884,11 @@ function IcsrIntakeFormFields({
                   />
                 </FieldRow>
               )}
-              <FieldRow id="productDose" label="Dose">
+              <FieldRow
+                id="productDose"
+                label="Dose"
+                aiExtracted={extractedFieldKeys.has("productDose")}
+              >
                 <Input
                   id="productDose"
                   value={form["productDose"] ?? ""}
@@ -818,7 +896,11 @@ function IcsrIntakeFormFields({
                 />
               </FieldRow>
               {lockedProduct ? null : (
-                <FieldRow id="productRoute" label="Route">
+                <FieldRow
+                  id="productRoute"
+                  label="Route"
+                  aiExtracted={extractedFieldKeys.has("productRoute")}
+                >
                   <Input
                     id="productRoute"
                     value={form["productRoute"] ?? ""}
@@ -826,14 +908,22 @@ function IcsrIntakeFormFields({
                   />
                 </FieldRow>
               )}
-              <FieldRow id="productIndication" label="Indication">
+              <FieldRow
+                id="productIndication"
+                label="Indication"
+                aiExtracted={extractedFieldKeys.has("productIndication")}
+              >
                 <Input
                   id="productIndication"
                   value={form["productIndication"] ?? ""}
                   onChange={set("productIndication")}
                 />
               </FieldRow>
-              <FieldRow id="therapyStart" label="Therapy start date">
+              <FieldRow
+                id="therapyStart"
+                label="Therapy start date"
+                aiExtracted={extractedFieldKeys.has("therapyStart")}
+              >
                 <Input
                   id="therapyStart"
                   type="date"
@@ -841,7 +931,11 @@ function IcsrIntakeFormFields({
                   onChange={set("therapyStart")}
                 />
               </FieldRow>
-              <FieldRow id="productAction" label="Action taken with product">
+              <FieldRow
+                id="productAction"
+                label="Action taken with product"
+                aiExtracted={extractedFieldKeys.has("productAction")}
+              >
                 <Select
                   value={form["productAction"] ?? ""}
                   onValueChange={setField("productAction")}
@@ -858,14 +952,22 @@ function IcsrIntakeFormFields({
                   </SelectContent>
                 </Select>
               </FieldRow>
-              <FieldRow id="productBatch" label="Batch / lot number">
+              <FieldRow
+                id="productBatch"
+                label="Batch / lot number"
+                aiExtracted={extractedFieldKeys.has("productBatch")}
+              >
                 <Input
                   id="productBatch"
                   value={form["productBatch"] ?? ""}
                   onChange={set("productBatch")}
                 />
               </FieldRow>
-              <FieldRow id="productExpiry" label="Expiry date">
+              <FieldRow
+                id="productExpiry"
+                label="Expiry date"
+                aiExtracted={extractedFieldKeys.has("productExpiry")}
+              >
                 <Input
                   id="productExpiry"
                   type="date"
@@ -1022,7 +1124,12 @@ function IcsrIntakeFormFields({
 
           <Section title="Adverse event / reaction">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <FieldRow id="reactionTerm" label="Reaction as reported" required>
+              <FieldRow
+                id="reactionTerm"
+                label="Reaction as reported"
+                required
+                aiExtracted={extractedFieldKeys.has("reactionTerm")}
+              >
                 <Input
                   id="reactionTerm"
                   required
@@ -1030,7 +1137,12 @@ function IcsrIntakeFormFields({
                   onChange={set("reactionTerm")}
                 />
               </FieldRow>
-              <FieldRow id="onsetDate" label="Onset date" required>
+              <FieldRow
+                id="onsetDate"
+                label="Onset date"
+                required
+                aiExtracted={extractedFieldKeys.has("onsetDate")}
+              >
                 <Input
                   id="onsetDate"
                   type="date"
@@ -1039,7 +1151,11 @@ function IcsrIntakeFormFields({
                   onChange={set("onsetDate")}
                 />
               </FieldRow>
-              <FieldRow id="endDate" label="End date">
+              <FieldRow
+                id="endDate"
+                label="End date"
+                aiExtracted={extractedFieldKeys.has("endDate")}
+              >
                 <Input
                   id="endDate"
                   type="date"
@@ -1047,7 +1163,12 @@ function IcsrIntakeFormFields({
                   onChange={set("endDate")}
                 />
               </FieldRow>
-              <FieldRow id="outcome" label="Outcome" required>
+              <FieldRow
+                id="outcome"
+                label="Outcome"
+                required
+                aiExtracted={extractedFieldKeys.has("outcome")}
+              >
                 <Select value={form["outcome"] ?? ""} onValueChange={setField("outcome")}>
                   <SelectTrigger id="outcome">
                     <SelectValue placeholder="Select" />

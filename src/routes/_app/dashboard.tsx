@@ -1,8 +1,26 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { AlertTriangle, ArrowRight, ClipboardPlus, Inbox, Timer } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  ClipboardPlus,
+  FileSpreadsheet,
+  FileStack,
+  FileText,
+  Inbox,
+  Sparkles,
+  Timer,
+} from "lucide-react";
 import { cases as casesApi } from "@/services/api/cases";
 import { audit as auditApi } from "@/services/api/audit";
-import { demoAudit, demoCases, demoFollowUps } from "@/services/demo/dataset";
+import { linelist as linelistApi } from "@/services/api/linelist";
+import { psur as psurApi } from "@/services/api/psur";
+import {
+  demoAudit,
+  demoCases,
+  demoFollowUps,
+  demoLineListJobs,
+  demoPsurDocuments,
+} from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import {
   PageHeader,
@@ -80,7 +98,7 @@ function DashboardPage() {
     case "PV_MANAGER":
       return <AdminDashboard />;
     case "ADMIN":
-      return <AdminDashboard />;
+      return <AdministratorProcessingDashboard />;
     default:
       return <FieldAssociateDashboard />;
   }
@@ -187,6 +205,132 @@ function AdminDashboard() {
             {(events) => <AuditTimeline events={events} dense />}
           </QueryBoundary>
         </Section>
+      </div>
+    </>
+  );
+}
+
+/**
+ * The Administrator's dashboard — deliberately scoped to match the
+ * Administrator's trimmed sidebar (Intelligent Intake + the three
+ * processing tools, nothing else): a snapshot of what's moved through
+ * line-list/E2B(R3) and PSUR processing, not the full operational
+ * surface PV_MANAGER sees in AdminDashboard above.
+ */
+function AdministratorProcessingDashboard() {
+  const { user } = useAuth();
+  const jobsQuery = usePvQuery(
+    ["linelist", "jobs"],
+    () => linelistApi.jobs(),
+    () => demoLineListJobs,
+  );
+  const docsQuery = usePvQuery(
+    ["psur", "documents"],
+    () => psurApi.documents(),
+    () => demoPsurDocuments,
+  );
+  const auditQuery = usePvQuery(
+    ["audit", "recent"],
+    () => auditApi.list({ limit: 8 }),
+    () => demoAudit,
+  );
+
+  return (
+    <>
+      <PageHeader
+        title="Administration dashboard"
+        description={`${user?.name ?? "Administrator"} — intelligent intake and processing overview.`}
+        actions={
+          <Button asChild size="sm">
+            <Link to="/icsr/new">
+              <Sparkles className="size-4" /> Intelligent Intake
+            </Link>
+          </Button>
+        }
+      />
+      <div className="space-y-4 p-6">
+        <QueryBoundary query={jobsQuery} loadingLabel="Loading processing overview">
+          {(jobs, source) => {
+            const e2bReady = jobs.filter((j) => j.stage === "E2B_GENERATED").length;
+            const validated = jobs.filter((j) => j.stage === "VALIDATED").length;
+            const inProgress = jobs.length - e2bReady - validated;
+            const validCases = jobs.reduce((sum, j) => sum + j.validCases, 0);
+            return (
+              <>
+                <div className="flex items-center justify-between">
+                  <p className="label-caps">Line-list &amp; E2B(R3) processing</p>
+                  <SourceTag source={source} />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <Metric label="Line-lists uploaded" value={jobs.length} to="/line-list" />
+                  <Metric
+                    label="Awaiting validation"
+                    value={inProgress}
+                    tone={inProgress > 0 ? "warning" : "default"}
+                    to="/line-list"
+                  />
+                  <Metric label="E2B(R3) ready" value={e2bReady} to="/e2b" />
+                  <Metric label="Case records validated" value={validCases} to="/line-list" />
+                </div>
+              </>
+            );
+          }}
+        </QueryBoundary>
+
+        <QueryBoundary query={docsQuery} loadingLabel="Loading PSUR overview">
+          {(docs, source) => {
+            const reviewed = docs.filter((d) => d.stage === "REVIEWED").length;
+            const pending = docs.length - reviewed;
+            return (
+              <>
+                <div className="flex items-center justify-between">
+                  <p className="label-caps">PSUR / PBRER review</p>
+                  <SourceTag source={source} />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Metric label="PSUR documents" value={docs.length} to="/psur" />
+                  <Metric
+                    label="Pending review"
+                    value={pending}
+                    tone={pending > 0 ? "warning" : "default"}
+                    to="/psur"
+                  />
+                  <Metric label="Reviewed" value={reviewed} to="/psur" />
+                </div>
+              </>
+            );
+          }}
+        </QueryBoundary>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Section
+            title="Processing tools"
+            description="The same tools available from the sidebar."
+          >
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline">
+                <Link to="/line-list">
+                  <FileSpreadsheet className="size-4" /> Line-list processing
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/e2b">
+                  <FileStack className="size-4" /> E2B(R3) preparation
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/psur">
+                  <FileText className="size-4" /> PSUR / PBRER review
+                </Link>
+              </Button>
+            </div>
+          </Section>
+          <Section title="Recent processing activity">
+            <QueryBoundary query={auditQuery}>
+              {(events) => <AuditTimeline events={events} dense />}
+            </QueryBoundary>
+          </Section>
+        </div>
       </div>
     </>
   );
