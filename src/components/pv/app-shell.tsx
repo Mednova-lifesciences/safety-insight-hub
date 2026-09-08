@@ -56,18 +56,43 @@ const NAV: NavGroup[] = [
   {
     label: "Operations",
     items: [
-      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, hiddenForRoles: ["ADMIN"] },
       { to: "/icsr/new", label: "New ICSR", icon: ClipboardPlus, permission: "case.create" },
-      { to: "/cases", label: "Cases", icon: BriefcaseMedical, permission: "case.view" },
-      { to: "/intake", label: "Inbound intake", icon: MessageSquare, permission: "intake.manage" },
+      {
+        to: "/cases",
+        label: "Cases",
+        icon: BriefcaseMedical,
+        permission: "case.view",
+        hiddenForRoles: ["ADMIN"],
+      },
+      {
+        to: "/intake",
+        label: "Inbound intake",
+        icon: MessageSquare,
+        permission: "intake.manage",
+        hiddenForRoles: ["ADMIN"],
+      },
       {
         to: "/whatsapp-intake",
         label: "WhatsApp intake",
         icon: MessageCircle,
         permission: "intake.manage",
+        hiddenForRoles: ["ADMIN"],
       },
-      { to: "/follow-ups", label: "Follow-ups", icon: Timer, permission: "case.view" },
-      { to: "/drugs", label: "Drug Catalog", icon: Pill, permission: "catalog.view" },
+      {
+        to: "/follow-ups",
+        label: "Follow-ups",
+        icon: Timer,
+        permission: "case.view",
+        hiddenForRoles: ["ADMIN"],
+      },
+      {
+        to: "/drugs",
+        label: "Drug Catalog",
+        icon: Pill,
+        permission: "catalog.view",
+        hiddenForRoles: ["ADMIN"],
+      },
     ],
   },
   {
@@ -99,16 +124,35 @@ const NAV: NavGroup[] = [
   {
     label: "Oversight",
     items: [
-      { to: "/oversight", label: "Operational overview", icon: Gauge, permission: "team.view" },
+      {
+        to: "/oversight",
+        label: "Operational overview",
+        icon: Gauge,
+        permission: "team.view",
+        hiddenForRoles: ["ADMIN"],
+      },
       {
         to: "/literature",
         label: "Literature screening",
         icon: Newspaper,
         permission: "signal.view",
+        hiddenForRoles: ["ADMIN"],
       },
-      { to: "/signals", label: "Signal review", icon: Radar, permission: "signal.view" },
-      { to: "/audit", label: "Audit trail", icon: Activity, permission: "audit.view.all" },
-      { to: "/notifications", label: "Notifications", icon: Bell },
+      {
+        to: "/signals",
+        label: "Signal review",
+        icon: Radar,
+        permission: "signal.view",
+        hiddenForRoles: ["ADMIN"],
+      },
+      {
+        to: "/audit",
+        label: "Audit trail",
+        icon: Activity,
+        permission: "audit.view.all",
+        hiddenForRoles: ["ADMIN"],
+      },
+      { to: "/notifications", label: "Notifications", icon: Bell, hiddenForRoles: ["ADMIN"] },
     ],
   },
 ];
