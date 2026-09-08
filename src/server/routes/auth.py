@@ -30,6 +30,11 @@ class SignUpRequest(BaseModel):
     mode: Literal["CREATE_ORG", "JOIN_ORG"] = "CREATE_ORG"
     organization_name: Optional[str] = None
     org_code: Optional[str] = None
+    # JOIN_ORG only: which role the invite code grants. Never trust a role
+    # value outside this pair — CREATE_ORG always mints PV_MANAGER, and
+    # nothing else is reachable through signup at all (ADMIN accounts are
+    # provisioned out of band).
+    role: Optional[Literal["PV_COORDINATOR", "FIELD_ASSOCIATE"]] = None
 
 class SignInRequest(BaseModel):
     email: str
@@ -134,9 +139,11 @@ async def sign_up(request: SignUpRequest):
     CREATE_ORG mints a brand-new organization (a new public slug and a
     private invite code) and makes the signing-up user its PV_MANAGER.
     JOIN_ORG requires an existing organization's exact invite_code and
-    attaches the user as a PV_COORDINATOR — organizations are never
-    resolved by matching name text, which used to let anyone claim ADMIN
-    on an existing company by typing its name.
+    attaches the user as either a PV_COORDINATOR or a FIELD_ASSOCIATE
+    (the joiner's own choice — the same invite code works for both, the
+    role is picked on the sign-up form) — organizations are never resolved
+    by matching name text, which used to let anyone claim ADMIN on an
+    existing company by typing its name.
     """
     try:
         db = get_supabase_client()
@@ -158,7 +165,7 @@ async def sign_up(request: SignUpRequest):
                     detail="No organization matches that code",
                 )
             organization = matches[0]
-            new_member_role = "PV_COORDINATOR"
+            new_member_role = request.role if request.role in ("PV_COORDINATOR", "FIELD_ASSOCIATE") else "PV_COORDINATOR"
         else:
             organization = await _create_organization_with_unique_codes(
                 db, request.organization_name or f"{request.email}'s Organization"

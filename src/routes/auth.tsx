@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, Chrome, Lock, LogIn, ShieldCheck } from "lucide-react";
+import { Chrome, Lock, ShieldCheck } from "lucide-react";
 import { ROLE_LABELS, useAuth, type Role } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,10 @@ export const Route = createFileRoute("/auth")({
   ssr: false,
   validateSearch: (search: Record<string, unknown>): AuthSearch => {
     const role = search["role"];
-    return role === "PV_COORDINATOR" || role === "PV_MANAGER" || role === "ADMIN"
+    return role === "FIELD_ASSOCIATE" ||
+      role === "PV_COORDINATOR" ||
+      role === "PV_MANAGER" ||
+      role === "ADMIN"
       ? { role }
       : {};
   },
@@ -25,7 +28,7 @@ export const Route = createFileRoute("/auth")({
       {
         name: "description",
         content:
-          "Secure sign-in to MedNova PV Assist. Field associates enter without an account; coordinators and managers sign in.",
+          "Secure, role-based sign-in to MedNova PV Assist for field associates, coordinators and managers.",
       },
       { property: "og:title", content: "Sign in — MedNova PV Assist" },
       {
@@ -47,8 +50,7 @@ const ROLE_DESCRIPTIONS: Record<Role, string> = {
   ADMIN: "Manage access, operations and the complete audit surface.",
 };
 
-/** Roles that still sign in with credentials. Field associates don't. */
-const SIGN_IN_ROLES: Role[] = ["PV_COORDINATOR", "PV_MANAGER", "ADMIN"];
+const SIGN_IN_ROLES: Role[] = ["FIELD_ASSOCIATE", "PV_COORDINATOR", "PV_MANAGER", "ADMIN"];
 
 const DEMO_PASSWORD = "demo123";
 const DEMO_CREDENTIALS: Record<Role, { email: string; password: string }> = {
@@ -60,7 +62,7 @@ const DEMO_CREDENTIALS: Record<Role, { email: string; password: string }> = {
 
 function AuthPage() {
   const { role: requestedRole } = Route.useSearch();
-  const { signIn, signInFieldAssociate, signInWithGoogle, sendPasswordResetEmail } = useAuth();
+  const { signIn, signInWithGoogle, sendPasswordResetEmail } = useAuth();
   const [sendingReset, setSendingReset] = useState(false);
   const navigate = useNavigate();
   const initialRole: Role =
@@ -69,24 +71,11 @@ function AuthPage() {
   const [password, setPassword] = useState(DEMO_CREDENTIALS[initialRole].password);
   const [role, setRole] = useState<Role>(initialRole);
   const [submitting, setSubmitting] = useState(false);
-  const [enteringAsFieldAssociate, setEnteringAsFieldAssociate] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Deliberately no "already authenticated → /dashboard" redirect here:
-  // staff must be able to open this page while signed in (e.g. a field
-  // associate switching to a coordinator account) without being bounced
-  // back. Both sign-in paths below navigate on success themselves.
-
-  async function enterAsFieldAssociate() {
-    setError(null);
-    setEnteringAsFieldAssociate(true);
-    try {
-      await signInFieldAssociate();
-      navigate({ to: "/dashboard", replace: true });
-    } finally {
-      setEnteringAsFieldAssociate(false);
-    }
-  }
+  // staff must be able to open this page while signed in (e.g. switching
+  // accounts) without being bounced back. Sign-in navigates on success.
 
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
@@ -137,42 +126,14 @@ function AuthPage() {
             </div>
           </div>
 
-          <h2 className="text-lg font-semibold">Choose your access</h2>
+          <h2 className="text-lg font-semibold">Sign in</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Field associates enter directly. Coordinator and manager access is signed in and
-            role-based.
+            Every role signs in with a real account. New to an organization? Get an invite code
+            from your PV manager and sign up below.
           </p>
 
-          <button
-            type="button"
-            onClick={enterAsFieldAssociate}
-            disabled={enteringAsFieldAssociate}
-            className={cn(
-              "group mt-6 flex w-full cursor-pointer items-start gap-3 rounded-md border px-4 py-3.5 text-left transition-colors",
-              "border-primary bg-accent hover:bg-primary/10",
-            )}
-          >
-            <LogIn className="mt-0.5 size-5 shrink-0 text-primary" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">{ROLE_LABELS.FIELD_ASSOCIATE}</span>
-              <span className="block text-xs text-muted-foreground">
-                {ROLE_DESCRIPTIONS.FIELD_ASSOCIATE}
-              </span>
-              <span className="mt-1 block text-xs font-medium text-primary">
-                No account needed — click to enter
-              </span>
-            </span>
-            <ArrowRight className="mt-0.5 size-4 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
-          </button>
-
-          <div className="my-6 flex items-center gap-3">
-            <span className="h-px flex-1 bg-border" />
-            <span className="text-xs tracking-wide text-muted-foreground">STAFF SIGN-IN</span>
-            <span className="h-px flex-1 bg-border" />
-          </div>
-
           <form
-            className="space-y-5"
+            className="mt-6 space-y-5"
             onSubmit={async (e) => {
               e.preventDefault();
               setError(null);
@@ -281,16 +242,15 @@ function AuthPage() {
               >
                 Forgot password?
               </button>
-              {!isApiConfigured() &&
-                (role === "PV_COORDINATOR" || role === "PV_MANAGER" || role === "ADMIN") && (
-                  <p className="text-xs text-muted-foreground">
-                    Demo login:{" "}
-                    <span className="font-medium text-foreground">
-                      {DEMO_CREDENTIALS[role].email}
-                    </span>{" "}
-                    / {DEMO_CREDENTIALS[role].password}
-                  </p>
-                )}
+              {!isApiConfigured() && (
+                <p className="text-xs text-muted-foreground">
+                  Demo login:{" "}
+                  <span className="font-medium text-foreground">
+                    {DEMO_CREDENTIALS[role].email}
+                  </span>{" "}
+                  / {DEMO_CREDENTIALS[role].password}
+                </p>
+              )}
             </div>
 
             {error && (

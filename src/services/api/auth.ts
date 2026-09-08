@@ -12,6 +12,8 @@ export interface SignupRequest {
   mode: "CREATE_ORG" | "JOIN_ORG";
   organization_name?: string;
   org_code?: string;
+  /** JOIN_ORG only — which role the invite code grants this signup. */
+  role?: "PV_COORDINATOR" | "FIELD_ASSOCIATE";
 }
 
 export interface SigninRequest {

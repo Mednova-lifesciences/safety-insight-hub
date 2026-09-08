@@ -156,13 +156,12 @@ export interface CurrentUser {
 
 export type SignUpOptions =
   | { mode: "CREATE_ORG"; orgName: string }
-  | { mode: "JOIN_ORG"; orgCode: string };
+  | { mode: "JOIN_ORG"; orgCode: string; role: "PV_COORDINATOR" | "FIELD_ASSOCIATE" };
 
 interface AuthState {
   user: CurrentUser | null;
   status: "loading" | "authenticated" | "unauthenticated";
   signIn: (email: string, password: string, mockRole?: Role) => Promise<void>;
-  signInFieldAssociate: () => Promise<void>;
   signUp: (email: string, password: string, name: string, opts: SignUpOptions) => Promise<void>;
   signOut: () => void;
   can: (permission: Permission) => boolean;
@@ -294,9 +293,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
         // Fall back to a locally-stored session even when the API is
-        // configured — this is how the credential-free Field Associate
-        // entry (signInFieldAssociate) survives a page refresh, since it
-        // never mints a backend token.
+        // configured, in case the stored-token verification above didn't
+        // already return (e.g. mock-mode sessions, which never mint a
+        // real backend token to begin with).
         const raw = window.localStorage.getItem(STORAGE_KEY);
         if (raw) {
           setUser(JSON.parse(raw) as CurrentUser);
@@ -349,28 +348,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  /**
-   * Credential-free entry for field associates. Deliberately local-only:
-   * it never contacts the backend identity service, so anyone can open
-   * the field-associate workspace without an account. Every permission-
-   * sensitive action still requires a real, server-verified session.
-   */
-  const signInFieldAssociate = useCallback(async () => {
-    const next: CurrentUser = {
-      id: "usr_field_associate",
-      name: "Field Associate",
-      initials: "FA",
-      email: "field@demo.safetyinsighthub.com",
-      role: "FIELD_ASSOCIATE",
-      organisation: "MedNova Drug Safety",
-      organizationId: "mock-org",
-      organizationSlug: "mednova-demo",
-    };
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    setUser(next);
-    setStatus("authenticated");
-  }, []);
-
   const signUp = useCallback(async (email: string, password: string, name: string, opts: SignUpOptions) => {
     if (isApiConfigured()) {
       // Use real backend authentication
@@ -379,7 +356,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
         name,
         mode: opts.mode,
-        ...(opts.mode === "CREATE_ORG" ? { organization_name: opts.orgName } : { org_code: opts.orgCode }),
+        ...(opts.mode === "CREATE_ORG"
+          ? { organization_name: opts.orgName }
+          : { org_code: opts.orgCode, role: opts.role }),
       });
       await syncSupabaseSession(response);
       const currentUser = buildCurrentUser(response);
@@ -401,7 +380,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .slice(0, 2)
             .toUpperCase() || "PV",
         email,
-        role: opts.mode === "CREATE_ORG" ? "PV_MANAGER" : "PV_COORDINATOR",
+        role: opts.mode === "CREATE_ORG" ? "PV_MANAGER" : opts.role,
         organisation: orgName,
         organizationId: "mock-org",
         organizationSlug: "mednova-demo",
@@ -505,7 +484,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       status,
       signIn,
-      signInFieldAssociate,
       signUp,
       signOut,
       can,
@@ -519,7 +497,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       status,
       signIn,
-      signInFieldAssociate,
       signUp,
       signOut,
       can,

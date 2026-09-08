@@ -2,10 +2,11 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Building2, Chrome, Copy, KeyRound, ShieldCheck, UserPlus } from "lucide-react";
-import { useAuth, useCurrentUser } from "@/lib/auth";
+import { ROLE_LABELS, useAuth, useCurrentUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/signup")({
@@ -34,6 +35,7 @@ function SignupPage() {
   const [password, setPassword] = useState("");
   const [orgName, setOrgName] = useState("");
   const [orgCode, setOrgCode] = useState("");
+  const [joinRole, setJoinRole] = useState<"PV_COORDINATOR" | "FIELD_ASSOCIATE">("PV_COORDINATOR");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [justCreatedOrg, setJustCreatedOrg] = useState(false);
@@ -49,7 +51,9 @@ function SignupPage() {
         email.trim(),
         password,
         name.trim(),
-        mode === "CREATE_ORG" ? { mode, orgName: orgName.trim() } : { mode, orgCode: orgCode.trim() },
+        mode === "CREATE_ORG"
+          ? { mode, orgName: orgName.trim() }
+          : { mode, orgCode: orgCode.trim(), role: joinRole },
       );
       if (mode === "CREATE_ORG") {
         setJustCreatedOrg(true);
@@ -96,11 +100,12 @@ function SignupPage() {
                 </Button>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                Coordinators enter this on the sign-up page to join your organization.
+                Coordinators and field associates both enter this on the sign-up page — they pick
+                their own role there, so this one code covers your whole team.
               </p>
             </div>
             <div>
-              <p className="label-caps">Field associate link</p>
+              <p className="label-caps">Public reporting link</p>
               <div className="mt-1 flex items-center gap-2">
                 <code className="flex-1 truncate rounded-md border border-border bg-muted px-3 py-2 text-sm">
                   {fieldAssociateLink}
@@ -117,7 +122,8 @@ function SignupPage() {
                 </Button>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                No account needed — field associates use this to report cases directly.
+                No account needed — for outside reporters with no relationship to your team. Your
+                own field associates should sign up with the invite code above instead.
               </p>
             </div>
           </div>
@@ -219,19 +225,37 @@ function SignupPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-1.5">
-              <Label htmlFor="orgCode">Organization code</Label>
-              <Input
-                id="orgCode"
-                required
-                placeholder="Paste the code your manager shared"
-                value={orgCode}
-                onChange={(e) => setOrgCode(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Get this from your PV manager. You'll join as a PV Coordinator.
-              </p>
-            </div>
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="orgCode">Organization code</Label>
+                <Input
+                  id="orgCode"
+                  required
+                  placeholder="Paste the code your manager shared"
+                  value={orgCode}
+                  onChange={(e) => setOrgCode(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Get this from your PV manager.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="joinRole">I am joining as</Label>
+                <Select
+                  value={joinRole}
+                  onValueChange={(v) => setJoinRole(v as "PV_COORDINATOR" | "FIELD_ASSOCIATE")}
+                >
+                  <SelectTrigger id="joinRole">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PV_COORDINATOR">{ROLE_LABELS.PV_COORDINATOR}</SelectItem>
+                    <SelectItem value="FIELD_ASSOCIATE">{ROLE_LABELS.FIELD_ASSOCIATE}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Same code works for both — this just sets your role in the organization.
+                </p>
+              </div>
+            </>
           )}
 
           {error && (
