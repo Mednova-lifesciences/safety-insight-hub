@@ -60,7 +60,7 @@ const NAV: NavGroup[] = [
   {
     label: "Operations",
     items: [
-      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, hiddenForRoles: ["ADMIN"] },
+      { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       {
         to: "/icsr/new",
         label: "New ICSR",
