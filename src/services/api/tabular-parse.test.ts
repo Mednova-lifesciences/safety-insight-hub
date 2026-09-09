@@ -63,6 +63,50 @@ describe("parseTabularFile — clean files (no regression)", () => {
   });
 });
 
+describe("parseTabularFile — trailing legend/codebook after the case table", () => {
+  it("preserves a trailing 'KEY TO SUMMARY FINDINGS' legend's actual text instead of silently discarding it", async () => {
+    // Shape mirrors the real Ondo AEFI workbook (src/types/2026, ONDO STATE
+    // AEFI.xlsx): a case table followed by a blank row, then single-cell
+    // legend rows defining what the file's own coded reaction/outcome
+    // values mean — structurally identical (one populated cell) to a
+    // reprinted letterhead band, which is exactly why this used to be
+    // silently dropped by the same sparse-row filter.
+    const file = xlsxFile([
+      ["S/N", "Patient Name", "Sex", "Age", "Reaction type (Codes -see 1 below )", "Outcome (Codes-see 3 below)"],
+      [1, "Jane Doe", "F", 2, "19", "1"],
+      [2, "John Smith", "M", 1, "8", "2"],
+      [],
+      ["KEY TO SUMMARY FINDINGS:"],
+      ["1) REACTION TYPE : 1=Anaphylaxis, 2=Anaphylactic Shock, ... 19=Fever (<38oC)"],
+      ["3) OUTCOME: 1= Recovered, 2=Hospitalized, 3=Disability, 4=Died"],
+    ]);
+    const result = await parseTabularFile(file);
+
+    // The legend rows must never appear as case data...
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.flat().join(" ")).not.toContain("KEY TO SUMMARY FINDINGS");
+
+    // ...but their actual text must survive somewhere, not just a count.
+    expect(result.discardedRowsText.some((t) => t.includes("KEY TO SUMMARY FINDINGS"))).toBe(true);
+    expect(result.discardedRowsText.some((t) => t.includes("1=Anaphylaxis"))).toBe(true);
+    expect(result.discardedRowsText.some((t) => t.includes("1= Recovered"))).toBe(true);
+    expect(result.warnings.join(" ")).toMatch(/legend|codebook/i);
+  });
+
+  it("preserves multiple distinct legend rows as separate entries, not concatenated into one blob", async () => {
+    const file = xlsxFile([
+      ["S/N", "Patient Name", "Sex", "Reaction", "Outcome", "Seriousness"],
+      [1, "Jane Doe", "F", "19", "1", "1"],
+      ["KEY TO SUMMARY FINDINGS:"],
+      ["1) REACTION TYPE : 19=Fever"],
+      ["2) SERIOUS CASE: 1=Life threatening"],
+      ["3) OUTCOME: 1=Recovered"],
+    ]);
+    const result = await parseTabularFile(file);
+    expect(result.discardedRowsText).toHaveLength(4);
+  });
+});
+
 describe("parseTabularFile — government-form letterhead before the real header", () => {
   it("skips title/letterhead rows and finds the real header further down", async () => {
     const file = xlsxFile([

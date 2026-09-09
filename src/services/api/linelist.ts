@@ -102,6 +102,16 @@ interface LineListJobRow extends LineListJob {
    *  (createFromCases) or uploaded before this was tracked. */
   sheetName?: string;
   headerRowNumber?: number;
+  /** Raw text of rows the parser found within the data region but excluded
+   *  from `rows`/`parsedRows` as too sparse to be a real case (see
+   *  tabular-parse.ts's discardedRowsText) — most often a trailing
+   *  "KEY TO SUMMARY FINDINGS" legend/codebook defining what this file's
+   *  own coded field values mean. Preserved so that content is never
+   *  silently lost, even though nothing in this pipeline yet parses it
+   *  into a structured code->meaning registry — that remains a distinct,
+   *  not-yet-built step (see docs/E2B-R3-SOURCE-PROFILES.md). Absent on
+   *  jobs synthesized internally (createFromCases). */
+  discardedRowsText?: string[];
   validatedAt?: string;
   /** The AI prompt version last used to analyse this job, surfaced on the
    *  executive summary so it's traceable to exactly what ran. */
@@ -1096,6 +1106,7 @@ export const linelist = {
         warnings: parseWarnings,
         sheetName,
         headerRowNumber,
+        discardedRowsText,
       } = await parseTabularFile(file);
       const mapping = mapColumns(headers);
       const parsedRows = toParsedRows(headers, rows, mapping);
@@ -1115,6 +1126,7 @@ export const linelist = {
         parsedRows,
         rawRows,
         parseWarnings,
+        discardedRowsText,
         sheetName,
         headerRowNumber,
       };

@@ -21,6 +21,21 @@ export interface ParsedTable {
    *  two-row header merged, no confident header found) — surfaced to the
    *  UI/audit trail rather than silently acted on. */
   warnings: string[];
+  /** The actual text content of every row dropped as "sparse" within the
+   *  data region (fewer than minPopulatedCells populated cells) — NOT just
+   *  a count. Real-world government AEFI line-lists commonly place a
+   *  "KEY TO SUMMARY FINDINGS" legend/codebook after the case table, in
+   *  single-cell rows that are structurally indistinguishable from a
+   *  reprinted letterhead band — both get dropped from `rows` for the
+   *  same reason, but the legend's actual content must never be silently
+   *  lost, since it may define what this file's own coded field values
+   *  (reaction/outcome/seriousness codes) mean. This is raw, unparsed
+   *  text — turning it into a structured code->meaning registry is a
+   *  distinct, not-yet-built step; this field only guarantees the text
+   *  itself survives long enough for that step (or a human reviewer) to
+   *  use it, instead of vanishing inside this filter with only a count
+   *  left behind. */
+  discardedRowsText: string[];
 }
 
 /** Normalised (lowercase, alphanumeric-only) header-concept fragments used
@@ -284,6 +299,7 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
       warnings: [
         "Could not confidently identify a header row anywhere in the first 60 rows of any sheet; used the first row of the first sheet as a last resort.",
       ],
+      discardedRowsText: [],
     };
   }
 
@@ -325,6 +341,7 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
   // enough columns for "more than one populated cell" to mean anything.
   const minPopulatedCells = headers.length >= 3 ? 2 : 1;
   let structuralRowsDropped = 0;
+  const discardedRowsText: string[] = [];
   const rows = matrix
     .slice(dataStartIndex)
     .map((r) => headers.map((_, i) => normalizeCell(r[i])))
@@ -334,13 +351,21 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
       if (r.join("") === headerKey) return false; // exact repeat of the header row
       if (populated < minPopulatedCells) {
         structuralRowsDropped++;
+        // Preserve the actual text — this row is exactly as likely to be
+        // a trailing "KEY TO SUMMARY FINDINGS" legend/codebook as a
+        // reprinted letterhead band, and unlike a letterhead, a legend's
+        // content can be load-bearing for interpreting this file's own
+        // coded values. Never silently discard it — only stop treating
+        // it as a case row.
+        const text = r.filter((cell) => cell.length > 0).join(" | ");
+        if (text) discardedRowsText.push(text);
         return false;
       }
       return true;
     });
   if (structuralRowsDropped > 0) {
     warnings.push(
-      `Dropped ${structuralRowsDropped} sparse row(s) within the data region (fewer than ${minPopulatedCells} populated cell(s)) as non-data structural content, e.g. a repeated letterhead/title band.`,
+      `Dropped ${structuralRowsDropped} sparse row(s) within the data region (fewer than ${minPopulatedCells} populated cell(s)) as non-data structural content, e.g. a repeated letterhead/title band or a trailing legend/codebook — see discardedRowsText for the actual preserved content.`,
     );
   }
 
@@ -351,6 +376,7 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
     headerRowNumber: header.index + 1,
     skippedRows: header.index,
     warnings,
+    discardedRowsText,
   };
 }
 
