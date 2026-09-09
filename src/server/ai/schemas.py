@@ -183,6 +183,13 @@ class AiPsurFinding(BaseModel):
 
 class AiPsurReview(BaseModel):
     findings: list[AiPsurFinding]  # required — see AiLineListAnalysis for why
+    # Best-effort extraction from the document text itself — the frontend
+    # seeds the document record with "Not yet extracted" placeholders that
+    # otherwise never get filled in for a PDF upload (there was nowhere for
+    # an extracted value to come back to). None when the model couldn't
+    # confidently identify either from the (possibly truncated) text.
+    product: Optional[str] = None
+    reporting_period: Optional[str] = None
 
 
 class AiPsurResolution(BaseModel):

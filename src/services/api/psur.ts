@@ -420,7 +420,18 @@ export const psur = {
           ? generatePdfFindingsFallback(doc)
           : [];
       await persistFindings(doc.id, findings);
-      const reviewed: PsurDocumentRow = { ...doc, stage: "REVIEWED" };
+      const reviewed: PsurDocumentRow = {
+        ...doc,
+        stage: "REVIEWED",
+        // The record was seeded with "Not yet extracted" placeholders at
+        // upload time with nothing that ever filled them in afterward —
+        // apply whatever the AI pass could confidently read off the
+        // document text itself, and only for a value it actually found.
+        ...(aiResult.ai_used && aiResult.product ? { product: aiResult.product } : {}),
+        ...(aiResult.ai_used && aiResult.reporting_period
+          ? { reportingPeriod: aiResult.reporting_period }
+          : {}),
+      };
       await saveDocument(reviewed);
       await recordAudit({
         action: "PSUR_REVIEWED",

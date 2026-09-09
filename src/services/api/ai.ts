@@ -78,6 +78,10 @@ export interface AiPsurReviewResponse {
   truncated?: boolean;
   model?: string | null;
   error?: string | null;
+  /** Best-effort product/reporting-period extraction from the document
+   *  text itself — PDF review only; null when not confidently determined. */
+  product?: string | null;
+  reporting_period?: string | null;
 }
 
 export interface AiPsurResolution {

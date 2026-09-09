@@ -77,6 +77,8 @@ class ReviewResponse(BaseModel):
     truncated: bool = False
     model: Optional[str] = None
     error: Optional[str] = None
+    product: Optional[str] = None
+    reporting_period: Optional[str] = None
 
 
 @router.get("/status")
@@ -133,6 +135,8 @@ async def review_pdf(
             pages_extracted=total_pages,
             truncated=truncated,
             model=completion.model,
+            product=parsed.product,
+            reporting_period=parsed.reporting_period,
         )
     except AiNotConfiguredError as exc:
         logger.info("PSUR PDF AI review skipped: %s", exc)

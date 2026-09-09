@@ -180,7 +180,11 @@ function PsurPage() {
                                 : "info"
                           }
                         >
-                          {d.stage.toLowerCase()}
+                          {/* "REVIEWED" means the AI pass has run and
+                              generated findings — not that a human has
+                              accepted/dismissed them yet. Spelled out here
+                              since "reviewed" alone reads as the latter. */}
+                          {d.stage === "REVIEWED" ? "AI reviewed" : d.stage.toLowerCase()}
                         </StatusPill>
                         <span className="mono-num text-xs text-muted-foreground">
                           {d.pages} {d.sourceType === "SPREADSHEET" ? "case rows" : "pages"}

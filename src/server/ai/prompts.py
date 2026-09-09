@@ -349,6 +349,11 @@ sum given elsewhere in the same text), vague or missing benefit-risk conclusions
 concrete, text-grounded concerns. Do not assert that a section is missing if the text is \
 truncated and you simply didn't see it — say so as a caveat instead in that finding's evidence.
 
+Also identify the product name and the reporting period this document covers, from the text \
+itself (e.g. a title page, header, or introduction stating the product and interval) — not from \
+declaredProduct/declaredReportingPeriod, which are only a hint of what the uploader expects and \
+may be wrong or absent. Leave a field null if the text doesn't let you determine it confidently.
+
 Respond with JSON exactly in this shape:
 {
   "findings": [
@@ -359,9 +364,11 @@ Respond with JSON exactly in this shape:
       "description": "<one to two sentences, specific to this document>",
       "evidence": "<what in the text supports this finding, or the caveat if based on absence/truncation>"
     }
-  ]
+  ],
+  "product": "<product name found in the text, or null>",
+  "reporting_period": "<reporting period found in the text, e.g. '01 Jan 2026 - 30 Jun 2026', or null>"
 }
-If you find no issues, return {"findings": []}.
+If you find no issues, return findings as [] — still populate product/reporting_period if you can.
 """
 )
 
