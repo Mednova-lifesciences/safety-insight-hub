@@ -133,7 +133,7 @@ describe("validateVigiFlowPreflight", () => {
     const c = minimalValidCase();
     c.reactions[0]!.reaction = {
       sourceValue: "19",
-      status: "CODED",
+      status: "MAPPED",
       codedTerm: "Pyrexia",
       code: "10037660",
       dictionaryVersion: "27.0",
@@ -141,7 +141,7 @@ describe("validateVigiFlowPreflight", () => {
     };
     c.products[0]!.product = {
       sourceValue: "MR/MV",
-      status: "CODED",
+      status: "MAPPED",
       codedTerm: "MEASLES-RUBELLA VACCINE",
       code: "12345",
       dictionaryVersion: "2026-1",

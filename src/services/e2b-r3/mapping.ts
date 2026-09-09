@@ -10,6 +10,7 @@ import type {
   ReportType,
   RequiredValue,
   SexCode,
+  WhoDrugCodedProduct,
 } from "./types";
 import type { MedDraCodingProvider, WhoDrugCodingProvider } from "./coding-provider";
 
@@ -35,6 +36,13 @@ export interface RawLineListRow {
   dose?: string;
   reporter_designation?: string;
   reporter_phone?: string;
+  /** Not present in the current Ondo AEFI line-list format — no source
+   *  column for follow-up exists in that dataset today. Modelled now,
+   *  dormant, so this pipeline handles a future dataset that does carry
+   *  follow-up information without a structural change; see
+   *  mapRowToPVCase's followUp handling below. */
+  is_followup?: string;
+  previous_case_id?: string;
 }
 
 /** Decisions D1-D4 from Ondo_AEFI_E2B_R3_Developer_Spec.docx section 3 —
@@ -49,6 +57,14 @@ export interface MappingConfig {
    *  NAFDAC. Not a sender/receiver *transmission* identifier (N.1.3 etc.)
    *  — those are batch-level, set at serialization time, not per case. */
   senderOrganisation?: string | undefined;
+  /** Decision D2 — explicit, human-confirmed mapping from this dataset's
+   *  free-text reporter designation (e.g. "CHEW") to one of the five
+   *  Appendix I(F) qualification codes. Keyed by the exact designation
+   *  string as it appears in the source data (case-insensitive, trimmed).
+   *  Empty by default — nothing in this codebase invents a code for a
+   *  designation nobody has confirmed. See
+   *  src/services/e2b-r3/transmission-config.ts. */
+  reporterQualificationMap?: Record<string, "1" | "2" | "3" | "4" | "5"> | undefined;
 }
 
 /** "ADEBOLA ESTHER" -> "A.E." — pseudonymised initials, never a real name.
@@ -169,14 +185,14 @@ async function codeReactionTerm(
   provider: MedDraCodingProvider,
   verbatim: string,
 ): Promise<CodedTerm> {
-  return provider.codeReaction(verbatim);
+  return provider.resolveReaction(verbatim);
 }
 
 async function codeProductTerm(
   provider: WhoDrugCodingProvider,
   verbatim: string,
-): Promise<CodedTerm> {
-  return provider.codeProduct(verbatim);
+): Promise<WhoDrugCodedProduct> {
+  return provider.resolveProduct(verbatim);
 }
 
 export interface MappingWarning {
@@ -288,6 +304,21 @@ export async function mapRowToPVCase(
   // reporter_designation column is a *qualification* ("CHEW"), not a
   // name, so C.2.r.1 (name) genuinely has no source here regardless of D2.
   const reporterNameValue: RequiredValue<string> = { present: false, nullFlavor: "NASK" };
+  // C.2.r.4 — only set when this exact designation string has an explicit,
+  // human-confirmed entry in config.reporterQualificationMap (decision
+  // D2). No entry means genuinely unresolved, not a guess.
+  const qualificationCode = reporterName
+    ? config.reporterQualificationMap?.[reporterName.toUpperCase()]
+    : undefined;
+
+  // Follow-up (C.1.10) — this dataset's current column set has no
+  // is_followup/previous_case_id source, so every real row maps to
+  // isFollowUp:false honestly. The fields exist on RawLineListRow so a
+  // future dataset that does carry follow-up information is handled
+  // without a structural change to this function.
+  const isFollowUpRaw = (row.is_followup ?? "").trim().toUpperCase();
+  const isFollowUp = isFollowUpRaw === "YES" || isFollowUpRaw === "TRUE" || isFollowUpRaw === "1";
+  const previousTransmissionRef = row.previous_case_id?.trim() || undefined;
 
   const reportType: RequiredValue<ReportType> = config.reportType
     ? { present: true, value: config.reportType }
@@ -319,7 +350,11 @@ export async function mapRowToPVCase(
     // than inferred from seriousness.
     fulfilsExpeditedCriteria: { present: false, nullFlavor: "NASK" },
     otherCaseIdentifiersInPreviousTransmissions: otherCaseIdentifiers,
-    followUp: { isFollowUp: false },
+    followUp: isFollowUp
+      ? previousTransmissionRef
+        ? { isFollowUp: true, previousTransmissionRef }
+        : { isFollowUp: true }
+      : { isFollowUp: false },
     patient: {
       identity,
       sex: mapSex(row.sex),
@@ -332,9 +367,11 @@ export async function mapRowToPVCase(
     reporter: {
       name: reporterNameValue,
       qualificationVerbatim: reporterName || undefined,
-      // qualificationCode intentionally left unset — binding "CHEW" (or
-      // any other free-text designation) to one of the five Appendix I(F)
-      // codes is decision D2, not a guess this function makes.
+      // Only set when config.reporterQualificationMap explicitly resolves
+      // this exact designation — see qualificationCode above. Binding
+      // "CHEW" (or any other free-text designation) to one of the five
+      // Appendix I(F) codes is decision D2, never guessed by this function.
+      qualificationCode,
     },
     senderOrganisation: config.senderOrganisation,
     reactions,

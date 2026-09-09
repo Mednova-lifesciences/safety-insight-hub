@@ -23,6 +23,14 @@
  *  2. Multiple suspect products are multiple sibling <component> elements
  *     inside ONE <organizer code="4" displayName="drugInformation">, not
  *     multiple separate drugInformation organizers.
+ *  3. Within investigationEvent, every <outboundRelationship typeCode="SPRT">
+ *     sibling (initialReport, sourceReport/reporter, follow-up link) MUST
+ *     appear as a contiguous group BEFORE the <subjectOf1>/<subjectOf2>
+ *     siblings (sender, report type, other case ids) — the content model is
+ *     ordered, not a free bag of optional elements. Discovered by real XSD
+ *     validation failure (SCHEMAV_ELEMENT_CONTENT) when the follow-up link
+ *     was first appended after reportTypeBlock/otherIdsBlock instead of
+ *     grouped with reporterBlock.
  *
  * What is deliberately NOT emitted, and why:
  *  - G.k.1 (drug characterization) and E.i.7 (outcome) are coded CE values
@@ -35,7 +43,7 @@
  *    this session against an ICH source document. Flagged here and in
  *    docs/E2B-R3-NAFDAC-VIGIFLOW.md as needing cross-check before any real
  *    submission.
- *  - MedDRA/WHODrug codes: never emitted unless CodedTerm.status === "CODED"
+ *  - MedDRA/WHODrug codes: never emitted unless CodedTerm.status === "MAPPED"
  *    (i.e. a licensed provider actually coded it). An UNMAPPED term is
  *    serialized with nullFlavor="UNK" on the coded <value> and the real
  *    verbatim text preserved in <originalText> — never a source category
@@ -49,6 +57,7 @@
  *    data for them — never populated with placeholder text.
  */
 import type { PVCase, PVReaction, PVProduct, DrugCharacterization } from "./types";
+import { WHODRUG_GLOBAL_RID_OID } from "./coding-provider";
 
 function esc(value: string): string {
   return value
@@ -103,7 +112,7 @@ function serializeReaction(r: PVReaction): string {
     ? `<effectiveTime xsi:type="IVL_TS"><low value="${toHl7Ts(r.onsetDate)}"/></effectiveTime>`
     : "";
   const value =
-    r.reaction.status === "CODED" && r.reaction.code
+    r.reaction.status === "MAPPED" && r.reaction.code
       ? `<value xsi:type="CE" code="${esc(r.reaction.code)}" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="${esc(r.reaction.dictionaryVersion ?? "")}"><originalText>${esc(r.reaction.sourceValue)}</originalText></value>`
       : `<value xsi:type="CE" nullFlavor="UNK"><originalText>${esc(r.reaction.sourceValue)}</originalText></value>`;
 
@@ -123,9 +132,16 @@ function serializeReaction(r: PVReaction): string {
 function serializeDrugComponent(p: PVProduct): string {
   const id = esc(p.id);
   const productValue =
-    p.product.status === "CODED" && p.product.code
+    p.product.status === "MAPPED" && p.product.code
       ? `<code code="${esc(p.product.code)}" codeSystem="TBD-MPID" codeSystemVersion="${esc(p.product.dictionaryVersion ?? "")}"/>`
       : `<code nullFlavor="UNK"/>`;
+  // WHODrug Global RID — only emitted when a real provider actually
+  // supplied one (never invented). Uses the fixed WHODrug Global RID OID,
+  // not a guessed identifier system.
+  const ridEl =
+    p.product.status === "MAPPED" && p.product.rid
+      ? `<id root="${WHODRUG_GLOBAL_RID_OID}" extension="${esc(p.product.rid)}"/>`
+      : "";
   const route = p.route
     ? `<routeCode nullFlavor="UNK"><originalText>${esc(p.route)}</originalText></routeCode>`
     : "";
@@ -136,7 +152,7 @@ function serializeDrugComponent(p: PVProduct): string {
   const startDate = p.startDate
     ? `<effectiveTime xsi:type="IVL_TS"><low value="${toHl7Ts(p.startDate)}"/></effectiveTime>`
     : "";
-  return `<component typeCode="COMP"><substanceAdministration classCode="SBADM" moodCode="EVN"><id root="${id}"/><consumable typeCode="CSM"><instanceOfKind classCode="INST"><kindOfProduct classCode="MMAT" determinerCode="KIND">${productValue}<name>${esc(p.product.sourceValue)}</name></kindOfProduct></instanceOfKind></consumable>${
+  return `<component typeCode="COMP"><substanceAdministration classCode="SBADM" moodCode="EVN"><id root="${id}"/><consumable typeCode="CSM"><instanceOfKind classCode="INST"><kindOfProduct classCode="MMAT" determinerCode="KIND">${ridEl}${productValue}<name>${esc(p.product.sourceValue)}</name></kindOfProduct></instanceOfKind></consumable>${
     route || dose || batch || startDate
       ? `<outboundRelationship2 typeCode="COMP"><substanceAdministration classCode="SBADM" moodCode="EVN">${startDate}${route}${dose}${batch}</substanceAdministration></outboundRelationship2>`
       : ""
@@ -205,9 +221,22 @@ export function serializeCaseToMessage(
         .join("")}`
     : `<subjectOf2 typeCode="SUBJ"><investigationCharacteristic classCode="OBS" moodCode="EVN"><code code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.23" codeSystemVersion="1.0" displayName="otherCaseIds"/><value xsi:type="BL" nullFlavor="NI"/></investigationCharacteristic></subjectOf2>`;
 
+  // C.1.10.r — Identification Number of the Report Which Is Linked to This
+  // Report. Structure confirmed against the official ICH reference
+  // instance (regulatory-assets/e2b-r3/official-ich/): a follow-up is
+  // represented structurally, by the PRESENCE of this linked-report id —
+  // there is no separate "isFollowUp" boolean element in the R-MIM to set.
+  // A follow-up with isFollowUp:true but no previousTransmissionRef is a
+  // real data problem (see validation.ts's E2B-C1.10-FOLLOWUP-REF-MISSING)
+  // and correctly serializes nothing here rather than a broken/empty link.
+  const followUpBlock =
+    pvCase.followUp.isFollowUp && pvCase.followUp.previousTransmissionRef
+      ? `<outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code nullFlavor="NA"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><id extension="${esc(pvCase.followUp.previousTransmissionRef)}" root="2.16.840.1.113883.3.989.2.1.3.2"/></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>`
+      : "";
+
   const narrative = esc(pvCase.narrative && pvCase.narrative.trim() ? pvCase.narrative : "No narrative provided.");
 
-  return `<PORR_IN049016UV><id extension="${esc(opts.messageId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.sendersCaseId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}</player1>${age}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
+  return `<PORR_IN049016UV><id extension="${esc(opts.messageId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.sendersCaseId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}</player1>${age}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${followUpBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
 }
 
 export interface BatchOptions {

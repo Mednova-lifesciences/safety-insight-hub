@@ -1,23 +1,30 @@
 {
-  "totalCases": 231,
-  "blockedByBusinessRules": 231,
-  "validByBusinessRulesAlone": 0,
-  "preflightStatus": "BLOCKED",
-  "preflightReadyCases": 0,
-  "preflightBlockedCases": 231,
-  "preflightCounts": {
-    "uncodedReactions": 252,
-    "uncodedSuspectDrugs": 250,
-    "missingReporter": 0,
-    "missingPatientIdentifier": 0,
-    "invalidDates": 239
-  },
-  "businessRuleErrorCounts": {
+  "inputCases": 231,
+  "normalizedCases": 231,
+  "exportableCases": 0,
+  "blockedCases": 231,
+  "batchCount": 3,
+  "batchSizes": [
+    100,
+    100,
+    31
+  ],
+  "blockingReasons": {
     "E2B-C1.7-UNRESOLVED": 231,
     "E2B-C2r3-MISSING": 231,
     "E2B-OUTCOME-UNMAPPED": 204,
     "E2B-REACTION-DATE-UNPARSEABLE": 239,
     "E2B-PRODUCT-MISSING": 2,
     "E2B-REACTION-MISSING": 13
+  },
+  "blockedByBusinessRules": 231,
+  "validByBusinessRulesAlone": 0,
+  "preflightStatus": "BLOCKED",
+  "preflightCounts": {
+    "uncodedReactions": 252,
+    "uncodedSuspectDrugs": 250,
+    "missingReporter": 0,
+    "missingPatientIdentifier": 0,
+    "invalidDates": 239
   }
 }

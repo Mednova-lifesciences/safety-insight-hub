@@ -8,7 +8,7 @@ import {
   parseSourceDate,
   splitMultiValue,
 } from "./mapping";
-import { unlicensedMedDraProvider, unlicensedWhoDrugProvider } from "./coding-provider";
+import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
 
 describe("deriveInitials", () => {
   it("derives initials from a full two-part name", () => {
@@ -154,7 +154,7 @@ describe("splitMultiValue", () => {
 });
 
 describe("mapRowToPVCase — integration of the mappers above", () => {
-  const providers = { meddra: unlicensedMedDraProvider, whodrug: unlicensedWhoDrugProvider };
+  const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
   const context = { jobId: "ll-test", sourceFile: "test.xlsx", sourceRow: 1, processedAt: "2026-09-09T00:00:00Z" };
 
   it("maps a real Ondo-shaped row correctly end to end", async () => {
@@ -187,7 +187,11 @@ describe("mapRowToPVCase — integration of the mappers above", () => {
     expect(pvCase.aggregateSeriousnessAsReported).toBe("NON SERIOUS");
 
     expect(pvCase.reactions).toHaveLength(1);
-    expect(pvCase.reactions[0]!.reaction.status).toBe("UNMAPPED");
+    // No provider is configured at all in this test (unavailableMedDraProvider)
+    // — PROVIDER_UNAVAILABLE, not UNMAPPED (that status means a real
+    // provider was consulted and found no match; this is the honest
+    // "nothing was even attempted" state).
+    expect(pvCase.reactions[0]!.reaction.status).toBe("PROVIDER_UNAVAILABLE");
     expect(pvCase.reactions[0]!.reaction.sourceValue).toBe("19");
     expect(pvCase.reactions[0]!.outcomeUnmapped).toBe("1");
     expect(pvCase.reactions[0]!.outcome).toBeUndefined();
@@ -196,7 +200,7 @@ describe("mapRowToPVCase — integration of the mappers above", () => {
 
     expect(pvCase.products).toHaveLength(1);
     expect(pvCase.products[0]!.characterization).toBe("SUSPECT");
-    expect(pvCase.products[0]!.product.status).toBe("UNMAPPED");
+    expect(pvCase.products[0]!.product.status).toBe("PROVIDER_UNAVAILABLE");
     expect(pvCase.products[0]!.batchNumber).toBe("0125N084A");
     expect(pvCase.products[0]!.startDate).toBe("2026-02-03");
 

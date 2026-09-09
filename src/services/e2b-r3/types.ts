@@ -33,10 +33,22 @@ export type NullFlavor =
 export type RequiredValue<T> = { present: true; value: T } | { present: false; nullFlavor: NullFlavor };
 
 /** Where a coded value actually came from, and how confident that coding
- *  is. UNMAPPED is the only honest default when no licensed terminology
- *  service has coded the term — never invented, never silently defaulted
- *  to a guess. */
-export type CodingStatus = "CODED" | "UNMAPPED" | "REQUIRES_REVIEW";
+ *  is. Four distinct states, deliberately not collapsed into one another —
+ *  each means something different for what a reviewer or the UI should do:
+ *   - MAPPED: a real provider (licensed dictionary or an explicitly
+ *     configured authorized mapping table) actually resolved this term.
+ *   - UNMAPPED: a real provider was consulted but had no match for this
+ *     specific value — the provider exists, this term just isn't in it.
+ *   - INVALID: a provider was consulted and positively rejected the input
+ *     (e.g. a malformed/empty verbatim value) — distinct from "no match
+ *     found," since the fix here is data cleanup, not dictionary coverage.
+ *   - PROVIDER_UNAVAILABLE: no provider was configured at all, so no
+ *     mapping was even attempted — the honest default when neither a
+ *     MedDRA/WHODrug license nor an authorized mapping table exists yet
+ *     (see coding-provider.ts). This is the actual state of every reaction
+ *     and product in this application today.
+ *  Never invented, never silently defaulted to a guess. */
+export type CodingStatus = "MAPPED" | "UNMAPPED" | "INVALID" | "PROVIDER_UNAVAILABLE";
 
 export interface CodedTerm {
   /** What the source actually said, verbatim — always preserved regardless
@@ -44,8 +56,8 @@ export interface CodedTerm {
    *  term regardless of coding status; normalization must never overwrite
    *  it — spec 5.6). */
   sourceValue: string;
-  /** The dictionary term this maps to, once actually coded by a licensed
-   *  terminology service. Undefined while status is UNMAPPED/REQUIRES_REVIEW. */
+  /** The dictionary term this maps to, once actually coded. Undefined
+   *  while status is anything other than MAPPED. */
   codedTerm?: string | undefined;
   /** MedDRA LLT code (E.i.2.1b) or WHODrug identifier. A source category
    *  number (e.g. Ondo's "19") must never appear here — spec 5.5. */
@@ -56,10 +68,39 @@ export interface CodedTerm {
    *  fully traceable. */
   dictionaryVersion?: string | undefined;
   status: CodingStatus;
-  /** "LICENSED_DICTIONARY" once real coding exists, "AI_SUGGESTION" for an
-   *  unverified model suggestion a human hasn't confirmed (never usable for
-   *  export on its own — see CodingProvider), "NONE" for UNMAPPED. */
-  mappingMethod: "LICENSED_DICTIONARY" | "AI_SUGGESTION" | "NONE";
+  /** "LICENSED_DICTIONARY" for a real live dictionary/API, "AUTHORIZED_MAPPING_TABLE"
+   *  for a pre-approved static table explicitly supplied as configuration
+   *  (e.g. Ondo's own reaction codebook once NAFDAC/Ondo actually provide
+   *  one — see coding-provider.ts's AuthorizedMappingTable providers),
+   *  "AI_SUGGESTION" for an unverified model suggestion a human hasn't
+   *  confirmed (never usable for export on its own), "NONE" when nothing
+   *  attempted a mapping. */
+  mappingMethod: "LICENSED_DICTIONARY" | "AUTHORIZED_MAPPING_TABLE" | "AI_SUGGESTION" | "NONE";
+}
+
+/** WHODrug Global C3's coded product shape — richer than a generic
+ *  CodedTerm because C3's data model is itself richer than MedDRA's flat
+ *  term hierarchy (spec section 3 of this task; UMC's WHODrug Global C3
+ *  E2B(R3) mapping guidance). Every field beyond the base CodedTerm ones
+ *  is populated ONLY by a real WhoDrugCodingProvider that actually looked
+ *  the product up — never guessed from the product's free-text name. */
+export interface WhoDrugCodedProduct extends CodedTerm {
+  /** WHODrug Global C3 Medicinal Product ID (MPID) — the primary coded
+   *  identifier for G.k.2.1.1b when coding at product level. */
+  mpid?: string | undefined;
+  /** Active ingredient/substance name, where the provider can supply it. */
+  substanceName?: string | undefined;
+  /** WHODrug Global C3 Substance ID — used for G.k.2.3.r.2b when coding at
+   *  substance level (e.g. a vaccine with no exact MPID match but a known
+   *  active substance). */
+  substanceId?: string | undefined;
+  strength?: string | undefined;
+  pharmaceuticalForm?: string | undefined;
+  /** WHODrug Global RID (Record Identification Number) — required by some
+   *  E2B(R3) receivers for legacy-format cross-reference. Never invented;
+   *  only ever set by a real provider. See coding-provider.ts's
+   *  WHODRUG_GLOBAL_RID_OID for the fixed OID this identifies against. */
+  rid?: string | undefined;
 }
 
 export type SexCode = "MALE" | "FEMALE" | "UNKNOWN_NOT_SPECIFIED";
@@ -159,7 +200,9 @@ export type DrugCharacterization = "SUSPECT" | "CONCOMITANT" | "INTERACTING" | "
 export interface PVProduct {
   id: string;
   characterization: DrugCharacterization;
-  product: CodedTerm;
+  /** WHODrug Global C3-shaped, not a generic CodedTerm — see
+   *  WhoDrugCodedProduct's doc comment for why. */
+  product: WhoDrugCodedProduct;
   /** G.k.4.r.7 — high value for AEFI signal detection; recovered verbatim
    *  from source, never invented. */
   batchNumber?: string | undefined;

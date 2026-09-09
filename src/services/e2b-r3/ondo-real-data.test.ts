@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { mapRowToPVCase, type RawLineListRow } from "./mapping";
 import { runPreflight, validateBusinessRules } from "./validation";
-import { unlicensedMedDraProvider, unlicensedWhoDrugProvider } from "./coding-provider";
+import { splitIntoBatches } from "./batching";
+import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
 import { serializeBatchToXml } from "./serializer";
 
 /**
@@ -22,7 +23,7 @@ describe("real Ondo AEFI dataset (231 rows, job ll-4896f674-e6a9-4734-b27f-4ab8e
     expect(raw.length).toBe(231);
 
     const context = { jobId: "ll-4896f674-e6a9-4734-b27f-4ab8e3ed144d", sourceFile: "ondo_aefi_linelist.xlsx", processedAt: "2026-09-09T00:00:00Z" };
-    const providers = { meddra: unlicensedMedDraProvider, whodrug: unlicensedWhoDrugProvider };
+    const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
     const config = { reportType: "1" as const, senderOrganisation: "MEDNOVA" }; // D3/D4 assumed resolved for this test run to isolate MedDRA/WHODrug/reporter/patient gaps
 
     const results = await Promise.all(
@@ -40,20 +41,38 @@ describe("real Ondo AEFI dataset (231 rows, job ll-4896f674-e6a9-4734-b27f-4ab8e
 
     const blockedByBusinessRules = businessErrors.filter((e) => e.some((x) => x.severity === "BLOCKING")).length;
 
+    // 100-ICSR batching over ALL 231 normalized cases (not just the
+    // business-valid subset) — proves batching itself never drops/
+    // duplicates a case regardless of validation outcome.
+    const batches = splitIntoBatches(cases, "ONDO-AUDIT");
+    const allBatchedIds = batches.flatMap((b) => b.cases.map((c) => c.sendersCaseId));
+
     const report = {
-      totalCases: cases.length,
+      // Exact machine-readable shape requested by the audit.
+      inputCases: raw.length,
+      normalizedCases: cases.length,
+      exportableCases: preflight.readyCases,
+      blockedCases: preflight.blockedCases,
+      batchCount: batches.length,
+      batchSizes: batches.map((b) => b.cases.length),
+      blockingReasons: counts,
+
+      // Additional detail kept for the fuller audit narrative.
       blockedByBusinessRules,
       validByBusinessRulesAlone: cases.length - blockedByBusinessRules,
       preflightStatus: preflight.status,
-      preflightReadyCases: preflight.readyCases,
-      preflightBlockedCases: preflight.blockedCases,
       preflightCounts: preflight.counts,
-      businessRuleErrorCounts: counts,
     };
 
     const dir = join(__dirname, "..", "..", "..", "artifacts", "e2b-r3");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "ondo-real-dataset-report.json"), JSON.stringify(report, null, 2), "utf-8");
+
+    // Sanity: batching never drops or duplicates a case, and matches the
+    // documented 100/100/31 split for 231 cases exactly.
+    expect(allBatchedIds.length).toBe(231);
+    expect(new Set(allBatchedIds).size).toBe(231);
+    expect(batches.map((b) => b.cases.length)).toEqual([100, 100, 31]);
 
     // Also serialize + write the actual XML for the cases that pass business
     // rules (not VigiFlow preflight, since MedDRA/WHODrug are honestly

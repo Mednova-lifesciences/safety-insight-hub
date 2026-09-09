@@ -1,4 +1,4 @@
-import type { CodedTerm } from "./types";
+import type { CodedTerm, WhoDrugCodedProduct } from "./types";
 
 /**
  * Boundary between this app and licensed medical terminology dictionaries
@@ -17,45 +17,171 @@ import type { CodedTerm } from "./types";
 export interface MedDraCodingProvider {
   /** MedDRA version this provider is licensed/configured for, if any —
    *  null when unconfigured. */
-  readonly version: string | null;
-  codeReaction(verbatimText: string): Promise<CodedTerm>;
+  getVersion(): string | null;
+  /** Verbatim reaction/event text -> a coded (or honestly unmapped/
+   *  invalid/unavailable) term. Named to match the vocabulary this app's
+   *  regulatory review settled on (resolve, not "guess-and-code"). */
+  resolveReaction(verbatimText: string): Promise<CodedTerm>;
+  /** Reverse lookup: a MedDRA LLT code -> its Preferred Term, when the
+   *  provider actually has one. Returns null (never a guess) if the code
+   *  isn't recognised by this provider's configured version — useful for
+   *  displaying human-readable review context, never for producing new
+   *  codes from source data. */
+  resolvePreferredTerm(lltCode: string): Promise<{ preferredTerm: string; code: string } | null>;
 }
 
 export interface WhoDrugCodingProvider {
   /** WHODrug Global version this provider is licensed/configured for, if
    *  any — null when unconfigured. UMC releases WHODrug Global biannually;
    *  a real provider must expose which release it's actually using. */
-  readonly version: string | null;
-  codeProduct(verbatimText: string): Promise<CodedTerm>;
+  getVersion(): string | null;
+  /** Verbatim product/vaccine text -> a coded (or honestly unmapped/
+   *  invalid/unavailable) WHODrug Global C3 product — see
+   *  WhoDrugCodedProduct for the richer shape (substance, strength, form,
+   *  RID) this returns compared to a generic reaction CodedTerm. */
+  resolveProduct(verbatimText: string): Promise<WhoDrugCodedProduct>;
 }
 
-function unmapped(sourceValue: string): CodedTerm {
-  return { sourceValue, status: "UNMAPPED", mappingMethod: "NONE" };
+function invalidValue(sourceValue: string): boolean {
+  return !sourceValue || !sourceValue.trim();
+}
+
+function providerUnavailable(sourceValue: string): CodedTerm {
+  return { sourceValue, status: "PROVIDER_UNAVAILABLE", mappingMethod: "NONE" };
+}
+
+function invalidTerm(sourceValue: string): CodedTerm {
+  return { sourceValue, status: "INVALID", mappingMethod: "NONE" };
 }
 
 /**
- * The only implementation that exists right now. No MedDRA license is
- * configured anywhere in this application, so this honestly reports every
- * reaction as UNMAPPED rather than inventing a code — this is correct,
- * intentional fail-closed behaviour, not a bug or a placeholder to
- * "eventually improve" with guessing. Swap for a real licensed provider
- * once one exists; nothing else in the codebase needs to change.
+ * The only MedDRA provider actually wired into this application right now.
+ * No MedDRA license is configured anywhere, so this honestly reports
+ * PROVIDER_UNAVAILABLE for every reaction rather than pretending an
+ * attempt was made and simply found nothing — this is correct, intentional
+ * fail-closed behaviour, not a bug or a placeholder to "eventually
+ * improve" with guessing. Swap for a real licensed provider once one
+ * exists; nothing else in the codebase needs to change.
  */
-export const unlicensedMedDraProvider: MedDraCodingProvider = {
-  version: null,
-  async codeReaction(verbatimText: string): Promise<CodedTerm> {
-    return unmapped(verbatimText);
+export const unavailableMedDraProvider: MedDraCodingProvider = {
+  getVersion: () => null,
+  async resolveReaction(verbatimText: string): Promise<CodedTerm> {
+    return providerUnavailable(verbatimText);
+  },
+  async resolvePreferredTerm(): Promise<{ preferredTerm: string; code: string } | null> {
+    return null;
   },
 };
 
 /** Same honesty, same reasoning, for WHODrug Global — see
- *  unlicensedMedDraProvider above. */
-export const unlicensedWhoDrugProvider: WhoDrugCodingProvider = {
-  version: null,
-  async codeProduct(verbatimText: string): Promise<CodedTerm> {
-    return unmapped(verbatimText);
+ *  unavailableMedDraProvider above. */
+export const unavailableWhoDrugProvider: WhoDrugCodingProvider = {
+  getVersion: () => null,
+  async resolveProduct(verbatimText: string): Promise<WhoDrugCodedProduct> {
+    return providerUnavailable(verbatimText);
   },
 };
+
+export interface MedDraMappingTableEntry {
+  code: string;
+  preferredTerm: string;
+}
+
+/**
+ * A real, functioning MedDraCodingProvider — but ONLY over a mapping table
+ * explicitly supplied by the caller (spec section 2F of this task's
+ * requirements: "support that mapping — but only if the mapping source is
+ * explicitly supplied/configured"). This is deliberately NOT the same
+ * trust level as a live licensed dictionary API — mappingMethod is always
+ * "AUTHORIZED_MAPPING_TABLE" so downstream code and reviewers can tell the
+ * difference. No table is populated anywhere in this codebase today: Ondo
+ * State's own reaction codebook (what source values like "19", "8.19.21"
+ * actually mean) has never been supplied — see
+ * docs/E2B-R3-NAFDAC-VIGIFLOW.md's external-dependencies table. This class
+ * exists purely as the plumbing for when one is.
+ */
+export class AuthorizedMappingTableMedDraProvider implements MedDraCodingProvider {
+  constructor(
+    private readonly version: string,
+    private readonly table: Record<string, MedDraMappingTableEntry>,
+  ) {}
+
+  getVersion(): string | null {
+    return this.version;
+  }
+
+  async resolveReaction(verbatimText: string): Promise<CodedTerm> {
+    if (invalidValue(verbatimText)) return invalidTerm(verbatimText);
+    const key = verbatimText.trim();
+    const entry = this.table[key];
+    if (!entry) {
+      return { sourceValue: verbatimText, status: "UNMAPPED", mappingMethod: "NONE" };
+    }
+    return {
+      sourceValue: verbatimText,
+      status: "MAPPED",
+      mappingMethod: "AUTHORIZED_MAPPING_TABLE",
+      codedTerm: entry.preferredTerm,
+      code: entry.code,
+      dictionaryVersion: this.version,
+    };
+  }
+
+  async resolvePreferredTerm(lltCode: string): Promise<{ preferredTerm: string; code: string } | null> {
+    for (const entry of Object.values(this.table)) {
+      if (entry.code === lltCode) return { preferredTerm: entry.preferredTerm, code: entry.code };
+    }
+    return null;
+  }
+}
+
+export interface WhoDrugMappingTableEntry {
+  mpid?: string;
+  substanceName?: string;
+  substanceId?: string;
+  strength?: string;
+  pharmaceuticalForm?: string;
+  rid?: string;
+  productName: string;
+}
+
+/** Same principle as AuthorizedMappingTableMedDraProvider, for WHODrug
+ *  Global C3 — a real provider over an explicitly supplied table, never a
+ *  fabricated RID/MPID. No table is populated anywhere in this codebase
+ *  today. */
+export class AuthorizedMappingTableWhoDrugProvider implements WhoDrugCodingProvider {
+  constructor(
+    private readonly version: string,
+    private readonly table: Record<string, WhoDrugMappingTableEntry>,
+  ) {}
+
+  getVersion(): string | null {
+    return this.version;
+  }
+
+  async resolveProduct(verbatimText: string): Promise<WhoDrugCodedProduct> {
+    if (invalidValue(verbatimText)) return invalidTerm(verbatimText);
+    const key = verbatimText.trim().toUpperCase();
+    const entry = this.table[key];
+    if (!entry) {
+      return { sourceValue: verbatimText, status: "UNMAPPED", mappingMethod: "NONE" };
+    }
+    return {
+      sourceValue: verbatimText,
+      status: "MAPPED",
+      mappingMethod: "AUTHORIZED_MAPPING_TABLE",
+      codedTerm: entry.productName,
+      code: entry.mpid,
+      dictionaryVersion: this.version,
+      mpid: entry.mpid,
+      substanceName: entry.substanceName,
+      substanceId: entry.substanceId,
+      strength: entry.strength,
+      pharmaceuticalForm: entry.pharmaceuticalForm,
+      rid: entry.rid,
+    };
+  }
+}
 
 /**
  * WHODrug Global's own code system OID, per UMC's technical guidance for

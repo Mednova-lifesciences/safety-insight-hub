@@ -10,6 +10,7 @@ import {
   downloadValidatedBatch,
   type ValidatedExportResult,
 } from "@/services/e2b-r3/export";
+import { UNCONFIRMED_DEFAULT_CONFIG } from "@/services/e2b-r3/transmission-config";
 import { linelist as linelistApi } from "@/services/api/linelist";
 import { demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
@@ -72,10 +73,18 @@ function E2bPage() {
   async function checkValidatedPreflight(jobId: string) {
     setPreflightBusy(jobId);
     try {
-      const result = await runValidatedPreflightForJob(jobId);
+      // UNCONFIRMED_DEFAULT_CONFIG is the honest default: sender/receiver
+      // identifiers and the reporter-qualification map have not been
+      // confirmed by NAFDAC/Ondo yet (decisions D2-D4). Preflight still
+      // runs against it so MedDRA/WHODrug/data-quality gaps are visible
+      // even before those decisions land — but export stays blocked
+      // separately on transmissionConfigConfirmed regardless of preflight.
+      const result = await runValidatedPreflightForJob(jobId, UNCONFIRMED_DEFAULT_CONFIG);
       setPreflightResults((prev) => ({ ...prev, [jobId]: result }));
-      if (result.readyForValidatedExport) {
+      if (result.readyForValidatedExport && result.transmissionConfigConfirmed) {
         toast.success(`${result.totalCases} case(s) passed VigiFlow preflight — ready for real E2B(R3) export.`);
+      } else if (result.readyForValidatedExport) {
+        toast.warning("All cases passed VigiFlow preflight, but transmission configuration (sender/receiver identifiers) is not yet confirmed by NAFDAC/Ondo — export still blocked.");
       } else {
         toast.warning(
           `${result.preflight.blockedCases}/${result.totalCases} case(s) blocked — see reasons below. Not ready for validated export.`,
@@ -91,8 +100,8 @@ function E2bPage() {
   async function exportValidated(jobId: string) {
     setPreflightBusy(jobId);
     try {
-      const batches = await generateValidatedExportForJob(jobId, {}, "MEDNOVA", "NAFDAC");
-      for (const b of batches) downloadValidatedBatch(b);
+      const batches = await generateValidatedExportForJob(jobId, UNCONFIRMED_DEFAULT_CONFIG);
+      for (const b of batches) await downloadValidatedBatch(jobId, b);
       toast.success(`Downloaded ${batches.length} real E2B(R3) batch file(s) — ${batches.reduce((n, b) => n + b.caseCount, 0)} case(s) total.`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Validated export failed.");
@@ -299,10 +308,12 @@ function E2bPage() {
                           </p>
                           <p className="mt-1 text-xs text-muted-foreground">
                             Runs the real normalize → validate → MedDRA/WHODrug preflight → batch
-                            → serialize pipeline. Download is only offered when every case in this
-                            job passes VigiFlow's validated-import requirements — today that
-                            requires a licensed MedDRA/WHODrug provider, which is not yet
-                            configured, so real datasets will currently show blocked.
+                            → serialize pipeline. "READY_FOR_VALIDATED_IMPORT" here means every
+                            case passed VigiFlow's actual validated-import requirements — not
+                            merely that the generated XML is schema-valid. Download additionally
+                            requires the sender/receiver transmission identifiers to be confirmed
+                            by NAFDAC/Ondo (see the configuration gaps below) — neither condition
+                            alone unlocks it.
                           </p>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <Button
@@ -316,15 +327,25 @@ function E2bPage() {
                             {preflightResults[j.id] ? (
                               <>
                                 <StatusPill
-                                  tone={preflightResults[j.id]!.readyForValidatedExport ? "success" : "critical"}
+                                  tone={
+                                    preflightResults[j.id]!.readyForValidatedExport &&
+                                    preflightResults[j.id]!.transmissionConfigConfirmed
+                                      ? "success"
+                                      : "critical"
+                                  }
                                 >
-                                  {preflightResults[j.id]!.readyForValidatedExport
+                                  {preflightResults[j.id]!.readyForValidatedExport &&
+                                  preflightResults[j.id]!.transmissionConfigConfirmed
                                     ? "READY_FOR_VALIDATED_IMPORT"
-                                    : `BLOCKED (${preflightResults[j.id]!.preflight.blockedCases}/${preflightResults[j.id]!.totalCases})`}
+                                    : `BLOCKED (${preflightResults[j.id]!.preflight.blockedCases}/${preflightResults[j.id]!.totalCases} case(s))`}
                                 </StatusPill>
                                 <Button
                                   size="sm"
-                                  disabled={preflightBusy === j.id || !preflightResults[j.id]!.readyForValidatedExport}
+                                  disabled={
+                                    preflightBusy === j.id ||
+                                    !preflightResults[j.id]!.readyForValidatedExport ||
+                                    !preflightResults[j.id]!.transmissionConfigConfirmed
+                                  }
                                   onClick={() => exportValidated(j.id)}
                                 >
                                   <Download className="size-4" /> Download validated E2B(R3) XML
@@ -332,16 +353,56 @@ function E2bPage() {
                               </>
                             ) : null}
                           </div>
-                          {preflightResults[j.id] && !preflightResults[j.id]!.readyForValidatedExport ? (
-                            <ul className="mt-2 space-y-1 text-xs text-critical">
-                              {Object.entries(preflightResults[j.id]!.preflight.counts)
-                                .filter(([, count]) => count > 0)
-                                .map(([code, count]) => (
-                                  <li key={code}>
-                                    {count}× {code}
-                                  </li>
+
+                          {preflightResults[j.id] && !preflightResults[j.id]!.transmissionConfigConfirmed ? (
+                            <div className="mt-2 rounded-md border border-warning/30 bg-warning-soft px-2 py-1.5 text-xs text-foreground">
+                              <p className="font-medium">Transmission configuration not confirmed:</p>
+                              <ul className="mt-1 list-disc pl-4">
+                                {preflightResults[j.id]!.transmissionConfigGaps.map((gap) => (
+                                  <li key={gap}>{gap}</li>
                                 ))}
-                            </ul>
+                              </ul>
+                            </div>
+                          ) : null}
+
+                          {preflightResults[j.id] && !preflightResults[j.id]!.readyForValidatedExport ? (
+                            <div className="mt-2">
+                              <p className="text-xs font-medium text-critical">Blocking reasons (by rule):</p>
+                              <ul className="mt-1 space-y-1 text-xs text-critical">
+                                {Object.entries(preflightResults[j.id]!.preflight.counts)
+                                  .filter(([, count]) => count > 0)
+                                  .map(([code, count]) => (
+                                    <li key={code}>
+                                      {count}× {code}
+                                    </li>
+                                  ))}
+                              </ul>
+                              <p className="mt-2 text-xs font-medium text-critical">
+                                Per-case detail (first 10 blocked cases):
+                              </p>
+                              <div className="mt-1 max-h-64 space-y-2 overflow-y-auto text-xs">
+                                {preflightResults[j.id]!
+                                  .preflight.results.filter((r) => r.blocked)
+                                  .slice(0, 10)
+                                  .map((r) => (
+                                    <div key={r.caseId} className="rounded border border-critical/30 bg-critical/5 p-2">
+                                      <p className="font-mono font-medium">{r.caseId} — BLOCKED</p>
+                                      {r.errors
+                                        .filter((e) => e.severity === "BLOCKING")
+                                        .map((e, i) => (
+                                          <div key={i} className="mt-1 pl-2 text-muted-foreground">
+                                            <p>
+                                              Field: {e.e2bField ?? "—"} · Rule: {e.code}
+                                            </p>
+                                            <p>Reason: {e.message}</p>
+                                            {e.sourceValue ? <p>Source value: "{e.sourceValue}"</p> : null}
+                                            <p>Remediation: {e.remediation}</p>
+                                          </div>
+                                        ))}
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
                           ) : null}
                         </div>
                       </li>

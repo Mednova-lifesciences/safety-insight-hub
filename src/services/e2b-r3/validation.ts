@@ -107,6 +107,24 @@ export function validateBusinessRules(pvCase: PVCase): ValidationError[] {
   // by the OtherCaseIdentifiers type itself (see types.ts) — nothing to
   // check here at runtime; it's simply unrepresentable to get wrong.
 
+  // C.1.10 — a follow-up is represented in the serialized XML purely by
+  // the presence of a linked-report identifier (see serializer.ts's
+  // followUpBlock); a case marked isFollowUp:true with no reference would
+  // silently serialize as an ordinary initial report, which is worse than
+  // rejecting it outright — matches PVCase.followUp's own doc comment.
+  if (pvCase.followUp.isFollowUp && !pvCase.followUp.previousTransmissionRef) {
+    errors.push(
+      err(
+        id,
+        "E2B-C1.10-FOLLOWUP-REF-MISSING",
+        "BLOCKING",
+        "Case is marked as a follow-up but has no reference to the report it follows.",
+        "Supply the worldwide unique case identification number (C.1.8.1) of the report this follows, or correct isFollowUp to false if this is actually a new/initial report.",
+        { e2bField: "C.1.10.r" },
+      ),
+    );
+  }
+
   return errors;
 }
 
@@ -121,7 +139,7 @@ export function validateVigiFlowPreflight(pvCase: PVCase): ValidationError[] {
   const errors: ValidationError[] = [];
   const id = pvCase.sendersCaseId;
 
-  const codedReactions = pvCase.reactions.filter((r) => r.reaction.status === "CODED");
+  const codedReactions = pvCase.reactions.filter((r) => r.reaction.status === "MAPPED");
   if (codedReactions.length === 0) {
     if (pvCase.reactions.length === 0) {
       errors.push(err(id, "VIGIFLOW-MEDDRA-MISSING", "BLOCKING", "No reaction present to code at all.", "Add at least one reaction to this case.", { e2bField: "E.i.2.1b" }));
@@ -131,7 +149,7 @@ export function validateVigiFlowPreflight(pvCase: PVCase): ValidationError[] {
     }
   }
 
-  const codedProducts = pvCase.products.filter((p) => p.product.status === "CODED");
+  const codedProducts = pvCase.products.filter((p) => p.product.status === "MAPPED");
   if (codedProducts.length === 0) {
     const suspectOrInteracting = pvCase.products.filter(
       (p) => p.characterization === "SUSPECT" || p.characterization === "INTERACTING",

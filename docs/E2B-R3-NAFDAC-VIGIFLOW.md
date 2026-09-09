@@ -74,10 +74,22 @@ RawLineListRow  →  mapRowToPVCase()  →  PVCase  →  validateBusinessRules()
     that "false" — which the spec confirms is not a legal E2B value for this
     element — cannot even be constructed by mistake.
 - **`coding-provider.ts`** — the MedDRA/WHODrug coding boundary.
-  `unlicensedMedDraProvider` / `unlicensedWhoDrugProvider` are the only
-  implementations that exist; both mark every term `UNMAPPED` honestly. No
-  dictionary is bundled, embedded, or ever will be — both are commercially
-  licensed products (MedDRA via MSSO, WHODrug Global via UMC).
+  `unavailableMedDraProvider` / `unavailableWhoDrugProvider` are the only
+  implementations actually wired into the app; both mark every term
+  `PROVIDER_UNAVAILABLE` honestly (a fourth, more precise status than a
+  plain "unmapped" — see `CodingStatus` in `types.ts`: `MAPPED` / `UNMAPPED`
+  / `INVALID` / `PROVIDER_UNAVAILABLE`, each meaning something different for
+  what a reviewer should do next). No licensed dictionary is bundled,
+  embedded, or ever will be — both are commercially licensed products
+  (MedDRA via MSSO, WHODrug Global via UMC). `AuthorizedMappingTableMedDraProvider`
+  / `AuthorizedMappingTableWhoDrugProvider` also exist as real, functioning
+  implementations — but only over a mapping table explicitly supplied by
+  the caller (never fabricated); no table is populated anywhere in this
+  codebase, since Ondo's own reaction/outcome codebook has never been
+  supplied. `WhoDrugCodedProduct` (in `types.ts`) carries the richer WHODrug
+  Global C3 shape (MPID, substance, strength, pharmaceutical form, RID) a
+  real provider could return — every extra field stays `undefined` until a
+  real provider actually populates it.
 - **`mapping.ts`** — `mapRowToPVCase()` turns one already-column-mapped
   line-list row into a `PVCase`. Splits multi-value reaction/product cells
   ("8,19,21", "PENTA,IPV,PCV") into separate reaction/product records
@@ -100,21 +112,55 @@ RawLineListRow  →  mapRowToPVCase()  →  PVCase  →  validateBusinessRules()
 - **`batching.ts`** — splits at the ICSR-object level (never by slicing XML
   text) at the documented VigiFlow limit of 100 ICSRs per transmission file,
   matching the spec's own worked example (231 cases → 100/100/31).
+- **`serializer.ts`** — `PVCase[]` → real E2B(R3) XML (`serializeBatchToXml`).
+  Every element's position was derived empirically by loading the official
+  ICH reference instance into an XML tree and iteratively pruning it against
+  the real downloaded XSD, keeping a removal only when the tree still
+  validated — never typed from memory of the HL7 v3 R-MIM. Handles C.1.10
+  follow-up (a linked-report `<id>`, present only when `previousTransmissionRef`
+  is set — there's no separate boolean flag element in the schema).
+- **`transmission-config.ts`** — the explicit, non-hardcoded home for
+  decisions D2–D4 (sender/receiver identifiers, report type, reporter
+  qualification code mapping). `UNCONFIRMED_DEFAULT_CONFIG` is the shipped
+  default — every field is a sentinel meaning "nobody has confirmed this
+  yet," and `isTransmissionConfigConfirmed()` / `describeUnconfirmedTransmissionConfig()`
+  make that gap visible to callers instead of silently proceeding with
+  placeholder values.
+- **`export.ts`** — the real, UI-wired pipeline for one line-list job:
+  normalize → map → validate → VigiFlow preflight → batch → serialize,
+  gated on both VigiFlow preflight passing AND the transmission config
+  being confirmed (two independent gates, checked separately on purpose).
+  Records an audit trail entry for every consequential step (preflight run,
+  preflight blocked, batch generated, export generated, export downloaded).
 
 ## Honest current status
 
-**Not yet built**: the HL7 v3 XML serializer (`PVCase` → real, schema-valid
-E2B(R3) XML) and XSD validation wiring. This is deliberate — the nested
-R-MIM structure is easy to get subtly wrong, and rushing it risks producing
-something that *looks* like real E2B(R3) but silently fails VigiFlow import
-or NAFDAC's own checks, which is worse than the current honest gap. Given
-today's data, `runPreflight()` correctly reports every case as `BLOCKED`
-regardless — no MedDRA/WHODrug provider is configured, so nothing is
-actually ready for validated import yet.
+**Built and independently verified this session**: the HL7 v3 XML
+serializer, wired into the `/e2b` page's real "Validated E2B(R3) export"
+section (not just present in source — the UI button calls it, proven by a
+dedicated `legacy-isolation.test.ts` regression test and manual re-grep).
+Every generated XML artifact in `artifacts/e2b-r3/` was independently
+re-validated against the official ICH XSD (via `lxml`) and confirmed
+well-formed by a second, structurally independent parser (Python's stdlib
+`ElementTree`/expat) — both checks were re-run directly, not merely quoted
+from an earlier pass.
 
-**Tests**: 67 unit tests in `src/services/e2b-r3/` (mapping, validation,
-batching) passing; full repo suite (125 tests, 7 files) unaffected.
-`npx tsc --noEmit -p .` clean. `npm run build` succeeds.
+Given today's real data, `runPreflight()` still correctly reports every
+real case as `BLOCKED` — no MedDRA/WHODrug provider is configured (both
+report `PROVIDER_UNAVAILABLE`, honestly, not a guess), and the transmission
+configuration is still unconfirmed. **Technical XSD validity is not the
+same thing as VigiFlow acceptance or NAFDAC readiness** — nothing in this
+codebase claims otherwise.
+
+**Tests**: 143 tests passing across 13 files (up from 67/125 earlier this
+session) — the increase covers the new provider abstraction, transmission
+config, C.1.10 follow-up (5 explicit scenarios: initial report, follow-up
+with a valid reference, follow-up with a missing reference correctly
+blocked, a mixed batch, and date-based versioning), and legacy-generator
+isolation. `npx tsc --noEmit -p .` clean for every e2b-r3/e2b.tsx/e2b.ts
+file touched (pre-existing, unrelated errors remain in `linelist.ts`,
+`psur.ts`, `demo/dataset.ts` — not part of this work). `npm run build`
+succeeds.
 
 ## Open decisions (D1–D7) — from the Ondo spec, section 3
 
@@ -125,11 +171,11 @@ and nothing below has been defaulted silently.
 | ID | Decision | Status | Current pipeline behaviour |
 |---|---|---|---|
 | D1 | How is patient identity represented (initials vs. medical record number vs. nullFlavor)? | Interim: option (a) implemented | `mapRowToPVCase` derives initials ("ADEBOLA ESTHER" → "A.E.") when a patient identifier exists, since the spec itself lists this as a pre-approved option — not because D1 has been formally signed off |
-| D2 | Who is the reporter (C.2.r.1 name), and how is `reporter_designation` bound to an Appendix I(F) qualification code? | **Unresolved** | `reporter.name` is always `{present:false, nullFlavor:"NASK"}` — the source column is a qualification ("CHEW"), not a name, so this is unresolved regardless of D2 |
-| D3 | Report type (C.1.3) for routine AEFI surveillance — 1/3/4? | **Unresolved** | `reportType` is `{present:false, nullFlavor:"NASK"}` unless supplied via `MappingConfig.reportType`; every case is `BLOCKING` on `E2B-C1.3-UNRESOLVED` until this is set |
-| D4 | Sender/receiver identifiers (C.3.2 and transmission-level identifiers), agreed bilaterally with NAFDAC | **Unresolved** | `senderOrganisation` is `undefined` unless supplied via `MappingConfig`; every case is `BLOCKING` on `E2B-C3.2-UNRESOLVED` until this is set |
-| D5 | MedDRA subscription/version | **Unresolved** | `unlicensedMedDraProvider` marks every reaction `UNMAPPED` |
-| D6 | Is WHODrug coding required by NAFDAC? (contact vigibase@who-umc.org) | **Unresolved** | `unlicensedWhoDrugProvider` marks every product `UNMAPPED` |
+| D2 | Who is the reporter (C.2.r.1 name), and how is `reporter_designation` bound to an Appendix I(F) qualification code? | **Unresolved** | `reporter.name` is always `{present:false, nullFlavor:"NASK"}` regardless of D2 (source has no name column). `reporter.qualificationCode` is now resolvable via `transmission-config.ts`'s `reporterQualificationMap` — but that map ships **empty**; no designation (e.g. "CHEW") has an actual confirmed code yet |
+| D3 | Report type (C.1.3) for routine AEFI surveillance — 1/3/4? | **Unresolved** | `UNCONFIRMED_DEFAULT_CONFIG.reportType` is `"4"` ("Not available to sender") as an honest placeholder, not a guess at the real value; every case is `BLOCKING` on `E2B-C1.3-UNRESOLVED` until NAFDAC/Ondo confirm the real value and it's set in `transmission-config.ts` |
+| D4 | Sender/receiver identifiers (C.3.2 and transmission-level identifiers), agreed bilaterally with NAFDAC | **Unresolved** | `transmission-config.ts`'s `UNCONFIRMED_DEFAULT_CONFIG` uses an explicit sentinel (`"__UNCONFIRMED__"`) for `senderOrganisation`/`senderIdentifier`/`receiverIdentifier`; `isTransmissionConfigConfirmed()` returns `false` and blocks export until real values replace it |
+| D5 | MedDRA subscription/version | **Unresolved** | `unavailableMedDraProvider` marks every reaction `PROVIDER_UNAVAILABLE`. `AuthorizedMappingTableMedDraProvider` exists as real plumbing for an interim Ondo-supplied codebook, but no table has been supplied |
+| D6 | Is WHODrug coding required by NAFDAC? (contact vigibase@who-umc.org) | **Unresolved** | `unavailableWhoDrugProvider` marks every product `PROVIDER_UNAVAILABLE`. `AuthorizedMappingTableWhoDrugProvider` exists as the same kind of real, unpopulated plumbing |
 | D7 | Validated vs. non-validated VigiFlow import | Recommend validated | `validateVigiFlowPreflight` is built assuming validated import is the target; if non-validated is chosen instead, this gate can be relaxed |
 
 ## External dependencies
