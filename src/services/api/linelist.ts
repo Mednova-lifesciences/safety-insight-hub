@@ -1575,23 +1575,49 @@ export const linelist = {
       throw new Error("This job has no stored row data to export.");
     }
     const { columns } = job;
+    // CSV has no cell colour/formatting of its own — there is no such thing
+    // as a "highlighted cell" in plain CSV. Two extra columns give the same
+    // practical result: filter or sort by "Needs review" in Excel/Sheets to
+    // jump straight to every row still carrying an unresolved issue, and
+    // "Unresolved column(s)" says exactly which field(s) on that row.
+    const issues = await linelist.issues(jobId);
+    const issuesByRow = new Map<number, LineListIssue[]>();
+    for (const issue of issues) {
+      const existing = issuesByRow.get(issue.row);
+      if (existing) existing.push(issue);
+      else issuesByRow.set(issue.row, [issue]);
+    }
+    const unresolvedColumnsFor = (rowNumber: number): string => {
+      const rowIssues = issuesByRow.get(rowNumber);
+      if (!rowIssues || rowIssues.length === 0) return "";
+      return [...new Set(rowIssues.map((i) => i.column))].join("; ");
+    };
+    const needsReviewFor = (rowNumber: number): string =>
+      issuesByRow.has(rowNumber) ? "YES" : "";
     const escapeCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    const headerRow = [...columns, "Needs review", "Unresolved column(s)"];
     const lines = job.rawRows
       ? [
-          columns.map(escapeCell).join(","),
-          ...job.rawRows.map((row) =>
-            columns.map((header) => escapeCell(row[header] ?? "")).join(","),
+          headerRow.map(escapeCell).join(","),
+          ...job.rawRows.map((row, idx) =>
+            [
+              ...columns.map((header) => escapeCell(row[header] ?? "")),
+              escapeCell(needsReviewFor(idx + 1)),
+              escapeCell(unresolvedColumnsFor(idx + 1)),
+            ].join(","),
           ),
         ]
       : [
-          columns.map(escapeCell).join(","),
-          ...job.parsedRows!.map((row) =>
-            columns
-              .map((header) => {
+          headerRow.map(escapeCell).join(","),
+          ...job.parsedRows!.map((row, idx) =>
+            [
+              ...columns.map((header) => {
                 const field = job.mapping![header];
                 return escapeCell(field ? (row[field] ?? "") : "");
-              })
-              .join(","),
+              }),
+              escapeCell(needsReviewFor(idx + 1)),
+              escapeCell(unresolvedColumnsFor(idx + 1)),
+            ].join(","),
           ),
         ];
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
