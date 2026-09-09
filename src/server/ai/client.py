@@ -107,7 +107,16 @@ def get_client() -> AsyncOpenAI:
             "OpenAI API key is not configured. Add OPENAI_API_KEY to the server environment."
         )
     if _client is None:
-        _client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=DEFAULT_TIMEOUT_SECONDS)
+        # max_retries=0: the SDK's own built-in retry (default 2, i.e. up to
+        # 3 attempts) was stacking underneath structured_completion()'s own
+        # MAX_RETRIES loop below — a single struggling request could silently
+        # balloon into up to 9 total HTTP attempts (3 SDK retries each
+        # wrapped by 3 of ours), each waiting up to the full timeout, which
+        # is exactly the multi-minute "AI fix takes forever" hang reproduced
+        # live. Retry control now lives in exactly one place.
+        _client = AsyncOpenAI(
+            api_key=os.environ["OPENAI_API_KEY"], timeout=DEFAULT_TIMEOUT_SECONDS, max_retries=0
+        )
     return _client
 
 
