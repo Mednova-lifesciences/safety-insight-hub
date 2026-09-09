@@ -68,6 +68,37 @@ defined object with:
 This applies to future states, facilities, programs, spreadsheets, or
 ODK/DHIS2 exports alike.
 
+## 2a. Compound source-value tokenization
+
+A source cell rarely contains one clean code. `compound-source-parser.ts`
+(`parseCompoundSourceValue`) handles this — genuinely codebook-aware, not
+a blind regex split — for any field with a codebook (reactions today):
+
+- **Delimiters**: comma, semicolon, ampersand, and line breaks are always
+  recognized (any profile, no configuration needed); a profile can add
+  more (e.g. Facility B's `|`). `/` and the word `and` are **conditional**
+  — a split on either is only committed when **every** resulting part is
+  an exact codebook entry. `"28 and 21"` splits (both are real codes);
+  `"headache and dizziness"` does not (neither is), and is preserved
+  whole rather than guessed at.
+- **Attached text**: `"28pains"`, `"28 pains"`, `"28-pains"`, `"28: pains"`
+  all resolve to code `28`'s real codebook term plus `attachedVerbatimText:
+  "pains"` — preserved separately, never folded into or mistaken for the
+  code's meaning. The longest valid code is matched first (`"280pains"`
+  resolves to `280`, not `28` + `"0pains"`, when both `28` and `280` are
+  real codes). A code match is rejected if another digit immediately
+  follows it (protects against misreading part of a date or a longer,
+  unrelated number) or if the remainder is itself all digits/punctuation
+  with no letters (e.g. `"8.19.21"` after matching `8` — that's
+  tokenization ambiguity, not descriptive text, and quarantines instead).
+- **Never mines free text**: a value is only ever checked against the
+  codebook at the *start* of a delimited segment — `"Patient had fever
+  for 3 days"` is never touched, because the segment doesn't begin with
+  anything code-shaped.
+
+Every result token carries the original raw text, never overwritten. See
+`compound-source-parser.test.ts` for the full test matrix.
+
 ## 3. How to define a local reaction codebook
 
 A `ReactionCodebook` (`source-profiles/types.ts`) is:

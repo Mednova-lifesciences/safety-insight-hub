@@ -15,6 +15,7 @@ import type {
 import type { MedDraCodingProvider, WhoDrugCodingProvider } from "./coding-provider";
 import type { SourceProfile } from "./source-profiles/types";
 import { isTransmissionConfigConfirmed, type E2bTransmissionConfig } from "./transmission-config";
+import { parseCompoundSourceValue } from "./compound-source-parser";
 
 /**
  * The canonical, already-column-mapped row shape the E2B engine operates
@@ -215,52 +216,54 @@ export function splitBySourceProfile(raw: string | undefined, profile: SourcePro
   return { values: [rawValue], quarantined: false, rawValue };
 }
 
-/** Normalizes a local code the same way codebook keys are normalized
- *  (trim + uppercase) so lookups are consistent regardless of source
- *  formatting quirks. */
-function normalizeLocalCode(v: string): string {
-  return v.trim().toUpperCase();
-}
-
 /**
  * REACTION DECODING PIPELINE (task-mandated sequence):
- *   raw source value -> source-profile codebook decoding -> canonical
- *   verbatim reaction term -> MedDRA coding -> E2B reaction instance.
- * This function performs the FIRST step only — splitting and codebook
- * lookup — returning one SourceReactionDecoding per resulting value.
- * MedDRA coding (a separate, later step) never runs on anything but a
- * DECODED sourceTerm; see mapSourceRecordToPVCase below.
+ *   raw source value -> understand the field's codebook -> tokenize the
+ *   raw cell using ONLY the codes that codebook actually defines -> decode
+ *   each recognized code (preserving any attached verbatim text) -> flag
+ *   only genuinely unresolved components -> MedDRA coding (a separate,
+ *   later step, run only on a DECODED sourceTerm) -> E2B reaction instance.
+ *
+ * Delegates the actual tokenization to compound-source-parser.ts, which
+ * knows nothing about reactions, Ondo, or any specific source — it only
+ * ever sees "a raw string" and "a map of valid codes for this field."
+ * This function's only job is translating that generic result into this
+ * module's SourceReactionDecoding shape.
  */
 export function decodeReactionField(raw: string | undefined, profile: SourceProfile): SourceReactionDecoding[] {
-  const split = splitBySourceProfile(raw, profile);
-  if (split.quarantined) {
-    return [
-      {
-        status: "DELIMITER_QUARANTINED",
-        localCode: split.rawValue,
-        sourceProfileId: profile.id,
-        codebookVersion: profile.reactionCodebook.version,
-      },
-    ];
-  }
-  return split.values.map((value) => {
-    const key = normalizeLocalCode(value);
-    const entry = profile.reactionCodebook.entries[key];
-    if (entry) {
+  if (!raw || !raw.trim()) return [];
+
+  const parsed = parseCompoundSourceValue(
+    raw,
+    profile.reactionCodebook.entries,
+    profile.reactionDelimiter.separators,
+  );
+
+  return parsed.tokens.map((token): SourceReactionDecoding => {
+    if (token.status === "VALID_SOURCE_CODE") {
       return {
         status: "DECODED",
-        localCode: value,
-        sourceTerm: entry.sourceTerm,
+        localCode: token.sourceCode!,
+        sourceTerm: token.decodedTerm!,
+        attachedVerbatimText: token.attachedVerbatimText,
         sourceProfileId: profile.id,
         codebookVersion: profile.reactionCodebook.version,
-      } satisfies SourceReactionDecoding;
+      };
+    }
+    if (token.status === "MALFORMED") {
+      return {
+        status: "DELIMITER_QUARANTINED",
+        localCode: token.rawToken,
+        sourceProfileId: profile.id,
+        codebookVersion: profile.reactionCodebook.version,
+      };
     }
     return {
       status: "UNKNOWN_CODE",
-      localCode: value,
+      localCode: token.rawToken,
       sourceProfileId: profile.id,
       codebookVersion: profile.reactionCodebook.version,
-    } satisfies SourceReactionDecoding;
+    };
   });
 }
 

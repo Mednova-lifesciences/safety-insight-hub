@@ -10,6 +10,7 @@
     31
   ],
   "blockingReasons": {
+    "E2B-REACTION-CODEBOOK-UNRESOLVED": 237,
     "E2B-C1.3-UNRESOLVED": 231,
     "E2B-C1.7-UNRESOLVED": 231,
     "E2B-C3.2-UNRESOLVED": 231,
@@ -22,7 +23,7 @@
   "totalInputCases": 231,
   "casesSuccessfullyNormalized": 231,
   "casesBlocked": 231,
-  "casesQuarantined": 0,
+  "casesQuarantined": 218,
   "reactionValuesEncountered": [
     "10",
     "11",
@@ -66,8 +67,9 @@
   "unknownReactionCodes": [
     "10",
     "11",
-    "11&13",
     "12",
+    "12 AND 20",
+    "13",
     "14",
     "15",
     "17",
@@ -87,10 +89,11 @@
     "6",
     "7",
     "8",
+    "8.19.21",
     "9"
   ],
   "blankReactions": 13,
-  "quarantinedReactionFields": 1,
+  "quarantinedReactionFields": 0,
   "reporterDesignationValuesEncountered": [
     "ADSNO",
     "CHEW",

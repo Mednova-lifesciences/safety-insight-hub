@@ -125,8 +125,12 @@ describe("splitBySourceProfile", () => {
   it("splits on comma with spaces", () => {
     expect(splitBySourceProfile("5,14,23, 19", ondoAefiProfile).values).toEqual(["5", "14", "23", "19"]);
   });
-  it("splits on the profile's configured 'AND' separator case-insensitively", () => {
-    expect(splitBySourceProfile("12 AND 20", ondoAefiProfile).values).toEqual(["12", "20"]);
+  it("does NOT split on 'AND' as an unconditional profile separator (that's handled conditionally by compound-source-parser.ts for reactions specifically, never blindly here)", () => {
+    // splitBySourceProfile is the plain unconditional splitter used for
+    // products (which have no codebook to safety-check an "and" split
+    // against) — Ondo's profile deliberately does not list "AND" among
+    // its separators, so a value like this is left as one whole string.
+    expect(splitBySourceProfile("12 AND 20", ondoAefiProfile).values).toEqual(["12 AND 20"]);
   });
   it("splits comma-separated product names", () => {
     expect(splitBySourceProfile("PENTA,IPV,PCV", ondoAefiProfile).values).toEqual(["PENTA", "IPV", "PCV"]);
@@ -269,10 +273,35 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
     expect(pvCase.products.map((p) => p.product.sourceValue)).toEqual(["PENTA", "IPV", "PCV"]);
   });
 
-  it("quarantines a dot-separated reaction field instead of guessing a split, and warns", async () => {
-    const { pvCase, warnings } = await mapSourceRecordToPVCase(
+  it("a dot-separated reaction field against Ondo's empty codebook resolves as one unrecognised value — nothing to split against since no code is known at all", async () => {
+    const { pvCase } = await mapSourceRecordToPVCase(
       { reaction: "8.19.21", product: "MR/MV", patient_identifier: "A B" },
       ondoAefiProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    // Ondo's codebook is empty — there's no valid code to anchor a split
+    // or a prefix match against, so the whole raw string is one
+    // UNKNOWN_CODE entry (never guessed at as a list).
+    expect(pvCase.reactions).toHaveLength(1);
+    expect(pvCase.reactions[0]!.sourceDecoding.status).toBe("UNKNOWN_CODE");
+    expect(pvCase.reactions[0]!.sourceDecoding.localCode).toBe("8.19.21");
+  });
+
+  it("with a populated codebook, dot-separated numeric residue after a valid code match quarantines (MALFORMED) rather than being guessed", async () => {
+    const profileWithCodebook = {
+      ...ondoAefiProfile,
+      reactionCodebook: {
+        sourceId: "ondo-aefi",
+        field: "reaction",
+        version: "test-1",
+        entries: { "8": { localCode: "8", sourceTerm: "Term 8 (test entry)", effectiveFrom: "2026-01-01" } },
+      },
+    };
+    const { pvCase, warnings } = await mapSourceRecordToPVCase(
+      { reaction: "8.19.21", product: "MR/MV", patient_identifier: "A B" },
+      profileWithCodebook,
       UNCONFIRMED_DEFAULT_CONFIG,
       context,
       providers,

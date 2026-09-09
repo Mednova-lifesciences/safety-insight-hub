@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { mapSourceRecordToPVCase } from "./mapping";
-import { runPreflight, validateBusinessRules } from "./validation";
+import { runPreflight, validateBusinessRules, validateSourceDecoding } from "./validation";
 import { splitIntoBatches } from "./batching";
 import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
 import { ondoAefiProfile } from "./source-profiles/ondo-aefi";
@@ -49,7 +49,12 @@ describe("real Ondo dataset through the source-profile-driven pipeline (231 rows
       cases.push(pvCase);
     }
 
-    const businessErrors = cases.map((c) => validateBusinessRules(c));
+    // Both layers, matching what validateCase("BUSINESS_RULES") actually
+    // runs — validateSourceDecoding is a SEPARATE function from
+    // validateBusinessRules (see validation.ts), and omitting it here
+    // would understate real blocking reasons by missing every
+    // codebook-unresolved/quarantined finding entirely.
+    const businessErrors = cases.map((c) => [...validateSourceDecoding(c), ...validateBusinessRules(c)]);
     const preflight = runPreflight(cases);
     const batches = splitIntoBatches(cases, "ONDO-AUDIT");
 

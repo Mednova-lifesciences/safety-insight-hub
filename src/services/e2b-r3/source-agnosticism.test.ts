@@ -110,7 +110,10 @@ describe("source profile agnosticism", () => {
     expect(errors.some((e) => e.code === "E2B-REACTION-CODEBOOK-UNRESOLVED")).toBe(true);
   });
 
-  it("a comma-separated value (Ondo's delimiter, not Facility B's) quarantines under Facility B's profile — proves the delimiter really is profile configuration", async () => {
+  it("comma/semicolon/AND are recognised universally (per the compound-value addendum), regardless of which profile is active", async () => {
+    // Comma is NOT one of Facility B's own configured separators
+    // (["|"]) — but the compound tokenizer treats comma as a universally
+    // supported delimiter for every profile, same as it does for Ondo.
     const { pvCase } = await mapSourceRecordToPVCase(
       { record_id: "FB-0003", event_category: "C01,C02", suspect_product: "TestVax C", subject_name: "X Y" },
       syntheticFacilityBProfile,
@@ -118,11 +121,24 @@ describe("source profile agnosticism", () => {
       context,
       providers,
     );
-    // "," is not Facility B's configured delimiter ("|") and isn't a "."
-    // either, so it's treated as ONE (unrecognised) local code, not split.
+    expect(pvCase.reactions).toHaveLength(2);
+    expect(pvCase.reactions.map((r) => r.sourceDecoding.localCode)).toEqual(["C01", "C02"]);
+    expect(pvCase.reactions.every((r) => r.sourceDecoding.status === "DECODED")).toBe(true);
+  });
+
+  it("a profile's OWN configured delimiter ('|' for Facility B) is genuinely profile-specific — Ondo's profile does not recognise it", async () => {
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { reaction: "19|21", product: "MR/MV", patient_identifier: "A B" },
+      ondoAefiProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    // "|" is not universal and not one of Ondo's configured separators —
+    // Ondo's empty codebook also has no entry starting with "19|21", so
+    // this resolves as one unrecognised value, not a split.
     expect(pvCase.reactions).toHaveLength(1);
-    expect(pvCase.reactions[0]!.sourceDecoding.localCode).toBe("C01,C02");
-    expect(pvCase.reactions[0]!.sourceDecoding.status).toBe("UNKNOWN_CODE");
+    expect(pvCase.reactions[0]!.sourceDecoding.localCode).toBe("19|21");
   });
 
   it("the SAME batching + serializer functions handle a mixed batch of Ondo-profile and Facility-B-profile cases together, producing real XSD-shaped output", async () => {

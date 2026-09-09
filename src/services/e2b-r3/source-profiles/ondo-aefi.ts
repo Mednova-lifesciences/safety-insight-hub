@@ -35,11 +35,17 @@ export const ondoAefiProfile: SourceProfile = {
     isFollowUp: "is_followup",
     previousCaseId: "previous_case_id",
   },
-  // Comma, semicolon, and the word "AND" are the only delimiters this
-  // dataset has ever been confirmed to use for real (e.g. "8,19,21",
-  // "12 AND 20"). A bare "." (e.g. "8.19.21", "M.R") is deliberately NOT
-  // listed — those values quarantine instead of being guessed as a list.
-  reactionDelimiter: { separators: [",", ";", " AND "] },
+  // Comma and semicolon are the delimiters this dataset has been
+  // confirmed to use for real (e.g. "8,19,21"). "AND" is deliberately NOT
+  // listed here — it's handled generically by the compound-source-parser
+  // as a CONDITIONAL delimiter (commits to a split only when every
+  // resulting part is an exact codebook entry), so it never needs to be,
+  // and must not be, declared as an unconditional profile separator —
+  // that would defeat the "don't blindly split on 'and'" safety rule
+  // (compound-source-parser.ts) for this profile specifically. A bare "."
+  // (e.g. "8.19.21", "M.R") is also deliberately not listed — those
+  // values are never split on "." at all.
+  reactionDelimiter: { separators: [",", ";"] },
   // Ondo State's own official AEFI reaction codebook (what local codes
   // like "19", "8", "21" actually mean) has never been supplied by the
   // Ondo AEFI/immunisation focal person or DSNO — see

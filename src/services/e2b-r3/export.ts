@@ -1,7 +1,7 @@
 import { readJob, type ParsedRow } from "@/services/api/e2b";
 import { currentActor, recordAudit } from "@/services/api/db";
 import { mapSourceRecordToPVCase, type MappingWarning } from "./mapping";
-import { runPreflight, validateBusinessRules, type PreflightSummary, type ValidationError } from "./validation";
+import { runPreflight, validateBusinessRules, validateSourceDecoding, type PreflightSummary, type ValidationError } from "./validation";
 import { splitIntoBatches, batchFilename } from "./batching";
 import { serializeBatchToXml } from "./serializer";
 import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
@@ -78,7 +78,10 @@ export async function runValidatedPreflightForJob(
     mappingWarnings.push(...warnings);
   }
 
-  const businessRuleErrors = cases.flatMap((c) => validateBusinessRules(c));
+  // Both layers — validateSourceDecoding (codebook-unresolved/quarantined
+  // findings) is a separate function from validateBusinessRules; omitting
+  // it here would understate what's actually blocking each case.
+  const businessRuleErrors = cases.flatMap((c) => [...validateSourceDecoding(c), ...validateBusinessRules(c)]);
   const preflight = runPreflight(cases);
   const readyForValidatedExport = preflight.status === "READY_FOR_VALIDATED_IMPORT";
 

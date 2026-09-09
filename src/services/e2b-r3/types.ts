@@ -196,6 +196,12 @@ export interface SourceReactionDecoding {
   localCode: string;
   /** Only present when status is DECODED — the codebook's real term. */
   sourceTerm?: string | undefined;
+  /** Text found immediately alongside a DECODED local code within the
+   *  same source cell (e.g. "pains" in "28pains") — preserved verbatim,
+   *  NEVER folded into sourceTerm and NEVER sent to MedDRA coding as if
+   *  it were part of the codebook's own meaning. See
+   *  compound-source-parser.ts's SourceCodeToken.attachedVerbatimText. */
+  attachedVerbatimText?: string | undefined;
   /** Which source profile and codebook version produced this decoding —
    *  essential provenance once multiple profiles/codebook versions exist. */
   sourceProfileId: string;
