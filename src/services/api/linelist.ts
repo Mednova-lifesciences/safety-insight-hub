@@ -1383,14 +1383,17 @@ export const linelist = {
     }));
 
     if (autoFixable.length === 0) {
-      const revalidated = await linelist.validate(jobId);
+      // Nothing to actually fix — the data hasn't changed, so there's
+      // nothing for a re-validation to usefully re-discover. Re-running it
+      // anyway used to just burn a full AI pass for no reason.
       await saveJob({
-        ...(await readJob(jobId)),
+        ...job,
         lastFixCorrections: [],
         lastFixUnresolved: needsReviewUnresolved,
       });
       return {
-        ...revalidated,
+        job,
+        issues: currentIssues,
         correctionsApplied: 0,
         unresolved: needsReviewUnresolved,
         aiUsed: false,
@@ -1406,6 +1409,7 @@ export const linelist = {
     });
     const combinedUnresolved = [...fixResult.unresolved, ...needsReviewUnresolved];
 
+    let updatedJob: LineListJobRow;
     if (fixResult.ai_used && fixResult.corrections.length > 0) {
       const parsedRows = [...job.parsedRows];
       const rawRows = job.rawRows ? [...job.rawRows] : undefined;
@@ -1420,14 +1424,15 @@ export const linelist = {
           parsedRows[idx] = { ...parsedRows[idx], [canonicalField]: correction.new_value };
         }
       }
-      await saveJob({
+      updatedJob = {
         ...job,
         parsedRows,
         ...(rawRows ? { rawRows } : {}),
         fixedAt: new Date().toISOString(),
         lastFixCorrections: fixResult.corrections,
         lastFixUnresolved: combinedUnresolved,
-      });
+      };
+      await saveJob(updatedJob);
       await recordAudit({
         action: "LINELIST_AI_FIX_APPLIED",
         entity: "LineListJob",
@@ -1436,12 +1441,61 @@ export const linelist = {
         reason: `Prompt ${fixResult.prompt_version}`,
       });
     } else {
-      await saveJob({ ...job, lastFixCorrections: [], lastFixUnresolved: combinedUnresolved });
+      updatedJob = { ...job, lastFixCorrections: [], lastFixUnresolved: combinedUnresolved };
+      await saveJob(updatedJob);
     }
 
-    const revalidated = await linelist.validate(jobId);
+    // Reconcile instead of re-running full AI analysis: drop exactly the
+    // issues this pass actually corrected (matched by row+column against
+    // the fix response) and keep every other previously-detected issue —
+    // AI or rule — untouched. A full fresh AI scan here used to be what
+    // made "Fix Issues" both slow (a second complete multi-chunk AI pass
+    // stacked on top of the fix call itself) and unpredictable (the count
+    // could go up as well as down between runs, since a fresh LLM scan of
+    // the whole file is never guaranteed to reproduce its own prior
+    // findings — pure model non-determinism, not an actual change in the
+    // data). Only the fast, fully deterministic rule engine re-runs here;
+    // a complete AI re-scan only ever happens from an explicit "Re-run
+    // validation" click.
+    const correctedKeys = new Set(
+      fixResult.ai_used ? fixResult.corrections.map((c) => `${c.row}:${c.column}`) : [],
+    );
+    const remainingPriorAiIssues = currentIssues.filter(
+      (i) => i.source === "ai" && !correctedKeys.has(`${i.row}:${i.column}`),
+    );
+    const ruleIssues = RULE_BASED_DETECTION_ENABLED
+      ? runValidation(updatedJob.columns ?? [], updatedJob.mapping ?? {}, updatedJob.parsedRows!)
+      : [];
+    const finalIssues = mergeFindings(ruleIssues, remainingPriorAiIssues);
+
+    await supabase.from("pv_linelist_issues").delete().eq("job_id", jobId);
+    if (finalIssues.length > 0) {
+      const { error } = await supabase
+        .from("pv_linelist_issues")
+        .insert(finalIssues.map((i) => ({ id: newId("lli"), job_id: jobId, data: toJson(i) })));
+      if (error) throw new Error(error.message);
+    }
+
+    const blocking = finalIssues.filter((i) => i.severity === "CRITICAL" || i.severity === "HIGH");
+    const advisory = finalIssues.filter((i) => i.severity === "MEDIUM" || i.severity === "LOW");
+    const invalidCases = new Set(blocking.map((i) => i.row)).size;
+    const next: LineListJobRow = {
+      ...updatedJob,
+      stage: "VALIDATED",
+      invalidCases,
+      warnings: advisory.length,
+      criticalCount: finalIssues.filter((i) => i.severity === "CRITICAL").length,
+      highCount: finalIssues.filter((i) => i.severity === "HIGH").length,
+      mediumCount: finalIssues.filter((i) => i.severity === "MEDIUM").length,
+      lowCount: finalIssues.filter((i) => i.severity === "LOW").length,
+      validCases: Math.max(updatedJob.rows - invalidCases, 0),
+      validatedAt: new Date().toISOString(),
+    };
+    await saveJob(next);
+
     return {
-      ...revalidated,
+      job: next,
+      issues: finalIssues,
       correctionsApplied: fixResult.ai_used ? fixResult.corrections.length : 0,
       unresolved: combinedUnresolved,
       aiUsed: fixResult.ai_used,
