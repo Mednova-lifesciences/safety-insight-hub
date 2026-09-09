@@ -178,6 +178,27 @@ function mapOutcome(raw: string | undefined): "1" | "2" | "3" | "4" | "5" | "6" 
   }
 }
 
+/** ISO 8601 -> HL7/E2B numeric timestamp (YYYYMMDDHHMMSS, 14 pure digits,
+ *  UTC). The naive `generatedAt.replace(/[-:]/g, "").slice(0, 14)` this
+ *  replaced was broken: it left the ISO "T" separator and the fractional
+ *  seconds in place, then truncated mid-string — e.g.
+ *  "2026-09-09T16:27:53.738Z" became "20260909T16275" (contains a literal
+ *  "T", only 5 of 6 time digits, not 14 pure digits at all). Regenerated
+ *  from the Date object's real UTC fields instead of substring surgery on
+ *  the ISO text, so it can never do that again. */
+export function toE2bMessageDate(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  return (
+    d.getUTCFullYear().toString() +
+    pad(d.getUTCMonth() + 1) +
+    pad(d.getUTCDate()) +
+    pad(d.getUTCHours()) +
+    pad(d.getUTCMinutes()) +
+    pad(d.getUTCSeconds())
+  );
+}
+
 function xmlEl(tag: string, value: string | null | undefined): string {
   if (value === null || value === undefined || value === "") return "";
   return `      <${tag}>${escapeXml(value)}</${tag}>\n`;
@@ -208,25 +229,27 @@ function xmlEl(tag: string, value: string | null | undefined): string {
  * stored row data fall back to a summary-only report.
  */
 function buildE2bXml(job: LineListJobRow, artifactId: string, generatedAt: string): string {
-  const messageDate = generatedAt.replace(/[-:]/g, "").slice(0, 14);
+  const messageDate = toE2bMessageDate(generatedAt);
   const header = `<?xml version="1.0" encoding="UTF-8"?>
 <!--
-  DEMO/SANDBOX OUTPUT — MedNova PV Assist
-  This is a structural E2B(R3) preparation draft generated from line-list
-  processing results. Every value is real captured data (nothing is
-  fabricated), but reaction/drug terms are verbatim text, NOT coded
-  against a licensed MedDRA/WHODrug dictionary, and this is NOT a
-  submission-ready regulatory file. Regulatory transmission requires a
-  separately validated gateway integration. Elements with a
-  codingstatus="RAW_SOURCE_CODE_UNMAPPED" attribute carry a real value
-  from the source form's own numeric code legend, not yet decoded to
-  text — check the original form's key before relying on that value.
+  DEMO/SANDBOX OUTPUT — MedNova PV Assist — NOT E2B(R3), NOT VIGIFLOW/NAFDAC INPUT
+  This is a legacy, flat "ichicsr"-shaped preparation draft (closer to
+  E2B(R2)), kept only for the internal preview/dry-run flow. It is NOT the
+  real ICH E2B(R3) HL7 v3 structure (that lives in src/services/e2b-r3/ —
+  see docs/E2B-R3-NAFDAC-VIGIFLOW.md) and must never be presented to NAFDAC,
+  loaded into VigiFlow, or described as "E2B(R3)-compliant" anywhere in the
+  UI. Every value here is real captured data (nothing is fabricated), but
+  reaction/drug terms are verbatim text, NOT coded against a licensed
+  MedDRA/WHODrug dictionary, and this is NOT a submission-ready regulatory
+  file. Elements with a codingstatus="RAW_SOURCE_CODE_UNMAPPED" attribute
+  carry a real value from the source form's own numeric code legend, not
+  yet decoded to text — check the original form's key before relying on it.
 -->
 <ichicsr lang="en">
   <ichicsrmessageheader>
     <messagetype>ichicsr</messagetype>
     <messageformatversion>2.1</messageformatversion>
-    <messageformatrelease>R3</messageformatrelease>
+    <messageformatrelease>R3-PREVIEW-DRAFT-NOT-CONFORMANT</messageformatrelease>
     <messagenumb>${artifactId}</messagenumb>
     <messagesenderidentifier>MedNova PV Assist</messagesenderidentifier>
     <messagedateformat>204</messagedateformat>
