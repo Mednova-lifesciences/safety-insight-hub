@@ -1,9 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
-import { Download, FileStack, ShieldAlert, ShieldOff } from "lucide-react";
+import { Download, FileStack, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 import { e2b as e2bApi } from "@/services/api/e2b";
+import {
+  runValidatedPreflightForJob,
+  generateValidatedExportForJob,
+  downloadValidatedBatch,
+  type ValidatedExportResult,
+} from "@/services/e2b-r3/export";
 import { linelist as linelistApi } from "@/services/api/linelist";
 import { demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
@@ -60,6 +66,40 @@ function E2bPage() {
   );
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState<string | null>(null);
+  const [preflightResults, setPreflightResults] = useState<Record<string, ValidatedExportResult>>({});
+
+  async function checkValidatedPreflight(jobId: string) {
+    setPreflightBusy(jobId);
+    try {
+      const result = await runValidatedPreflightForJob(jobId);
+      setPreflightResults((prev) => ({ ...prev, [jobId]: result }));
+      if (result.readyForValidatedExport) {
+        toast.success(`${result.totalCases} case(s) passed VigiFlow preflight — ready for real E2B(R3) export.`);
+      } else {
+        toast.warning(
+          `${result.preflight.blockedCases}/${result.totalCases} case(s) blocked — see reasons below. Not ready for validated export.`,
+        );
+      }
+    } catch (err) {
+      toast.error(isNotConfigured(err) ? "Backend not connected." : "Preflight check failed.");
+    } finally {
+      setPreflightBusy(null);
+    }
+  }
+
+  async function exportValidated(jobId: string) {
+    setPreflightBusy(jobId);
+    try {
+      const batches = await generateValidatedExportForJob(jobId, {}, "MEDNOVA", "NAFDAC");
+      for (const b of batches) downloadValidatedBatch(b);
+      toast.success(`Downloaded ${batches.length} real E2B(R3) batch file(s) — ${batches.reduce((n, b) => n + b.caseCount, 0)} case(s) total.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Validated export failed.");
+    } finally {
+      setPreflightBusy(null);
+    }
+  }
 
   async function dismissErrors(jobId: string) {
     setBusy(jobId);
@@ -250,6 +290,58 @@ function E2bPage() {
                               {j.invalidCases} invalid case(s) must be resolved in line-list
                               processing first.
                             </span>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-4 rounded-md border border-border bg-muted/30 p-3">
+                          <p className="text-xs font-medium text-foreground">
+                            Validated E2B(R3) export (real HL7 v3 XML — VigiFlow/NAFDAC pipeline)
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Runs the real normalize → validate → MedDRA/WHODrug preflight → batch
+                            → serialize pipeline. Download is only offered when every case in this
+                            job passes VigiFlow's validated-import requirements — today that
+                            requires a licensed MedDRA/WHODrug provider, which is not yet
+                            configured, so real datasets will currently show blocked.
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={preflightBusy === j.id}
+                              onClick={() => checkValidatedPreflight(j.id)}
+                            >
+                              <ShieldCheck className="size-4" /> Run VigiFlow preflight
+                            </Button>
+                            {preflightResults[j.id] ? (
+                              <>
+                                <StatusPill
+                                  tone={preflightResults[j.id]!.readyForValidatedExport ? "success" : "critical"}
+                                >
+                                  {preflightResults[j.id]!.readyForValidatedExport
+                                    ? "READY_FOR_VALIDATED_IMPORT"
+                                    : `BLOCKED (${preflightResults[j.id]!.preflight.blockedCases}/${preflightResults[j.id]!.totalCases})`}
+                                </StatusPill>
+                                <Button
+                                  size="sm"
+                                  disabled={preflightBusy === j.id || !preflightResults[j.id]!.readyForValidatedExport}
+                                  onClick={() => exportValidated(j.id)}
+                                >
+                                  <Download className="size-4" /> Download validated E2B(R3) XML
+                                </Button>
+                              </>
+                            ) : null}
+                          </div>
+                          {preflightResults[j.id] && !preflightResults[j.id]!.readyForValidatedExport ? (
+                            <ul className="mt-2 space-y-1 text-xs text-critical">
+                              {Object.entries(preflightResults[j.id]!.preflight.counts)
+                                .filter(([, count]) => count > 0)
+                                .map(([code, count]) => (
+                                  <li key={code}>
+                                    {count}× {code}
+                                  </li>
+                                ))}
+                            </ul>
                           ) : null}
                         </div>
                       </li>

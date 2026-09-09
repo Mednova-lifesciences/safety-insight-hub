@@ -28,7 +28,7 @@ export interface E2bArtifact {
   xml: string;
 }
 
-interface ParsedRow {
+export interface ParsedRow {
   case_id?: string;
   patient_identifier?: string;
   product?: string;
@@ -47,12 +47,15 @@ interface ParsedRow {
   reporter_phone?: string;
 }
 
-interface LineListJobRow extends LineListJob {
+export interface LineListJobRow extends LineListJob {
   e2bArtifact?: E2bArtifact;
   parsedRows?: ParsedRow[];
 }
 
-async function readJob(jobId: string): Promise<LineListJobRow> {
+/** Exported for src/services/e2b-r3/export.ts — the validated E2B(R3)
+ *  pipeline reads the same stored job/row data as this legacy generator
+ *  rather than duplicating the Supabase query. */
+export async function readJob(jobId: string): Promise<LineListJobRow> {
   const { data, error } = await supabase
     .from("pv_linelist_jobs")
     .select("data")

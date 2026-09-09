@@ -1,0 +1,123 @@
+import { readJob, type ParsedRow } from "@/services/api/e2b";
+import { mapRowToPVCase, type MappingConfig, type MappingWarning } from "./mapping";
+import { runPreflight, validateBusinessRules, type PreflightSummary, type ValidationError } from "./validation";
+import { splitIntoBatches, batchFilename } from "./batching";
+import { serializeBatchToXml } from "./serializer";
+import { unlicensedMedDraProvider, unlicensedWhoDrugProvider } from "./coding-provider";
+import type { PVCase } from "./types";
+
+/**
+ * The real, validated E2B(R3) pipeline for one line-list job — as opposed
+ * to src/services/api/e2b.ts's legacy preview-draft generator. Runs the
+ * actual normalize -> map -> validate -> batch -> serialize chain this
+ * module was built for, using whatever mapping decisions (D3 report type,
+ * D4 sender organisation) have actually been configured — an empty config
+ * is not a bug, it's today's honest state: those decisions haven't been
+ * made yet (see docs/E2B-R3-NAFDAC-VIGIFLOW.md).
+ */
+export interface ValidatedExportResult {
+  jobId: string;
+  totalCases: number;
+  cases: PVCase[];
+  businessRuleErrors: ValidationError[];
+  preflight: PreflightSummary;
+  mappingWarnings: MappingWarning[];
+  /** True only when every case passed both business-rule and VigiFlow
+   *  preflight validation — the sole condition under which a caller may
+   *  offer a download. Never inferred any other way. */
+  readyForValidatedExport: boolean;
+}
+
+export async function runValidatedPreflightForJob(
+  jobId: string,
+  config: MappingConfig = {},
+): Promise<ValidatedExportResult> {
+  const job = await readJob(jobId);
+  const rows: ParsedRow[] = job.parsedRows ?? [];
+  const providers = { meddra: unlicensedMedDraProvider, whodrug: unlicensedWhoDrugProvider };
+  const processedAt = new Date().toISOString();
+
+  const cases: PVCase[] = [];
+  const mappingWarnings: MappingWarning[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const { pvCase, warnings } = await mapRowToPVCase(
+      rows[i]!,
+      { jobId, sourceFile: job.filename, sourceRow: i + 1, processedAt },
+      providers,
+      config,
+    );
+    cases.push(pvCase);
+    mappingWarnings.push(...warnings);
+  }
+
+  const businessRuleErrors = cases.flatMap((c) => validateBusinessRules(c));
+  const preflight = runPreflight(cases);
+
+  return {
+    jobId,
+    totalCases: cases.length,
+    cases,
+    businessRuleErrors,
+    preflight,
+    mappingWarnings,
+    readyForValidatedExport: preflight.status === "READY_FOR_VALIDATED_IMPORT",
+  };
+}
+
+export interface ValidatedBatchArtifact {
+  filename: string;
+  xml: string;
+  caseCount: number;
+}
+
+/**
+ * Serializes real E2B(R3) XML for a job — but ONLY when every case in it
+ * has already passed VigiFlow preflight. This is the fail-closed gate
+ * section 22/23 of the audit demanded: a blocked case must never reach a
+ * download link, regardless of what the caller does with the result.
+ */
+export async function generateValidatedExportForJob(
+  jobId: string,
+  config: MappingConfig,
+  senderId: string,
+  receiverId: string,
+): Promise<ValidatedBatchArtifact[]> {
+  const result = await runValidatedPreflightForJob(jobId, config);
+  if (!result.readyForValidatedExport) {
+    const reasons = result.preflight.results
+      .filter((r) => r.blocked)
+      .flatMap((r) => r.errors.filter((e) => e.severity === "BLOCKING").map((e) => `${r.caseId}: ${e.message}`));
+    throw new Error(
+      `Not ready for validated E2B(R3) export — ${result.preflight.blockedCases}/${result.preflight.totalCases} case(s) blocked. ${reasons.slice(0, 3).join(" | ")}${reasons.length > 3 ? ` (+${reasons.length - 3} more)` : ""}`,
+    );
+  }
+
+  const now = new Date();
+  const batches = splitIntoBatches(result.cases, `MEDNOVA-${jobId}`);
+  return batches.map((batch) => ({
+    filename: batchFilename(batch, now),
+    xml: serializeBatchToXml(batch.cases, {
+      batchId: batch.transmissionId,
+      senderId,
+      receiverId,
+      transmissionTimestamp: now,
+    }),
+    caseCount: batch.cases.length,
+  }));
+}
+
+/** Triggers a browser download of one already-generated batch artifact. */
+export function downloadValidatedBatch(artifact: ValidatedBatchArtifact): void {
+  const blob = new Blob([artifact.xml], { type: "application/xml" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = artifact.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
