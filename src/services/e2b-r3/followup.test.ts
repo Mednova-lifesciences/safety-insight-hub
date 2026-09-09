@@ -27,12 +27,17 @@ function baseCase(overrides: Partial<PVCase> = {}): PVCase {
     reporter: { name: { present: false, nullFlavor: "NASK" }, country: "NG", qualificationVerbatim: "CHEW" },
     senderOrganisation: "MEDNOVA",
     reactions: [
-      { id: "r1", reaction: { sourceValue: "19", status: "UNMAPPED", mappingMethod: "NONE" }, seriousnessCriteria: {} },
+      {
+        id: "r1",
+        sourceDecoding: { status: "DECODED", localCode: "19", sourceTerm: "19", sourceProfileId: "test-profile" },
+        reaction: { sourceValue: "19", status: "UNMAPPED", mappingMethod: "NONE" },
+        seriousnessCriteria: {},
+      },
     ],
     products: [
       { id: "p1", characterization: "SUSPECT", product: { sourceValue: "PENTA", status: "UNMAPPED", mappingMethod: "NONE" } },
     ],
-    sourceInformation: { sourceFile: "test.xlsx", sourceRow: 1, jobId: "job-followup" },
+    sourceInformation: { sourceFile: "test.xlsx", sourceRow: 1, jobId: "job-followup", sourceProfileId: "test-profile" },
     ...overrides,
   };
 }

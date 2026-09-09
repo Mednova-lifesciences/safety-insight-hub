@@ -170,11 +170,48 @@ export type ReactionOutcome =
   | "FATAL"
   | "UNKNOWN";
 
+/** Where a local source-specific reaction code stands in the SOURCE
+ *  CODEBOOK decoding step — deliberately a step BEFORE and SEPARATE FROM
+ *  MedDRA coding (CodedTerm.status). A local code like Ondo's "19" is
+ *  never itself a verbatim reaction term, let alone a MedDRA code — see
+ *  docs/E2B-R3-SOURCE-PROFILES.md's "three distinct concepts" section.
+ *   - DECODED: the active source profile's reactionCodebook has an entry
+ *     for this exact local code — sourceTerm is that entry's real,
+ *     human-authored term, never guessed.
+ *   - UNKNOWN_CODE: the codebook was consulted but has no entry for this
+ *     code — the case must quarantine, not fall through to MedDRA coding
+ *     on the raw numeric value.
+ *   - BLANK: the reaction field was empty for this instance.
+ *   - DELIMITER_QUARANTINED: the raw field contained what might be
+ *     multiple values, but used a separator the active profile doesn't
+ *     explicitly recognise (e.g. a bare "."), so it was never split or
+ *     guessed — the whole raw string is quarantined as one unresolved
+ *     value for human review. */
+export type SourceDecodingStatus = "DECODED" | "UNKNOWN_CODE" | "BLANK" | "DELIMITER_QUARANTINED";
+
+export interface SourceReactionDecoding {
+  status: SourceDecodingStatus;
+  /** The raw value exactly as it appeared in the source field (a single
+   *  local code once split, or the whole raw field when quarantined). */
+  localCode: string;
+  /** Only present when status is DECODED — the codebook's real term. */
+  sourceTerm?: string | undefined;
+  /** Which source profile and codebook version produced this decoding —
+   *  essential provenance once multiple profiles/codebook versions exist. */
+  sourceProfileId: string;
+  codebookVersion?: string | undefined;
+}
+
 export interface PVReaction {
   /** Stable identity within the case — reactions/products can reference
    *  each other via G.k.9.i (drug-reaction matrix) once that structure is
    *  built. */
   id: string;
+  /** Local-codebook decoding outcome for this reaction instance — see
+   *  SourceReactionDecoding. reaction.sourceValue below is always the
+   *  DECODED term when status is DECODED, or the raw local code
+   *  otherwise; never conflate the two. */
+  sourceDecoding: SourceReactionDecoding;
   reaction: CodedTerm;
   /** E.i.4 — optional; omit entirely when unknown, never an empty tag. */
   onsetDate?: string | undefined; // ISO 8601 (YYYY-MM-DD) once parsed; never a raw source string
@@ -291,5 +328,9 @@ export interface PVCase {
     sourceFile: string;
     sourceRow: number;
     jobId: string;
+    /** Which SourceProfile produced this case — the E2B engine itself
+     *  never branches on this value; it exists purely for audit/
+     *  traceability (see src/services/e2b-r3/source-profiles/). */
+    sourceProfileId: string;
   };
 }

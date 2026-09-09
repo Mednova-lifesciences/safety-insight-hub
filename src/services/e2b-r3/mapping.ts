@@ -7,71 +7,77 @@ import type {
   PVProduct,
   PVReaction,
   ReactionOutcome,
-  ReportType,
   RequiredValue,
   SexCode,
+  SourceReactionDecoding,
   WhoDrugCodedProduct,
 } from "./types";
 import type { MedDraCodingProvider, WhoDrugCodingProvider } from "./coding-provider";
+import type { SourceProfile } from "./source-profiles/types";
+import { isTransmissionConfigConfirmed, type E2bTransmissionConfig } from "./transmission-config";
 
-/** The raw, already-column-mapped row shape this app's line-list pipeline
- *  produces (see TARGET_FIELDS in services/api/linelist.ts) — the RAW
- *  IMPORT MODEL this mapping layer starts from. Intentionally a subset/
- *  mirror rather than a shared import, matching this codebase's existing
- *  per-module narrow-type convention. */
+/**
+ * The canonical, already-column-mapped row shape the E2B engine operates
+ * on — the OUTPUT of applying a SourceProfile.columnMap to a raw source
+ * record, and the shape mapSourceRecordToPVCase's engine logic actually
+ * understands. The engine never sees a source's own column names directly.
+ */
 export interface RawLineListRow {
-  case_id?: string;
-  patient_identifier?: string;
-  product?: string;
-  reaction?: string;
-  onset_date?: string;
-  seriousness?: string;
-  outcome?: string;
-  sex?: string;
-  age?: string;
-  vaccination_date?: string;
-  reaction_code?: string;
-  serious_code?: string;
-  vaccine_batch?: string;
-  dose?: string;
-  reporter_designation?: string;
-  reporter_phone?: string;
-  /** Not present in the current Ondo AEFI line-list format — no source
-   *  column for follow-up exists in that dataset today. Modelled now,
-   *  dormant, so this pipeline handles a future dataset that does carry
-   *  follow-up information without a structural change; see
-   *  mapRowToPVCase's followUp handling below. */
-  is_followup?: string;
-  previous_case_id?: string;
+  case_id?: string | undefined;
+  patient_identifier?: string | undefined;
+  product?: string | undefined;
+  reaction?: string | undefined;
+  onset_date?: string | undefined;
+  seriousness?: string | undefined;
+  outcome?: string | undefined;
+  sex?: string | undefined;
+  age?: string | undefined;
+  vaccination_date?: string | undefined;
+  vaccine_batch?: string | undefined;
+  dose?: string | undefined;
+  reporter_designation?: string | undefined;
+  reporter_phone?: string | undefined;
+  is_followup?: string | undefined;
+  previous_case_id?: string | undefined;
 }
 
-/** Decisions D1-D4 from Ondo_AEFI_E2B_R3_Developer_Spec.docx section 3 —
- *  every field here is genuinely optional because none has been signed off
- *  yet. mapRowToPVCase degrades honestly (RequiredValue nullFlavors,
- *  undefined senderOrganisation, etc.) when a decision isn't supplied
- *  rather than picking a default on its own. */
-export interface MappingConfig {
-  /** Decision D3 — report type for routine AEFI surveillance (C.1.3). */
-  reportType?: ReportType | undefined;
-  /** Decision D4 — this case's sending organisation (C.3.2), agreed with
-   *  NAFDAC. Not a sender/receiver *transmission* identifier (N.1.3 etc.)
-   *  — those are batch-level, set at serialization time, not per case. */
-  senderOrganisation?: string | undefined;
-  /** Decision D2 — explicit, human-confirmed mapping from this dataset's
-   *  free-text reporter designation (e.g. "CHEW") to one of the five
-   *  Appendix I(F) qualification codes. Keyed by the exact designation
-   *  string as it appears in the source data (case-insensitive, trimmed).
-   *  Empty by default — nothing in this codebase invents a code for a
-   *  designation nobody has confirmed. See
-   *  src/services/e2b-r3/transmission-config.ts. */
-  reporterQualificationMap?: Record<string, "1" | "2" | "3" | "4" | "5"> | undefined;
+/**
+ * Applies a SourceProfile's columnMap to one raw source record (a source's
+ * OWN column names, e.g. Ondo's "reaction" or Facility B's
+ * "event_category") to produce the canonical RawLineListRow shape the
+ * engine understands. This is the boundary where "which line-list is
+ * this" stops mattering — everything downstream of this function is
+ * completely source-agnostic.
+ */
+export function applyColumnMap(
+  sourceRecord: Record<string, string | undefined>,
+  profile: SourceProfile,
+): RawLineListRow {
+  const get = (col?: string): string | undefined => (col ? sourceRecord[col] : undefined);
+  return {
+    case_id: get(profile.columnMap.caseId),
+    patient_identifier: get(profile.columnMap.patientIdentifier),
+    sex: get(profile.columnMap.sex),
+    age: get(profile.columnMap.age),
+    reaction: get(profile.columnMap.reaction),
+    onset_date: get(profile.columnMap.onsetDate),
+    product: get(profile.columnMap.product),
+    vaccination_date: get(profile.columnMap.vaccinationDate),
+    vaccine_batch: get(profile.columnMap.batchNumber),
+    dose: get(profile.columnMap.dose),
+    outcome: get(profile.columnMap.outcome),
+    seriousness: get(profile.columnMap.seriousness),
+    reporter_designation: get(profile.columnMap.reporterDesignation),
+    reporter_phone: get(profile.columnMap.reporterPhone),
+    is_followup: get(profile.columnMap.isFollowUp),
+    previous_case_id: get(profile.columnMap.previousCaseId),
+  };
 }
 
 /** "ADEBOLA ESTHER" -> "A.E." — pseudonymised initials, never a real name.
  *  A value that's already short/single-token passes through unchanged.
- *  This is option (a) of decision D1 (spec section 3) — implemented
- *  because it's one of the spec's own pre-approved options, not because
- *  D1 has been formally signed off; see mapRowToPVCase. */
+ *  This is option (a) of decision D1 — implemented because it's a
+ *  pre-approved option, not because D1 has been formally signed off. */
 export function deriveInitials(rawName: string): string {
   const trimmed = rawName.trim();
   if (!trimmed) return "";
@@ -97,101 +103,172 @@ export function parseSourceDate(raw: string | undefined): string | null {
   return null;
 }
 
-export function mapSex(raw: string | undefined): SexCode | undefined {
+const DEFAULT_SEX_WORDS: Record<string, SexCode> = { M: "MALE", MALE: "MALE", F: "FEMALE", FEMALE: "FEMALE" };
+
+/** Consults the active profile's sexMap first (a source can use its own
+ *  vocabulary), falling back to this engine's built-in M/F/MALE/FEMALE
+ *  recognition when the profile doesn't override that exact value. Never
+ *  guesses beyond either of those two sources. */
+export function mapSex(raw: string | undefined, profile?: SourceProfile): SexCode | undefined {
   const v = (raw ?? "").trim().toUpperCase();
-  if (v === "M" || v === "MALE") return "MALE";
-  if (v === "F" || v === "FEMALE") return "FEMALE";
-  return undefined;
+  if (!v) return undefined;
+  return profile?.sexMap?.[v] ?? DEFAULT_SEX_WORDS[v];
 }
+
+// Keys here are matched AFTER whitespace/underscore/hyphen stripping (see
+// mapSeriousness below), so "NON SERIOUS"/"NON_SERIOUS"/"non-serious" all
+// normalize to the single "NONSERIOUS" key.
+const DEFAULT_SERIOUSNESS_WORDS: Record<string, boolean> = {
+  SERIOUS: true,
+  YES: true,
+  Y: true,
+  NONSERIOUS: false,
+  NO: false,
+  N: false,
+};
 
 /** Only fires on a value already unambiguously meaning serious/non-serious
- *  (reusing the exact vocabulary linelist.ts's own normalizeSeriousness
- *  recognises). This is the source's case-level AGGREGATE value only —
- *  per the spec, it must never itself become an E2B seriousness element;
- *  see PVCase.aggregateSeriousnessAsReported and PVReaction.seriousnessCriteria. */
-export function mapSeriousness(raw: string | undefined): boolean | undefined {
+ *  — this is the source's case-level AGGREGATE value only; per the spec it
+ *  must never itself become an E2B seriousness element (see
+ *  PVCase.aggregateSeriousnessAsReported and PVReaction.seriousnessCriteria). */
+export function mapSeriousness(raw: string | undefined, profile?: SourceProfile): boolean | undefined {
   const v = (raw ?? "").trim().toUpperCase().replace(/[\s_-]+/g, "");
-  if (v === "SERIOUS" || v === "YES" || v === "Y") return true;
-  if (v === "NONSERIOUS" || v === "NO" || v === "N") return false;
-  return undefined;
+  if (!v) return undefined;
+  return profile?.seriousnessMap?.[v] ?? DEFAULT_SERIOUSNESS_WORDS[v];
 }
 
-/** Only matches this app's own already-normalised outcome words (see
- *  OUTCOME_VALUES in linelist.ts) — a raw source code (e.g. a bare "1"
- *  from the original AEFI form, which belongs to a *different* code list
- *  than E2B's) is returned as unmapped instead of reinterpreted. */
+const DEFAULT_OUTCOME_WORDS: Record<string, ReactionOutcome> = {
+  RECOVERED: "RECOVERED",
+  RESOLVED: "RECOVERED",
+  RECOVERING: "RECOVERING",
+  RESOLVING: "RECOVERING",
+  NOTRECOVERED: "NOT_RECOVERED",
+  NOTRESOLVED: "NOT_RECOVERED",
+  RECOVEREDWITHSEQUELAE: "RECOVERED_WITH_SEQUELAE",
+  FATAL: "FATAL",
+  UNKNOWN: "UNKNOWN",
+};
+
+/** Consults the active profile's outcomeMap first, then this engine's
+ *  built-in normalised-word recognition. A raw source code that matches
+ *  neither (e.g. a bare "1" from an original AEFI form's own numeric
+ *  legend) is returned as unmapped instead of reinterpreted under the
+ *  wrong vocabulary. */
 export function mapOutcome(
   raw: string | undefined,
+  profile?: SourceProfile,
 ): { outcome: ReactionOutcome; unmapped?: undefined } | { outcome?: undefined; unmapped: string } {
   const v = (raw ?? "").trim().toUpperCase().replace(/[\s_-]+/g, "");
-  switch (v) {
-    case "RECOVERED":
-    case "RESOLVED":
-      return { outcome: "RECOVERED" };
-    case "RECOVERING":
-    case "RESOLVING":
-      return { outcome: "RECOVERING" };
-    case "NOTRECOVERED":
-    case "NOTRESOLVED":
-      return { outcome: "NOT_RECOVERED" };
-    case "RECOVEREDWITHSEQUELAE":
-      return { outcome: "RECOVERED_WITH_SEQUELAE" };
-    case "FATAL":
-      return { outcome: "FATAL" };
-    case "UNKNOWN":
-      return { outcome: "UNKNOWN" };
-    default:
-      return { unmapped: raw ?? "" };
-  }
+  const resolved = profile?.outcomeMap?.[v] ?? DEFAULT_OUTCOME_WORDS[v];
+  return resolved ? { outcome: resolved } : { unmapped: raw ?? "" };
 }
 
-export interface MultiValueSplit {
+/** True only for a value shaped like a plain decimal number (one dot,
+ *  digits either side) — the one case where a bare "." must never be
+ *  treated as a delimiter candidate at all, confirmed or not. */
+function looksLikePlainDecimal(v: string): boolean {
+  return /^\d+\.\d+$/.test(v);
+}
+
+/**
+ * Splits a raw multi-value field using ONLY the active profile's
+ * explicitly configured separators (SourceProfile.reactionDelimiter) —
+ * never a hardcoded global regex. If the value doesn't cleanly split on a
+ * configured separator but still looks like it might contain more than
+ * one value (contains a "." that isn't a plain decimal, or any character
+ * that isn't part of a clean single token), the WHOLE raw value is
+ * quarantined as a single unresolved entry rather than guessed at — see
+ * types.ts's SourceDecodingStatus.DELIMITER_QUARANTINED.
+ */
+export interface SplitResult {
+  /** Individual values when a configured separator matched (length may be
+   *  1 for a clean single value). Empty when the field was blank. */
   values: string[];
-  /** True when the separator used was itself ambiguous (currently: a
-   *  dot-separated list) rather than an unambiguous delimiter like a comma
-   *  or "and" — surfaced so callers can flag these for human review
-   *  instead of silently trusting the split. */
-  ambiguous: boolean;
+  /** True when the raw field could not be confidently split (or confirmed
+   *  as a single value) using only the profile's configured separators —
+   *  callers must quarantine the whole raw value, never guess. */
+  quarantined: boolean;
+  rawValue: string;
 }
 
-/** "8,19,21" -> 3 values. "12 AND 20" -> 2 values. "PENTA,IPV,PCV" -> 3
- *  values. A single value passes through as a 1-element, non-ambiguous
- *  result. Dot-separated lists (e.g. "8.19.21") are split but marked
- *  ambiguous — periods are a genuinely fragile separator in this domain
- *  (could be a decimal), so callers must treat that split as needing
- *  human confirmation, not fact. */
-export function splitMultiValue(raw: string | undefined): MultiValueSplit {
-  if (!raw) return { values: [], ambiguous: false };
-  const trimmed = raw.trim();
-  if (!trimmed) return { values: [], ambiguous: false };
+export function splitBySourceProfile(raw: string | undefined, profile: SourceProfile): SplitResult {
+  const rawValue = (raw ?? "").trim();
+  if (!rawValue) return { values: [], quarantined: false, rawValue };
 
-  const parts = trimmed
-    .split(/\s*(?:,|;|\band\b)\s*/i)
-    .map((p) => p.trim())
-    .filter(Boolean);
-  if (parts.length > 1) return { values: parts, ambiguous: false };
-
-  // Only consider dot-splitting when there's no other confident separator
-  // and it isn't shaped like a plain decimal number (one dot, e.g. "0.5").
-  const dotParts = trimmed.split(".").map((p) => p.trim()).filter(Boolean);
-  if (dotParts.length > 1 && !/^\d+\.\d+$/.test(trimmed)) {
-    return { values: dotParts, ambiguous: true };
+  const escaped = profile.reactionDelimiter.separators.map((s) => s.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (escaped.length > 0) {
+    const pattern = new RegExp(`\\s*(?:${escaped.join("|")})\\s*`, "i");
+    if (pattern.test(rawValue)) {
+      const parts = rawValue.split(pattern).map((p) => p.trim()).filter(Boolean);
+      if (parts.length > 1) return { values: parts, quarantined: false, rawValue };
+    }
   }
 
-  return { values: [trimmed], ambiguous: false };
+  // No configured separator matched. If the value still contains a "."
+  // that isn't a plain decimal (the classic ambiguous case — "8.19.21"
+  // could be a list or a single oddly-formatted code), it cannot be
+  // confidently treated as one clean value either — quarantine it.
+  if (rawValue.includes(".") && !looksLikePlainDecimal(rawValue)) {
+    return { values: [], quarantined: true, rawValue };
+  }
+
+  return { values: [rawValue], quarantined: false, rawValue };
 }
 
-async function codeReactionTerm(
-  provider: MedDraCodingProvider,
-  verbatim: string,
-): Promise<CodedTerm> {
+/** Normalizes a local code the same way codebook keys are normalized
+ *  (trim + uppercase) so lookups are consistent regardless of source
+ *  formatting quirks. */
+function normalizeLocalCode(v: string): string {
+  return v.trim().toUpperCase();
+}
+
+/**
+ * REACTION DECODING PIPELINE (task-mandated sequence):
+ *   raw source value -> source-profile codebook decoding -> canonical
+ *   verbatim reaction term -> MedDRA coding -> E2B reaction instance.
+ * This function performs the FIRST step only — splitting and codebook
+ * lookup — returning one SourceReactionDecoding per resulting value.
+ * MedDRA coding (a separate, later step) never runs on anything but a
+ * DECODED sourceTerm; see mapSourceRecordToPVCase below.
+ */
+export function decodeReactionField(raw: string | undefined, profile: SourceProfile): SourceReactionDecoding[] {
+  const split = splitBySourceProfile(raw, profile);
+  if (split.quarantined) {
+    return [
+      {
+        status: "DELIMITER_QUARANTINED",
+        localCode: split.rawValue,
+        sourceProfileId: profile.id,
+        codebookVersion: profile.reactionCodebook.version,
+      },
+    ];
+  }
+  return split.values.map((value) => {
+    const key = normalizeLocalCode(value);
+    const entry = profile.reactionCodebook.entries[key];
+    if (entry) {
+      return {
+        status: "DECODED",
+        localCode: value,
+        sourceTerm: entry.sourceTerm,
+        sourceProfileId: profile.id,
+        codebookVersion: profile.reactionCodebook.version,
+      } satisfies SourceReactionDecoding;
+    }
+    return {
+      status: "UNKNOWN_CODE",
+      localCode: value,
+      sourceProfileId: profile.id,
+      codebookVersion: profile.reactionCodebook.version,
+    } satisfies SourceReactionDecoding;
+  });
+}
+
+async function codeReactionTerm(provider: MedDraCodingProvider, verbatim: string): Promise<CodedTerm> {
   return provider.resolveReaction(verbatim);
 }
 
-async function codeProductTerm(
-  provider: WhoDrugCodingProvider,
-  verbatim: string,
-): Promise<WhoDrugCodedProduct> {
+async function codeProductTerm(provider: WhoDrugCodingProvider, verbatim: string): Promise<WhoDrugCodedProduct> {
   return provider.resolveProduct(verbatim);
 }
 
@@ -207,80 +284,92 @@ export interface MapRowResult {
 }
 
 /**
- * RAW IMPORT MODEL -> CANONICAL PV CASE MODEL.
+ * SOURCE PROFILE + RAW RECORD -> CANONICAL PV CASE MODEL. This is the one
+ * engine entry point every source profile goes through — it never
+ * branches on `profile.id`, never references "Ondo" or any other source
+ * by name, and never reads a source's own column names directly (that
+ * happened already, in applyColumnMap). Adding a new source means writing
+ * a new SourceProfile; this function does not change.
  *
- * Every reaction and every product gets its own CodedTerm via the supplied
- * coding providers — with no licensed provider configured (see
- * coding-provider.ts), every one of them comes back UNMAPPED. That's
- * correct, not a bug: this function's job is producing an honest normalized
- * case, not deciding whether it's ready to export (see validation.ts for
- * the fail-closed gate that actually blocks export on unmapped terms).
+ * Every reaction gets its LOCAL CODE decoded via the active profile's
+ * reactionCodebook BEFORE any MedDRA coding is attempted — a local code
+ * with no codebook entry never reaches the MedDRA provider at all; it's
+ * recorded as UNKNOWN_CODE and left for validation.ts to quarantine.
  *
- * Fields gated on Ondo_AEFI_E2B_R3_Developer_Spec.docx decisions D1-D4
- * (patient identity representation, reporter, report type, sender org) are
- * populated with the spec's own documented interim behaviour where one
- * exists (D1 option (a): derived initials) or left explicitly unresolved
- * (RequiredValue nullFlavor / undefined) otherwise — never defaulted on
- * this function's own authority.
+ * WHODrug Option A: every product's verbatim name is always populated
+ * regardless of coding outcome — WHODrug coding is attempted (so a future
+ * licensed provider can populate it) but never required for this
+ * function to produce a usable case.
  */
-export async function mapRowToPVCase(
-  row: RawLineListRow,
+export async function mapSourceRecordToPVCase(
+  sourceRecord: Record<string, string | undefined>,
+  profile: SourceProfile,
+  transmissionConfig: E2bTransmissionConfig,
   context: { jobId: string; sourceFile: string; sourceRow: number; processedAt: string },
   providers: { meddra: MedDraCodingProvider; whodrug: WhoDrugCodingProvider },
-  config: MappingConfig = {},
 ): Promise<MapRowResult> {
+  const row = applyColumnMap(sourceRecord, profile);
   const warnings: MappingWarning[] = [];
-  const sendersCaseId = row.case_id?.trim() || `${context.jobId}-${context.sourceRow}`;
+  const caseIdPrefix = profile.caseIdPrefix ?? transmissionConfig.caseIdPrefix ?? context.jobId;
+  const sendersCaseId = row.case_id?.trim() || `${caseIdPrefix}-${context.sourceRow}`;
 
-  // Reactions — split first, code each independently. Never one CodedTerm
-  // per row when the source actually listed several reactions.
-  const reactionSplit = splitMultiValue(row.reaction);
-  if (reactionSplit.ambiguous) {
+  // --- Reactions: decode (source codebook) -> code (MedDRA), never the
+  // other way around, never skipping the decode step.
+  const reactionDecodings = decodeReactionField(row.reaction, profile);
+  if (reactionDecodings.some((d) => d.status === "DELIMITER_QUARANTINED")) {
     warnings.push({
       field: "reaction",
       sourceValue: row.reaction ?? "",
       message:
-        "Reaction value split on a dot-separated pattern, which is ambiguous in this domain (could be a single decimal-shaped code, not a list). Confirm this was actually meant as multiple reactions.",
+        "Reaction value could not be confidently split using this source profile's configured delimiters, and was quarantined rather than guessed. Confirm the intended separator and either update the source profile or correct the source data.",
     });
   }
   const onsetDate = parseSourceDate(row.onset_date) ?? undefined;
-  const outcomeResult = mapOutcome(row.outcome);
+  const outcomeResult = mapOutcome(row.outcome, profile);
   const reactions: PVReaction[] = await Promise.all(
-    reactionSplit.values.map(async (value, i) => {
-      const coded = await codeReactionTerm(providers.meddra, value);
+    reactionDecodings.map(async (decoding, i) => {
+      // MedDRA coding only ever runs on a DECODED source term — an
+      // undecoded local code is never passed to a coding provider as if
+      // it were a legitimate verbatim reaction term.
+      const coded: CodedTerm =
+        decoding.status === "DECODED"
+          ? await codeReactionTerm(providers.meddra, decoding.sourceTerm!)
+          : { sourceValue: decoding.localCode, status: "INVALID", mappingMethod: "NONE" };
       return {
         id: `${sendersCaseId}-r${i + 1}`,
+        sourceDecoding: decoding,
         reaction: coded,
         onsetDate,
         outcome: outcomeResult.outcome,
         outcomeUnmapped: outcomeResult.unmapped,
         // E.i.3.2a-f — per-event seriousness criteria. This dataset only
-        // ever supplies a case-level aggregate ("NON SERIOUS"), which
-        // cannot be safely decomposed into the six specific criteria
-        // without guessing which one(s) apply — left empty deliberately;
-        // see PVCase.aggregateSeriousnessAsReported for where the source
+        // ever supplies a case-level aggregate, which cannot be safely
+        // decomposed into the six specific criteria without guessing
+        // which apply — left empty deliberately; see
+        // PVCase.aggregateSeriousnessAsReported for where the source
         // value itself is preserved.
         seriousnessCriteria: {},
       } satisfies PVReaction;
     }),
   );
 
-  // Products — same split-then-code treatment. This dataset is AEFI/
-  // vaccine-specific, so every product here is structurally the suspect
-  // vaccine (characterization SUSPECT) — the line-list source has no
-  // concept of a concomitant/interacting medication.
-  const productSplit = splitMultiValue(row.product);
-  if (productSplit.ambiguous) {
+  // --- Products: WHODrug Option A — verbatim name always populated,
+  // coding attempted but never required. No codebook/decode step for
+  // products (task explicitly scopes the codebook-quarantine requirement
+  // to reactions only); a provider may still return UNMAPPED/etc, which
+  // is fine and non-blocking under Option A (see validation.ts).
+  const productSplit = splitBySourceProfile(row.product, profile);
+  if (productSplit.quarantined) {
     warnings.push({
       field: "product",
       sourceValue: row.product ?? "",
       message:
-        "Product value split on a dot-separated pattern, which is ambiguous in this domain. Confirm this was actually meant as multiple products.",
+        "Product value could not be confidently split using this source profile's configured delimiters, and was quarantined rather than guessed.",
     });
   }
   const drugStartDate = parseSourceDate(row.vaccination_date) ?? undefined;
   const products: PVProduct[] = await Promise.all(
-    productSplit.values.map(async (value, i) => {
+    (productSplit.quarantined ? [productSplit.rawValue] : productSplit.values).map(async (value, i) => {
       const coded = await codeProductTerm(providers.whodrug, value);
       const characterization: DrugCharacterization = "SUSPECT";
       return {
@@ -299,37 +388,39 @@ export async function mapRowToPVCase(
     ? { present: true, value: { kind: "INITIALS", initials: deriveInitials(patientIdentifierRaw) } }
     : { present: false, nullFlavor: "UNK" as NullFlavor };
 
-  const reporterName = row.reporter_designation?.trim();
-  // D2 (who the reporter is) isn't decided — this dataset's
-  // reporter_designation column is a *qualification* ("CHEW"), not a
-  // name, so C.2.r.1 (name) genuinely has no source here regardless of D2.
+  const reporterDesignationRaw = row.reporter_designation?.trim();
+  // D2 (who the reporter is) isn't decided — this dataset's designation
+  // column is a qualification, not a name, so C.2.r.1 genuinely has no
+  // source here regardless of D2.
   const reporterNameValue: RequiredValue<string> = { present: false, nullFlavor: "NASK" };
-  // C.2.r.4 — only set when this exact designation string has an explicit,
-  // human-confirmed entry in config.reporterQualificationMap (decision
-  // D2). No entry means genuinely unresolved, not a guess.
-  const qualificationCode = reporterName
-    ? config.reporterQualificationMap?.[reporterName.toUpperCase()]
+  // C.2.r.4 — only set when this exact designation string has an entry in
+  // the active profile's reporterQualificationMap. No entry means
+  // genuinely unresolved, never guessed.
+  const qualificationCode = reporterDesignationRaw
+    ? profile.reporterQualificationMap[reporterDesignationRaw.toUpperCase()]
     : undefined;
 
-  // Follow-up (C.1.10) — this dataset's current column set has no
-  // is_followup/previous_case_id source, so every real row maps to
-  // isFollowUp:false honestly. The fields exist on RawLineListRow so a
-  // future dataset that does carry follow-up information is handled
-  // without a structural change to this function.
   const isFollowUpRaw = (row.is_followup ?? "").trim().toUpperCase();
   const isFollowUp = isFollowUpRaw === "YES" || isFollowUpRaw === "TRUE" || isFollowUpRaw === "1";
   const previousTransmissionRef = row.previous_case_id?.trim() || undefined;
 
-  const reportType: RequiredValue<ReportType> = config.reportType
-    ? { present: true, value: config.reportType }
-    : { present: false, nullFlavor: "NASK" }; // D3 not yet decided
+  // Report type (decision D3) is bundled with the same sender/receiver
+  // confirmation gate (decision D4) — both come from the same
+  // NAFDAC/Ondo/MedNova-leadership sign-off, so an unconfirmed
+  // transmission config means report type isn't authoritative either, not
+  // just "some other field is missing." See transmission-config.ts.
+  const reportType: RequiredValue<typeof transmissionConfig.reportType> = isTransmissionConfigConfirmed(
+    transmissionConfig,
+  )
+    ? { present: true, value: transmissionConfig.reportType }
+    : { present: false, nullFlavor: "NASK" };
 
   const otherCaseIdentifiers: OtherCaseIdentifiers = { present: false, nullFlavor: "NI" };
 
   const pvCase: PVCase = {
     internalCaseId: `${context.jobId}-${context.sourceRow}`,
     sendersCaseId,
-    // Per spec 5.2: "When MedNova creates the first electronic ICSR for a
+    // Per spec: "When MedNova creates the first electronic ICSR for a
     // case, C.1.1 and C.1.8.1 are identical." This pipeline only ever
     // creates first-time transmissions today (no follow-up source yet).
     worldwideUniqueId: sendersCaseId,
@@ -340,8 +431,7 @@ export async function mapRowToPVCase(
     dateOfCreation: context.processedAt,
     // No "date received from source" column exists in this dataset — the
     // processing timestamp is used as a conservative stand-in, not a
-    // fabricated historical date. Flagged in docs as a known limitation;
-    // replace with a real source column if/when Ondo State supplies one.
+    // fabricated historical date.
     dateFirstReceived: context.processedAt,
     dateMostRecentInfo: context.processedAt,
     additionalDocumentsAvailable: false,
@@ -357,23 +447,18 @@ export async function mapRowToPVCase(
       : { isFollowUp: false },
     patient: {
       identity,
-      sex: mapSex(row.sex),
+      sex: mapSex(row.sex, profile),
       age: row.age?.trim() || undefined,
-      // Deliberately no ageUnit — see PVPatient.ageUnit doc comment. This
-      // dataset's "age" column doesn't state a unit, and years-vs-months
-      // is exactly the kind of thing that's dangerously wrong to guess for
-      // pediatric AEFI data.
+      // Deliberately no ageUnit — see PVPatient.ageUnit doc comment.
     },
     reporter: {
       name: reporterNameValue,
-      qualificationVerbatim: reporterName || undefined,
-      // Only set when config.reporterQualificationMap explicitly resolves
-      // this exact designation — see qualificationCode above. Binding
-      // "CHEW" (or any other free-text designation) to one of the five
-      // Appendix I(F) codes is decision D2, never guessed by this function.
+      qualificationVerbatim: reporterDesignationRaw || undefined,
       qualificationCode,
+      country: profile.country || undefined,
     },
-    senderOrganisation: config.senderOrganisation,
+    senderOrganisation:
+      transmissionConfig.sender.organization === "__UNCONFIRMED__" ? undefined : transmissionConfig.sender.organization,
     reactions,
     products,
     aggregateSeriousnessAsReported: row.seriousness?.trim() || undefined,
@@ -381,6 +466,7 @@ export async function mapRowToPVCase(
       sourceFile: context.sourceFile,
       sourceRow: context.sourceRow,
       jobId: context.jobId,
+      sourceProfileId: profile.id,
     },
   };
 

@@ -1,6 +1,6 @@
 import { readJob, type ParsedRow } from "@/services/api/e2b";
 import { currentActor, recordAudit } from "@/services/api/db";
-import { mapRowToPVCase, type MappingConfig, type MappingWarning } from "./mapping";
+import { mapSourceRecordToPVCase, type MappingWarning } from "./mapping";
 import { runPreflight, validateBusinessRules, type PreflightSummary, type ValidationError } from "./validation";
 import { splitIntoBatches, batchFilename } from "./batching";
 import { serializeBatchToXml } from "./serializer";
@@ -10,20 +10,22 @@ import {
   describeUnconfirmedTransmissionConfig,
   type E2bTransmissionConfig,
 } from "./transmission-config";
+import { getSourceProfile } from "./source-profiles/registry";
+import type { SourceProfile } from "./source-profiles/types";
 import type { PVCase } from "./types";
 
 /**
  * The real, validated E2B(R3) pipeline for one line-list job — as opposed
  * to src/services/api/e2b.ts's legacy preview-draft generator. Runs the
- * actual normalize -> map -> validate -> batch -> serialize chain this
- * module was built for, using whatever mapping decisions (D2 reporter
- * qualification, D3 report type, D4 sender/receiver identifiers) have
- * actually been configured via transmission-config.ts — an unconfirmed
- * config is not a bug, it's today's honest state: those decisions haven't
- * been made yet (see docs/E2B-R3-NAFDAC-VIGIFLOW.md).
+ * actual normalize -> map -> validate -> batch -> serialize chain,
+ * parameterized entirely by a SourceProfile (defaults to Ondo, the only
+ * real source configured today) and an E2bTransmissionConfig (decisions
+ * D2-D4) — this function never references "Ondo" or any source-specific
+ * assumption directly; see src/services/e2b-r3/source-profiles/.
  */
 export interface ValidatedExportResult {
   jobId: string;
+  sourceProfileId: string;
   totalCases: number;
   cases: PVCase[];
   businessRuleErrors: ValidationError[];
@@ -44,32 +46,33 @@ export interface ValidatedExportResult {
   transmissionConfigGaps: string[];
 }
 
-function toMappingConfig(config: E2bTransmissionConfig): MappingConfig {
-  return {
-    reportType: config.reportType,
-    senderOrganisation: config.senderOrganisation,
-    reporterQualificationMap: config.reporterQualificationMap,
-  };
+/** ParsedRow (the legacy generator's row shape) already has the same
+ *  field names Ondo's source profile maps FROM — this coerces it to the
+ *  generic Record<string, string|undefined> shape mapSourceRecordToPVCase
+ *  expects, so any SourceProfile's columnMap can be applied uniformly. */
+function toSourceRecord(row: ParsedRow): Record<string, string | undefined> {
+  return { ...row } as Record<string, string | undefined>;
 }
 
 export async function runValidatedPreflightForJob(
   jobId: string,
   transmissionConfig: E2bTransmissionConfig,
+  sourceProfile: SourceProfile = getSourceProfile("ondo-aefi"),
 ): Promise<ValidatedExportResult> {
   const job = await readJob(jobId);
   const rows: ParsedRow[] = job.parsedRows ?? [];
   const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
   const processedAt = new Date().toISOString();
-  const mappingConfig = toMappingConfig(transmissionConfig);
 
   const cases: PVCase[] = [];
   const mappingWarnings: MappingWarning[] = [];
   for (let i = 0; i < rows.length; i++) {
-    const { pvCase, warnings } = await mapRowToPVCase(
-      rows[i]!,
+    const { pvCase, warnings } = await mapSourceRecordToPVCase(
+      toSourceRecord(rows[i]!),
+      sourceProfile,
+      transmissionConfig,
       { jobId, sourceFile: job.filename, sourceRow: i + 1, processedAt },
       providers,
-      mappingConfig,
     );
     cases.push(pvCase);
     mappingWarnings.push(...warnings);
@@ -84,11 +87,12 @@ export async function runValidatedPreflightForJob(
     action: readyForValidatedExport ? "E2B_R3_PREFLIGHT_PASSED" : "E2B_R3_PREFLIGHT_BLOCKED",
     entity: "LineListJob",
     entityId: jobId,
-    newValue: `${preflight.readyCases}/${preflight.totalCases} case(s) ready for validated import, run by ${actor.name}`,
+    newValue: `source=${sourceProfile.id}: ${preflight.readyCases}/${preflight.totalCases} case(s) ready for validated import, run by ${actor.name}`,
   });
 
   return {
     jobId,
+    sourceProfileId: sourceProfile.id,
     totalCases: cases.length,
     cases,
     businessRuleErrors,
@@ -110,16 +114,16 @@ export interface ValidatedBatchArtifact {
  * Serializes real E2B(R3) XML for a job — but ONLY when every case in it
  * has already passed VigiFlow preflight AND the transmission config has
  * actually been confirmed (not the unconfirmed sentinel from
- * transmission-config.ts). This is the fail-closed gate the audit
- * demanded: a blocked case, or an unconfirmed sender/receiver identifier,
- * must never reach a download link, regardless of what the caller does
- * with the result.
+ * transmission-config.ts). This is the fail-closed gate: a blocked case,
+ * or an unconfirmed sender/receiver identifier, must never reach a
+ * download link, regardless of what the caller does with the result.
  */
 export async function generateValidatedExportForJob(
   jobId: string,
   transmissionConfig: E2bTransmissionConfig,
+  sourceProfile: SourceProfile = getSourceProfile("ondo-aefi"),
 ): Promise<ValidatedBatchArtifact[]> {
-  const result = await runValidatedPreflightForJob(jobId, transmissionConfig);
+  const result = await runValidatedPreflightForJob(jobId, transmissionConfig, sourceProfile);
 
   if (!result.transmissionConfigConfirmed) {
     throw new Error(
@@ -142,8 +146,8 @@ export async function generateValidatedExportForJob(
     filename: batchFilename(batch, now),
     xml: serializeBatchToXml(batch.cases, {
       batchId: batch.transmissionId,
-      senderId: transmissionConfig.senderIdentifier,
-      receiverId: transmissionConfig.receiverIdentifier,
+      senderId: transmissionConfig.sender.identifier,
+      receiverId: transmissionConfig.receiver.identifier,
       transmissionTimestamp: now,
     }),
     caseCount: batch.cases.length,
@@ -154,7 +158,7 @@ export async function generateValidatedExportForJob(
     action: "E2B_R3_VALIDATED_EXPORT_GENERATED",
     entity: "LineListJob",
     entityId: jobId,
-    newValue: `${artifacts.length} batch file(s), ${result.totalCases} case(s), all passed VigiFlow preflight, generated by ${actor.name} (sender=${transmissionConfig.senderIdentifier}, receiver=${transmissionConfig.receiverIdentifier})`,
+    newValue: `source=${sourceProfile.id}: ${artifacts.length} batch file(s), ${result.totalCases} case(s), all passed VigiFlow preflight, generated by ${actor.name} (sender=${transmissionConfig.sender.identifier}, receiver=${transmissionConfig.receiver.identifier})`,
   });
   for (const b of batches) {
     await recordAudit({

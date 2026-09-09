@@ -29,6 +29,7 @@ function baseCase(overrides: Partial<PVCase> = {}): PVCase {
     reactions: [
       {
         id: "r1",
+        sourceDecoding: { status: "DECODED", localCode: "19", sourceTerm: "19", sourceProfileId: "test-profile" },
         reaction: { sourceValue: "19", status: "UNMAPPED", mappingMethod: "NONE" },
         onsetDate: "2026-09-04",
         outcome: "RECOVERED",
@@ -53,7 +54,7 @@ function baseCase(overrides: Partial<PVCase> = {}): PVCase {
       },
     ],
     narrative: "5-year-old female (initials A.E.) developed fever following PENTA vaccination administered 2026-09-03; reported recovered.",
-    sourceInformation: { sourceFile: "ondo_aefi_linelist.xlsx", sourceRow: 2, jobId: "job-1" },
+    sourceInformation: { sourceFile: "ondo_aefi_linelist.xlsx", sourceRow: 2, jobId: "job-1", sourceProfileId: "test-profile" },
     ...overrides,
   };
 }
@@ -119,12 +120,18 @@ describe("serializeBatchToXml", () => {
           reactions: [
             {
               id: "r2a",
+              sourceDecoding: { status: "DECODED", localCode: "8", sourceTerm: "8", sourceProfileId: "test-profile" },
               reaction: { sourceValue: "8", status: "UNMAPPED", mappingMethod: "NONE" },
               onsetDate: "2026-09-05",
               outcome: "RECOVERING",
               seriousnessCriteria: { hospitalization: true },
             },
-            { id: "r2b", reaction: { sourceValue: "21", status: "UNMAPPED", mappingMethod: "NONE" }, seriousnessCriteria: {} },
+            {
+              id: "r2b",
+              sourceDecoding: { status: "DECODED", localCode: "21", sourceTerm: "21", sourceProfileId: "test-profile" },
+              reaction: { sourceValue: "21", status: "UNMAPPED", mappingMethod: "NONE" },
+              seriousnessCriteria: {},
+            },
           ],
           products: [
             { id: "p2a", characterization: "SUSPECT", product: { sourceValue: "IPV", status: "UNMAPPED", mappingMethod: "NONE" }, batchNumber: "LOT-2026-0044" },

@@ -20,7 +20,7 @@ function fakeCase(id: string): PVCase {
     reporter: { name: { present: false, nullFlavor: "NASK" } },
     reactions: [],
     products: [],
-    sourceInformation: { sourceFile: "test.xlsx", sourceRow: 1, jobId: "job-1" },
+    sourceInformation: { sourceFile: "test.xlsx", sourceRow: 1, jobId: "job-1", sourceProfileId: "test-profile" },
   };
 }
 
@@ -40,6 +40,12 @@ describe("splitIntoBatches", () => {
     for (const b of batches) {
       expect(b.cases.length).toBeLessThanOrEqual(MAX_ICSRS_PER_BATCH);
     }
+  });
+
+  it("1 case -> 1 batch of 1 (the minimum boundary)", () => {
+    const batches = splitIntoBatches([fakeCase("C1")], "TXN");
+    expect(batches).toHaveLength(1);
+    expect(batches[0]!.cases).toHaveLength(1);
   });
 
   it("produces exactly one batch when count is under the limit", () => {

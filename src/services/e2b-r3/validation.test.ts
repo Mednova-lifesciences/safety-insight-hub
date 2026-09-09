@@ -17,11 +17,12 @@ function minimalValidCase(overrides: Partial<PVCase> = {}): PVCase {
     otherCaseIdentifiersInPreviousTransmissions: { present: false, nullFlavor: "NI" },
     followUp: { isFollowUp: false },
     patient: { identity: { present: true, value: { kind: "INITIALS", initials: "A.B." } } },
-    reporter: { name: { present: false, nullFlavor: "NASK" }, qualificationVerbatim: "CHEW", country: "NG" },
+    reporter: { name: { present: false, nullFlavor: "NASK" }, qualificationVerbatim: "CHEW", qualificationCode: "3", country: "NG" },
     senderOrganisation: "MEDNOVA",
     reactions: [
       {
         id: "CASE-1-r1",
+        sourceDecoding: { status: "DECODED", localCode: "19", sourceTerm: "19", sourceProfileId: "test-profile" },
         reaction: { sourceValue: "19", status: "UNMAPPED", mappingMethod: "NONE" },
         onsetDate: "2026-02-03",
         outcome: "RECOVERED",
@@ -35,7 +36,7 @@ function minimalValidCase(overrides: Partial<PVCase> = {}): PVCase {
         product: { sourceValue: "MR/MV", status: "UNMAPPED", mappingMethod: "NONE" },
       },
     ],
-    sourceInformation: { sourceFile: "test.xlsx", sourceRow: 1, jobId: "job-1" },
+    sourceInformation: { sourceFile: "test.xlsx", sourceRow: 1, jobId: "job-1", sourceProfileId: "test-profile" },
     ...overrides,
   };
 }
@@ -124,12 +125,18 @@ describe("validateVigiFlowPreflight", () => {
     expect(errors.some((e) => e.code === "VIGIFLOW-MEDDRA-MISSING")).toBe(true);
   });
 
-  it("blocks on an uncoded (UNMAPPED) product — this is the real state of every case today", () => {
+  it("Option A: an uncoded (UNMAPPED) product does NOT block — only an INFO note is surfaced", () => {
     const errors = validateVigiFlowPreflight(minimalValidCase());
-    expect(errors.some((e) => e.code === "VIGIFLOW-WHODRUG-MISSING")).toBe(true);
+    expect(errors.some((e) => e.code === "VIGIFLOW-WHODRUG-OPTION-A-INFO")).toBe(true);
+    const infoError = errors.find((e) => e.code === "VIGIFLOW-WHODRUG-OPTION-A-INFO");
+    expect(infoError?.severity).toBe("INFO");
+    // Confirm the overall case isn't blocked purely by this — a case
+    // whose ONLY WHODrug-related finding is this INFO note must not have
+    // any BLOCKING error with a WHODrug-shaped code.
+    expect(errors.some((e) => e.severity === "BLOCKING" && e.code.includes("WHODRUG"))).toBe(false);
   });
 
-  it("would pass MedDRA/WHODrug checks once a reaction/product is actually CODED", () => {
+  it("would pass the MedDRA check once a reaction is actually MAPPED — WHODrug coding is never required either way (Option A)", () => {
     const c = minimalValidCase();
     c.reactions[0]!.reaction = {
       sourceValue: "19",
@@ -139,17 +146,10 @@ describe("validateVigiFlowPreflight", () => {
       dictionaryVersion: "27.0",
       mappingMethod: "LICENSED_DICTIONARY",
     };
-    c.products[0]!.product = {
-      sourceValue: "MR/MV",
-      status: "MAPPED",
-      codedTerm: "MEASLES-RUBELLA VACCINE",
-      code: "12345",
-      dictionaryVersion: "2026-1",
-      mappingMethod: "LICENSED_DICTIONARY",
-    };
     const errors = validateVigiFlowPreflight(c);
     expect(errors.some((e) => e.code === "VIGIFLOW-MEDDRA-MISSING")).toBe(false);
-    expect(errors.some((e) => e.code === "VIGIFLOW-WHODRUG-MISSING")).toBe(false);
+    // Product is still UNMAPPED here — still only an INFO note, never blocking.
+    expect(errors.some((e) => e.severity === "BLOCKING" && e.code.includes("WHODRUG"))).toBe(false);
   });
 
   it("blocks when reporter qualification is entirely absent", () => {
@@ -167,7 +167,9 @@ describe("runPreflight", () => {
     expect(summary.blockedCases).toBe(2);
     expect(summary.readyCases).toBe(0);
     expect(summary.counts.uncodedReactions).toBeGreaterThan(0);
-    expect(summary.counts.uncodedSuspectDrugs).toBeGreaterThan(0);
+    // Option A: WHODrug absence is informational, not a blocker — but it's
+    // still counted so the UI can show it.
+    expect(summary.counts.whodrugNotConfiguredInfo).toBeGreaterThan(0);
   });
 
   it("reports BLOCKED (not READY, not a crash) for zero cases", () => {

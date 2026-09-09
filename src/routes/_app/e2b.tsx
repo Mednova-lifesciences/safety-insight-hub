@@ -365,12 +365,19 @@ function E2bPage() {
                             </div>
                           ) : null}
 
+                          {preflightResults[j.id] && preflightResults[j.id]!.preflight.counts.whodrugNotConfiguredInfo > 0 ? (
+                            <p className="mt-2 rounded-md border border-info/30 bg-info-soft px-2 py-1.5 text-xs text-foreground">
+                              WHODrug coding not configured — exporting reported product name using Option A. This
+                              is informational only and does not block export.
+                            </p>
+                          ) : null}
+
                           {preflightResults[j.id] && !preflightResults[j.id]!.readyForValidatedExport ? (
                             <div className="mt-2">
                               <p className="text-xs font-medium text-critical">Blocking reasons (by rule):</p>
                               <ul className="mt-1 space-y-1 text-xs text-critical">
                                 {Object.entries(preflightResults[j.id]!.preflight.counts)
-                                  .filter(([, count]) => count > 0)
+                                  .filter(([code, count]) => count > 0 && code !== "whodrugNotConfiguredInfo")
                                   .map(([code, count]) => (
                                     <li key={code}>
                                       {count}× {code}

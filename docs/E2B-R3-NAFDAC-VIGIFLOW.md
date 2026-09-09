@@ -1,5 +1,30 @@
 # E2B(R3) for NAFDAC / VigiFlow — Architecture, Status, and Open Decisions
 
+> **Update (this session): Source Profile architecture.** The engine
+> (`mapping.ts`, `validation.ts`, `serializer.ts`, `batching.ts`) no longer
+> contains any Ondo-specific assumption — every source-specific detail
+> (column names, local reaction codebook, delimiter conventions, reporter
+> vocabulary) now lives in a `SourceProfile` object
+> (`src/services/e2b-r3/source-profiles/`). Ondo is the first configured
+> profile (`ondo-aefi`), not a special case the engine knows about. See
+> **`docs/E2B-R3-SOURCE-PROFILES.md`** for the full architecture, and
+> `source-agnosticism.test.ts` for the proof (a second, synthetic source
+> profile runs through the identical engine code). This also means:
+> local reaction codes now go through an explicit **source-codebook
+> decoding step before MedDRA coding is ever attempted** — an unrecognised
+> local code (or an ambiguously-delimited multi-value field) quarantines
+> the case rather than reaching MedDRA at all — and **WHODrug coding is no
+> longer a blocker** for validated export (Option A, a MedNova business
+> decision): the reported/verbatim product name always exports; WHODrug's
+> absence is informational only. The two "not yet built" claims later in
+> this document (serializer, UI wiring) are now stale — both exist; see
+> the "Honest current status" section, which was updated, not the
+> "Two pipelines" table immediately below, which was not.
+>
+> Also, everything below that says MedDRA/WHODrug leave a reaction/product
+> **UNMAPPED** now more precisely says **PROVIDER_UNAVAILABLE** (no
+> provider configured at all) — see `CodingStatus` in `types.ts`.
+
 This document describes the rebuilt E2B(R3) pipeline in `src/services/e2b-r3/`,
 its relationship to the still-live legacy generator (`src/services/api/e2b.ts`),
 and exactly what remains blocked and why. It is written against two sources
