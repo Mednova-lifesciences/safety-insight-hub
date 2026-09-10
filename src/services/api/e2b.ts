@@ -50,6 +50,13 @@ export interface ParsedRow {
 export interface LineListJobRow extends LineListJob {
   e2bArtifact?: E2bArtifact;
   parsedRows?: ParsedRow[];
+  /** Raw text (with real row numbers) of rows the upload parser found
+   *  outside the case table — most often a trailing "KEY TO SUMMARY
+   *  FINDINGS" legend/codebook. See linelist.ts's LineListJobRow and
+   *  src/services/e2b-r3/export.ts's use of this for codebook discovery.
+   *  Absent on jobs uploaded before this was tracked. */
+  discardedRows?: { row: number; text: string }[];
+  sheetName?: string;
 }
 
 /** Exported for src/services/e2b-r3/export.ts — the validated E2B(R3)

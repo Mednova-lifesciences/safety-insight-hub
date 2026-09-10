@@ -12,7 +12,35 @@ import {
 } from "./transmission-config";
 import { getSourceProfile } from "./source-profiles/registry";
 import type { SourceProfile } from "./source-profiles/types";
+import { parseDiscoveredLegend, validateDiscoveredCodebook } from "./source-profiles/legend-parser";
+import { resolveRuntimeSourceProfile } from "./source-profiles/runtime-profile";
+import { fieldsCovered, type DiscoveredSourceCodebook } from "./source-profiles/discovered-codebook";
 import type { PVCase } from "./types";
+
+/**
+ * Discovers a source document's own codebook/legend from whatever text
+ * its upload parser found outside the case table (see
+ * tabular-parse.ts's discardedRows), validates it, and returns both the
+ * validated codebook (for diagnostics) and the resulting runtime profile
+ * (base profile + discovered codebook, never mutating the base). Purely
+ * deterministic — no LLM call, no reference to any specific source; the
+ * same function runs for Ondo or any other configured profile.
+ */
+export function discoverAndApplyCodebook(
+  baseProfile: SourceProfile,
+  discardedRows: { row: number; text: string }[] | undefined,
+  evidence: { file?: string | undefined; sheet?: string | undefined },
+): { runtimeProfile: SourceProfile; discovered: DiscoveredSourceCodebook } {
+  const discovered = validateDiscoveredCodebook(
+    parseDiscoveredLegend({
+      sourceId: baseProfile.id,
+      lines: (discardedRows ?? []).map((d) => ({ text: d.text, row: d.row })),
+      evidence,
+    }),
+  );
+  const runtimeProfile = resolveRuntimeSourceProfile(baseProfile, discovered);
+  return { runtimeProfile, discovered };
+}
 
 /**
  * The real, validated E2B(R3) pipeline for one line-list job — as opposed
@@ -44,6 +72,16 @@ export interface ValidatedExportResult {
    *  other. */
   transmissionConfigConfirmed: boolean;
   transmissionConfigGaps: string[];
+  /** What the codebook-discovery step actually found in this specific
+   *  job's own document — never a static claim about the source profile
+   *  in general, since two different uploads of the "same" source could
+   *  legitimately carry different codebooks (or none at all). */
+  codebookDiscovery: {
+    status: DiscoveredSourceCodebook["discoveryStatus"];
+    fieldsCovered: string[];
+    acceptedMappingCount: number;
+    rejectedMappingCount: number;
+  };
 }
 
 /** ParsedRow (the legacy generator's row shape) already has the same
@@ -64,12 +102,21 @@ export async function runValidatedPreflightForJob(
   const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
   const processedAt = new Date().toISOString();
 
+  // Discover this job's own codebook from whatever legend text its
+  // upload actually contained (see tabular-parse.ts's discardedRows) —
+  // never from a hand-authored mapping on the base profile — and use the
+  // resulting runtime profile for every row in THIS job only.
+  const { runtimeProfile, discovered } = discoverAndApplyCodebook(sourceProfile, job.discardedRows, {
+    file: job.filename,
+    sheet: job.sheetName,
+  });
+
   const cases: PVCase[] = [];
   const mappingWarnings: MappingWarning[] = [];
   for (let i = 0; i < rows.length; i++) {
     const { pvCase, warnings } = await mapSourceRecordToPVCase(
       toSourceRecord(rows[i]!),
-      sourceProfile,
+      runtimeProfile,
       transmissionConfig,
       { jobId, sourceFile: job.filename, sourceRow: i + 1, processedAt },
       providers,
@@ -104,6 +151,12 @@ export async function runValidatedPreflightForJob(
     readyForValidatedExport,
     transmissionConfigConfirmed: isTransmissionConfigConfirmed(transmissionConfig),
     transmissionConfigGaps: describeUnconfirmedTransmissionConfig(transmissionConfig),
+    codebookDiscovery: {
+      status: discovered.discoveryStatus,
+      fieldsCovered: fieldsCovered(discovered),
+      acceptedMappingCount: discovered.entries.length,
+      rejectedMappingCount: discovered.rejectedEntries.length,
+    },
   };
 }
 

@@ -1,0 +1,6 @@
+[
+  { "row": 249, "text": "KEY TO SUMMARY FINDINGS:" },
+  { "row": 250, "text": "1) REACTION TYPE : 1=Anaphylaxis, 2=Anaphylactic Shock, 3=Dizziness, 4= Headache, 5= Fainting/Syncope, 6=Seizures/convulsion,7=Loss of vision, 8= Local reaction, 9 Site induration, 10=Abscess at injection site, 11=Rash/Urticaria, 12= Lymph node enlargement, 13= Abd cramps, 14=Vomiting, 15=Diarrhoea, 16= Bleeding, 17=muscle pain, 18=Joint pain 19=Fever (<38oC), 20=Fever (>=38oC), 21=Persistent cries (more than 3 hours), 22=Acute Flaccid Paralysis (AFP), 23=Unconsciousness, 24=Sepsis, 25=Encephalopathy, 26=Neck Stiffness, 27=Facial Paralysis, 28=Others (specify) (insert appropriate number in column)" },
+  { "row": 252, "text": "2) SERIUOS CASE: 1. Life treathening; 2. Disability; 3. Hospitalizaton; 4. Congenital anomaly; 5. Death (insert appropriate number in column)" },
+  { "row": 253, "text": "3) OUTCOME: 1= Recovered, 2=Hospitalized, 3=Disability, 4=Died (insert appropriate number in column)" }
+]

@@ -8,6 +8,7 @@ import type {
   PVReaction,
   ReactionOutcome,
   RequiredValue,
+  SeriousnessCriteria,
   SexCode,
   SourceReactionDecoding,
   WhoDrugCodedProduct,
@@ -35,6 +36,10 @@ export interface RawLineListRow {
   age?: string | undefined;
   vaccination_date?: string | undefined;
   vaccine_batch?: string | undefined;
+  /** A separate NUMERIC seriousness-criterion code, distinct from the
+   *  word-shaped `seriousness` field — see ColumnMap.seriousCode's doc
+   *  comment. Absent when a source doesn't have one. */
+  serious_code?: string | undefined;
   dose?: string | undefined;
   reporter_designation?: string | undefined;
   reporter_phone?: string | undefined;
@@ -65,6 +70,7 @@ export function applyColumnMap(
     product: get(profile.columnMap.product),
     vaccination_date: get(profile.columnMap.vaccinationDate),
     vaccine_batch: get(profile.columnMap.batchNumber),
+    serious_code: get(profile.columnMap.seriousCode),
     dose: get(profile.columnMap.dose),
     outcome: get(profile.columnMap.outcome),
     seriousness: get(profile.columnMap.seriousness),
@@ -138,6 +144,26 @@ export function mapSeriousness(raw: string | undefined, profile?: SourceProfile)
   return profile?.seriousnessMap?.[v] ?? DEFAULT_SERIOUSNESS_WORDS[v];
 }
 
+/**
+ * Decodes a raw single-value coded field (outcome, seriousness — never
+ * reaction, which has its own compound-aware pipeline in
+ * decodeReactionField) against a discovered, field-specific codebook —
+ * see source-profiles/runtime-profile.ts for how fieldCodebooks gets
+ * populated (never hand-authored with a specific source's real mappings).
+ * Returns the codebook's own real meaning text when the exact code is
+ * found; returns the raw value UNCHANGED when no codebook entry exists,
+ * so downstream word-matching (mapOutcome's DEFAULT_OUTCOME_WORDS, etc.)
+ * still gets a fair chance at a source that uses words instead of codes.
+ * Never invents a meaning for a code the codebook doesn't define.
+ */
+function resolveViaFieldCodebook(raw: string | undefined, profile: SourceProfile, field: string): string | undefined {
+  if (!raw) return raw;
+  const codebook = profile.fieldCodebooks?.[field];
+  if (!codebook) return raw;
+  const entry = codebook.entries[raw.trim().toUpperCase()];
+  return entry ? entry.meaning : raw;
+}
+
 const DEFAULT_OUTCOME_WORDS: Record<string, ReactionOutcome> = {
   RECOVERED: "RECOVERED",
   RESOLVED: "RECOVERED",
@@ -147,6 +173,7 @@ const DEFAULT_OUTCOME_WORDS: Record<string, ReactionOutcome> = {
   NOTRESOLVED: "NOT_RECOVERED",
   RECOVEREDWITHSEQUELAE: "RECOVERED_WITH_SEQUELAE",
   FATAL: "FATAL",
+  DIED: "FATAL", // generic English synonym, not source-specific — "died" and "fatal" describe the same ICH outcome
   UNKNOWN: "UNKNOWN",
 };
 
@@ -181,6 +208,29 @@ function looksLikePlainDecimal(v: string): boolean {
  * quarantined as a single unresolved entry rather than guessed at — see
  * types.ts's SourceDecodingStatus.DELIMITER_QUARANTINED.
  */
+/**
+ * Maps a DECODED seriousness-criterion meaning (e.g. "Life treathening",
+ * "Death", "Hospitalizaton" — the source codebook's own wording, typos
+ * and all) onto E2B(R3)'s six fixed E.i.3.2a-f criteria. The keyword
+ * stems here (life-threatening, death, hospital, disab, congenital) are
+ * the ICH-defined criterion NAMES themselves, not any one source's
+ * vocabulary — this is the same kind of universal-concept keyword
+ * matching this codebase already uses for sex (MALE/FEMALE) and outcome
+ * words, generalised to the six criteria every E2B(R3) filer uses by
+ * definition. Returns {} (nothing asserted) rather than guessing when no
+ * criterion keyword is recognised — never invents a criterion.
+ */
+export function mapSeriousnessCriterionMeaning(meaning: string): Partial<SeriousnessCriteria> {
+  const v = meaning.toUpperCase();
+  if (v.includes("DEATH") || v.includes("DIED") || v.includes("FATAL")) return { resultsInDeath: true };
+  if (v.includes("LIFE") && (v.includes("THREAT") || v.includes("TREATH"))) return { lifeThreatening: true };
+  if (v.includes("HOSPITAL")) return { hospitalization: true };
+  if (v.includes("CONGENITAL")) return { congenitalAnomaly: true };
+  if (v.includes("DISAB")) return { disabling: true };
+  if (v.includes("OTHER") && v.includes("MEDICAL")) return { otherMedicallyImportant: true };
+  return {};
+}
+
 export interface SplitResult {
   /** Individual values when a configured separator matched (length may be
    *  1 for a clean single value). Empty when the field was blank. */
@@ -328,7 +378,25 @@ export async function mapSourceRecordToPVCase(
     });
   }
   const onsetDate = parseSourceDate(row.onset_date) ?? undefined;
-  const outcomeResult = mapOutcome(row.outcome, profile);
+  // Decode a numeric outcome code (e.g. "1") against a discovered
+  // field-specific codebook BEFORE word-matching — the exact same
+  // decode-then-interpret sequence reactions go through. A source with
+  // no discovered outcome codebook (or a code with no entry in it) falls
+  // straight through unchanged, so word-based sources are unaffected.
+  const outcomeResult = mapOutcome(resolveViaFieldCodebook(row.outcome, profile, "outcome"), profile);
+  // A separate NUMERIC seriousness-criterion code (e.g. Ondo's "If serious
+  // case select appropriate code below", distinct from the word-shaped
+  // `seriousness` field) decodes via its own discovered field codebook,
+  // then the decoded meaning ("Life treathening", "Death", ...) maps onto
+  // E2B(R3)'s six fixed criteria — applied to every reaction in the case,
+  // since this source captures seriousness at case level with no basis to
+  // attribute it to one specific reaction over another. {} (nothing
+  // asserted) when no code is present or none decodes, exactly as before.
+  const decodedSeriousCode = resolveViaFieldCodebook(row.serious_code, profile, "seriousness");
+  const seriousnessCriteria: SeriousnessCriteria =
+    decodedSeriousCode && decodedSeriousCode !== row.serious_code
+      ? mapSeriousnessCriterionMeaning(decodedSeriousCode)
+      : {};
   const reactions: PVReaction[] = await Promise.all(
     reactionDecodings.map(async (decoding, i) => {
       // MedDRA coding only ever runs on a DECODED source term — an
@@ -345,13 +413,13 @@ export async function mapSourceRecordToPVCase(
         onsetDate,
         outcome: outcomeResult.outcome,
         outcomeUnmapped: outcomeResult.unmapped,
-        // E.i.3.2a-f — per-event seriousness criteria. This dataset only
-        // ever supplies a case-level aggregate, which cannot be safely
-        // decomposed into the six specific criteria without guessing
-        // which apply — left empty deliberately; see
-        // PVCase.aggregateSeriousnessAsReported for where the source
-        // value itself is preserved.
-        seriousnessCriteria: {},
+        // E.i.3.2a-f — see seriousnessCriteria computation above. Genuinely
+        // {} (nothing guessed) when the source has no separate numeric
+        // seriousness-criterion code or codebook to decode it with — the
+        // word-shaped case-level aggregate (aggregateSeriousnessAsReported)
+        // still cannot be safely decomposed into these six criteria on its
+        // own, and is never used to populate this.
+        seriousnessCriteria,
       } satisfies PVReaction;
     }),
   );

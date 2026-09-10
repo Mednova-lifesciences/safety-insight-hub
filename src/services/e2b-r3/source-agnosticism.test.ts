@@ -23,8 +23,16 @@ describe("source profile agnosticism", () => {
   const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
   const context = { jobId: "test-job", sourceFile: "facility-b.csv", sourceRow: 1, processedAt: "2026-09-09T00:00:00Z" };
 
-  it("no engine file (mapping/validation/serializer/batching) contains an actual conditional/branch on a specific source — doc-comment prose mentioning \"Ondo\" as an example is fine, a hardcoded condition is not", () => {
-    const engineFiles = ["mapping.ts", "validation.ts", "serializer.ts", "batching.ts"].map((f) => ({
+  it("no engine file (mapping/validation/serializer/batching, plus the codebook-discovery pipeline) contains an actual conditional/branch on a specific source — doc-comment prose mentioning \"Ondo\" as an example is fine, a hardcoded condition is not", () => {
+    const engineFiles = [
+      "mapping.ts",
+      "validation.ts",
+      "serializer.ts",
+      "batching.ts",
+      "source-profiles/legend-parser.ts",
+      "source-profiles/runtime-profile.ts",
+      "source-profiles/discovered-codebook.ts",
+    ].map((f) => ({
       name: f,
       content: readFileSync(join(__dirname, f), "utf-8"),
     }));

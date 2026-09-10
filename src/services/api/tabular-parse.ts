@@ -36,6 +36,12 @@ export interface ParsedTable {
    *  use it, instead of vanishing inside this filter with only a count
    *  left behind. */
   discardedRowsText: string[];
+  /** Same content as discardedRowsText, but with each entry's real
+   *  1-indexed row number in the original sheet — the richer evidence a
+   *  codebook-discovery step needs to answer "where did this mapping
+   *  come from" precisely. discardedRowsText is kept as a plain-string
+   *  convenience projection of this, not a separate source of truth. */
+  discardedRows: { row: number; text: string }[];
 }
 
 /** Normalised (lowercase, alphanumeric-only) header-concept fragments used
@@ -300,6 +306,7 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
         "Could not confidently identify a header row anywhere in the first 60 rows of any sheet; used the first row of the first sheet as a last resort.",
       ],
       discardedRowsText: [],
+      discardedRows: [],
     };
   }
 
@@ -341,31 +348,30 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
   // enough columns for "more than one populated cell" to mean anything.
   const minPopulatedCells = headers.length >= 3 ? 2 : 1;
   let structuralRowsDropped = 0;
-  const discardedRowsText: string[] = [];
-  const rows = matrix
-    .slice(dataStartIndex)
-    .map((r) => headers.map((_, i) => normalizeCell(r[i])))
-    .filter((r) => {
-      const populated = r.filter((cell) => cell.length > 0).length;
-      if (populated === 0) return false; // fully blank
-      if (r.join("") === headerKey) return false; // exact repeat of the header row
-      if (populated < minPopulatedCells) {
-        structuralRowsDropped++;
-        // Preserve the actual text — this row is exactly as likely to be
-        // a trailing "KEY TO SUMMARY FINDINGS" legend/codebook as a
-        // reprinted letterhead band, and unlike a letterhead, a legend's
-        // content can be load-bearing for interpreting this file's own
-        // coded values. Never silently discard it — only stop treating
-        // it as a case row.
-        const text = r.filter((cell) => cell.length > 0).join(" | ");
-        if (text) discardedRowsText.push(text);
-        return false;
-      }
-      return true;
-    });
+  const discardedRows: { row: number; text: string }[] = [];
+  const rows: string[][] = [];
+  for (let i = dataStartIndex; i < matrix.length; i++) {
+    const r = headers.map((_, c) => normalizeCell(matrix[i]![c]));
+    const populated = r.filter((cell) => cell.length > 0).length;
+    if (populated === 0) continue; // fully blank
+    if (r.join("") === headerKey) continue; // exact repeat of the header row
+    if (populated < minPopulatedCells) {
+      structuralRowsDropped++;
+      // Preserve the actual text (and its real row number) — this row is
+      // exactly as likely to be a trailing "KEY TO SUMMARY FINDINGS"
+      // legend/codebook as a reprinted letterhead band, and unlike a
+      // letterhead, a legend's content can be load-bearing for
+      // interpreting this file's own coded values. Never silently
+      // discard it — only stop treating it as a case row.
+      const text = r.filter((cell) => cell.length > 0).join(" | ");
+      if (text) discardedRows.push({ row: i + 1, text });
+      continue;
+    }
+    rows.push(r);
+  }
   if (structuralRowsDropped > 0) {
     warnings.push(
-      `Dropped ${structuralRowsDropped} sparse row(s) within the data region (fewer than ${minPopulatedCells} populated cell(s)) as non-data structural content, e.g. a repeated letterhead/title band or a trailing legend/codebook — see discardedRowsText for the actual preserved content.`,
+      `Dropped ${structuralRowsDropped} sparse row(s) within the data region (fewer than ${minPopulatedCells} populated cell(s)) as non-data structural content, e.g. a repeated letterhead/title band or a trailing legend/codebook — see discardedRows for the actual preserved content.`,
     );
   }
 
@@ -376,7 +382,8 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
     headerRowNumber: header.index + 1,
     skippedRows: header.index,
     warnings,
-    discardedRowsText,
+    discardedRowsText: discardedRows.map((d) => d.text),
+    discardedRows,
   };
 }
 

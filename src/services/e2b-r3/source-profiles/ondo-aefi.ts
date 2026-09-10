@@ -30,6 +30,16 @@ export const ondoAefiProfile: SourceProfile = {
     dose: "dose",
     outcome: "outcome",
     seriousness: "seriousness",
+    // A genuinely separate real column from `seriousness` above (see
+    // ColumnMap.seriousCode's doc comment) — mapped to the same
+    // canonical field name (`serious_code`) linelist.ts's own upstream
+    // ingestion already reserves for it. NOTE: as of this session,
+    // linelist.ts's FIELD_KEYWORDS does not yet recognise this file's
+    // actual header text ("If serious case select appropriste code 2
+    // below.") — a separate, pre-existing upstream column-mapping gap,
+    // not something this profile can fix on its own. See
+    // docs/E2B-R3-SOURCE-PROFILES.md.
+    seriousCode: "serious_code",
     reporterDesignation: "reporter_designation",
     reporterPhone: "reporter_phone",
     isFollowUp: "is_followup",

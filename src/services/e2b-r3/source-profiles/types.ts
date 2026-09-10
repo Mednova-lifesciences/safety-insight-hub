@@ -62,10 +62,34 @@ export interface ColumnMap {
   dose?: string;
   outcome?: string;
   seriousness?: string;
+  /** A separate NUMERIC seriousness-criterion code, distinct from the
+   *  word-shaped `seriousness` field above (e.g. Ondo's "Type of AEFI
+   *  (Non-serious or Serious)" word column vs. its "If serious case
+   *  select appropriate code below" numeric column — two different real
+   *  columns in the same file). Optional: many sources will only have
+   *  one or the other. */
+  seriousCode?: string;
   reporterDesignation?: string;
   reporterPhone?: string;
   isFollowUp?: string;
   previousCaseId?: string;
+}
+
+/** A field-specific, versioned code->meaning registry for a coded field
+ *  OTHER than reaction (which keeps its own dedicated ReactionCodebook —
+ *  it additionally needs compound-value/delimiter handling that
+ *  single-value fields like outcome/seriousness don't). Shape
+ *  deliberately mirrors ReactionCodebookEntry/ReactionCodebook so the two
+ *  stay conceptually consistent. */
+export interface FieldCodebookEntry {
+  sourceCode: string;
+  meaning: string;
+}
+
+export interface FieldCodebook {
+  field: string;
+  version: string;
+  entries: Record<string, FieldCodebookEntry>;
 }
 
 export interface SourceProfile {
@@ -101,4 +125,12 @@ export interface SourceProfile {
    *  fallback identifier must be generated — never overrides a real
    *  supplied case id. */
   caseIdPrefix?: string | undefined;
+  /** Discovered, field-specific code registries for coded fields OTHER
+   *  than reaction — keyed by canonical field name ("outcome",
+   *  "seriousness", ...). Empty/absent by default; populated only by
+   *  merging a real DiscoveredSourceCodebook via
+   *  source-profiles/runtime-profile.ts's resolveRuntimeSourceProfile —
+   *  never hand-authored with a specific source's real mappings, and
+   *  never mutated on the base profile object itself. */
+  fieldCodebooks?: Record<string, FieldCodebook> | undefined;
 }

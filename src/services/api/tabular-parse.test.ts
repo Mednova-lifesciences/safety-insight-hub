@@ -91,6 +91,12 @@ describe("parseTabularFile — trailing legend/codebook after the case table", (
     expect(result.discardedRowsText.some((t) => t.includes("1=Anaphylaxis"))).toBe(true);
     expect(result.discardedRowsText.some((t) => t.includes("1= Recovered"))).toBe(true);
     expect(result.warnings.join(" ")).toMatch(/legend|codebook/i);
+
+    // Real row-number evidence — a codebook-discovery step needs to
+    // answer "where did this mapping come from" precisely.
+    expect(result.discardedRows.find((d) => d.text.includes("KEY TO SUMMARY"))?.row).toBe(5);
+    expect(result.discardedRows.find((d) => d.text.includes("1=Anaphylaxis"))?.row).toBe(6);
+    expect(result.discardedRows.find((d) => d.text.includes("1= Recovered"))?.row).toBe(7);
   });
 
   it("preserves multiple distinct legend rows as separate entries, not concatenated into one blob", async () => {

@@ -112,6 +112,9 @@ interface LineListJobRow extends LineListJob {
    *  not-yet-built step (see docs/E2B-R3-SOURCE-PROFILES.md). Absent on
    *  jobs synthesized internally (createFromCases). */
   discardedRowsText?: string[];
+  /** Same rows as discardedRowsText, with real row numbers — see
+   *  tabular-parse.ts's ParsedTable.discardedRows. */
+  discardedRows?: { row: number; text: string }[];
   validatedAt?: string;
   /** The AI prompt version last used to analyse this job, surfaced on the
    *  executive summary so it's traceable to exactly what ran. */
@@ -1107,6 +1110,7 @@ export const linelist = {
         sheetName,
         headerRowNumber,
         discardedRowsText,
+        discardedRows,
       } = await parseTabularFile(file);
       const mapping = mapColumns(headers);
       const parsedRows = toParsedRows(headers, rows, mapping);
@@ -1127,6 +1131,7 @@ export const linelist = {
         rawRows,
         parseWarnings,
         discardedRowsText,
+        discardedRows,
         sheetName,
         headerRowNumber,
       };
