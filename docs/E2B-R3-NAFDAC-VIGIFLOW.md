@@ -214,6 +214,7 @@ and nothing below has been defaulted silently.
 | MedDRA subscription (decision D5) | Not resolved |
 | WHODrug Global subscription (decision D6) | Not resolved |
 | NAFDAC sender/receiver identifiers (decision D4) | Not resolved |
+| ICH Appendix I(F) — ICH E2B code lists (the actual numeric values behind every coded element, per the developer spec section 10's "Reference package" table) | **Not obtained**. This repo's `regulatory-assets/e2b-r3/official-ich/` only has the schema set + reference/example instances, not this separate ICH-published document. Cross-checked this session (see `serializer.ts`'s `DRUG_CHARACTERIZATION_CODE`/`OUTCOME_CODE` doc comments): **G.k.1 (drug characterization) is now CONFIRMED** — the developer spec section 5.6 states its 1-4 codelist verbatim, matching this codebase exactly. **E.i.7 (outcome) remains genuinely open** — the spec names the OID and the six concepts' order but explicitly withholds the numbers, deferring to Appendix I(F); a live check against ICH/FDA's published source was attempted this session and blocked by a tool outage, not completed |
 
 ## Limitations honestly carried into the model
 

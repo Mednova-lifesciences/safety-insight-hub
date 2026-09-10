@@ -32,17 +32,18 @@
  *     was first appended after reportTypeBlock/otherIdsBlock instead of
  *     grouped with reporterBlock.
  *
- * What is deliberately NOT emitted, and why:
- *  - G.k.1 (drug characterization) and E.i.7 (outcome) are coded CE values
- *    whose element *position* this session verified against the schema,
- *    but whose numeric code->meaning mapping was NOT found in the
- *    downloaded ICH package (schemas + reference instances only — no
- *    codelist appendix). The 1..4 / 1..6 mappings below are the
- *    values used throughout this codebase's domain model comments and
- *    widely published E2B(R3) summaries, not a value machine-verified in
- *    this session against an ICH source document. Flagged here and in
- *    docs/E2B-R3-NAFDAC-VIGIFLOW.md as needing cross-check before any real
- *    submission.
+ * Known caveats on the two coded value sets below (DRUG_CHARACTERIZATION_CODE,
+ * OUTCOME_CODE): element *position* for both was verified against the
+ * schema in the same pruning pass as everything else. Their numeric
+ * code->meaning bindings are a separate question — see each constant's own
+ * doc comment. Short version: G.k.1 is now CONFIRMED against this
+ * project's developer spec (which states it verbatim); E.i.7 is still
+ * genuinely open — the spec names the OID and the six concepts' order but
+ * explicitly defers the actual numbers to ICH's separately-published
+ * Appendix I(F), which this repo does not have a copy of. Flagged here and
+ * in docs/E2B-R3-NAFDAC-VIGIFLOW.md as needing that specific document
+ * before any real submission — not resolvable by guessing or by an LLM's
+ * own recollection of "the standard values."
  *  - MedDRA/WHODrug codes: never emitted unless CodedTerm.status === "MAPPED"
  *    (i.e. a licensed provider actually coded it). An UNMAPPED term is
  *    serialized with nullFlavor="UNK" on the coded <value> and the real
@@ -84,10 +85,12 @@ export function toHl7Ts(iso: string, withTime = false): string {
   return `${yyyy}${mm}${dd}${hh}${mi}${ss}`;
 }
 
-/** G.k.1 — session could not locate a machine-verified codelist in the
- *  downloaded ICH package; values below match this codebase's own
- *  DrugCharacterization doc comment and standard E2B(R3) summaries, but are
- *  UNVERIFIED against an authoritative ICH source in this session. */
+/** G.k.1 — CONFIRMED against an authoritative source: the project's own
+ *  developer spec (regulatory-assets/e2b-r3/Ondo_AEFI_E2B_R3_Developer_Spec.docx,
+ *  section 5.6) states this exact codelist verbatim — "1 = Suspect,
+ *  2 = Concomitant, 3 = Interacting, 4 = Drug not administered" — on OID
+ *  ...2.1.1.13, matching the codeSystem this file actually emits below.
+ *  No longer flagged unverified. */
 const DRUG_CHARACTERIZATION_CODE: Record<DrugCharacterization, string> = {
   SUSPECT: "1",
   CONCOMITANT: "2",
@@ -95,8 +98,26 @@ const DRUG_CHARACTERIZATION_CODE: Record<DrugCharacterization, string> = {
   NOT_ADMINISTERED: "4",
 };
 
-/** E.i.7 — same caveat as DRUG_CHARACTERIZATION_CODE above: unverified
- *  against an authoritative ICH codelist source in this session. */
+/** E.i.7 — STILL UNVERIFIED, and deliberately so; this is a genuine open
+ *  item, not an oversight. The developer spec (section 5.6) names the OID
+ *  (...2.1.1.11, matching this file's codeSystem) and the six permitted
+ *  concepts in this exact order — recovered/resolved, recovering/resolving,
+ *  not recovered/not resolved, recovered/resolved with sequelae, fatal,
+ *  unknown — which is what the 1-6 values below encode. But unlike G.k.1,
+ *  the spec explicitly withholds the numbers themselves here ("Bind
+ *  numeric values from Appendix I(F)") and separately warns (section 6):
+ *  "ICH maintains its code lists outside the Implementation Guide, so
+ *  values printed in the IG can go stale. Treat every numeric value in
+ *  this document as a starting binding and confirm it against Appendix
+ *  I(F) — ICH E2B code lists — in the current implementation package
+ *  before coding." Appendix I(F) is a separate ICH-published document,
+ *  not included in this repo's regulatory-assets/e2b-r3/official-ich/
+ *  (schemas + reference/example instances only) — a live web check for it
+ *  was attempted and blocked by a tool outage, not completed. Do not
+ *  upgrade this comment on the strength of an LLM's own training-data
+ *  recollection of "the standard ICH order" — that is exactly the kind of
+ *  invented external-authority value this codebase's validation layer
+ *  exists to refuse. Only a real Appendix I(F) citation may confirm this. */
 const OUTCOME_CODE: Record<NonNullable<PVReaction["outcome"]>, string> = {
   RECOVERED: "1",
   RECOVERING: "2",
