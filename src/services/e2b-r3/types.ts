@@ -208,6 +208,49 @@ export interface SourceReactionDecoding {
   codebookVersion?: string | undefined;
 }
 
+/**
+ * A source value can be FULLY UNDERSTOOD (its source codebook decodes it
+ * to a real concept, e.g. "2" -> "Hospitalized") while still having NO
+ * approved representation in this engine's canonical/E2B vocabulary —
+ * those are two genuinely different failure modes, and collapsing them
+ * into one "unmapped" bucket hides which one actually applies:
+ *
+ *   UNKNOWN_SOURCE_CODE    — we do not know what the source value means
+ *                            at all (no codebook, or codebook has no
+ *                            entry for this code).
+ *   HUMAN_REVIEW_REQUIRED  — we know exactly what the source value means
+ *                            (a real, decoded concept), but no explicit,
+ *                            configured mapping to a canonical value
+ *                            exists for that concept. This is NEVER
+ *                            resolved by inference (AI, semantic
+ *                            similarity, frequency, "closest" value, or
+ *                            any default) — only by a human/config
+ *                            author adding an explicit entry to the
+ *                            active source profile's own mapping table.
+ *   MAPPED                 — an explicit mapping resolved the decoded
+ *                            concept to a canonical value.
+ *
+ * Reused for every coded field that has a small, fixed canonical target
+ * vocabulary (currently: reaction outcome, seriousness-criterion code) —
+ * NOT for MedDRA/WHODrug coding, which targets an open-ended licensed
+ * dictionary rather than a small fixed enum, and already has its own
+ * correctly-separated fail-closed model (CodingStatus).
+ */
+export type FieldMappingStatus = "MAPPED" | "HUMAN_REVIEW_REQUIRED" | "UNKNOWN_SOURCE_CODE";
+
+export interface FieldMappingResolution<T> {
+  rawSourceValue: string;
+  /** The source codebook's own decoded term — present whenever status is
+   *  MAPPED or HUMAN_REVIEW_REQUIRED (both mean the source concept itself
+   *  was understood); absent when status is UNKNOWN_SOURCE_CODE (nothing
+   *  was understood, so there is no decoded text to show). */
+  decodedSourceValue?: string | undefined;
+  /** Only present when status is MAPPED — the actual canonical/E2B value
+   *  an explicit mapping resolved the decoded concept to. */
+  canonicalValue?: T | undefined;
+  status: FieldMappingStatus;
+}
+
 export interface PVReaction {
   /** Stable identity within the case — reactions/products can reference
    *  each other via G.k.9.i (drug-reaction matrix) once that structure is
@@ -224,17 +267,25 @@ export interface PVReaction {
   endDate?: string | undefined;
   /** E.i.7 — required admin info in practice ("optional but expected" per
    *  spec) but a raw, un-decoded source code must never be presented as
-   *  if it were this coded value. */
+   *  if it were this coded value. Only present when outcomeResolution.status
+   *  is MAPPED — see FieldMappingResolution's doc comment for why a
+   *  successfully DECODED-but-unmappable concept (e.g. "Hospitalized")
+   *  never ends up here. */
   outcome?: ReactionOutcome | undefined;
-  /** True only when the source's outcome value didn't match any of this
-   *  app's known outcome words — surfaced so it's never silently treated
-   *  as equivalent to an actual coded outcome. */
-  outcomeUnmapped?: string | undefined;
+  /** Full raw -> decoded -> canonical audit trail for how (or whether)
+   *  the outcome was resolved. Always present when the source supplied a
+   *  non-blank outcome value at all. */
+  outcomeResolution?: FieldMappingResolution<ReactionOutcome> | undefined;
   /** E.i.3.2a-f — six independent booleans. Left entirely empty (not
    *  guessed) when the source only provides an aggregate case-level value
    *  like "NON SERIOUS" — see PVCase.aggregateSeriousnessAsReported for
    *  where that raw value is preserved instead. */
   seriousnessCriteria: SeriousnessCriteria;
+  /** Audit trail for the numeric seriousness-CRITERION code (distinct
+   *  from the word-shaped aggregate above) that produced
+   *  seriousnessCriteria, when the source has one — same MAPPED /
+   *  HUMAN_REVIEW_REQUIRED / UNKNOWN_SOURCE_CODE distinction. */
+  seriousnessCodeResolution?: FieldMappingResolution<Partial<SeriousnessCriteria>> | undefined;
 }
 
 /** G.k.1 — 1=Suspect, 2=Concomitant, 3=Interacting, 4=Drug not administered. */

@@ -102,12 +102,27 @@ describe("validateBusinessRules", () => {
     expect(errors.some((e) => e.code === "E2B-REPORTER-MISSING")).toBe(false);
   });
 
-  it("blocks a case with an unmapped (raw source-code) outcome", () => {
+  it("blocks a case with a genuinely UNKNOWN_SOURCE_CODE outcome", () => {
     const c = minimalValidCase();
     c.reactions[0]!.outcome = undefined;
-    c.reactions[0]!.outcomeUnmapped = "1";
+    c.reactions[0]!.outcomeResolution = { rawSourceValue: "1", status: "UNKNOWN_SOURCE_CODE" };
     const errors = validateBusinessRules(c);
     expect(errors.some((e) => e.code === "E2B-OUTCOME-UNMAPPED" && e.severity === "BLOCKING")).toBe(true);
+  });
+
+  it("blocks a case with a DECODED-but-unmappable outcome using the distinct E2B-OUTCOME-NOT-MAPPABLE code", () => {
+    const c = minimalValidCase();
+    c.reactions[0]!.outcome = undefined;
+    c.reactions[0]!.outcomeResolution = {
+      rawSourceValue: "2",
+      decodedSourceValue: "Hospitalized",
+      status: "HUMAN_REVIEW_REQUIRED",
+    };
+    const errors = validateBusinessRules(c);
+    const found = errors.find((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE");
+    expect(found?.severity).toBe("BLOCKING");
+    expect(found?.message).toContain("Hospitalized");
+    expect(errors.some((e) => e.code === "E2B-OUTCOME-UNMAPPED")).toBe(false);
   });
 
   it("warns (not blocks) on a missing reaction onset date", () => {

@@ -168,12 +168,33 @@ export function validateBusinessRules(pvCase: PVCase): ValidationError[] {
   }
 
   for (const reaction of pvCase.reactions) {
-    if (reaction.outcomeUnmapped) {
-      errors.push(err(id, "E2B-OUTCOME-UNMAPPED", "BLOCKING", L, `Outcome value "${reaction.outcomeUnmapped}" is not recognised by the active source profile's outcome vocabulary.`, "This is very likely a raw source-form code, not this app's normalised outcome vocabulary — the source's own outcome codebook must be supplied and added to the source profile before this can be mapped. Never guess.", { e2bField: "E.i.7", sourceField: "outcome", sourceValue: reaction.outcomeUnmapped }));
+    // Two genuinely different failure modes — never collapsed into one
+    // "unmapped" bucket (see types.ts's FieldMappingResolution doc
+    // comment): UNKNOWN_SOURCE_CODE means the source concept itself was
+    // never understood (no codebook entry for this code at all);
+    // HUMAN_REVIEW_REQUIRED means it WAS understood (a real, decoded
+    // concept, e.g. "Hospitalized") but has no approved E2B outcome
+    // equivalent — never resolved by guessing the nearest-looking value.
+    if (reaction.outcomeResolution?.status === "UNKNOWN_SOURCE_CODE") {
+      errors.push(err(id, "E2B-OUTCOME-UNMAPPED", "BLOCKING", L, `Outcome value "${reaction.outcomeResolution.rawSourceValue}" is not recognised by the active source profile's outcome codebook.`, "This is very likely a raw source-form code the source's own outcome codebook has no entry for — supply/extend the codebook before this can be decoded at all. Never guess.", { e2bField: "E.i.7", sourceField: "outcome", sourceValue: reaction.outcomeResolution.rawSourceValue }));
+    } else if (reaction.outcomeResolution?.status === "HUMAN_REVIEW_REQUIRED") {
+      errors.push(err(id, "E2B-OUTCOME-NOT-MAPPABLE", "BLOCKING", L, `Outcome "${reaction.outcomeResolution.decodedSourceValue}" (decoded from source value "${reaction.outcomeResolution.rawSourceValue}") is understood, but has no approved mapping to any of the six ICH E2B(R3) outcome values.`, `The source concept itself is not in question — a human/config author must decide whether "${reaction.outcomeResolution.decodedSourceValue}" corresponds to one of the six canonical outcomes (or none) and add that decision to the active source profile's outcomeMap. Never inferred automatically.`, { e2bField: "E.i.7", sourceField: "outcome", sourceValue: reaction.outcomeResolution.rawSourceValue }));
     }
     if (!reaction.onsetDate) {
       errors.push(err(id, "E2B-REACTION-DATE-UNPARSEABLE", "WARNING", L, `Reaction "${reaction.reaction.sourceValue}" has no parseable onset date (E.i.4 — optional, omit rather than guess).`, "Confirm whether this genuinely wasn't captured (likely NASK) or is a source-format parsing gap.", { e2bField: "E.i.4", sourceField: "onset_date" }));
     }
+  }
+
+  // Seriousness-criterion code — case-level, not per-reaction: the same
+  // seriousnessCodeResolution is applied to every reaction in the case
+  // (see mapping.ts — this source supplies it once per case, not per
+  // event), so checking it inside the reaction loop above would report
+  // the same finding once per reaction instead of once per case.
+  const seriousnessCodeResolution = pvCase.reactions[0]?.seriousnessCodeResolution;
+  if (seriousnessCodeResolution?.status === "UNKNOWN_SOURCE_CODE") {
+    errors.push(err(id, "E2B-SERIOUSNESS-CODE-UNMAPPED", "BLOCKING", L, `Seriousness-criterion code "${seriousnessCodeResolution.rawSourceValue}" is not recognised by the active source profile's seriousness codebook.`, "Supply/extend the source profile's seriousness-criterion codebook before this can be decoded at all. Never guess.", { e2bField: "E.i.3.2", sourceField: "serious_code", sourceValue: seriousnessCodeResolution.rawSourceValue }));
+  } else if (seriousnessCodeResolution?.status === "HUMAN_REVIEW_REQUIRED") {
+    errors.push(err(id, "E2B-SERIOUSNESS-CODE-NOT-MAPPABLE", "BLOCKING", L, `Seriousness criterion "${seriousnessCodeResolution.decodedSourceValue}" (decoded from source value "${seriousnessCodeResolution.rawSourceValue}") is understood, but has no approved mapping to any of E2B(R3)'s six fixed criteria (E.i.3.2a-f).`, `A human/config author must decide which criterion (if any) "${seriousnessCodeResolution.decodedSourceValue}" corresponds to and add that decision to the active source profile's seriousnessCriterionMap. Never inferred automatically.`, { e2bField: "E.i.3.2", sourceField: "serious_code", sourceValue: seriousnessCodeResolution.rawSourceValue }));
   }
 
   // C.1.9.1's "false is not a valid value" rule is enforced structurally
@@ -311,21 +332,35 @@ export interface PreflightSummary {
     unresolvedReporterQualification: number;
     missingPatientIdentifier: number;
     invalidDates: number;
+    /** Outcome/seriousness values whose source concept is fully
+     *  understood (a real, decoded codebook term) but has no approved
+     *  mapping to E2B's canonical vocabulary — see FieldMappingResolution.
+     *  Distinct from unknownOutcomeCodes/unknownSeriousnessCodes below,
+     *  where the source concept itself was never understood at all. */
+    outcomeNeedsHumanReview: number;
+    unknownOutcomeCodes: number;
+    seriousnessCodeNeedsHumanReview: number;
+    unknownSeriousnessCodes: number;
   };
 }
 
 export function runPreflight(cases: PVCase[]): PreflightSummary {
   const results = cases.map((c) => validateCase(c, "VIGIFLOW_PREFLIGHT"));
   const blockedCases = results.filter((r) => r.blocked).length;
+  const countOf = (code: string) => results.reduce((n, r) => n + r.errors.filter((e) => e.code === code).length, 0);
   const counts = {
-    uncodedReactions: results.reduce((n, r) => n + r.errors.filter((e) => e.code === "VIGIFLOW-MEDDRA-MISSING").length, 0),
-    unknownReactionCodes: results.reduce((n, r) => n + r.errors.filter((e) => e.code === "E2B-REACTION-CODEBOOK-UNRESOLVED").length, 0),
-    quarantinedReactionFields: results.reduce((n, r) => n + r.errors.filter((e) => e.code === "E2B-REACTION-DELIMITER-QUARANTINED").length, 0),
-    whodrugNotConfiguredInfo: results.reduce((n, r) => n + r.errors.filter((e) => e.code === "VIGIFLOW-WHODRUG-OPTION-A-INFO").length, 0),
+    uncodedReactions: countOf("VIGIFLOW-MEDDRA-MISSING"),
+    unknownReactionCodes: countOf("E2B-REACTION-CODEBOOK-UNRESOLVED"),
+    quarantinedReactionFields: countOf("E2B-REACTION-DELIMITER-QUARANTINED"),
+    whodrugNotConfiguredInfo: countOf("VIGIFLOW-WHODRUG-OPTION-A-INFO"),
     missingReporter: results.reduce((n, r) => n + r.errors.filter((e) => e.code === "VIGIFLOW-REPORTER-QUALIFICATION-MISSING" || e.code === "E2B-REPORTER-MISSING").length, 0),
     unresolvedReporterQualification: results.reduce((n, r) => n + r.errors.filter((e) => e.code === "E2B-REPORTER-QUALIFICATION-UNRESOLVED" || e.code === "VIGIFLOW-REPORTER-QUALIFICATION-UNRESOLVED").length, 0),
-    missingPatientIdentifier: results.reduce((n, r) => n + r.errors.filter((e) => e.code === "E2B-PATIENT-MISSING").length, 0),
-    invalidDates: results.reduce((n, r) => n + r.errors.filter((e) => e.code === "E2B-REACTION-DATE-UNPARSEABLE").length, 0),
+    missingPatientIdentifier: countOf("E2B-PATIENT-MISSING"),
+    invalidDates: countOf("E2B-REACTION-DATE-UNPARSEABLE"),
+    outcomeNeedsHumanReview: countOf("E2B-OUTCOME-NOT-MAPPABLE"),
+    unknownOutcomeCodes: countOf("E2B-OUTCOME-UNMAPPED"),
+    seriousnessCodeNeedsHumanReview: countOf("E2B-SERIOUSNESS-CODE-NOT-MAPPABLE"),
+    unknownSeriousnessCodes: countOf("E2B-SERIOUSNESS-CODE-UNMAPPED"),
   };
   return {
     totalCases: cases.length,

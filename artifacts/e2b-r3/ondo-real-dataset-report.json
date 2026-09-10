@@ -21,6 +21,8 @@
       "E2B-OUTCOME-UNMAPPED": 202,
       "E2B-REACTION-DATE-UNPARSEABLE": 237,
       "E2B-REPORTER-QUALIFICATION-UNRESOLVED": 72,
+      "E2B-SERIOUSNESS-CODE-NOT-MAPPABLE": 8,
+      "E2B-SERIOUSNESS-CODE-UNMAPPED": 50,
       "E2B-PRODUCT-MISSING": 2,
       "E2B-REACTION-MISSING": 13
     },
@@ -57,7 +59,13 @@
       "9"
     ],
     "casesWithResolvedOutcome": 0,
-    "casesWithSeriousnessCriteriaApplied": 0
+    "casesWithSeriousnessCriteriaApplied": 0,
+    "outcomeResolutionBreakdown": {
+      "MAPPED": 0,
+      "HUMAN_REVIEW_REQUIRED": 0,
+      "UNKNOWN_SOURCE_CODE": 202
+    },
+    "casesNeedingHumanReviewForOutcome": []
   },
   "after": {
     "blockingReasons": {
@@ -66,7 +74,8 @@
       "E2B-C3.2-UNRESOLVED": 231,
       "E2B-REACTION-DATE-UNPARSEABLE": 238,
       "E2B-REPORTER-QUALIFICATION-UNRESOLVED": 72,
-      "E2B-OUTCOME-UNMAPPED": 9,
+      "E2B-SERIOUSNESS-CODE-UNMAPPED": 28,
+      "E2B-OUTCOME-NOT-MAPPABLE": 9,
       "E2B-REACTION-DELIMITER-QUARANTINED": 1,
       "E2B-PRODUCT-MISSING": 2,
       "E2B-REACTION-MISSING": 13
@@ -77,7 +86,59 @@
     "unknownReactionCodeCount": 0,
     "unknownReactionCodes": [],
     "casesWithResolvedOutcome": 179,
-    "casesWithSeriousnessCriteriaApplied": 30
+    "casesWithSeriousnessCriteriaApplied": 30,
+    "outcomeResolutionBreakdown": {
+      "MAPPED": 193,
+      "HUMAN_REVIEW_REQUIRED": 9,
+      "UNKNOWN_SOURCE_CODE": 0
+    },
+    "casesNeedingHumanReviewForOutcome": [
+      {
+        "caseId": "NG-MEDNOVA-55",
+        "rawSourceValue": "2",
+        "decodedSourceValue": "Hospitalized"
+      },
+      {
+        "caseId": "NG-MEDNOVA-56",
+        "rawSourceValue": "2",
+        "decodedSourceValue": "Hospitalized"
+      },
+      {
+        "caseId": "NG-MEDNOVA-57",
+        "rawSourceValue": "2",
+        "decodedSourceValue": "Hospitalized"
+      },
+      {
+        "caseId": "NG-MEDNOVA-58",
+        "rawSourceValue": "2",
+        "decodedSourceValue": "Hospitalized"
+      },
+      {
+        "caseId": "NG-MEDNOVA-59",
+        "rawSourceValue": "2",
+        "decodedSourceValue": "Hospitalized"
+      },
+      {
+        "caseId": "NG-MEDNOVA-60",
+        "rawSourceValue": "2",
+        "decodedSourceValue": "Hospitalized"
+      },
+      {
+        "caseId": "NG-MEDNOVA-61",
+        "rawSourceValue": "2",
+        "decodedSourceValue": "Hospitalized"
+      },
+      {
+        "caseId": "NG-MEDNOVA-62",
+        "rawSourceValue": "2",
+        "decodedSourceValue": "Hospitalized"
+      },
+      {
+        "caseId": "NG-MEDNOVA-63",
+        "rawSourceValue": "2",
+        "decodedSourceValue": "Hospitalized"
+      }
+    ]
   },
   "batchCountAfter": 3,
   "batchSizesAfter": [

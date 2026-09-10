@@ -1,6 +1,7 @@
 import type {
   CodedTerm,
   DrugCharacterization,
+  FieldMappingResolution,
   NullFlavor,
   OtherCaseIdentifiers,
   PVCase,
@@ -145,50 +146,97 @@ export function mapSeriousness(raw: string | undefined, profile?: SourceProfile)
 }
 
 /**
- * Decodes a raw single-value coded field (outcome, seriousness — never
- * reaction, which has its own compound-aware pipeline in
- * decodeReactionField) against a discovered, field-specific codebook —
- * see source-profiles/runtime-profile.ts for how fieldCodebooks gets
- * populated (never hand-authored with a specific source's real mappings).
- * Returns the codebook's own real meaning text when the exact code is
- * found; returns the raw value UNCHANGED when no codebook entry exists,
- * so downstream word-matching (mapOutcome's DEFAULT_OUTCOME_WORDS, etc.)
- * still gets a fair chance at a source that uses words instead of codes.
- * Never invents a meaning for a code the codebook doesn't define.
+ * THE GENERIC "decode -> explicit map" pipeline (task requirement): a
+ * source value can be fully UNDERSTOOD (its codebook decodes it to a
+ * real concept) while still having NO approved representation in this
+ * engine's small, fixed canonical vocabulary for that field — those are
+ * two different failure modes, and this function is the one place that
+ * distinguishes them, for every field that has such a vocabulary
+ * (currently: outcome, seriousness-criterion code — see
+ * PVReaction.outcomeResolution / seriousnessCodeResolution). Reaction
+ * terms and product names do NOT go through this — they target an
+ * open-ended licensed dictionary (MedDRA/WHODrug), not a small fixed
+ * enum, and already have their own correctly fail-closed model.
+ *
+ * `canonicalMap` is the ONLY place a "decoded concept has no target"
+ * verdict can flip to "mapped" — it is always a plain, explicit lookup
+ * (a built-in synonym dictionary for the field's fixed ICH vocabulary,
+ * merged with any profile-supplied override) — never inference, never
+ * an AI call, never a default.
  */
-function resolveViaFieldCodebook(raw: string | undefined, profile: SourceProfile, field: string): string | undefined {
-  if (!raw) return raw;
+export function resolveFieldConcept<T>(
+  raw: string | undefined,
+  profile: SourceProfile,
+  field: string,
+  canonicalMap: (concept: string, profile: SourceProfile) => T | undefined,
+): FieldMappingResolution<T> | undefined {
+  if (!raw || !raw.trim()) return undefined;
+  const trimmed = raw.trim();
   const codebook = profile.fieldCodebooks?.[field];
-  if (!codebook) return raw;
-  const entry = codebook.entries[raw.trim().toUpperCase()];
-  return entry ? entry.meaning : raw;
+
+  let concept: string;
+  if (codebook) {
+    // A codebook exists for this field — it is now the sole authority on
+    // whether this raw code means anything at all. No entry means the
+    // source concept itself is unknown; never fall through to guessing
+    // via the raw text (that would be exactly "treat local code 2 as if
+    // it were E2B code 2" — the numeric-collision mistake this exists to
+    // prevent).
+    const entry = codebook.entries[trimmed.toUpperCase()];
+    if (!entry) return { rawSourceValue: raw, status: "UNKNOWN_SOURCE_CODE" };
+    concept = entry.meaning;
+  } else if (!/[A-Za-z]/.test(trimmed)) {
+    // No codebook configured for this field, AND the raw value is
+    // shaped like a bare code (no letters at all) — e.g. "1". A number
+    // with nothing to decode it is not an "understood concept" the way
+    // real words are; treating it as one would silently reintroduce the
+    // numeric-collision mistake (source code "2" happening to look like
+    // it means E2B outcome "2"). Genuinely unknown, not merely unmapped.
+    return { rawSourceValue: raw, status: "UNKNOWN_SOURCE_CODE" };
+  } else {
+    // No codebook configured for this field, but the raw text itself
+    // contains real words (a word-based source, e.g. a cell that already
+    // reads "Recovered") — understood exactly as well as any
+    // plain-language value; whether it has a canonical target is the
+    // separate question canonicalMap answers below.
+    concept = trimmed;
+  }
+
+  const mapped = canonicalMap(concept, profile);
+  return mapped !== undefined
+    ? { rawSourceValue: raw, decodedSourceValue: concept, canonicalValue: mapped, status: "MAPPED" }
+    : { rawSourceValue: raw, decodedSourceValue: concept, status: "HUMAN_REVIEW_REQUIRED" };
 }
 
-const DEFAULT_OUTCOME_WORDS: Record<string, ReactionOutcome> = {
+/** The fixed ICH E2B(R3) outcome vocabulary's own common English
+ *  synonyms — not any one source's wording, the standard's. A decoded
+ *  concept that doesn't match one of these (e.g. "Hospitalized",
+ *  "Observed overnight") is never guessed into the nearest-looking entry
+ *  — see resolveFieldConcept. */
+const CANONICAL_OUTCOME_CONCEPTS: Record<string, ReactionOutcome> = {
   RECOVERED: "RECOVERED",
   RESOLVED: "RECOVERED",
   RECOVERING: "RECOVERING",
   RESOLVING: "RECOVERING",
   NOTRECOVERED: "NOT_RECOVERED",
   NOTRESOLVED: "NOT_RECOVERED",
+  ONGOING: "NOT_RECOVERED",
   RECOVEREDWITHSEQUELAE: "RECOVERED_WITH_SEQUELAE",
+  RESOLVEDWITHSEQUELAE: "RECOVERED_WITH_SEQUELAE",
   FATAL: "FATAL",
-  DIED: "FATAL", // generic English synonym, not source-specific — "died" and "fatal" describe the same ICH outcome
+  DIED: "FATAL",
+  DEATH: "FATAL",
+  DECEASED: "FATAL",
   UNKNOWN: "UNKNOWN",
 };
 
-/** Consults the active profile's outcomeMap first, then this engine's
- *  built-in normalised-word recognition. A raw source code that matches
- *  neither (e.g. a bare "1" from an original AEFI form's own numeric
- *  legend) is returned as unmapped instead of reinterpreted under the
- *  wrong vocabulary. */
-export function mapOutcome(
-  raw: string | undefined,
-  profile?: SourceProfile,
-): { outcome: ReactionOutcome; unmapped?: undefined } | { outcome?: undefined; unmapped: string } {
-  const v = (raw ?? "").trim().toUpperCase().replace(/[\s_-]+/g, "");
-  const resolved = profile?.outcomeMap?.[v] ?? DEFAULT_OUTCOME_WORDS[v];
-  return resolved ? { outcome: resolved } : { unmapped: raw ?? "" };
+/** The canonical-mapping step for outcome — consults the active
+ *  profile's explicit override (SourceProfile.outcomeMap) first, then
+ *  the fixed ICH synonym dictionary above. Never anything else. */
+export function mapConceptToOutcome(concept: string, profile?: SourceProfile): ReactionOutcome | undefined {
+  const key = concept.trim().toUpperCase().replace(/[\s_-]+/g, "");
+  if (!key) return undefined;
+  return profile?.outcomeMap?.[key] ?? CANONICAL_OUTCOME_CONCEPTS[key];
 }
 
 /** True only for a value shaped like a plain decimal number (one dot,
@@ -208,27 +256,35 @@ function looksLikePlainDecimal(v: string): boolean {
  * quarantined as a single unresolved entry rather than guessed at — see
  * types.ts's SourceDecodingStatus.DELIMITER_QUARANTINED.
  */
-/**
- * Maps a DECODED seriousness-criterion meaning (e.g. "Life treathening",
- * "Death", "Hospitalizaton" — the source codebook's own wording, typos
- * and all) onto E2B(R3)'s six fixed E.i.3.2a-f criteria. The keyword
- * stems here (life-threatening, death, hospital, disab, congenital) are
- * the ICH-defined criterion NAMES themselves, not any one source's
- * vocabulary — this is the same kind of universal-concept keyword
- * matching this codebase already uses for sex (MALE/FEMALE) and outcome
- * words, generalised to the six criteria every E2B(R3) filer uses by
- * definition. Returns {} (nothing asserted) rather than guessing when no
- * criterion keyword is recognised — never invents a criterion.
- */
-export function mapSeriousnessCriterionMeaning(meaning: string): Partial<SeriousnessCriteria> {
+/** The fixed ICH E2B(R3) seriousness criteria's own common English
+ *  synonyms/spellings (life-threatening, death, hospitalization,
+ *  disability, congenital anomaly, other-medically-important) — the six
+ *  criteria every E2B(R3) filer uses by definition, not any one source's
+ *  vocabulary. A decoded concept that matches none of these (e.g. a
+ *  future source's "Significant harm") is never guessed at — see
+ *  resolveFieldConcept. */
+function canonicalSeriousnessCriterionConcept(meaning: string): Partial<SeriousnessCriteria> | undefined {
   const v = meaning.toUpperCase();
-  if (v.includes("DEATH") || v.includes("DIED") || v.includes("FATAL")) return { resultsInDeath: true };
+  if (v.includes("DEATH") || v.includes("DIED") || v.includes("DECEASED") || v.includes("FATAL")) return { resultsInDeath: true };
   if (v.includes("LIFE") && (v.includes("THREAT") || v.includes("TREATH"))) return { lifeThreatening: true };
   if (v.includes("HOSPITAL")) return { hospitalization: true };
   if (v.includes("CONGENITAL")) return { congenitalAnomaly: true };
   if (v.includes("DISAB")) return { disabling: true };
   if (v.includes("OTHER") && v.includes("MEDICAL")) return { otherMedicallyImportant: true };
-  return {};
+  return undefined;
+}
+
+/** The canonical-mapping step for a seriousness-criterion code —
+ *  consults the active profile's explicit override
+ *  (SourceProfile.seriousnessCriterionMap) first, then the fixed ICH
+ *  criterion dictionary above. Never anything else. */
+export function mapConceptToSeriousnessCriteria(
+  concept: string,
+  profile?: SourceProfile,
+): Partial<SeriousnessCriteria> | undefined {
+  const key = concept.trim().toUpperCase();
+  if (!key) return undefined;
+  return profile?.seriousnessCriterionMap?.[key] ?? canonicalSeriousnessCriterionConcept(concept);
 }
 
 export interface SplitResult {
@@ -378,25 +434,29 @@ export async function mapSourceRecordToPVCase(
     });
   }
   const onsetDate = parseSourceDate(row.onset_date) ?? undefined;
-  // Decode a numeric outcome code (e.g. "1") against a discovered
-  // field-specific codebook BEFORE word-matching — the exact same
-  // decode-then-interpret sequence reactions go through. A source with
-  // no discovered outcome codebook (or a code with no entry in it) falls
-  // straight through unchanged, so word-based sources are unaffected.
-  const outcomeResult = mapOutcome(resolveViaFieldCodebook(row.outcome, profile, "outcome"), profile);
+  // Outcome: decode (source codebook, or the raw text itself for a
+  // word-based source) -> explicit canonical mapping. A DECODED-but-
+  // unmappable concept (e.g. "Hospitalized") never becomes `outcome` —
+  // it surfaces only via outcomeResolution.status === "HUMAN_REVIEW_REQUIRED",
+  // for validation.ts to block on, never inferred past.
+  const outcomeResolution = resolveFieldConcept(row.outcome, profile, "outcome", mapConceptToOutcome);
+  const outcome = outcomeResolution?.status === "MAPPED" ? outcomeResolution.canonicalValue : undefined;
+
   // A separate NUMERIC seriousness-criterion code (e.g. Ondo's "If serious
   // case select appropriate code below", distinct from the word-shaped
-  // `seriousness` field) decodes via its own discovered field codebook,
-  // then the decoded meaning ("Life treathening", "Death", ...) maps onto
-  // E2B(R3)'s six fixed criteria — applied to every reaction in the case,
-  // since this source captures seriousness at case level with no basis to
-  // attribute it to one specific reaction over another. {} (nothing
-  // asserted) when no code is present or none decodes, exactly as before.
-  const decodedSeriousCode = resolveViaFieldCodebook(row.serious_code, profile, "seriousness");
+  // `seriousness` field) goes through the exact same decode -> explicit-map
+  // pipeline — applied to every reaction in the case, since this source
+  // captures seriousness at case level with no basis to attribute it to
+  // one specific reaction over another.
+  const seriousnessCodeResolution = resolveFieldConcept(
+    row.serious_code,
+    profile,
+    "seriousness",
+    mapConceptToSeriousnessCriteria,
+  );
   const seriousnessCriteria: SeriousnessCriteria =
-    decodedSeriousCode && decodedSeriousCode !== row.serious_code
-      ? mapSeriousnessCriterionMeaning(decodedSeriousCode)
-      : {};
+    seriousnessCodeResolution?.status === "MAPPED" ? seriousnessCodeResolution.canonicalValue! : {};
+
   const reactions: PVReaction[] = await Promise.all(
     reactionDecodings.map(async (decoding, i) => {
       // MedDRA coding only ever runs on a DECODED source term — an
@@ -411,15 +471,17 @@ export async function mapSourceRecordToPVCase(
         sourceDecoding: decoding,
         reaction: coded,
         onsetDate,
-        outcome: outcomeResult.outcome,
-        outcomeUnmapped: outcomeResult.unmapped,
+        outcome,
+        outcomeResolution,
         // E.i.3.2a-f — see seriousnessCriteria computation above. Genuinely
-        // {} (nothing guessed) when the source has no separate numeric
-        // seriousness-criterion code or codebook to decode it with — the
-        // word-shaped case-level aggregate (aggregateSeriousnessAsReported)
-        // still cannot be safely decomposed into these six criteria on its
-        // own, and is never used to populate this.
+        // {} (nothing guessed, and never blocking on its own) when the
+        // source has no separate numeric seriousness-criterion code at
+        // all — the word-shaped case-level aggregate
+        // (aggregateSeriousnessAsReported) still cannot be safely
+        // decomposed into these six criteria on its own, and is never
+        // used to populate this.
         seriousnessCriteria,
+        seriousnessCodeResolution,
       } satisfies PVReaction;
     }),
   );

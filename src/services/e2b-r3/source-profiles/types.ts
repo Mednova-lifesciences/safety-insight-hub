@@ -1,4 +1,4 @@
-import type { ReactionOutcome, SexCode } from "../types";
+import type { ReactionOutcome, SeriousnessCriteria, SexCode } from "../types";
 
 /**
  * The Source Profile abstraction. The E2B(R3) engine (mapping, validation,
@@ -114,11 +114,20 @@ export interface SourceProfile {
    *  NOT guessed — it quarantines the case for validated export (see
    *  validation.ts's E2B-REPORTER-QUALIFICATION-UNRESOLVED). */
   reporterQualificationMap: Record<string, "1" | "2" | "3" | "4" | "5">;
-  /** Source-specific outcome vocabulary -> this engine's canonical
-   *  ReactionOutcome. Consulted BEFORE the engine's built-in default
-   *  word-recognition (RECOVERED/RECOVERING/...) — a profile can override
-   *  or extend, never required to reinvent the whole vocabulary. */
+  /** Explicit, source-specific DECODED-CONCEPT -> canonical ReactionOutcome
+   *  mapping (e.g. a source's own "Discharged home" -> RECOVERED, if a
+   *  human/config author has actually decided that equivalence). Checked
+   *  BEFORE the engine's built-in synonym dictionary for the six ICH
+   *  outcome concepts (mapping.ts's CANONICAL_OUTCOME_CONCEPTS) — a
+   *  profile can override or extend it, but a decoded concept matching
+   *  neither is NEVER guessed at; see mapping.ts's resolveFieldConcept
+   *  and types.ts's FieldMappingResolution/HUMAN_REVIEW_REQUIRED. */
   outcomeMap?: Record<string, ReactionOutcome> | undefined;
+  /** Same principle as outcomeMap, for the numeric seriousness-CRITERION
+   *  code's decoded concept -> one of E2B(R3)'s six fixed E.i.3.2a-f
+   *  criteria (mapping.ts's mapConceptToSeriousnessCriteria). Checked
+   *  before the built-in ICH criterion-keyword dictionary. */
+  seriousnessCriterionMap?: Record<string, Partial<SeriousnessCriteria>> | undefined;
   seriousnessMap?: Record<string, boolean> | undefined;
   sexMap?: Record<string, SexCode> | undefined;
   /** Prefix used only when a row's own case-id column is blank and a

@@ -37,8 +37,30 @@ describe("codebook discovery -> resolution — real Ondo legend, explicit per-va
       providers,
     );
     expect(pvCase.reactions[0]!.outcome).toBe("RECOVERED");
-    expect(pvCase.reactions[0]!.outcomeUnmapped).toBeUndefined();
+    expect(pvCase.reactions[0]!.outcomeResolution?.status).toBe("MAPPED");
     const errors = validateBusinessRules(pvCase);
+    expect(errors.some((e) => e.code === "E2B-OUTCOME-UNMAPPED")).toBe(false);
+    expect(errors.some((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE")).toBe(false);
+  });
+
+  it("outcome '2' decodes to 'Hospitalized' (a real, understood concept) but has NO approved E2B mapping — HUMAN_REVIEW_REQUIRED, never guessed", async () => {
+    const runtime = ondoRuntimeProfile();
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { reaction: "19", product: "MR", outcome: "2", patient_identifier: "A B" },
+      runtime,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.reactions[0]!.outcome).toBeUndefined();
+    expect(pvCase.reactions[0]!.outcomeResolution).toEqual({
+      rawSourceValue: "2",
+      decodedSourceValue: "Hospitalized",
+      status: "HUMAN_REVIEW_REQUIRED",
+    });
+    const errors = validateBusinessRules(pvCase);
+    expect(errors.some((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE" && e.severity === "BLOCKING")).toBe(true);
+    // Never the "unknown code" error — the concept IS understood.
     expect(errors.some((e) => e.code === "E2B-OUTCOME-UNMAPPED")).toBe(false);
   });
 

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveInitials,
-  mapOutcome,
+  mapConceptToOutcome,
   mapSourceRecordToPVCase,
   mapSeriousness,
   mapSex,
   parseSourceDate,
+  resolveFieldConcept,
   splitBySourceProfile,
 } from "./mapping";
 import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
@@ -98,23 +99,33 @@ describe("mapSeriousness (case-level aggregate value only — see PVCase.aggrega
   });
 });
 
-describe("mapOutcome", () => {
-  it("maps every recognised outcome word", () => {
-    expect(mapOutcome("RECOVERED")).toEqual({ outcome: "RECOVERED" });
-    expect(mapOutcome("RECOVERING")).toEqual({ outcome: "RECOVERING" });
-    expect(mapOutcome("NOT_RECOVERED")).toEqual({ outcome: "NOT_RECOVERED" });
-    expect(mapOutcome("NOT RECOVERED")).toEqual({ outcome: "NOT_RECOVERED" });
-    expect(mapOutcome("RECOVERED_WITH_SEQUELAE")).toEqual({ outcome: "RECOVERED_WITH_SEQUELAE" });
-    expect(mapOutcome("FATAL")).toEqual({ outcome: "FATAL" });
-    expect(mapOutcome("UNKNOWN")).toEqual({ outcome: "UNKNOWN" });
+describe("mapConceptToOutcome — the canonical-mapping step only (a DECODED concept -> ReactionOutcome, never raw codes)", () => {
+  it("maps every one of the six ICH outcome concepts' common synonyms", () => {
+    expect(mapConceptToOutcome("RECOVERED")).toBe("RECOVERED");
+    expect(mapConceptToOutcome("Resolved")).toBe("RECOVERED");
+    expect(mapConceptToOutcome("RECOVERING")).toBe("RECOVERING");
+    expect(mapConceptToOutcome("NOT_RECOVERED")).toBe("NOT_RECOVERED");
+    expect(mapConceptToOutcome("NOT RECOVERED")).toBe("NOT_RECOVERED");
+    expect(mapConceptToOutcome("Ongoing")).toBe("NOT_RECOVERED");
+    expect(mapConceptToOutcome("RECOVERED_WITH_SEQUELAE")).toBe("RECOVERED_WITH_SEQUELAE");
+    expect(mapConceptToOutcome("FATAL")).toBe("FATAL");
+    expect(mapConceptToOutcome("Died")).toBe("FATAL");
+    expect(mapConceptToOutcome("Deceased")).toBe("FATAL");
+    expect(mapConceptToOutcome("UNKNOWN")).toBe("UNKNOWN");
   });
-  it("returns unmapped (never a silent guess) for a raw source-form code", () => {
-    // This is the exact live bug: source outcome column contained "1",
-    // which is NOT this app's own normalised vocabulary.
-    expect(mapOutcome("1")).toEqual({ unmapped: "1" });
+  it("a decoded concept with NO approved mapping (e.g. a real source word) returns undefined — never a guess", () => {
+    // The exact real finding: the Ondo legend's own word for outcome code
+    // 2 is "Hospitalized" — a real, understood concept, but it describes
+    // a seriousness fact, not a recovery trajectory, and has no
+    // legitimate ICH outcome equivalent.
+    expect(mapConceptToOutcome("Hospitalized")).toBeUndefined();
   });
-  it("returns unmapped for empty/undefined input, carrying the raw value", () => {
-    expect(mapOutcome(undefined)).toEqual({ unmapped: "" });
+  it("returns undefined for empty input", () => {
+    expect(mapConceptToOutcome("")).toBeUndefined();
+  });
+  it("a profile's explicit outcomeMap override takes priority over the built-in dictionary", () => {
+    const profile = { ...ondoAefiProfile, outcomeMap: { RECOVERED: "UNKNOWN" as const } };
+    expect(mapConceptToOutcome("Recovered", profile)).toBe("UNKNOWN");
   });
 });
 
@@ -205,7 +216,11 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
     expect(pvCase.reactions[0]!.sourceDecoding.localCode).toBe("19");
     expect(pvCase.reactions[0]!.reaction.status).toBe("INVALID");
     expect(pvCase.reactions[0]!.reaction.sourceValue).toBe("19");
-    expect(pvCase.reactions[0]!.outcomeUnmapped).toBe("1");
+    // No outcome codebook configured in this test, and "1" is a bare
+    // numeric code with no letters — genuinely unknown, not a decoded-
+    // but-unmappable concept (see resolveFieldConcept).
+    expect(pvCase.reactions[0]!.outcomeResolution?.status).toBe("UNKNOWN_SOURCE_CODE");
+    expect(pvCase.reactions[0]!.outcomeResolution?.rawSourceValue).toBe("1");
     expect(pvCase.reactions[0]!.outcome).toBeUndefined();
     // Event-level seriousness criteria never inferred from the aggregate.
     expect(pvCase.reactions[0]!.seriousnessCriteria).toEqual({});

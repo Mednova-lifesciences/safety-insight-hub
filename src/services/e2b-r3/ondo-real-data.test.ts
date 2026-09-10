@@ -78,6 +78,25 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
       }
       const outcomeResolved = cases.filter((c) => c.reactions.some((r) => r.outcome !== undefined)).length;
       const seriousnessCriteriaApplied = cases.filter((c) => c.reactions.some((r) => Object.keys(r.seriousnessCriteria).length > 0)).length;
+
+      // Outcome resolution-status breakdown, with affected case IDs for
+      // the human-review bucket specifically (section 17's explicit ask).
+      const outcomeByStatus = { MAPPED: 0, HUMAN_REVIEW_REQUIRED: 0, UNKNOWN_SOURCE_CODE: 0 };
+      const humanReviewOutcomeCases: { caseId: string; rawSourceValue: string; decodedSourceValue: string | undefined }[] = [];
+      for (const c of cases) {
+        for (const r of c.reactions) {
+          if (!r.outcomeResolution) continue;
+          outcomeByStatus[r.outcomeResolution.status]++;
+          if (r.outcomeResolution.status === "HUMAN_REVIEW_REQUIRED") {
+            humanReviewOutcomeCases.push({
+              caseId: c.sendersCaseId,
+              rawSourceValue: r.outcomeResolution.rawSourceValue,
+              decodedSourceValue: r.outcomeResolution.decodedSourceValue,
+            });
+          }
+        }
+      }
+
       return {
         blockingReasons: codeCounts,
         blockedCases: preflight.blockedCases,
@@ -87,6 +106,8 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
         unknownReactionCodes: [...unknownReactionCodes].sort(),
         casesWithResolvedOutcome: outcomeResolved,
         casesWithSeriousnessCriteriaApplied: seriousnessCriteriaApplied,
+        outcomeResolutionBreakdown: outcomeByStatus,
+        casesNeedingHumanReviewForOutcome: humanReviewOutcomeCases,
       };
     }
 
@@ -152,6 +173,66 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
 
     // Outcome "1" resolves to RECOVERED and stops being an unmapped-outcome finding.
     expect(after.blockingReasons["E2B-OUTCOME-UNMAPPED"] ?? 0).toBeLessThan(before.blockingReasons["E2B-OUTCOME-UNMAPPED"] ?? 0);
+
+    // --- Human-review-required outcome mechanism, proven generically (not hardcoded to "Hospitalized") ---
+    // Every reaction's outcomeResolution status must be one of the three
+    // known states, and the three counts must exactly partition the
+    // reactions that had an outcome value at all — no silent 4th bucket.
+    const totalOutcomeResolutions =
+      after.outcomeResolutionBreakdown.MAPPED +
+      after.outcomeResolutionBreakdown.HUMAN_REVIEW_REQUIRED +
+      after.outcomeResolutionBreakdown.UNKNOWN_SOURCE_CODE;
+    expect(totalOutcomeResolutions).toBeGreaterThan(0);
+    // Once the real codebook is discovered, EVERY outcome value in this
+    // dataset is a known code (0/1/2/3) — so UNKNOWN_SOURCE_CODE must be 0
+    // and only the two "understood" buckets (MAPPED / HUMAN_REVIEW_REQUIRED)
+    // are populated. This is a genuine property of the real data, not an
+    // assumption baked into the resolver.
+    expect(after.outcomeResolutionBreakdown.UNKNOWN_SOURCE_CODE).toBe(0);
+    expect(after.outcomeResolutionBreakdown.HUMAN_REVIEW_REQUIRED).toBeGreaterThan(0);
+    expect(after.casesNeedingHumanReviewForOutcome.length).toBe(after.outcomeResolutionBreakdown.HUMAN_REVIEW_REQUIRED);
+
+    // The human-review bucket is driven entirely by WHAT THE DECODED
+    // CONCEPT IS, not by which numeric code produced it — every entry
+    // must carry a decoded concept string, and none of them may be the
+    // concept the profile DOES have an explicit mapping for (Recovered/
+    // Recovering/Not recovered/Fatal/Recovered with sequelae/Unknown).
+    // The test deliberately does NOT assert the concept equals
+    // "Hospitalized" or that there are exactly 9 — only that whatever
+    // concept(s) land here are unmapped ones, proving the mechanism reacts
+    // to real, arbitrary decoded content rather than one hardcoded string.
+    const mappableConcepts = new Set(["RECOVERED", "RESOLVED", "RECOVERING", "RESOLVING", "NOTRECOVERED", "NOTRESOLVED", "ONGOING", "RECOVEREDWITHSEQUELAE", "RESOLVEDWITHSEQUELAE", "FATAL", "DIED", "DEATH", "DECEASED", "UNKNOWN"]);
+    for (const entry of after.casesNeedingHumanReviewForOutcome) {
+      expect(entry.decodedSourceValue).toBeTruthy();
+      const normalized = entry.decodedSourceValue!.trim().toUpperCase().replace(/[\s_-]+/g, "");
+      expect(mappableConcepts.has(normalized)).toBe(false);
+    }
+
+    // Every human-review case must actually be blocked by the distinct
+    // E2B-OUTCOME-NOT-MAPPABLE code (never the generic UNKNOWN one), and
+    // every affected case must appear in the case-level blocking reasons.
+    expect(after.blockingReasons["E2B-OUTCOME-NOT-MAPPABLE"]).toBe(after.outcomeResolutionBreakdown.HUMAN_REVIEW_REQUIRED);
+    for (const entry of after.casesNeedingHumanReviewForOutcome) {
+      const c = afterCases.find((cc) => cc.sendersCaseId === entry.caseId)!;
+      const caseErrors = [...validateSourceDecoding(c), ...validateBusinessRules(c)];
+      expect(caseErrors.some((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE" && e.severity === "BLOCKING"), entry.caseId).toBe(true);
+      expect(caseErrors.some((e) => e.code === "E2B-OUTCOME-UNMAPPED"), entry.caseId).toBe(false);
+    }
+
+    // A resolved case (adding an explicit outcomeMap entry for this exact
+    // real decoded concept) genuinely clears the human-review finding —
+    // proving this is a real, fixable state, not a permanent dead end.
+    if (after.casesNeedingHumanReviewForOutcome.length > 0) {
+      const sampleConcept = after.casesNeedingHumanReviewForOutcome[0]!.decodedSourceValue!;
+      const normalizedKey = sampleConcept.trim().toUpperCase().replace(/[\s_-]+/g, "");
+      const resolvedProfile = { ...runtimeProfile, outcomeMap: { ...runtimeProfile.outcomeMap, [normalizedKey]: "RECOVERING" as const } };
+      const sampleCaseId = after.casesNeedingHumanReviewForOutcome[0]!.caseId;
+      const rowIndex = afterCases.findIndex((c) => c.sendersCaseId === sampleCaseId);
+      const { pvCase: resolvedCase } = await mapSourceRecordToPVCase(raw[rowIndex]!, resolvedProfile, transmissionConfig, { ...context, sourceRow: rowIndex + 2 }, providers);
+      const resolvedErrors = [...validateSourceDecoding(resolvedCase), ...validateBusinessRules(resolvedCase)];
+      expect(resolvedErrors.some((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE")).toBe(false);
+      expect(resolvedCase.reactions.some((r) => r.outcome === "RECOVERING")).toBe(true);
+    }
 
     // Reaction decoding genuinely increased.
     expect(after.decodedReactions).toBeGreaterThan(before.decodedReactions);
