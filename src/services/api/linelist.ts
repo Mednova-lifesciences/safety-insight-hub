@@ -3,7 +3,42 @@ import { currentActor, newId, recordAudit, toJson } from "./db";
 import { mapColumnsByKeywords, parseTabularFile, type KeywordEntry } from "./tabular-parse";
 import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
+import { discoverAndApplyCodebook } from "@/services/e2b-r3/export";
+import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
+import { resolveFieldConcept, mapConceptToOutcome } from "@/services/e2b-r3/mapping";
+import type { SourceProfile } from "@/services/e2b-r3/source-profiles/types";
 import type { LineListIssue, LineListIssueType, LineListJob } from "@/types/pv";
+
+/**
+ * The line-list quality-check pass (runValidation, below) used to be
+ * completely blind to per-source codebooks — it ran immediately after
+ * column mapping, long before E2B(R3) export ever discovers/resolves a
+ * source's own codebook, and checked raw values against a hardcoded
+ * generic vocabulary. That meant a codebook-coded value like Ondo's
+ * outcome "1" (which the discovered legend defines as "1 = Recovered")
+ * was flagged UNRECOGNISED_OUTCOME_VALUE here even after the SAME value
+ * correctly resolved to E2B outcome RECOVERED in the e2b-r3 module —
+ * two disagreeing validation results for the same underlying fact.
+ * This resolves the job's runtime profile (base profile + whatever
+ * codebook its own document's discarded/legend rows yield) so both
+ * paths now decode from the same authoritative source. No UI selects a
+ * per-job source profile yet, so the base profile defaults exactly the
+ * way src/services/e2b-r3/export.ts's own default parameter already
+ * does — this is not a new Ondo-specific branch, just reusing that
+ * existing convention so the two paths stop disagreeing.
+ */
+function resolveJobRuntimeProfile(job: {
+  discardedRows?: { row: number; text: string }[];
+  filename: string;
+  sheetName?: string;
+}): SourceProfile {
+  const baseProfile = getSourceProfile("ondo-aefi");
+  const { runtimeProfile } = discoverAndApplyCodebook(baseProfile, job.discardedRows, {
+    file: job.filename,
+    sheet: job.sheetName,
+  });
+  return runtimeProfile;
+}
 
 export interface ColumnInspection {
   jobId: string;
@@ -55,16 +90,11 @@ function normalizeSeriousness(value: string): string {
 const SERIOUSNESS_VALUES = new Set(["SERIOUS", "NON_SERIOUS", "YES", "NO", "Y", "N"]);
 const NON_SERIOUS_VALUES = new Set(["NON_SERIOUS", "NO", "N"]);
 const SERIOUS_TEXT_VALUES = new Set(["SERIOUS", "YES", "Y"]);
-const OUTCOME_VALUES = new Set([
-  "RECOVERED",
-  "RECOVERING",
-  "NOT_RECOVERED",
-  "NOT RECOVERED",
-  "RECOVERED_WITH_SEQUELAE",
-  "RECOVERED WITH SEQUELAE",
-  "FATAL",
-  "UNKNOWN",
-]);
+// Outcome recognition no longer uses a hardcoded word list — see
+// resolveJobRuntimeProfile/resolveFieldConcept below, which decodes
+// through the job's own discovered source codebook plus the same
+// canonical E2B outcome vocabulary mapConceptToOutcome (e2b-r3/mapping.ts)
+// already uses, so this validator and the E2B module never disagree.
 const BATCH_PLACEHOLDER_VALUES = new Set(["-", "0", "NAN", "NIL", "NILL", "N/A", "NA"]);
 const MULTI_VALUE_RE = /[,/]|\bAND\b/i;
 
@@ -583,6 +613,7 @@ export function runValidation(
   headers: string[],
   mapping: Record<string, TargetField>,
   rows: ParsedRow[],
+  runtimeProfile: SourceProfile = getSourceProfile("ondo-aefi"),
 ): LineListIssue[] {
   const issues: LineListIssue[] = [];
   const mappedFields = new Set(Object.values(mapping));
@@ -789,40 +820,66 @@ export function runValidation(
           affectedFields: ["outcome"],
           fixable: false,
         });
-      } else if (!OUTCOME_VALUES.has(row.outcome.toUpperCase())) {
-        issues.push({
-          row: rowNum,
-          column: col("outcome"),
-          severity: "MEDIUM",
-          confidence: "HIGH",
-          code: "UNRECOGNISED_OUTCOME_VALUE",
-          message: `"${row.outcome}" is not a recognised outcome value.`,
-          value: row.outcome,
-          source: "rule",
-          sources: ["rule"],
-          issueType: "FIELD_VALUE_INVALID",
-          affectedFields: ["outcome"],
-          fixable: false,
-        });
-      } else if (
-        row.outcome.toUpperCase() === "FATAL" &&
-        row.seriousness &&
-        NON_SERIOUS_VALUES.has(normalizeSeriousness(row.seriousness))
-      ) {
-        issues.push({
-          row: rowNum,
-          column: col("seriousness"),
-          severity: "HIGH",
-          confidence: "HIGH",
-          code: "FATAL_OUTCOME_NOT_MARKED_SERIOUS",
-          message: "Outcome is fatal but seriousness is not marked serious.",
-          value: row.seriousness,
-          source: "rule",
-          sources: ["rule"],
-          issueType: "CROSS_FIELD_CONTRADICTION",
-          affectedFields: ["outcome", "seriousness"],
-          fixable: true,
-        });
+      } else {
+        // Decode through the SAME source-codebook/canonical-mapping
+        // mechanism e2b-r3's mapping.ts uses (resolveFieldConcept +
+        // mapConceptToOutcome) — never a second, disagreeing vocabulary
+        // check. A source value can be genuinely unrecognised (no
+        // codebook entry, no letters to treat as the concept itself:
+        // UNKNOWN_SOURCE_CODE), understood but not yet given an approved
+        // E2B mapping (HUMAN_REVIEW_REQUIRED), or fully resolved (MAPPED,
+        // no issue at all).
+        const outcomeResolution = resolveFieldConcept(row.outcome, runtimeProfile, "outcome", mapConceptToOutcome);
+        if (outcomeResolution?.status === "UNKNOWN_SOURCE_CODE") {
+          issues.push({
+            row: rowNum,
+            column: col("outcome"),
+            severity: "MEDIUM",
+            confidence: "HIGH",
+            code: "UNRECOGNISED_OUTCOME_VALUE",
+            message: `"${row.outcome}" is not a recognised outcome value.`,
+            value: row.outcome,
+            source: "rule",
+            sources: ["rule"],
+            issueType: "FIELD_VALUE_INVALID",
+            affectedFields: ["outcome"],
+            fixable: false,
+          });
+        } else if (outcomeResolution?.status === "HUMAN_REVIEW_REQUIRED") {
+          issues.push({
+            row: rowNum,
+            column: col("outcome"),
+            severity: "MEDIUM",
+            confidence: "HIGH",
+            code: "OUTCOME_REQUIRES_HUMAN_REVIEW",
+            message: `"${row.outcome}" decodes to "${outcomeResolution.decodedSourceValue}" — a real, understood concept, but no approved E2B(R3) outcome mapping is configured for it yet. Requires human review before export, never an automatic guess.`,
+            value: row.outcome,
+            source: "rule",
+            sources: ["rule"],
+            issueType: "FIELD_VALUE_INVALID",
+            affectedFields: ["outcome"],
+            fixable: false,
+          });
+        } else if (
+          outcomeResolution?.canonicalValue === "FATAL" &&
+          row.seriousness &&
+          NON_SERIOUS_VALUES.has(normalizeSeriousness(row.seriousness))
+        ) {
+          issues.push({
+            row: rowNum,
+            column: col("seriousness"),
+            severity: "HIGH",
+            confidence: "HIGH",
+            code: "FATAL_OUTCOME_NOT_MARKED_SERIOUS",
+            message: "Outcome is fatal but seriousness is not marked serious.",
+            value: row.seriousness,
+            source: "rule",
+            sources: ["rule"],
+            issueType: "CROSS_FIELD_CONTRADICTION",
+            affectedFields: ["outcome", "seriousness"],
+            fixable: true,
+          });
+        }
       }
     }
 
@@ -870,9 +927,18 @@ export function runValidation(
         .split(/[,&]|\bAND\b/i)
         .map((c) => c.trim())
         .filter(Boolean);
+      // Validate against the runtime profile's OWN discovered reaction
+      // codebook — never a hardcoded numeric range. A fixed "1-28" range
+      // baked in here would itself be a stale, source-specific assumption
+      // (it happened to match Ondo's real 28-item legend, but a
+      // differently-sized codebook, or none at all, would make it wrong
+      // in both directions). When no codebook has been discovered at all,
+      // fall back to a generic "looks like a numeric code" shape check.
+      const codebookEntries = runtimeProfile.reactionCodebook.entries;
+      const hasCodebook = Object.keys(codebookEntries).length > 0;
       const invalid =
         codes.length === 0 ||
-        codes.some((c) => !/^\d{1,2}$/.test(c) || Number(c) < 1 || Number(c) > 28);
+        codes.some((c) => (hasCodebook ? !codebookEntries[c.toUpperCase()] : !/^\d{1,3}$/.test(c)));
       if (invalid) {
         issues.push({
           row: rowNum,
@@ -880,7 +946,9 @@ export function runValidation(
           severity: "HIGH",
           confidence: "HIGH",
           code: "INVALID_REACTION_CODE",
-          message: `"${row.reaction_code}" is not a valid AEFI reaction code (expected 1-28).`,
+          message: hasCodebook
+            ? `"${row.reaction_code}" is not recognised by the active source profile's reaction codebook.`
+            : `"${row.reaction_code}" does not look like a valid coded reaction value.`,
           value: row.reaction_code,
           source: "rule",
           sources: ["rule"],
@@ -1270,7 +1338,7 @@ export const linelist = {
       // flag in feature-flags.ts to bring it back, rest of validate() is
       // unaffected either way.
       const ruleIssues = RULE_BASED_DETECTION_ENABLED
-        ? runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows)
+        ? runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows, resolveJobRuntimeProfile(job))
         : [];
 
       const analysisRows = (job.rawRows ?? job.parsedRows) as Record<string, string>[];
@@ -1491,7 +1559,7 @@ export const linelist = {
       (i) => i.source === "ai" && !correctedKeys.has(`${i.row}:${i.column}`),
     );
     const ruleIssues = RULE_BASED_DETECTION_ENABLED
-      ? runValidation(updatedJob.columns ?? [], updatedJob.mapping ?? {}, updatedJob.parsedRows!)
+      ? runValidation(updatedJob.columns ?? [], updatedJob.mapping ?? {}, updatedJob.parsedRows!, resolveJobRuntimeProfile(updatedJob))
       : [];
     const finalIssues = mergeFindings(ruleIssues, remainingPriorAiIssues);
 

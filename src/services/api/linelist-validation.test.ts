@@ -9,7 +9,45 @@ import {
   type ParsedRow,
   type TargetField,
 } from "./linelist";
+import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
+import type { SourceProfile } from "@/services/e2b-r3/source-profiles/types";
 import type { LineListIssue } from "@/types/pv";
+
+/** A synthetic runtime profile carrying a small outcome codebook and/or
+ *  reaction codebook — mirrors semantic-mapping.test.ts's helper so both
+ *  the e2b-r3 module and this line-list quality-check layer are proven
+ *  against the exact same kind of profile shape. */
+function profileWithCodebooks(opts: {
+  outcome?: Record<string, string>;
+  reaction?: Record<string, string>;
+}): SourceProfile {
+  const base = getSourceProfile("ondo-aefi");
+  const fieldCodebooks: SourceProfile["fieldCodebooks"] = {};
+  if (opts.outcome) {
+    fieldCodebooks["outcome"] = {
+      field: "outcome",
+      version: "test",
+      entries: Object.fromEntries(Object.entries(opts.outcome).map(([code, meaning]) => [code, { sourceCode: code, meaning }])),
+    };
+  }
+  return {
+    ...base,
+    fieldCodebooks,
+    ...(opts.reaction
+      ? {
+          reactionCodebook: {
+            ...base.reactionCodebook,
+            entries: Object.fromEntries(
+              Object.entries(opts.reaction).map(([code, sourceTerm]) => [
+                code,
+                { localCode: code, sourceTerm, effectiveFrom: "2020-01-01" },
+              ]),
+            ),
+          },
+        }
+      : {}),
+  };
+}
 
 /** Same in-memory-xlsx helper as tabular-parse.test.ts, duplicated here
  *  rather than shared so this file can be read on its own. */
@@ -221,6 +259,83 @@ describe("runValidation — seriousness value spelling variants", () => {
     const rows: ParsedRow[] = [{ seriousness: "MAYBE" }];
     const issues = runValidation(["Seriousness"], mapping, rows);
     expect(issues.some((i) => i.code === "UNRECOGNISED_SERIOUSNESS_VALUE")).toBe(true);
+  });
+});
+
+describe("runValidation — outcome recognition is codebook-aware, not a stale hardcoded vocabulary", () => {
+  it("a source outcome code the runtime profile's codebook decodes to a MAPPED canonical concept is never UNRECOGNISED_OUTCOME_VALUE", () => {
+    // Real regression: Ondo's discovered legend defines "1 = Recovered",
+    // but the executive summary kept reporting UNRECOGNISED_OUTCOME_VALUE
+    // for outcome "1" because runValidation never received the resolved
+    // source profile at all.
+    const profile = profileWithCodebooks({ outcome: { "1": "Recovered" } });
+    const mapping: Record<string, TargetField> = { Outcome: "outcome" };
+    const issues = runValidation(["Outcome"], mapping, [{ outcome: "1" }], profile);
+    expect(issues.some((i) => i.code === "UNRECOGNISED_OUTCOME_VALUE")).toBe(false);
+    expect(issues.some((i) => i.code === "OUTCOME_REQUIRES_HUMAN_REVIEW")).toBe(false);
+  });
+
+  it("a source outcome code that decodes to a REAL but unmapped concept is OUTCOME_REQUIRES_HUMAN_REVIEW, never UNRECOGNISED_OUTCOME_VALUE", () => {
+    const profile = profileWithCodebooks({ outcome: { "2": "Hospitalized" } });
+    const mapping: Record<string, TargetField> = { Outcome: "outcome" };
+    const issues = runValidation(["Outcome"], mapping, [{ outcome: "2" }], profile);
+    expect(issues.some((i) => i.code === "UNRECOGNISED_OUTCOME_VALUE")).toBe(false);
+    const humanReview = issues.find((i) => i.code === "OUTCOME_REQUIRES_HUMAN_REVIEW");
+    expect(humanReview).toBeTruthy();
+    expect(humanReview!.message).toContain("Hospitalized");
+  });
+
+  it("a genuinely unrecognised outcome code (no codebook entry, not a plain-English concept) is still UNRECOGNISED_OUTCOME_VALUE", () => {
+    const profile = profileWithCodebooks({ outcome: { "1": "Recovered" } });
+    const mapping: Record<string, TargetField> = { Outcome: "outcome" };
+    const issues = runValidation(["Outcome"], mapping, [{ outcome: "999" }], profile);
+    expect(issues.some((i) => i.code === "UNRECOGNISED_OUTCOME_VALUE")).toBe(true);
+  });
+
+  it("plain-English outcome words still validate with no codebook configured at all (backward compatible default)", () => {
+    const mapping: Record<string, TargetField> = { Outcome: "outcome" };
+    const rows: ParsedRow[] = [
+      { outcome: "Recovered" },
+      { outcome: "Recovering" },
+      { outcome: "Not recovered" },
+      { outcome: "Fatal" },
+      { outcome: "Unknown" },
+    ];
+    const issues = runValidation(["Outcome"], mapping, rows);
+    expect(issues.some((i) => i.code === "UNRECOGNISED_OUTCOME_VALUE")).toBe(false);
+    expect(issues.some((i) => i.code === "OUTCOME_REQUIRES_HUMAN_REVIEW")).toBe(false);
+  });
+
+  it("FATAL_OUTCOME_NOT_MARKED_SERIOUS fires from the DECODED canonical concept, not from raw text matching the literal word 'FATAL'", () => {
+    const profile = profileWithCodebooks({ outcome: { "9": "Died" } });
+    const mapping: Record<string, TargetField> = { Outcome: "outcome", Seriousness: "seriousness" };
+    const issues = runValidation(["Outcome", "Seriousness"], mapping, [{ outcome: "9", seriousness: "NON_SERIOUS" }], profile);
+    expect(issues.some((i) => i.code === "FATAL_OUTCOME_NOT_MARKED_SERIOUS")).toBe(true);
+  });
+});
+
+describe("runValidation — reaction_code recognition uses the runtime profile's actual codebook, not a hardcoded numeric range", () => {
+  it("a code outside a SMALLER-than-28 real codebook is invalid, even though it would have passed the old hardcoded 1-28 range", () => {
+    const profile = profileWithCodebooks({ reaction: { "1": "Fever", "2": "Rash" } });
+    const mapping: Record<string, TargetField> = { "Reaction Code": "reaction_code" };
+    const issues = runValidation(["Reaction Code"], mapping, [{ reaction_code: "6" }], profile);
+    expect(issues.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(true);
+  });
+
+  it("a code the codebook DOES recognise is valid even though it falls outside the old hardcoded 1-28 range", () => {
+    const profile = profileWithCodebooks({ reaction: { "30": "Some future code" } });
+    const mapping: Record<string, TargetField> = { "Reaction Code": "reaction_code" };
+    const issues = runValidation(["Reaction Code"], mapping, [{ reaction_code: "30" }], profile);
+    expect(issues.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(false);
+  });
+
+  it("with no reaction codebook discovered at all, falls back to a generic numeric-shape check (no assumed range)", () => {
+    const profile = profileWithCodebooks({});
+    const mapping: Record<string, TargetField> = { "Reaction Code": "reaction_code" };
+    const issues = runValidation(["Reaction Code"], mapping, [{ reaction_code: "42" }], profile);
+    expect(issues.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(false);
+    const nonNumeric = runValidation(["Reaction Code"], mapping, [{ reaction_code: "ABC" }], profile);
+    expect(nonNumeric.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(true);
   });
 });
 
