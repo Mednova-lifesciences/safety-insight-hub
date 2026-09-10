@@ -849,7 +849,12 @@ export function runValidation(
           issues.push({
             row: rowNum,
             column: col("outcome"),
-            severity: "MEDIUM",
+            // HIGH (not MEDIUM): this must always count toward invalidCases
+            // on its own, so the "Generate E2B(R3)" button stays gated
+            // shut for a row whose ONLY problem is an unresolved outcome
+            // mapping — never relying on some other, unrelated HIGH/
+            // CRITICAL finding happening to also be present on the row.
+            severity: "HIGH",
             confidence: "HIGH",
             code: "OUTCOME_REQUIRES_HUMAN_REVIEW",
             message: `"${row.outcome}" decodes to "${outcomeResolution.decodedSourceValue}" — a real, understood concept, but no approved E2B(R3) outcome mapping is configured for it yet. Requires human review before export, never an automatic guess.`,
@@ -1017,7 +1022,7 @@ export function runValidation(
         issues.push({
           row: rowNum,
           column: col("reporter_phone"),
-          severity: "HIGH",
+          severity: "MEDIUM",
           confidence: "HIGH",
           code: "MISSING_REPORTER_PHONE",
           message: "Reporter phone number was not provided.",

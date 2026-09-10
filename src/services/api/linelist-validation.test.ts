@@ -285,6 +285,19 @@ describe("runValidation — outcome recognition is codebook-aware, not a stale h
     expect(humanReview!.message).toContain("Hospitalized");
   });
 
+  it("OUTCOME_REQUIRES_HUMAN_REVIEW is HIGH severity — it must block export on its own, never relying on some other unrelated finding also being present on the row", () => {
+    // A row whose ONLY problem at all is this one — everything else on
+    // the row is otherwise complete — must still count as an invalid
+    // case (the app's own invalidCases/exportable gate only counts
+    // CRITICAL/HIGH severity findings, so MEDIUM here would silently let
+    // the row through the "Generate E2B(R3)" button).
+    const profile = profileWithCodebooks({ outcome: { "2": "Hospitalized" } });
+    const mapping: Record<string, TargetField> = { Outcome: "outcome" };
+    const issues = runValidation(["Outcome"], mapping, [{ outcome: "2" }], profile);
+    const humanReview = issues.find((i) => i.code === "OUTCOME_REQUIRES_HUMAN_REVIEW");
+    expect(humanReview!.severity).toBe("HIGH");
+  });
+
   it("a genuinely unrecognised outcome code (no codebook entry, not a plain-English concept) is still UNRECOGNISED_OUTCOME_VALUE", () => {
     const profile = profileWithCodebooks({ outcome: { "1": "Recovered" } });
     const mapping: Record<string, TargetField> = { Outcome: "outcome" };
@@ -336,6 +349,24 @@ describe("runValidation — reaction_code recognition uses the runtime profile's
     expect(issues.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(false);
     const nonNumeric = runValidation(["Reaction Code"], mapping, [{ reaction_code: "ABC" }], profile);
     expect(nonNumeric.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(true);
+  });
+});
+
+describe("runValidation — MISSING_REPORTER_PHONE is MEDIUM severity (advisory, not export-blocking on its own)", () => {
+  it("a missing reporter phone number is MEDIUM, not HIGH/CRITICAL", () => {
+    const mapping: Record<string, TargetField> = { Phone: "reporter_phone" };
+    const issues = runValidation(["Phone"], mapping, [{}]);
+    const missing = issues.find((i) => i.code === "MISSING_REPORTER_PHONE");
+    expect(missing).toBeTruthy();
+    expect(missing!.severity).toBe("MEDIUM");
+  });
+
+  it("a malformed (present but invalid) reporter phone number is untouched — still CRITICAL", () => {
+    const mapping: Record<string, TargetField> = { Phone: "reporter_phone" };
+    const issues = runValidation(["Phone"], mapping, [{ reporter_phone: "123" }]);
+    const invalid = issues.find((i) => i.code === "INVALID_REPORTER_PHONE");
+    expect(invalid).toBeTruthy();
+    expect(invalid!.severity).toBe("CRITICAL");
   });
 });
 
