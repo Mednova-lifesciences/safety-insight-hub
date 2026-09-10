@@ -219,6 +219,35 @@ describe("parseTabularFile — government-form letterhead before the real header
     const mapping = mapColumnsByKeywords(result.headers, FIELD_KEYWORDS);
     expect(mapping["Reaction type (Codes -see 1 below )"]).toBe("reaction");
   });
+
+  it("maps BOTH the word-shaped seriousness column AND the separate numeric seriousness-code column, using the real Ondo AEFI workbook's actual header row (byte-for-byte, including its own typo)", async () => {
+    // Real regression: "Type of AEFI (Non-serious or Serious)" and "If
+    // serious case select appropriste code 2 below." both contain
+    // "serious" and nothing else field-specific — before the compound
+    // ["serious","code"] keyword existed, both scored an identical 30 for
+    // `seriousness`, and stable-sort/column-order silently gave the whole
+    // field to whichever came first, leaving the numeric code column
+    // entirely unmapped (present only in rawRows, never in parsedRows).
+    const file = xlsxFile([
+      [
+        "S/N",
+        "ID",
+        "PATIENT'S NAME",
+        "SEX",
+        "Age",
+        "Reaction type (Codes -see 1 below )",
+        "Type of AEFI (Non-serious or Serious)",
+        "If serious case select appropriste code 2 below.",
+        "Outcome (Codes-see 3 below)",
+        "Primary Suspect Vaccine(Name)",
+      ],
+      [1, "C001", "Jane Doe", "F", 2, "19", "NON SERIOUS", "", "1", "MR"],
+    ]);
+    const result = await parseTabularFile(file);
+    const mapping = mapColumnsByKeywords(result.headers, FIELD_KEYWORDS);
+    expect(mapping["Type of AEFI (Non-serious or Serious)"]).toBe("seriousness");
+    expect(mapping["If serious case select appropriste code 2 below."]).toBe("serious_code");
+  });
 });
 
 describe("parseTabularFile — two-row (merged) headers", () => {

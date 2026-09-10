@@ -387,13 +387,32 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
   };
 }
 
+/** A keyword entry is either a single substring (matches if present) or
+ *  an array of substrings (matches only if ALL are present, in any order,
+ *  regardless of what connective words/typos separate them in the real
+ *  header) — a compound match. Compound entries exist for exactly one
+ *  reason: two real columns can independently contain the same single
+ *  generic word (e.g. both a word-shaped "seriousness" column and a
+ *  separate numeric "seriousness code" column contain "serious"), and a
+ *  single-keyword weight can't distinguish them without either guessing
+ *  a specific source's exact phrasing or requiring a second, genuinely
+ *  distinguishing word ("code") to also be present. This is a generic
+ *  header-matching capability, not a per-source rule — it says nothing
+ *  about which words any specific source actually uses. */
+export type KeywordEntry = [string | string[], number];
+
+function keywordMatches(normalizedHeader: string, keyword: string | string[]): boolean {
+  const parts = Array.isArray(keyword) ? keyword : [keyword];
+  return parts.every((p) => normalizedHeader.includes(p));
+}
+
 /** Scores every header against every field by keyword specificity and
  *  assigns highest-confidence (header, field) pairs first, so a
  *  distinctive column name always beats a generic substring collision
  *  (e.g. "Drug name (WHODrug)" beats "Drug role" for a "product" field). */
 export function mapColumnsByKeywords<TField extends string>(
   headers: string[],
-  fieldKeywords: Record<TField, [string, number][]>,
+  fieldKeywords: Record<TField, KeywordEntry[]>,
 ): Record<string, TField> {
   const fields = Object.keys(fieldKeywords) as TField[];
   const candidates: { header: string; field: TField; score: number }[] = [];
@@ -402,7 +421,7 @@ export function mapColumnsByKeywords<TField extends string>(
     for (const field of fields) {
       let best = 0;
       for (const [keyword, weight] of fieldKeywords[field]) {
-        if (h.includes(keyword)) best = Math.max(best, weight);
+        if (keywordMatches(h, keyword)) best = Math.max(best, weight);
       }
       if (best > 0) candidates.push({ header, field, score: best });
     }

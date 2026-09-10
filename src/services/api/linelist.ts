@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { currentActor, newId, recordAudit, toJson } from "./db";
-import { mapColumnsByKeywords, parseTabularFile } from "./tabular-parse";
+import { mapColumnsByKeywords, parseTabularFile, type KeywordEntry } from "./tabular-parse";
 import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import type { LineListIssue, LineListIssueType, LineListJob } from "@/types/pv";
@@ -160,7 +160,7 @@ async function saveJob(job: LineListJobRow): Promise<LineListJobRow> {
  * headers are assigned to fields in descending score order — the most
  * confident matches win regardless of column order.
  */
-export const FIELD_KEYWORDS: Record<TargetField, [string, number][]> = {
+export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
   case_id: [
     ["otherreportid", 90],
     ["caseid", 90],
@@ -259,6 +259,16 @@ export const FIELD_KEYWORDS: Record<TargetField, [string, number][]> = {
     ["seriouscode", 90],
     ["aefitype", 85],
     ["severitycode", 70],
+    // Compound match (both fragments required, any connective words/typos
+    // between them are irrelevant): distinguishes a genuinely separate
+    // numeric seriousness-CODE column from a word-shaped "seriousness"
+    // column that merely also contains "serious" — without hardcoding any
+    // one source's exact phrasing. Verified against the real Ondo AEFI
+    // workbook's actual header, "If serious case select appropriste code
+    // 2 below." (note the source's own typo "appropriste" — this match
+    // doesn't depend on it), which the seriousness-only "serious" keyword
+    // below would otherwise tie with and lose to column order.
+    [["serious", "code"], 88],
   ],
   vaccine_batch: [
     ["vaccinebatch", 90],
