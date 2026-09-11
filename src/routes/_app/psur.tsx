@@ -1009,6 +1009,70 @@ function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: ()
         </div>
 
         <div>
+          <p className="label-caps mb-2">10.2 Missing information</p>
+          {data.missingInformation.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No missing-information items recorded yet.
+            </p>
+          ) : null}
+          <div className="space-y-2">
+            {data.missingInformation.map((m, i) => (
+              <div
+                key={m.id}
+                className="grid gap-2 rounded-md border border-border p-2 sm:grid-cols-2"
+              >
+                <Textarea
+                  placeholder="Missing information"
+                  value={m.missingInformation}
+                  rows={2}
+                  onChange={(e) =>
+                    setData((d) => ({
+                      ...d,
+                      missingInformation: d.missingInformation.map((x, j) =>
+                        j === i ? { ...x, missingInformation: e.target.value } : x,
+                      ),
+                    }))
+                  }
+                />
+                <Textarea
+                  placeholder="Risk-minimisation implication"
+                  value={m.riskMinimisationImplication}
+                  rows={2}
+                  onChange={(e) =>
+                    setData((d) => ({
+                      ...d,
+                      missingInformation: d.missingInformation.map((x, j) =>
+                        j === i ? { ...x, riskMinimisationImplication: e.target.value } : x,
+                      ),
+                    }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-2"
+            onClick={() =>
+              setData((d) => ({
+                ...d,
+                missingInformation: [
+                  ...d.missingInformation,
+                  {
+                    id: `mi-${Date.now()}`,
+                    missingInformation: "",
+                    riskMinimisationImplication: "",
+                  },
+                ],
+              }))
+            }
+          >
+            Add missing-information item
+          </Button>
+        </div>
+
+        <div>
           <p className="label-caps mb-2">10.3 Integrated Benefit-Risk Effects Table</p>
           <div className="space-y-2">
             {data.integratedEffectsTable.map((row, i) => (
