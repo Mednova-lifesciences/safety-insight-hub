@@ -28,7 +28,11 @@ import type {
   PsurRegulatoryDecision,
   PsurRiskMinimisationAction,
   PsurScreeningResult,
+  PsurSectionCoverage,
+  PsurSectionStatus,
   PsurSignOff,
+  PsurSpecialPopulationArea,
+  PsurSpecialPopulationItem,
   PsurUncertainty,
   PsurUncertaintyCategory,
   PsurV4SectionId,
@@ -39,8 +43,13 @@ import type {
   AiPsurFindingOut,
   AiPsurRecommendationOut,
   AiPsurScreeningOut,
+  AiPsurSpecialPopulationItemOut,
   AiPsurUncertaintyOut,
 } from "./ai";
+import {
+  buildAuthoritativeSectionCoverage,
+  reconcileSectionFindings,
+} from "@/services/psur/section-consistency";
 
 /** Findings are review assistance only — the regulatory assessment is
  *  always recorded by a human reviewer (see AssistLabel in psur.tsx). */
@@ -210,14 +219,30 @@ function mapAiScreening(s: AiPsurScreeningOut | null | undefined): PsurScreening
       status: c.status,
       comment: c.comment,
     })),
-    sectionCoverage: s.section_coverage.map((c) => ({
+    sectionCoverage: s.section_coverage.map((c): PsurSectionCoverage => ({
       section: c.section as PsurV4SectionId,
-      present: c.present,
+      status: c.status,
       comment: c.comment,
+      notApplicableJustification: c.not_applicable_justification ?? undefined,
+      source: "ai",
     })),
     recommendation: s.recommendation,
     assistGenerated: true,
   };
+}
+
+/** AI special-populations extraction (wire shape) -> domain
+ *  PsurSpecialPopulationItem[] — Section 9, PDF narrative reports only. */
+function mapAiSpecialPopulations(
+  list: AiPsurSpecialPopulationItemOut[] | undefined,
+): PsurSpecialPopulationItem[] {
+  return (list ?? []).map((p) => ({
+    area: p.area as PsurSpecialPopulationArea,
+    status: p.status as PsurSectionStatus,
+    comment: p.comment,
+    notApplicableJustification: p.not_applicable_justification ?? undefined,
+    source: "ai" as const,
+  }));
 }
 
 /** AI benefit-risk extraction (wire shape) -> domain PsurBenefitRiskAssessment. */
@@ -338,8 +363,13 @@ function generateFallbackScreening(): PsurScreeningResult {
     })),
     sectionCoverage: PSUR_V4_TEMPLATE_SECTIONS.map((s) => ({
       section: s.id,
-      present: false,
+      // Honest "unknown", never a claimed defect: AI review didn't run,
+      // so nothing was actually confirmed missing — see PsurSectionStatus's
+      // doc comment for why ASSESSOR_PENDING and MISSING must never be
+      // conflated.
+      status: "ASSESSOR_PENDING" as const,
       comment: "Not assessable without AI review — check manually against the V4 template.",
+      source: "rule" as const,
     })),
     recommendation: "PROCEED_TO_SCIENTIFIC_REVIEW",
     assistGenerated: true,
@@ -600,6 +630,28 @@ export const psur = {
         : RULE_BASED_DETECTION_ENABLED
           ? generatePdfFindingsFallback(doc)
           : [];
+      const screening = aiResult.ai_used
+        ? mapAiScreening(aiResult.screening)
+        : generateFallbackScreening();
+      const specialPopulations = aiResult.ai_used
+        ? mapAiSpecialPopulations(aiResult.special_populations)
+        : undefined;
+      const benefitRisk = aiResult.ai_used ? mapAiBenefitRisk(aiResult.benefit_risk) : undefined;
+      const uncertainties = aiResult.ai_used
+        ? mapAiUncertainties(aiResult.uncertainties)
+        : undefined;
+      // Guarantee every section the coverage check calls MISSING/
+      // PRESENT_BUT_INCOMPLETE has a corresponding actionable finding —
+      // see section-consistency.ts's module doc comment for why this is
+      // necessary rather than trusting the AI's two separate judgements
+      // (coverage vs. findings) to already agree.
+      const coverage = buildAuthoritativeSectionCoverage({
+        screening,
+        specialPopulations,
+        benefitRisk,
+        uncertainties,
+      });
+      findings.push(...reconcileSectionFindings(coverage, findings));
       await persistFindings(doc.id, findings);
       const reviewed: PsurDocumentRow = {
         ...doc,
@@ -612,11 +664,10 @@ export const psur = {
         ...(aiResult.ai_used && aiResult.reporting_period
           ? { reportingPeriod: aiResult.reporting_period }
           : {}),
-        screening: aiResult.ai_used
-          ? mapAiScreening(aiResult.screening)
-          : generateFallbackScreening(),
-        ...(aiResult.ai_used ? { benefitRisk: mapAiBenefitRisk(aiResult.benefit_risk) } : {}),
-        ...(aiResult.ai_used ? { uncertainties: mapAiUncertainties(aiResult.uncertainties) } : {}),
+        screening,
+        ...(specialPopulations ? { specialPopulations } : {}),
+        ...(benefitRisk ? { benefitRisk } : {}),
+        ...(uncertainties ? { uncertainties } : {}),
         ...(aiResult.ai_used
           ? { aiRecommendation: mapAiRecommendation(aiResult.ai_recommendation) }
           : {}),
@@ -680,6 +731,9 @@ export const psur = {
         screening = generateFallbackScreening();
       }
 
+      findings.push(
+        ...reconcileSectionFindings(buildAuthoritativeSectionCoverage({ screening }), findings),
+      );
       await persistFindings(documentId, findings);
       const next: PsurDocumentRow = { ...document, stage: "REVIEWED", screening };
       await saveDocument(next);
@@ -778,19 +832,69 @@ export const psur = {
     return next;
   },
 
-  /** Assessor edits to the Section 11 uncertainties list — full replace. */
+  /** Assessor edits to the Section 9 special-populations breakdown — full
+   *  replace, same ownership pattern as updateBenefitRisk. Each item's
+   *  `source` is stamped "assessor" here so the overall S9 coverage
+   *  status (derived from these items — see buildAuthoritativeSectionCoverage)
+   *  is correctly attributed once a human has actually reviewed it. */
+  updateSpecialPopulations: async (
+    documentId: string,
+    items: PsurSpecialPopulationItem[],
+  ): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    const next: PsurDocumentRow = {
+      ...document,
+      specialPopulations: items.map((i) => ({ ...i, source: "assessor" as const })),
+    };
+    await saveDocument(next);
+    await recordAudit({
+      action: "PSUR_SPECIAL_POPULATIONS_UPDATED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      newValue: `${items.length} special-population area(s) recorded by assessor`,
+    });
+    return next;
+  },
+
+  /** Assessor edits to the Section 11 uncertainties list — full replace.
+   *  `confirmNoneApply` is the explicit "I reviewed this and genuinely
+   *  none apply" record the V4 template requires — structurally distinct
+   *  from an empty list nobody has looked at yet (see
+   *  PsurDocument.uncertaintiesNoneConfirmed). Adding at least one
+   *  uncertainty always clears any prior "none apply" confirmation, since
+   *  the two are mutually exclusive claims. */
   updateUncertainties: async (
     documentId: string,
     uncertainties: PsurUncertainty[],
+    confirmNoneApply = false,
   ): Promise<PsurDocument> => {
     const document = await readDocument(documentId);
-    const next: PsurDocumentRow = { ...document, uncertainties };
+    const actor = currentActor();
+    const next: PsurDocumentRow = {
+      ...document,
+      uncertainties,
+      uncertaintiesNoneConfirmed:
+        uncertainties.length === 0 && confirmNoneApply
+          ? {
+              by: actor.name,
+              at: new Date().toISOString(),
+              rationale: "Assessor confirmed no uncertainties apply this interval.",
+            }
+          : uncertainties.length === 0
+            ? document.uncertaintiesNoneConfirmed
+            : undefined,
+    };
     await saveDocument(next);
     await recordAudit({
       action: "PSUR_UNCERTAINTIES_UPDATED",
       entity: "PsurDocument",
       entityId: documentId,
-      newValue: `${uncertainties.length} uncertainty/uncertainties recorded`,
+      newValue:
+        uncertainties.length > 0
+          ? `${uncertainties.length} uncertainty/uncertainties recorded`
+          : confirmNoneApply
+            ? "Assessor confirmed no uncertainties apply"
+            : "No uncertainties recorded",
     });
     return next;
   },
@@ -921,7 +1025,10 @@ export const psur = {
         const idx = r.row - 1;
         if (idx < 0) continue;
         if (rawRows && idx < rawRows.length && r.column in rawRows[idx]!) {
-          rawRows[idx] = { ...rawRows[idx]!, [r.column]: r.new_value ?? rawRows[idx]![r.column] };
+          rawRows[idx] = {
+            ...rawRows[idx]!,
+            [r.column]: r.new_value ?? rawRows[idx]![r.column] ?? "",
+          };
         }
         const canonicalField = document.mapping?.[r.column];
         if (canonicalField && idx < parsedRows.length) {
@@ -1160,6 +1267,20 @@ export const psur = {
     lines.push(`Still pending review: ${pending.length}`);
     lines.push("");
 
+    // Read through the SAME authoritative derivation the assessment page
+    // itself renders (buildAuthoritativeSectionCoverage) — this export
+    // must never be able to say something the on-screen page doesn't.
+    const coverage = buildAuthoritativeSectionCoverage(doc);
+    lines.push("SECTION COVERAGE (authoritative — matches the assessment page)");
+    lines.push(rule);
+    for (const c of coverage) {
+      const name = PSUR_V4_TEMPLATE_SECTIONS.find((s) => s.id === c.section)?.name ?? c.section;
+      lines.push(
+        `[${c.status}] ${name}${c.notApplicableJustification ? ` — N/A: ${c.notApplicableJustification}` : ""}`,
+      );
+    }
+    lines.push("");
+
     lines.push("ACCEPTED FINDINGS");
     lines.push(rule);
     if (accepted.length === 0) {
@@ -1205,12 +1326,30 @@ export const psur = {
     const findings = await readFindings(documentId);
     const accepted = findings.filter((f) => f.humanAssessment === "ACCEPTED");
 
-    const bySection = new Map<string, PsurFinding[]>();
-    for (const f of accepted) {
-      const key = f.v4Section ?? "UNSPECIFIED_SECTION";
-      const list = bySection.get(key) ?? [];
-      list.push(f);
-      bySection.set(key, list);
+    // Never "blindly copy every UI field" — separate what genuinely needs
+    // MAH action from an internal assessor observation. A finding whose
+    // suggested source is explicitly REQUEST_FROM_MAH is the model's own
+    // judgement that only the MAH can supply this; everything else is
+    // something the assessor can resolve/track internally (cross-check
+    // VigiFlow, consult the RSI, etc.) — never force the assessor to
+    // produce information only the MAH can provide (e.g. the RSI itself).
+    const mahAction = accepted.filter((f) => f.suggestedSource?.type === "REQUEST_FROM_MAH");
+    const assessorInternal = accepted.filter((f) => f.suggestedSource?.type !== "REQUEST_FROM_MAH");
+    const resolved = accepted.filter((f) => f.resolved);
+    const stillOutstanding = accepted.filter((f) => !f.resolved);
+
+    function renderFinding(f: PsurFinding): string[] {
+      const out: string[] = [];
+      out.push(
+        `  [${f.severity}]${f.deficiencyType ? ` (${f.deficiencyType})` : ""} ${f.section}: ${f.description}`,
+      );
+      out.push(`    Evidence: ${f.evidence}`);
+      if (f.suggestedSource) {
+        out.push(`    Suggested source: ${f.suggestedSource.type} — ${f.suggestedSource.note}`);
+      }
+      if (f.rationale) out.push(`    Reviewer rationale: ${f.rationale}`);
+      if (f.resolved && f.resolution) out.push(`    Resolution: ${f.resolution}`);
+      return out;
     }
 
     const lines: string[] = [];
@@ -1239,26 +1378,48 @@ export const psur = {
       lines.push("");
     }
 
-    lines.push("DEFICIENCIES (accepted findings only), BY V4 TEMPLATE SECTION");
+    const coverage = buildAuthoritativeSectionCoverage(doc);
+    lines.push("SECTION COVERAGE (authoritative — matches the assessment page)");
     lines.push(rule);
+    for (const c of coverage) {
+      const name = PSUR_V4_TEMPLATE_SECTIONS.find((s) => s.id === c.section)?.name ?? c.section;
+      lines.push(
+        `[${c.status}] ${name}${c.notApplicableJustification ? ` — N/A: ${c.notApplicableJustification}` : ""}`,
+      );
+    }
+    lines.push("");
+
+    lines.push(`DEFICIENCIES REQUIRING MAH ACTION (${mahAction.length})`);
+    lines.push(rule);
+    if (mahAction.length === 0) {
+      lines.push("None of the accepted findings require direct MAH action.");
+    }
+    for (const f of mahAction) lines.push(...renderFinding(f));
+    lines.push("");
+
+    lines.push(`ASSESSOR-INTERNAL OBSERVATIONS (${assessorInternal.length})`);
+    lines.push(rule);
+    lines.push("Resolvable/trackable by the assessor without requiring an MAH response.");
+    if (assessorInternal.length === 0) {
+      lines.push("None.");
+    }
+    for (const f of assessorInternal) lines.push(...renderFinding(f));
+    lines.push("");
+
+    lines.push(`RESOLVED (${resolved.length}) / STILL OUTSTANDING (${stillOutstanding.length})`);
+    lines.push(rule);
+    lines.push(
+      "Note: an assessor ACCEPTING a finding records it as a valid deficiency — it does not by " +
+        "itself mean the deficiency has been fixed. Only findings with an applied resolution below " +
+        "are RESOLVED; everything else remains outstanding regardless of acceptance.",
+    );
     if (accepted.length === 0) {
       lines.push("No findings have been accepted yet — nothing to report.");
     }
-    for (const [section, group] of bySection) {
-      lines.push(`${section}`);
-      for (const f of group) {
-        lines.push(
-          `  [${f.severity}]${f.deficiencyType ? ` (${f.deficiencyType})` : ""} ${f.description}`,
-        );
-        lines.push(`    Evidence: ${f.evidence}`);
-        if (f.suggestedSource) {
-          lines.push(`    Suggested source: ${f.suggestedSource.type} — ${f.suggestedSource.note}`);
-        }
-        if (f.rationale) lines.push(`    Reviewer rationale: ${f.rationale}`);
-        if (f.resolved && f.resolution) lines.push(`    Resolution: ${f.resolution}`);
-      }
-      lines.push("");
+    for (const f of accepted) {
+      lines.push(`  [${f.resolved ? "RESOLVED" : "OUTSTANDING"}] ${f.section}: ${f.description}`);
     }
+    lines.push("");
 
     if (doc.regulatoryDecision) {
       lines.push("REGULATORY DECISION (assessor's own — never AI-decided)");

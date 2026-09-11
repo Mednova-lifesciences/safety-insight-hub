@@ -314,9 +314,21 @@ class AiPsurAdministrativeCheck(BaseModel):
         return "NOT_ASSESSABLE"
 
 
+_KNOWN_SECTION_STATUSES = {
+    "ADEQUATELY_ADDRESSED", "PRESENT_BUT_INCOMPLETE", "MISSING", "NOT_APPLICABLE",
+}
+
+
 class AiPsurSectionCoverage(BaseModel):
-    """Coarse 'does this V4 section appear to be addressed at all' check
-    — distinct from the deep per-field findings in `AiPsurReview.findings`."""
+    """Coarse 'how well is this V4 section addressed' check — distinct
+    from the deep per-field findings in `AiPsurReview.findings`, but no
+    longer a bare presence boolean: judge whether the required CONTENT is
+    actually covered (never merely whether a matching heading exists), and
+    use NOT_APPLICABLE (with a justification) rather than MISSING when a
+    requirement genuinely doesn't apply to this product/submission.
+    ASSESSOR_PENDING is deliberately NOT a value the model can choose —
+    that state means "not assessed at all," which only applies when this
+    schema wasn't populated in the first place."""
 
     section: Literal[
         "ADMIN_SCREENING", "S1_PRODUCT_REGULATORY", "S2_WORLDWIDE_STATUS", "S3_THERAPEUTIC_CONTEXT",
@@ -324,8 +336,12 @@ class AiPsurSectionCoverage(BaseModel):
         "S8_SIGNAL_EVALUATION", "S9_SPECIAL_POPULATIONS", "S10_BENEFIT_RISK", "S11_UNCERTAINTIES",
         "S12_REGULATORY_DECISION", "S13_CONCLUSION_SIGNOFF",
     ]
-    present: bool
+    status: Literal["ADEQUATELY_ADDRESSED", "PRESENT_BUT_INCOMPLETE", "MISSING", "NOT_APPLICABLE"]
     comment: str
+    # Required (by the prompt's own instruction, not enforced here) only
+    # when status is NOT_APPLICABLE — None is legitimate for every other
+    # status.
+    not_applicable_justification: Optional[str] = None
 
     @field_validator("section", mode="before")
     @classmethod
@@ -333,6 +349,28 @@ class AiPsurSectionCoverage(BaseModel):
         if isinstance(v, str) and v.strip().upper() in _KNOWN_V4_SECTIONS:
             return v.strip().upper()
         return "S1_PRODUCT_REGULATORY"
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, v):
+        # Same fragility/fix as every other enum-ish field on plain JSON
+        # mode: one off-enum value must degrade, not fail the whole
+        # response. A model that returns the old boolean shape (present:
+        # true/false) is also tolerated here via the pre-validator on
+        # AiPsurScreening below, which upgrades it before this runs.
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_SECTION_STATUSES:
+            return v.strip().upper()
+        return "MISSING"
+
+    @model_validator(mode="after")
+    def _require_justification_shape(self):
+        # A NOT_APPLICABLE with no justification is a bare guess wearing
+        # the "justified" status's clothes — downgrade it rather than let
+        # an unjustified not-applicable through. Never invents a reason;
+        # just refuses to accept the claim without one.
+        if self.status == "NOT_APPLICABLE" and not (self.not_applicable_justification or "").strip():
+            self.status = "PRESENT_BUT_INCOMPLETE"
+        return self
 
 
 class AiPsurScreening(BaseModel):
@@ -342,6 +380,23 @@ class AiPsurScreening(BaseModel):
     administrative_checks: list[AiPsurAdministrativeCheck] = []
     section_coverage: list[AiPsurSectionCoverage] = []
     recommendation: Literal["PROCEED_TO_SCIENTIFIC_REVIEW", "RETURN_TO_MAH_FIRST"] = "PROCEED_TO_SCIENTIFIC_REVIEW"
+
+    @field_validator("section_coverage", mode="before")
+    @classmethod
+    def _upgrade_legacy_present_boolean(cls, v):
+        # Plain JSON mode gives no hard guarantee the model follows this
+        # prompt version's shape exactly — tolerate the old `present:
+        # bool` shape by upgrading it to `status` before AiPsurSectionCoverage
+        # validates each entry, rather than let one old-shaped item sink
+        # the model's entire section_coverage list.
+        if not isinstance(v, list):
+            return v
+        upgraded = []
+        for item in v:
+            if isinstance(item, dict) and "status" not in item and "present" in item:
+                item = {**item, "status": "PRESENT_BUT_INCOMPLETE" if item.get("present") else "MISSING"}
+            upgraded.append(item)
+        return upgraded
 
     @field_validator("recommendation", mode="before")
     @classmethod
@@ -444,6 +499,48 @@ class AiPsurBenefitRisk(BaseModel):
     )
 
 
+_KNOWN_SPECIAL_POPULATION_AREAS = {
+    "PREGNANCY_LACTATION", "PAEDIATRIC", "GERIATRIC", "HEPATIC_IMPAIRMENT", "RENAL_IMPAIRMENT",
+    "OVERDOSE_MISUSE_ABUSE_MEDICATION_ERROR", "OFF_LABEL_USE", "OTHER_MISSING_INFORMATION",
+}
+
+
+class AiPsurSpecialPopulationItem(BaseModel):
+    """One of Section 9's 8 fixed areas. Judge each independently from
+    what the text actually says — do not assume every area is deficient
+    simply because it isn't explicitly named; use NOT_APPLICABLE (with a
+    justification) when a product genuinely has no relevance to an area
+    (e.g. no paediatric indication) rather than MISSING."""
+
+    area: Literal[
+        "PREGNANCY_LACTATION", "PAEDIATRIC", "GERIATRIC", "HEPATIC_IMPAIRMENT", "RENAL_IMPAIRMENT",
+        "OVERDOSE_MISUSE_ABUSE_MEDICATION_ERROR", "OFF_LABEL_USE", "OTHER_MISSING_INFORMATION",
+    ]
+    status: Literal["ADEQUATELY_ADDRESSED", "PRESENT_BUT_INCOMPLETE", "MISSING", "NOT_APPLICABLE"]
+    comment: str
+    not_applicable_justification: Optional[str] = None
+
+    @field_validator("area", mode="before")
+    @classmethod
+    def _normalize_area(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_SPECIAL_POPULATION_AREAS:
+            return v.strip().upper()
+        return "OTHER_MISSING_INFORMATION"
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_SECTION_STATUSES:
+            return v.strip().upper()
+        return "MISSING"
+
+    @model_validator(mode="after")
+    def _require_justification_shape(self):
+        if self.status == "NOT_APPLICABLE" and not (self.not_applicable_justification or "").strip():
+            self.status = "PRESENT_BUT_INCOMPLETE"
+        return self
+
+
 _KNOWN_UNCERTAINTY_CATEGORIES = {
     "DATA_LIMITATIONS_UNDERREPORTING", "LIMITED_NIGERIAN_EXPOSURE", "MISSING_SUBPOPULATION_DATA",
     "SHORT_FOLLOWUP_DURATION", "STUDY_DESIGN_LIMITATIONS", "LIMITED_GENERALISABILITY", "OTHER",
@@ -541,6 +638,9 @@ class AiPsurReview(BaseModel):
     screening: Optional[AiPsurScreening] = None
     # Section 10 structured sub-tables — PDF narrative reports only.
     benefit_risk: Optional[AiPsurBenefitRisk] = None
+    # Section 9 — one entry per fixed special-population/special-situation
+    # area (PDF narrative reports only, same reasoning as benefit_risk).
+    special_populations: list[AiPsurSpecialPopulationItem] = []
     # Section 11 — one row per identified uncertainty.
     uncertainties: list[AiPsurUncertainty] = []
     # AI's non-binding starting point for Section 12 — see AiPsurRecommendation.

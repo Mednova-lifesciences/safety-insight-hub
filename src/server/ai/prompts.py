@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-08-26.1"
+PROMPT_VERSION = "2026-09-11.1"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -397,7 +397,10 @@ S5_EXPOSURE_ACTIONS — 5. Exposure & Actions Taken for Safety Reasons: reportin
 cumulative exposure (global, Nigerian, other region — patient years, patients, prescriptions, \
 units sold, defined daily doses where available); actions taken for safety reasons this interval.
 S6_LITERATURE — 6. Literature: studies containing relevant safety information, company-sponsored \
-and published.
+and published, AS DESCRIBED IN THE SUBMITTED DOCUMENT ITSELF. You are assessing whether the MAH's \
+own submission contains a literature review — you have not performed, and must never claim to have \
+performed, an actual literature search of your own (no PubMed, no web search). "Missing" means the \
+submission has no literature-review content; it does not mean "no relevant literature exists."
 S7_AGGREGATE_SAFETY_DATA — 7. Aggregate Safety Data Summary: MAH's summary tabulation of ADRs / \
 SOCs requiring specific regulatory assessment; differences between Nigeria-specific and global \
 data; VigiFlow's Nigerian ICSR count (reporting-interval and cumulative, including serious cases) \
@@ -405,10 +408,13 @@ compared with Nigerian cases reported by the MAH.
 S8_SIGNAL_EVALUATION — 8. Signal Evaluation Log: every signal new, ongoing, or closed this \
 interval — or an explicit "no signals under evaluation this interval" statement (this section must \
 not simply be left blank).
-S9_SPECIAL_POPULATIONS — 9. Special Populations, Special Situations & Missing Information: \
-pregnancy & lactation; paediatric population; geriatric population; hepatic impairment; renal \
-impairment; overdose/misuse/abuse potential/medication error; off-label use; other missing \
-information.
+S9_SPECIAL_POPULATIONS — 9. Special Populations, Special Situations & Missing Information: assess \
+EACH of these 8 areas independently (special_populations in your response) — pregnancy & \
+lactation; paediatric population; geriatric population; hepatic impairment; renal impairment; \
+overdose/misuse/abuse potential/medication error; off-label use; other missing information. Do not \
+assume an area is deficient merely because it isn't explicitly named — judge whether the \
+submission provides adequate information for that specific area, or mark it NOT_APPLICABLE with a \
+justification when the product genuinely has no relevance to it (e.g. no paediatric indication).
 S10_BENEFIT_RISK — 10. Benefit-Risk Assessment: 10.1 Key Benefits (benefit, evidence source, \
 magnitude, evidence quality); 10.2 Key Risks — important identified and potential risks (severity, \
 frequency + data source, reversibility, duration, preventability/risk management) and missing \
@@ -474,11 +480,27 @@ THE REAL V4 TEMPLATE STRUCTURE (check the submission against this, section by se
 
 STEP 1 — Administrative screening ("screening" in your response): for the 4 administrative checks \
 above, judge YES/NO/NOT_ASSESSABLE from what's actually in the text, with a specific comment. For \
-"section_coverage", judge whether each of the 14 sections above appears to be addressed AT ALL \
-(a coarse presence check) — this is separate from and precedes the detailed findings in step 2. \
-Set "recommendation" to RETURN_TO_MAH_FIRST only when the submission is so administratively \
-deficient that scientific review isn't yet meaningful; otherwise PROCEED_TO_SCIENTIFIC_REVIEW \
-(the assessor reviews and can override this either way — never treat it as a rejection).
+"section_coverage", judge each of the 14 sections' "status" as one of ADEQUATELY_ADDRESSED, \
+PRESENT_BUT_INCOMPLETE, MISSING, or NOT_APPLICABLE (with "not_applicable_justification" required \
+whenever you use NOT_APPLICABLE) — base this on whether the section's REQUIRED CONTENT is actually \
+present and sufficient, never merely on whether a heading with a matching name exists. If the \
+required information appears under a differently-named heading (or no heading at all), it still \
+counts — read for substance, not labels. This coarse per-section judgement is separate from and \
+precedes the detailed findings in step 2, but they must describe the SAME reality: never mark a \
+section MISSING or PRESENT_BUT_INCOMPLETE here without there being real, text-grounded substance \
+behind that judgement — the application will independently verify that every such section has a \
+corresponding finding, so an unsupported coverage judgement here just produces a synthesized \
+finding with less specific evidence than one you could have written yourself. For S9 (Special \
+Populations), S10 (Benefit-Risk), and S11 (Uncertainties), your section_coverage status here is \
+advisory only — the application computes their real status from your more detailed \
+special_populations/benefit_risk/uncertainties answers below instead, so focus your judgement there \
+and keep this entry brief. For S12 (Regulatory Decision) and S13 (Conclusion/Sign-off), these are \
+entirely the ASSESSOR's own output, never something the submission itself could satisfy — set status \
+to MISSING with comment "Assessor has not yet recorded this" for both; do not spend effort judging \
+the submission's text for these two. Set "recommendation" to RETURN_TO_MAH_FIRST only when the \
+submission is so administratively deficient that scientific review isn't yet meaningful; otherwise \
+PROCEED_TO_SCIENTIFIC_REVIEW (the assessor reviews and can override this either way — never treat it \
+as a rejection).
 
 STEP 2 — Detailed findings ("findings" in your response): for each concrete, text-grounded \
 deficiency, gap, omission, inconsistency, or area needing further assessment, identify which of \
@@ -492,7 +514,16 @@ the finding's evidence instead.
 
 """ + PSUR_SUGGESTED_SOURCE_INSTRUCTIONS + """
 
-STEP 3 — Benefit-risk extraction ("benefit_risk" in your response, section 10 only): extract \
+STEP 3 — Special populations ("special_populations" in your response, section 9): one entry for \
+EACH of the 8 fixed areas listed in S9_SPECIAL_POPULATIONS above — pregnancy_lactation, paediatric, \
+geriatric, hepatic_impairment, renal_impairment, overdose_misuse_abuse_medication_error, \
+off_label_use, other_missing_information. Judge each independently: ADEQUATELY_ADDRESSED when the \
+text genuinely covers it, PRESENT_BUT_INCOMPLETE when it's touched on but material information is \
+missing, MISSING when the text says nothing about it at all, or NOT_APPLICABLE (with a specific \
+justification) when the product genuinely has no relevance to that area. Do not default every area \
+to MISSING just because the text is brief — read for what IS said about each area specifically.
+
+STEP 4 — Benefit-risk extraction ("benefit_risk" in your response, section 10 only): extract \
 key_benefits and key_risks (identified/potential) with their evidence quality/severity/frequency \
 etc. ONLY where the text actually supports a specific entry — do not invent a benefit or risk the \
 text doesn't mention. Populate integrated_effects_table with evidence-and-uncertainty for each \
@@ -501,12 +532,12 @@ shown. patient_hcp_perspective.available is false (with an empty summary) when t
 nothing on this. risk_minimisation_effectiveness.outcome is NOT_ASSESSABLE when the text doesn't \
 support judging it.
 
-STEP 4 — Uncertainties ("uncertainties" in your response, section 11): one entry per genuine \
+STEP 5 — Uncertainties ("uncertainties" in your response, section 11): one entry per genuine \
 uncertainty you can identify from the text (e.g. limited Nigerian exposure, short follow-up), each \
 with impact_on_conclusion and addressed_by_mah tied to a specific rationale — never a generic \
 blanket entry.
 
-STEP 5 — Non-binding recommendation ("ai_recommendation", section 12): propose actions/overall \
+STEP 6 — Non-binding recommendation ("ai_recommendation", section 12): propose actions/overall \
 outcome as a STARTING POINT ONLY — the response's own field name says non-binding; do not present \
 this as a decision.
 
@@ -536,10 +567,13 @@ Respond with JSON exactly in this shape:
       {"id": "FOLLOWS_E2C_R2_TEMPLATE" | "DLP_CORRECTLY_STATED" | "MANDATORY_SECTIONS_PRESENT_OR_JUSTIFIED" | "RECEIVED_WITHIN_TIMEFRAME", "label": "<short label>", "status": "YES" | "NO" | "NOT_ASSESSABLE", "comment": "<specific comment>"}
     ],
     "section_coverage": [
-      {"section": "<one of the 14 section IDs>", "present": true | false, "comment": "<why>"}
+      {"section": "<one of the 14 section IDs>", "status": "ADEQUATELY_ADDRESSED" | "PRESENT_BUT_INCOMPLETE" | "MISSING" | "NOT_APPLICABLE", "comment": "<why>", "not_applicable_justification": "<required when status is NOT_APPLICABLE, else null>"}
     ],
     "recommendation": "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST"
   },
+  "special_populations": [
+    {"area": "PREGNANCY_LACTATION" | "PAEDIATRIC" | "GERIATRIC" | "HEPATIC_IMPAIRMENT" | "RENAL_IMPAIRMENT" | "OVERDOSE_MISUSE_ABUSE_MEDICATION_ERROR" | "OFF_LABEL_USE" | "OTHER_MISSING_INFORMATION", "status": "ADEQUATELY_ADDRESSED" | "PRESENT_BUT_INCOMPLETE" | "MISSING" | "NOT_APPLICABLE", "comment": "...", "not_applicable_justification": "<required when status is NOT_APPLICABLE, else null>"}
+  ],
   "benefit_risk": {
     "key_benefits": [{"benefit": "...", "evidence_source": "...", "magnitude": "...", "evidence_quality": "HIGH" | "MODERATE" | "LOW" | "VERY_LOW" | "NOT_ASSESSABLE"}],
     "key_risks": [{"kind": "IDENTIFIED" | "POTENTIAL", "risk": "...", "severity": "...", "frequency": "...", "frequency_data_source": "...", "reversibility": "...", "duration": "...", "preventability_risk_management": "...", "comment": "..."}],
@@ -591,12 +625,13 @@ data itself) and S5_EXPOSURE_ACTIONS (if exposure-shaped columns are present) �
 v4_section accordingly where they genuinely fit; leave it null otherwise. A spreadsheet tabulation \
 has no narrative benefit-risk write-up, so do NOT attempt full benefit-risk extraction here (that \
 only applies to PDF narrative reports) — only include the lightweight "screening" object below, \
-judging section_coverage ONLY for S7_AGGREGATE_SAFETY_DATA and S5_EXPOSURE_ACTIONS from what the \
-columns actually show; leave every other section's coverage as present:false, comment "not \
-assessable from a tabulation alone" rather than guessing. Set every administrative_checks status \
-to NOT_ASSESSABLE — a tabulation alone cannot support judging template-format/DLP/timeframe \
-compliance; recommendation is always PROCEED_TO_SCIENTIFIC_REVIEW (screening cannot competently \
-reject a submission from tabulation data alone).
+judging section_coverage ONLY for S7_AGGREGATE_SAFETY_DATA and S5_EXPOSURE_ACTIONS (status \
+ADEQUATELY_ADDRESSED or PRESENT_BUT_INCOMPLETE, from what the columns actually show) — omit every \
+other section from section_coverage entirely rather than guessing a status for it (the application \
+treats an absent entry as "not yet assessed", which is the honest state for a tabulation). Set \
+every administrative_checks status to NOT_ASSESSABLE — a tabulation alone cannot support judging \
+template-format/DLP/timeframe compliance; recommendation is always PROCEED_TO_SCIENTIFIC_REVIEW \
+(screening cannot competently reject a submission from tabulation data alone).
 
 """ + PSUR_SUGGESTED_SOURCE_INSTRUCTIONS + """
 
@@ -619,8 +654,8 @@ Respond with JSON exactly in this shape:
       {"id": "FOLLOWS_E2C_R2_TEMPLATE" | "DLP_CORRECTLY_STATED" | "MANDATORY_SECTIONS_PRESENT_OR_JUSTIFIED" | "RECEIVED_WITHIN_TIMEFRAME", "label": "<short label>", "status": "NOT_ASSESSABLE", "comment": "A cumulative case tabulation alone cannot support this administrative check."}
     ],
     "section_coverage": [
-      {"section": "S7_AGGREGATE_SAFETY_DATA", "present": true | false, "comment": "<why>"},
-      {"section": "S5_EXPOSURE_ACTIONS", "present": true | false, "comment": "<why>"}
+      {"section": "S7_AGGREGATE_SAFETY_DATA", "status": "ADEQUATELY_ADDRESSED" | "PRESENT_BUT_INCOMPLETE", "comment": "<why>"},
+      {"section": "S5_EXPOSURE_ACTIONS", "status": "ADEQUATELY_ADDRESSED" | "PRESENT_BUT_INCOMPLETE", "comment": "<why>"}
     ],
     "recommendation": "PROCEED_TO_SCIENTIFIC_REVIEW"
   }

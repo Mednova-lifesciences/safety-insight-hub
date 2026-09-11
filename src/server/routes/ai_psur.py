@@ -92,8 +92,16 @@ class PsurAdministrativeCheckOut(BaseModel):
 
 class PsurSectionCoverageOut(BaseModel):
     section: str
-    present: bool
+    status: str
     comment: str
+    not_applicable_justification: Optional[str] = None
+
+
+class PsurSpecialPopulationItemOut(BaseModel):
+    area: str
+    status: str
+    comment: str
+    not_applicable_justification: Optional[str] = None
 
 
 class PsurScreeningOut(BaseModel):
@@ -187,6 +195,7 @@ class ReviewResponse(BaseModel):
     reporting_period: Optional[str] = None
     screening: Optional[PsurScreeningOut] = None
     benefit_risk: Optional[PsurBenefitRiskOut] = None
+    special_populations: list[PsurSpecialPopulationItemOut] = []
     uncertainties: list[PsurUncertaintyOut] = []
     ai_recommendation: Optional[PsurRecommendationOut] = None
 
@@ -249,6 +258,9 @@ async def review_pdf(
             reporting_period=parsed.reporting_period,
             screening=PsurScreeningOut(**parsed.screening.model_dump()) if parsed.screening else None,
             benefit_risk=PsurBenefitRiskOut(**parsed.benefit_risk.model_dump()) if parsed.benefit_risk else None,
+            special_populations=[
+                PsurSpecialPopulationItemOut(**p.model_dump()) for p in parsed.special_populations
+            ],
             uncertainties=[PsurUncertaintyOut(**u.model_dump()) for u in parsed.uncertainties],
             ai_recommendation=(
                 PsurRecommendationOut(**parsed.ai_recommendation.model_dump()) if parsed.ai_recommendation else None

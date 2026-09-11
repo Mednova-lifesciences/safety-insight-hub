@@ -571,8 +571,20 @@ export interface PsurDocument {
    *  narrative to extract from). Every field the AI could not support
    *  from the actual text is marked accordingly, never fabricated. */
   benefitRisk?: PsurBenefitRiskAssessment | undefined;
+  /** Section 9 — one item per fixed special-population/special-situation
+   *  area (see PsurSpecialPopulationArea). Assessor-editable, same
+   *  ownership pattern as `benefitRisk`. */
+  specialPopulations?: PsurSpecialPopulationItem[] | undefined;
   /** Section 11 — one row per identified uncertainty. */
   uncertainties?: PsurUncertainty[] | undefined;
+  /** Explicit assessor confirmation that NO uncertainties apply this
+   *  interval — structurally distinct from an empty/never-touched
+   *  `uncertainties` array, which only means "not yet assessed." The V4
+   *  template requires Section 11 to be addressed either way; an empty
+   *  list must never silently read as "confirmed none." Cleared
+   *  automatically the moment an assessor adds an uncertainty (see
+   *  services/api/psur.ts's updateUncertainties). */
+  uncertaintiesNoneConfirmed?: { by: string; at: string; rationale: string } | undefined;
   /** The AI's non-binding starting point for Section 12 — kept
    *  structurally separate from `regulatoryDecision` (the assessor's own,
    *  actual decision) so an AI suggestion can never be mistaken for, or
@@ -599,10 +611,65 @@ export interface PsurAdministrativeCheck {
   comment: string;
 }
 
+/**
+ * The one authoritative status vocabulary for "how well is this V4
+ * section addressed" — used for the coarse per-section coverage check
+ * AND for every richer sub-item breakdown (Section 9's special-population
+ * areas, derived statuses for Sections 10-13). Deliberately five states,
+ * not a boolean: a section existing (some text was found under it) is a
+ * completely different claim from that content being SUFFICIENT — see
+ * PsurSectionCoverage's own doc comment for why "present" was retired.
+ *   - ADEQUATELY_ADDRESSED: the required content is sufficiently covered.
+ *   - PRESENT_BUT_INCOMPLETE: the section/topic exists and has some
+ *     relevant content, but material required information is missing or
+ *     insufficient — NOT the same as ADEQUATELY_ADDRESSED, and NOT the
+ *     same as MISSING.
+ *   - MISSING: the required section/content is genuinely absent.
+ *   - NOT_APPLICABLE: the requirement genuinely does not apply to this
+ *     product/submission — always paired with an explicit justification
+ *     (see notApplicableJustification); never used as a silent way to
+ *     avoid assessing something.
+ *   - ASSESSOR_PENDING: not yet assessed at all (AI review didn't run for
+ *     this section, or it's a section — like 12/13 — whose completion is
+ *     inherently the assessor's own act, not something the submission
+ *     itself can satisfy). Never conflated with MISSING: MISSING is a
+ *     claim that content is absent; ASSESSOR_PENDING is honestly "unknown
+ *     until a human looks."
+ */
+export type PsurSectionStatus =
+  | "ADEQUATELY_ADDRESSED"
+  | "PRESENT_BUT_INCOMPLETE"
+  | "MISSING"
+  | "NOT_APPLICABLE"
+  | "ASSESSOR_PENDING";
+
+/**
+ * Coarse "how well is this V4 section addressed" check — distinct from
+ * the deep per-field scientific review in `AiPsurReview.findings`, but no
+ * longer independently guessable: build this via
+ * services/psur/section-consistency.ts's buildAuthoritativeSectionCoverage,
+ * which derives Sections 9-13's status from their own richer structured
+ * data (specialPopulations, benefitRisk, uncertainties, regulatoryDecision,
+ * signOff) rather than trusting a second, separate AI judgement that could
+ * silently disagree with the detailed findings — this is the fix for the
+ * "Section 9 = Missing, but no way to see what's missing" inconsistency
+ * class. `status` replaced the old `present: boolean` field (which could
+ * not distinguish "adequately addressed" from "present but incomplete") —
+ * see normalizeSectionCoverage for reading documents stored before this
+ * change.
+ */
 export interface PsurSectionCoverage {
   section: PsurV4SectionId;
-  present: boolean;
+  status: PsurSectionStatus;
   comment: string;
+  /** Required (by convention, not enforced at the type level) whenever
+   *  status is NOT_APPLICABLE — the specific reason this V4 requirement
+   *  genuinely doesn't apply to this product/submission. */
+  notApplicableJustification?: string | undefined;
+  /** Who/what most recently set this section's status — never let an
+   *  AI-asserted or rule-derived status silently read as if an assessor
+   *  personally judged it. */
+  source: "ai" | "rule" | "assessor";
 }
 
 export interface PsurScreeningResult {
@@ -717,6 +784,40 @@ export interface PsurUncertainty {
    *  uncertainty, never a blanket statement. */
   addressedByMah: "YES" | "PARTIALLY" | "NO";
   rationale: string;
+}
+
+/** The 8 areas Section 9 (Special Populations, Special Situations &
+ *  Missing Information) requires — mirrors the sub-items list on
+ *  PSUR_V4_TEMPLATE_SECTIONS's S9 entry and prompts.py's
+ *  PSUR_V4_SECTION_CHECKLIST. Fixed, not free-form: every submission is
+ *  judged against the SAME 8 areas, so a genuinely not-applicable area
+ *  (e.g. a product with no paediatric indication) is recorded as such
+ *  explicitly rather than simply never appearing. */
+export type PsurSpecialPopulationArea =
+  | "PREGNANCY_LACTATION"
+  | "PAEDIATRIC"
+  | "GERIATRIC"
+  | "HEPATIC_IMPAIRMENT"
+  | "RENAL_IMPAIRMENT"
+  | "OVERDOSE_MISUSE_ABUSE_MEDICATION_ERROR"
+  | "OFF_LABEL_USE"
+  | "OTHER_MISSING_INFORMATION";
+
+/** One area's assessment within Section 9. Reusing PsurSectionStatus
+ *  (rather than a bespoke enum) is deliberate: "adequately addressed /
+ *  present but incomplete / missing / not applicable / assessor pending"
+ *  means exactly the same thing at this granularity as it does for a
+ *  whole section — see PsurSectionStatus's doc comment. The overall S9
+ *  section-coverage status is DERIVED from these 8 items (see
+ *  section-consistency.ts's deriveStatusFromItems) rather than judged
+ *  independently, so the coarse coverage view and this detail can never
+ *  silently disagree. */
+export interface PsurSpecialPopulationItem {
+  area: PsurSpecialPopulationArea;
+  status: PsurSectionStatus;
+  comment: string;
+  notApplicableJustification?: string | undefined;
+  source: "ai" | "rule" | "assessor";
 }
 
 export type PsurRiskMinimisationAction =

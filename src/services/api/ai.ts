@@ -92,14 +92,30 @@ export interface AiPsurAdministrativeCheckOut {
 
 export interface AiPsurSectionCoverageOut {
   section: string;
-  present: boolean;
+  status: "ADEQUATELY_ADDRESSED" | "PRESENT_BUT_INCOMPLETE" | "MISSING" | "NOT_APPLICABLE";
   comment: string;
+  not_applicable_justification?: string | null;
 }
 
 export interface AiPsurScreeningOut {
   administrative_checks: AiPsurAdministrativeCheckOut[];
   section_coverage: AiPsurSectionCoverageOut[];
   recommendation: "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST";
+}
+
+export interface AiPsurSpecialPopulationItemOut {
+  area:
+    | "PREGNANCY_LACTATION"
+    | "PAEDIATRIC"
+    | "GERIATRIC"
+    | "HEPATIC_IMPAIRMENT"
+    | "RENAL_IMPAIRMENT"
+    | "OVERDOSE_MISUSE_ABUSE_MEDICATION_ERROR"
+    | "OFF_LABEL_USE"
+    | "OTHER_MISSING_INFORMATION";
+  status: "ADEQUATELY_ADDRESSED" | "PRESENT_BUT_INCOMPLETE" | "MISSING" | "NOT_APPLICABLE";
+  comment: string;
+  not_applicable_justification?: string | null;
 }
 
 export interface AiPsurKeyBenefitOut {
@@ -172,6 +188,8 @@ export interface AiPsurReviewResponse {
   screening?: AiPsurScreeningOut | null;
   /** Section 10 structured sub-tables — PDF review only. */
   benefit_risk?: AiPsurBenefitRiskOut | null;
+  /** Section 9 — one entry per fixed area. PDF review only. */
+  special_populations?: AiPsurSpecialPopulationItemOut[];
   uncertainties?: AiPsurUncertaintyOut[];
   ai_recommendation?: AiPsurRecommendationOut | null;
 }

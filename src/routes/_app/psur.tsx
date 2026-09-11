@@ -43,11 +43,15 @@ import {
   type PsurKeyRisk,
   type PsurOverallBenefitRiskOutcome,
   type PsurRiskMinimisationAction,
+  type PsurSectionStatus,
   type PsurSignOff,
+  type PsurSpecialPopulationArea,
+  type PsurSpecialPopulationItem,
   type PsurUncertainty,
   type PsurUncertaintyCategory,
   type PsurV4SectionId,
 } from "@/types/pv";
+import { buildAuthoritativeSectionCoverage } from "@/services/psur/section-consistency";
 
 export const Route = createFileRoute("/_app/psur")({
   head: () => ({
@@ -150,6 +154,45 @@ const evidenceQualityLabel: Record<PsurEvidenceQuality, string> = {
   NOT_ASSESSABLE: "Not assessable",
 };
 
+const sectionStatusLabel: Record<PsurSectionStatus, string> = {
+  ADEQUATELY_ADDRESSED: "Adequately addressed",
+  PRESENT_BUT_INCOMPLETE: "Present but incomplete",
+  MISSING: "Missing",
+  NOT_APPLICABLE: "Not applicable",
+  ASSESSOR_PENDING: "Not yet assessed",
+};
+
+function sectionStatusTone(status: PsurSectionStatus): Tone {
+  switch (status) {
+    case "ADEQUATELY_ADDRESSED":
+      return "success";
+    case "PRESENT_BUT_INCOMPLETE":
+      return "warning";
+    case "MISSING":
+      return "critical";
+    case "NOT_APPLICABLE":
+      return "neutral";
+    case "ASSESSOR_PENDING":
+    default:
+      return "info";
+  }
+}
+
+const specialPopulationAreaLabel: Record<PsurSpecialPopulationArea, string> = {
+  PREGNANCY_LACTATION: "Pregnancy & lactation",
+  PAEDIATRIC: "Paediatric population",
+  GERIATRIC: "Geriatric population",
+  HEPATIC_IMPAIRMENT: "Hepatic impairment",
+  RENAL_IMPAIRMENT: "Renal impairment",
+  OVERDOSE_MISUSE_ABUSE_MEDICATION_ERROR: "Overdose / misuse / abuse / medication error",
+  OFF_LABEL_USE: "Off-label use",
+  OTHER_MISSING_INFORMATION: "Other missing information",
+};
+
+const SPECIAL_POPULATION_AREAS = Object.keys(
+  specialPopulationAreaLabel,
+) as PsurSpecialPopulationArea[];
+
 function assessmentTone(status: PsurFinding["humanAssessment"]): Tone {
   if (status === "ACCEPTED") return "success";
   if (status === "DISMISSED") return "neutral";
@@ -172,6 +215,8 @@ function PsurPage() {
   const [uploading, setUploading] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [docsPage, setDocsPage] = useState(1);
+  const [dismissingId, setDismissingId] = useState<string | null>(null);
+  const [dismissReason, setDismissReason] = useState("");
 
   return (
     <>
@@ -316,6 +361,7 @@ function PsurPage() {
             <AdministrativeScreeningPanel
               key={`screening-${activeDoc.id}`}
               doc={activeDoc}
+              findings={findings.data?.data ?? []}
               onChanged={() => docs.refetch()}
             />
 
@@ -469,6 +515,13 @@ function PsurPage() {
                                 {f.humanAssessment.toLowerCase()}
                               </StatusPill>
                             ) : null}
+                            {f.suggestedSource?.type === "REQUEST_FROM_MAH" ? (
+                              <StatusPill tone="critical">Needs MAH response</StatusPill>
+                            ) : (
+                              <StatusPill tone="neutral">
+                                Assessor can resolve internally
+                              </StatusPill>
+                            )}
                           </div>
                           <p className="mt-2 text-sm">{f.description}</p>
                           <p className="mt-1 border-l-2 border-border pl-2 text-xs text-muted-foreground">
@@ -481,6 +534,19 @@ function PsurPage() {
                               </span>
                               {" — "}
                               {f.suggestedSource.note}
+                            </p>
+                          ) : null}
+                          {f.humanAssessment === "ACCEPTED" ? (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Accepted as a valid deficiency —{" "}
+                              {f.resolved ? "resolved" : "still outstanding"} until a resolution is
+                              recorded. Accepting a finding does not by itself mean the underlying
+                              deficiency has been fixed.
+                            </p>
+                          ) : null}
+                          {f.humanAssessment === "DISMISSED" && f.rationale ? (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Dismissed by {f.respondedBy ?? "reviewer"}: {f.rationale}
                             </p>
                           ) : null}
                           {f.resolution ? (
@@ -519,28 +585,59 @@ function PsurPage() {
                             <Button
                               size="sm"
                               variant={f.humanAssessment === "DISMISSED" ? "default" : "ghost"}
-                              onClick={async () => {
-                                try {
-                                  await psurApi.recordAssessment(
-                                    activeDoc.id,
-                                    f.id,
-                                    "DISMISSED",
-                                    "Not applicable",
-                                  );
-                                  toast.success("Assessment recorded.");
-                                  findings.refetch();
-                                } catch (err) {
-                                  toast.error(
-                                    isNotConfigured(err)
-                                      ? "Backend not connected — the assessment was not recorded."
-                                      : "Could not record the assessment.",
-                                  );
-                                }
+                              onClick={() => {
+                                setDismissingId(f.id);
+                                setDismissReason("");
                               }}
                             >
                               Dismiss
                             </Button>
                           </div>
+                          {dismissingId === f.id ? (
+                            <div className="mt-3 space-y-2 rounded-md border border-border p-2">
+                              <Textarea
+                                autoFocus
+                                placeholder="Reason for dismissing this finding (required — e.g. 'not applicable to this product', 'already covered under Section 4')"
+                                value={dismissReason}
+                                onChange={(e) => setDismissReason(e.target.value)}
+                                rows={2}
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  disabled={!dismissReason.trim()}
+                                  onClick={async () => {
+                                    try {
+                                      await psurApi.recordAssessment(
+                                        activeDoc.id,
+                                        f.id,
+                                        "DISMISSED",
+                                        dismissReason.trim(),
+                                      );
+                                      toast.success("Assessment recorded.");
+                                      setDismissingId(null);
+                                      findings.refetch();
+                                    } catch (err) {
+                                      toast.error(
+                                        isNotConfigured(err)
+                                          ? "Backend not connected — the assessment was not recorded."
+                                          : "Could not record the assessment.",
+                                      );
+                                    }
+                                  }}
+                                >
+                                  Confirm dismissal
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setDismissingId(null)}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
@@ -548,6 +645,14 @@ function PsurPage() {
                 }
               </QueryBoundary>
             </Section>
+
+            {activeDoc.sourceType !== "SPREADSHEET" ? (
+              <SpecialPopulationsPanel
+                key={`special-populations-${activeDoc.id}`}
+                doc={activeDoc}
+                onChanged={() => docs.refetch()}
+              />
+            ) : null}
 
             {activeDoc.sourceType !== "SPREADSHEET" ? (
               <BenefitRiskPanel
@@ -587,9 +692,11 @@ function PsurPage() {
  *  whether to proceed — the AI's recommendation never governs on its own. */
 function AdministrativeScreeningPanel({
   doc,
+  findings,
   onChanged,
 }: {
   doc: PsurDocument;
+  findings: PsurFinding[];
   onChanged: () => void;
 }) {
   const [rationale, setRationale] = useState("");
@@ -597,6 +704,19 @@ function AdministrativeScreeningPanel({
   const screening = doc.screening;
 
   if (!screening) return null;
+
+  // The ONE authoritative view — folds in Sections 9-13's own richer
+  // data instead of trusting a second, independent AI guess for them.
+  // Every other panel on this page, plus the executive summary and
+  // compliance directive, reads through this exact same function.
+  const coverage = buildAuthoritativeSectionCoverage(doc);
+  const findingsBySection = new Map<PsurV4SectionId, PsurFinding[]>();
+  for (const f of findings) {
+    if (!f.v4Section) continue;
+    const list = findingsBySection.get(f.v4Section) ?? [];
+    list.push(f);
+    findingsBySection.set(f.v4Section, list);
+  }
 
   const override = screening.humanOverride;
 
@@ -637,21 +757,60 @@ function AdministrativeScreeningPanel({
           ))}
         </ul>
 
-        <details className="rounded-md border border-border p-2 text-sm">
+        <details className="rounded-md border border-border p-2 text-sm" open>
           <summary className="cursor-pointer font-medium">
-            Section coverage ({screening.sectionCoverage.filter((s) => s.present).length}/
-            {PSUR_V4_TEMPLATE_SECTIONS.length} sections addressed)
+            Section coverage (
+            {
+              coverage.filter(
+                (s) => s.status === "ADEQUATELY_ADDRESSED" || s.status === "NOT_APPLICABLE",
+              ).length
+            }
+            /{PSUR_V4_TEMPLATE_SECTIONS.length} sections resolved)
           </summary>
-          <ul className="mt-2 space-y-1">
-            {screening.sectionCoverage.map((s) => (
-              <li key={s.section} className="flex flex-wrap items-center gap-2 text-xs">
-                <StatusPill tone={s.present ? "success" : "warning"}>
-                  {s.present ? "present" : "absent"}
-                </StatusPill>
-                <span>{v4SectionLabel.get(s.section) ?? s.section}</span>
-                <span className="text-muted-foreground">— {s.comment}</span>
-              </li>
-            ))}
+          <ul className="mt-2 space-y-1.5">
+            {coverage.map((s) => {
+              const related = findingsBySection.get(s.section) ?? [];
+              return (
+                <li
+                  key={s.section}
+                  className="rounded-md border border-border/60 px-2 py-1.5 text-xs"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill tone={sectionStatusTone(s.status)}>
+                      {sectionStatusLabel[s.status]}
+                    </StatusPill>
+                    <span className="font-medium">
+                      {v4SectionLabel.get(s.section) ?? s.section}
+                    </span>
+                    <StatusPill tone={s.source === "assessor" ? "success" : "assist"}>
+                      {s.source === "assessor" ? "assessor" : s.source === "rule" ? "rule" : "AI"}
+                    </StatusPill>
+                  </div>
+                  <p className="mt-1 text-muted-foreground">{s.comment}</p>
+                  {s.notApplicableJustification ? (
+                    <p className="mt-1 text-muted-foreground">
+                      <span className="font-medium">Justification: </span>
+                      {s.notApplicableJustification}
+                    </p>
+                  ) : null}
+                  {(s.status === "MISSING" || s.status === "PRESENT_BUT_INCOMPLETE") && (
+                    <p className="mt-1">
+                      {related.length > 0 ? (
+                        <span className="text-foreground">
+                          → {related.length} related finding{related.length === 1 ? "" : "s"} below:{" "}
+                          <span className="text-muted-foreground">{related[0]!.description}</span>
+                        </span>
+                      ) : (
+                        <span className="text-critical">
+                          → No corresponding finding yet — this should not happen; see Review
+                          Findings below.
+                        </span>
+                      )}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </details>
 
@@ -701,6 +860,124 @@ function AdministrativeScreeningPanel({
             </div>
           </div>
         )}
+      </div>
+    </Section>
+  );
+}
+
+function newSpecialPopulationItems(): PsurSpecialPopulationItem[] {
+  return SPECIAL_POPULATION_AREAS.map((area) => ({
+    area,
+    status: "ASSESSOR_PENDING",
+    comment: "",
+    source: "assessor",
+  }));
+}
+
+/** Section 9 — Special Populations, Special Situations & Missing
+ *  Information. Fixed set of 8 areas (never free-add/remove, since the
+ *  template requires every submission to be judged against the SAME
+ *  areas) — displays the AI's best-effort per-area assessment and lets
+ *  the assessor correct it or explicitly mark an area NOT_APPLICABLE with
+ *  a justification. The coarse S9 section-coverage status shown in
+ *  Administrative Completeness is DERIVED from these 8 items, so editing
+ *  here is what actually moves that status. */
+function SpecialPopulationsPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+  const [items, setItems] = useState<PsurSpecialPopulationItem[]>(
+    doc.specialPopulations && doc.specialPopulations.length > 0
+      ? doc.specialPopulations
+      : newSpecialPopulationItems(),
+  );
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await psurApi.updateSpecialPopulations(doc.id, items);
+      toast.success("Special populations assessment saved.");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section
+      title="9. Special Populations, Special Situations & Missing Information"
+      description="Every area must be either adequately addressed, present but incomplete, missing, or explicitly marked not applicable with a justification — never left ambiguous."
+      actions={
+        <Button size="sm" disabled={saving} onClick={save}>
+          {saving ? "Saving…" : "Save special populations"}
+        </Button>
+      }
+    >
+      <div className="space-y-2">
+        {items.map((item, i) => (
+          <div key={item.area} className="space-y-2 rounded-md border border-border p-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="min-w-56 text-sm font-medium">
+                {specialPopulationAreaLabel[item.area]}
+              </span>
+              <Select
+                value={item.status}
+                onValueChange={(v) =>
+                  setItems((prev) =>
+                    prev.map((x, j) =>
+                      j === i ? { ...x, status: v as PsurSectionStatus, source: "assessor" } : x,
+                    ),
+                  )
+                }
+              >
+                <SelectTrigger className="w-64">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(sectionStatusLabel) as PsurSectionStatus[])
+                    .filter((s) => s !== "ASSESSOR_PENDING")
+                    .map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {sectionStatusLabel[s]}
+                      </SelectItem>
+                    ))}
+                  <SelectItem value="ASSESSOR_PENDING">Not yet assessed</SelectItem>
+                </SelectContent>
+              </Select>
+              <StatusPill tone={item.source === "assessor" ? "success" : "assist"}>
+                {item.source === "assessor" ? "assessor" : item.source === "rule" ? "rule" : "AI"}
+              </StatusPill>
+            </div>
+            <Textarea
+              placeholder="Comment — what the submission says (or doesn't say) about this area"
+              value={item.comment}
+              rows={2}
+              onChange={(e) =>
+                setItems((prev) =>
+                  prev.map((x, j) =>
+                    j === i ? { ...x, comment: e.target.value, source: "assessor" } : x,
+                  ),
+                )
+              }
+            />
+            {item.status === "NOT_APPLICABLE" ? (
+              <Textarea
+                placeholder="Justification (required) — why this area genuinely does not apply"
+                value={item.notApplicableJustification ?? ""}
+                rows={2}
+                onChange={(e) =>
+                  setItems((prev) =>
+                    prev.map((x, j) =>
+                      j === i
+                        ? { ...x, notApplicableJustification: e.target.value, source: "assessor" }
+                        : x,
+                    ),
+                  )
+                }
+              />
+            ) : null}
+          </div>
+        ))}
       </div>
     </Section>
   );
@@ -1221,12 +1498,17 @@ function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: ()
 function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
   const [items, setItems] = useState<PsurUncertainty[]>(doc.uncertainties ?? []);
   const [saving, setSaving] = useState(false);
+  const noneConfirmed = doc.uncertaintiesNoneConfirmed;
 
-  async function save() {
+  async function save(confirmNoneApply = false) {
     setSaving(true);
     try {
-      await psurApi.updateUncertainties(doc.id, items);
-      toast.success("Uncertainties saved.");
+      await psurApi.updateUncertainties(doc.id, items, confirmNoneApply);
+      toast.success(
+        confirmNoneApply
+          ? "Confirmed: no uncertainties apply this interval."
+          : "Uncertainties saved.",
+      );
       onChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save.");
@@ -1240,16 +1522,27 @@ function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: 
       title="11. Uncertainties Affecting the Benefit-Risk Assessment"
       description="This section must not be left blank — if genuinely none apply this interval, say so explicitly rather than leaving it empty."
       actions={
-        <Button size="sm" disabled={saving} onClick={save}>
+        <Button size="sm" disabled={saving} onClick={() => save(false)}>
           {saving ? "Saving…" : "Save uncertainties"}
         </Button>
       }
     >
       <div className="space-y-2">
-        {items.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            No uncertainties recorded — add one, or state none apply this interval.
+        {items.length === 0 && noneConfirmed ? (
+          <p className="rounded-md border border-success/30 bg-success-soft px-2 py-1.5 text-xs">
+            <span className="font-medium">Confirmed: no uncertainties apply this interval</span> —{" "}
+            {noneConfirmed.by}, {noneConfirmed.at.slice(0, 16).replace("T", " ")} UTC.
           </p>
+        ) : items.length === 0 ? (
+          <div className="space-y-2 rounded-md border border-warning/30 bg-warning-soft px-2 py-1.5 text-xs">
+            <p>
+              Section 11 is still outstanding — an empty list is not the same as "none apply." Add
+              an uncertainty, or explicitly confirm none apply this interval.
+            </p>
+            <Button size="sm" variant="outline" disabled={saving} onClick={() => save(true)}>
+              Confirm no uncertainties apply this interval
+            </Button>
+          </div>
         ) : null}
         {items.map((u, i) => (
           <div key={u.id} className="space-y-2 rounded-md border border-border p-2">
