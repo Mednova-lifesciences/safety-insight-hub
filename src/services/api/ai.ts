@@ -183,6 +183,10 @@ export interface AiPsurReviewResponse {
    *  text itself — PDF review only; null when not confidently determined. */
   product?: string | null;
   reporting_period?: string | null;
+  /** Marketing Authorisation Holder — same best-effort, PDF-only
+   *  extraction as product/reporting_period; null when not confidently
+   *  determined, never guessed. */
+  mah?: string | null;
   /** Administrative Completeness Check — undefined only for responses
    *  from before this existed, or when ai_used is false. */
   screening?: AiPsurScreeningOut | null;

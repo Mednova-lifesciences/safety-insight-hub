@@ -632,6 +632,11 @@ class AiPsurReview(BaseModel):
     # confidently identify either from the (possibly truncated) text.
     product: Optional[str] = None
     reporting_period: Optional[str] = None
+    # Marketing Authorisation Holder — Section 1 requires it, extracted the
+    # same best-effort way as product/reporting_period. None when the text
+    # doesn't state it confidently; never guessed from the product name or
+    # any other inference.
+    mah: Optional[str] = None
     # Administrative Completeness Check — runs as part of the same call
     # for a PDF (screening + scientific review share the same extracted
     # text, so one call is more coherent than two that could disagree).

@@ -193,6 +193,7 @@ class ReviewResponse(BaseModel):
     error: Optional[str] = None
     product: Optional[str] = None
     reporting_period: Optional[str] = None
+    mah: Optional[str] = None
     screening: Optional[PsurScreeningOut] = None
     benefit_risk: Optional[PsurBenefitRiskOut] = None
     special_populations: list[PsurSpecialPopulationItemOut] = []
@@ -256,6 +257,7 @@ async def review_pdf(
             model=completion.model,
             product=parsed.product,
             reporting_period=parsed.reporting_period,
+            mah=parsed.mah,
             screening=PsurScreeningOut(**parsed.screening.model_dump()) if parsed.screening else None,
             benefit_risk=PsurBenefitRiskOut(**parsed.benefit_risk.model_dump()) if parsed.benefit_risk else None,
             special_populations=[

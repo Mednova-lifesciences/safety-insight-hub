@@ -50,6 +50,13 @@ import {
   buildAuthoritativeSectionCoverage,
   reconcileSectionFindings,
 } from "@/services/psur/section-consistency";
+import {
+  buildComplianceDirectiveModel,
+  buildExecutiveSummaryModel,
+  SUGGESTED_SOURCE_LABEL,
+  type ComplianceDirectiveModel,
+  type ExecutiveSummaryModel,
+} from "@/services/psur/document-model";
 
 /** Findings are review assistance only — the regulatory assessment is
  *  always recorded by a human reviewer (see AssistLabel in psur.tsx). */
@@ -504,6 +511,534 @@ async function persistFindings(documentId: string, findings: PsurFinding[]): Pro
   if (error) throw new Error(error.message);
 }
 
+// ---------------------------------------------------------------------
+// Document generation (Executive Summary / Compliance Directive). Both
+// render from the SAME pure model (services/psur/document-model.ts),
+// built from the SAME authoritative saved state (buildAuthoritativeSectionCoverage,
+// the real findings list, the assessor's own Section 9-13 records) every
+// other part of this file and the assessment page read — never a second,
+// independent interpretation invented at export time.
+// ---------------------------------------------------------------------
+
+function docBaseName(doc: PsurDocument): string {
+  return doc.filename.replace(/\.[^.]+$/, "");
+}
+
+async function downloadBlob(blob: Blob, filename: string): Promise<void> {
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+const DOC_DISCLAIMER =
+  "System-generated draft for assessor review. This is NOT an official NAFDAC-issued document unless separately approved and issued through NAFDAC's formal process.";
+
+function renderExecutiveSummaryText(m: ExecutiveSummaryModel): string {
+  const lines: string[] = [];
+  const rule = "-".repeat(60);
+  lines.push("PSUR/PBRER EXECUTIVE SUMMARY (INTERNAL / ASSESSOR-FACING)");
+  lines.push("=".repeat(60));
+  lines.push(DOC_DISCLAIMER);
+  lines.push("");
+  lines.push(`Document: ${m.meta.filename}`);
+  lines.push(`Internal reference: ${m.meta.documentId}`);
+  lines.push(`Product: ${m.meta.product}`);
+  lines.push(`Marketing Authorisation Holder (MAH): ${m.meta.mah}`);
+  lines.push(`Reporting period: ${m.meta.reportingPeriod}`);
+  lines.push(`Uploaded by: ${m.meta.uploadedBy} on ${m.meta.uploadedAtLabel}`);
+  lines.push(`Assessment status: ${m.meta.stage}`);
+  lines.push(`Generated: ${m.meta.generatedAtLabel}`);
+  lines.push("");
+
+  lines.push("ADMINISTRATIVE COMPLETENESS CHECK");
+  lines.push(rule);
+  if (m.administrative) {
+    lines.push(`AI recommendation: ${m.administrative.aiRecommendation}`);
+    lines.push(
+      m.administrative.assessorDecision
+        ? `Assessor decision: ${m.administrative.assessorDecision.decision} (${m.administrative.assessorDecision.by}, ${fmtDateLocal(m.administrative.assessorDecision.at)}) — ${m.administrative.assessorDecision.rationale}`
+        : "Assessor decision: not yet recorded.",
+    );
+    for (const c of m.administrative.checks) {
+      lines.push(`  [${c.status}] ${c.label} — ${c.comment}`);
+    }
+  } else {
+    lines.push("Not yet run for this document.");
+  }
+  lines.push("");
+
+  lines.push("SECTION COVERAGE (authoritative — matches the assessment page)");
+  lines.push(rule);
+  for (const c of m.sectionCoverage) {
+    const name = PSUR_V4_TEMPLATE_SECTIONS.find((s) => s.id === c.section)?.name ?? c.section;
+    lines.push(
+      `[${c.status}] ${name}${c.notApplicableJustification ? ` — N/A: ${c.notApplicableJustification}` : ""}`,
+    );
+  }
+  lines.push("");
+
+  lines.push("FINDINGS OVERVIEW");
+  lines.push(rule);
+  lines.push(`Total findings detected: ${m.findings.total}`);
+  lines.push(
+    `Accepted: ${m.findings.accepted} (HIGH ${m.findings.acceptedBySeverity.HIGH} / MEDIUM ${m.findings.acceptedBySeverity.MEDIUM} / LOW ${m.findings.acceptedBySeverity.LOW})`,
+  );
+  lines.push(`  Requiring MAH action: ${m.findings.mahActionCount}`);
+  lines.push(`  Assessor-internal: ${m.findings.assessorInternalCount}`);
+  lines.push(`  Resolved: ${m.findings.resolvedCount}`);
+  lines.push(`  Still outstanding: ${m.findings.outstandingCount}`);
+  lines.push(`Dismissed: ${m.findings.dismissed}`);
+  lines.push(`Still pending review: ${m.findings.pending}`);
+  lines.push("");
+
+  lines.push("ACCEPTED FINDINGS (detail)");
+  lines.push(rule);
+  if (m.findings.acceptedFindings.length === 0) {
+    lines.push("No findings have been accepted yet.");
+  }
+  for (const f of m.findings.acceptedFindings) {
+    const mahTag =
+      f.suggestedSource?.type === "REQUEST_FROM_MAH" ? "MAH action needed" : "assessor-internal";
+    lines.push(
+      `  [${f.severity}] ${f.section} — ${mahTag} — ${f.resolved ? "RESOLVED" : "OUTSTANDING"}`,
+    );
+    lines.push(`    ${f.description}`);
+    lines.push(`    Evidence: ${f.evidence}`);
+    if (f.rationale) lines.push(`    Reviewer rationale: ${f.rationale}`);
+    if (f.resolved && f.resolution) lines.push(`    Resolution: ${f.resolution}`);
+  }
+  lines.push("");
+
+  lines.push("SECTION 10 — BENEFIT-RISK ASSESSMENT");
+  lines.push(rule);
+  if (m.benefitRisk.recorded && m.benefitRisk.data) {
+    const b = m.benefitRisk.data;
+    lines.push(
+      `Status: ${m.benefitRisk.assessorOwned ? "reviewed/edited by assessor" : "AI draft, not yet reviewed by assessor"}`,
+    );
+    lines.push(`Key benefits recorded: ${b.keyBenefits.length}`);
+    lines.push(
+      `Key risks recorded: ${b.keyRisks.length} (${b.keyRisks.filter((k) => k.kind === "IDENTIFIED").length} identified / ${b.keyRisks.filter((k) => k.kind === "POTENTIAL").length} potential)`,
+    );
+    lines.push(`Missing-information items: ${b.missingInformation.length}`);
+    lines.push(
+      `Risk minimisation effectiveness: ${b.riskMinimisationEffectiveness.outcome}${b.riskMinimisationEffectiveness.comment ? ` — ${b.riskMinimisationEffectiveness.comment}` : ""}`,
+    );
+  } else {
+    lines.push("Not yet recorded.");
+  }
+  lines.push("");
+
+  lines.push("SECTION 11 — UNCERTAINTIES AFFECTING THE BENEFIT-RISK ASSESSMENT");
+  lines.push(rule);
+  if (m.uncertainties.status === "CONFIRMED_NONE" && m.uncertainties.noneConfirmed) {
+    lines.push(
+      `Assessor confirmed no uncertainties apply this interval (${m.uncertainties.noneConfirmed.by}, ${fmtDateLocal(m.uncertainties.noneConfirmed.at)}).`,
+    );
+  } else if (m.uncertainties.status === "RECORDED") {
+    for (const u of m.uncertainties.items) {
+      lines.push(
+        `  ${u.category.replaceAll("_", " ")} — impact: ${u.impactOnConclusion}, addressed by MAH: ${u.addressedByMah}`,
+      );
+      lines.push(`    ${u.description}`);
+    }
+  } else {
+    lines.push("Not yet recorded — Section 11 is still outstanding.");
+  }
+  lines.push("");
+
+  lines.push("SECTION 12 — REGULATORY DECISION & RECOMMENDED ACTIONS");
+  lines.push(rule);
+  if (m.regulatoryDecision) {
+    lines.push("Assessor's own decision (never AI-decided):");
+    lines.push(`  Overall outcome: ${m.regulatoryDecision.overallOutcome ?? "not set"}`);
+    lines.push(`  Actions: ${m.regulatoryDecision.actions.join(", ") || "none recorded"}`);
+    lines.push(`  Basis: ${m.regulatoryDecision.basis}`);
+    lines.push(
+      `  Decided by: ${m.regulatoryDecision.decidedBy} on ${fmtDateLocal(m.regulatoryDecision.decidedAt)}`,
+    );
+  } else {
+    lines.push("Not yet recorded by the assessor.");
+    if (m.aiRecommendation) {
+      lines.push(
+        `  AI SUGGESTION ONLY (non-binding, not a decision): ${m.aiRecommendation.overallOutcome ?? "no outcome suggested"}${m.aiRecommendation.actions.length ? ` — ${m.aiRecommendation.actions.join(", ")}` : ""}`,
+      );
+      if (m.aiRecommendation.basis) lines.push(`  Basis: ${m.aiRecommendation.basis}`);
+    }
+  }
+  lines.push("");
+
+  lines.push("SECTION 13 — CONCLUSION, SIGN-OFF & DOCUMENT CONTROL");
+  lines.push(rule);
+  if (m.signOff) {
+    lines.push(`Conclusion: ${m.signOff.conclusion}`);
+    lines.push(`Reviewer confidence: ${m.signOff.reviewerConfidence ?? "not set"}`);
+    if (m.signOff.references) lines.push(`References: ${m.signOff.references}`);
+    lines.push(
+      `Evaluator: ${m.signOff.evaluatorName ?? "not yet signed"}${m.signOff.evaluatorSignedAt ? ` (${fmtDateLocal(m.signOff.evaluatorSignedAt)})` : ""}`,
+    );
+    lines.push(
+      `Peer reviewer: ${m.signOff.peerReviewerName ?? "not yet signed"}${m.signOff.peerReviewedAt ? ` (${fmtDateLocal(m.signOff.peerReviewedAt)})` : ""}`,
+    );
+  } else {
+    lines.push("Not yet recorded — Section 13 is still outstanding.");
+  }
+
+  return lines.join("\n");
+}
+
+function fmtDateLocal(iso: string): string {
+  return iso.slice(0, 16).replace("T", " ") + " UTC";
+}
+
+function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
+  const lines: string[] = [];
+  const rule = "-".repeat(60);
+  lines.push("PSUR/PBRER COMPLIANCE DIRECTIVE (DRAFT)");
+  lines.push("=".repeat(60));
+  lines.push(DOC_DISCLAIMER);
+  lines.push("");
+  lines.push(`Product: ${m.meta.product}`);
+  lines.push(`Marketing Authorisation Holder (MAH): ${m.meta.mah}`);
+  lines.push(`Reporting period: ${m.meta.reportingPeriod}`);
+  lines.push(`Document reference: ${m.meta.filename} (internal ref: ${m.meta.documentId})`);
+  lines.push(`Date generated: ${m.meta.generatedAtLabel}`);
+  lines.push("");
+  lines.push("INTRODUCTION");
+  lines.push(rule);
+  lines.push(m.introduction);
+  lines.push("");
+  lines.push(`DEFICIENCIES REQUIRING MAH ACTION (${m.deficiencies.length})`);
+  lines.push(rule);
+  if (m.deficiencies.length === 0) {
+    lines.push("No outstanding MAH-facing deficiencies at this time.");
+  }
+  for (const d of m.deficiencies) {
+    lines.push(
+      `${d.referenceNo} — ${d.v4SectionLabel} [${d.severity}]${d.deficiencyType ? ` (${d.deficiencyType})` : ""}`,
+    );
+    lines.push(`  What was identified: ${d.whatWasIdentified}`);
+    lines.push(`  Why this matters: ${d.whyMaterial}`);
+    lines.push(`  Required action: ${d.requiredAction}`);
+    if (d.assessorObservation) lines.push(`  Assessor observation: ${d.assessorObservation}`);
+    if (d.suggestedSource)
+      lines.push(`  Suggested source: ${d.suggestedSource.label} — ${d.suggestedSource.note}`);
+    lines.push(`  Status: ${d.status}`);
+    lines.push("");
+  }
+  if (m.regulatoryContext) {
+    lines.push("REGULATORY CONTEXT");
+    lines.push(rule);
+    lines.push(`Overall benefit-risk outcome: ${m.regulatoryContext.overallOutcome}`);
+    lines.push(`Actions requested of the MAH: ${m.regulatoryContext.mahFacingActions.join(", ")}`);
+    lines.push(`Basis: ${m.regulatoryContext.basis}`);
+    lines.push(
+      `Decided by: ${m.regulatoryContext.decidedBy} on ${m.regulatoryContext.decidedAtLabel}`,
+    );
+    lines.push("");
+  }
+  lines.push(
+    `Note: ${m.resolvedCount} previously-identified deficiency/deficiencies already resolved and ${m.dismissedCount} finding(s) dismissed as not applicable are not repeated above.`,
+  );
+  return lines.join("\n");
+}
+
+function docxHeading(
+  text: string,
+  level: (typeof HeadingLevel)[keyof typeof HeadingLevel] = HeadingLevel.HEADING_1,
+): Paragraph {
+  return new Paragraph({ text, heading: level });
+}
+
+function docxLabelValue(label: string, value: string): Paragraph {
+  return new Paragraph({
+    children: [new TextRun({ text: `${label}: `, bold: true }), new TextRun({ text: value })],
+  });
+}
+
+function buildExecutiveSummaryDocx(m: ExecutiveSummaryModel): Document {
+  const children: (Paragraph | Table)[] = [
+    new Paragraph({ text: "PSUR/PBRER Executive Summary", heading: HeadingLevel.TITLE }),
+    new Paragraph({ children: [new TextRun({ text: DOC_DISCLAIMER, italics: true })] }),
+    new Paragraph({ text: "" }),
+    docxLabelValue("Document", m.meta.filename),
+    docxLabelValue("Product", m.meta.product),
+    docxLabelValue("Marketing Authorisation Holder (MAH)", m.meta.mah),
+    docxLabelValue("Reporting period", m.meta.reportingPeriod),
+    docxLabelValue("Uploaded by", `${m.meta.uploadedBy} on ${m.meta.uploadedAtLabel}`),
+    docxLabelValue("Assessment status", m.meta.stage),
+    docxLabelValue("Generated", m.meta.generatedAtLabel),
+    new Paragraph({ text: "" }),
+
+    docxHeading("Administrative Completeness Check"),
+    ...(m.administrative
+      ? [
+          docxLabelValue("AI recommendation", m.administrative.aiRecommendation),
+          docxLabelValue(
+            "Assessor decision",
+            m.administrative.assessorDecision
+              ? `${m.administrative.assessorDecision.decision} (${m.administrative.assessorDecision.by}, ${fmtDateLocal(m.administrative.assessorDecision.at)}) — ${m.administrative.assessorDecision.rationale}`
+              : "not yet recorded",
+          ),
+          ...m.administrative.checks.map(
+            (c) => new Paragraph({ text: `[${c.status}] ${c.label} — ${c.comment}` }),
+          ),
+        ]
+      : [new Paragraph({ text: "Not yet run for this document." })]),
+    new Paragraph({ text: "" }),
+
+    docxHeading("Section Coverage"),
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Authoritative — matches the assessment page.", italics: true }),
+      ],
+    }),
+    ...m.sectionCoverage.map((c) => {
+      const name = PSUR_V4_TEMPLATE_SECTIONS.find((s) => s.id === c.section)?.name ?? c.section;
+      return new Paragraph({
+        text: `[${c.status}] ${name}${c.notApplicableJustification ? ` — N/A: ${c.notApplicableJustification}` : ""}`,
+      });
+    }),
+    new Paragraph({ text: "" }),
+
+    docxHeading("Findings Overview"),
+    new Paragraph({ text: `Total findings detected: ${m.findings.total}` }),
+    new Paragraph({
+      text: `Accepted: ${m.findings.accepted} (HIGH ${m.findings.acceptedBySeverity.HIGH} / MEDIUM ${m.findings.acceptedBySeverity.MEDIUM} / LOW ${m.findings.acceptedBySeverity.LOW})`,
+    }),
+    new Paragraph({ text: `  Requiring MAH action: ${m.findings.mahActionCount}` }),
+    new Paragraph({ text: `  Assessor-internal: ${m.findings.assessorInternalCount}` }),
+    new Paragraph({ text: `  Resolved: ${m.findings.resolvedCount}` }),
+    new Paragraph({ text: `  Still outstanding: ${m.findings.outstandingCount}` }),
+    new Paragraph({ text: `Dismissed: ${m.findings.dismissed}` }),
+    new Paragraph({ text: `Still pending review: ${m.findings.pending}` }),
+    new Paragraph({ text: "" }),
+
+    docxHeading("Accepted Findings (detail)"),
+    ...(m.findings.acceptedFindings.length === 0
+      ? [new Paragraph({ text: "No findings have been accepted yet." })]
+      : m.findings.acceptedFindings.flatMap((f) => {
+          const mahTag =
+            f.suggestedSource?.type === "REQUEST_FROM_MAH"
+              ? "MAH action needed"
+              : "assessor-internal";
+          return [
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: `[${f.severity}] ${f.section} — ${mahTag} — ${f.resolved ? "RESOLVED" : "OUTSTANDING"}`,
+                  bold: true,
+                }),
+              ],
+            }),
+            new Paragraph({ text: f.description }),
+            new Paragraph({
+              children: [new TextRun({ text: `Evidence: ${f.evidence}`, italics: true })],
+            }),
+            ...(f.rationale ? [new Paragraph({ text: `Reviewer rationale: ${f.rationale}` })] : []),
+            ...(f.resolved && f.resolution
+              ? [new Paragraph({ text: `Resolution: ${f.resolution}` })]
+              : []),
+            new Paragraph({ text: "" }),
+          ];
+        })),
+
+    docxHeading("10. Benefit-Risk Assessment"),
+    ...(m.benefitRisk.recorded && m.benefitRisk.data
+      ? [
+          new Paragraph({
+            text: `Status: ${m.benefitRisk.assessorOwned ? "reviewed/edited by assessor" : "AI draft, not yet reviewed by assessor"}`,
+          }),
+          new Paragraph({
+            text: `Key benefits recorded: ${m.benefitRisk.data.keyBenefits.length}`,
+          }),
+          new Paragraph({ text: `Key risks recorded: ${m.benefitRisk.data.keyRisks.length}` }),
+          new Paragraph({
+            text: `Missing-information items: ${m.benefitRisk.data.missingInformation.length}`,
+          }),
+          new Paragraph({
+            text: `Risk minimisation effectiveness: ${m.benefitRisk.data.riskMinimisationEffectiveness.outcome}`,
+          }),
+        ]
+      : [new Paragraph({ text: "Not yet recorded." })]),
+    new Paragraph({ text: "" }),
+
+    docxHeading("11. Uncertainties Affecting the Benefit-Risk Assessment"),
+    ...(m.uncertainties.status === "CONFIRMED_NONE" && m.uncertainties.noneConfirmed
+      ? [
+          new Paragraph({
+            text: `Assessor confirmed no uncertainties apply this interval (${m.uncertainties.noneConfirmed.by}, ${fmtDateLocal(m.uncertainties.noneConfirmed.at)}).`,
+          }),
+        ]
+      : m.uncertainties.status === "RECORDED"
+        ? m.uncertainties.items.map(
+            (u) =>
+              new Paragraph({
+                text: `${u.category.replaceAll("_", " ")} — impact: ${u.impactOnConclusion}, addressed by MAH: ${u.addressedByMah} — ${u.description}`,
+              }),
+          )
+        : [new Paragraph({ text: "Not yet recorded — Section 11 is still outstanding." })]),
+    new Paragraph({ text: "" }),
+
+    docxHeading("12. Regulatory Decision & Recommended Actions"),
+    ...(m.regulatoryDecision
+      ? [
+          new Paragraph({
+            children: [
+              new TextRun({ text: "Assessor's own decision (never AI-decided):", bold: true }),
+            ],
+          }),
+          new Paragraph({
+            text: `Overall outcome: ${m.regulatoryDecision.overallOutcome ?? "not set"}`,
+          }),
+          new Paragraph({
+            text: `Actions: ${m.regulatoryDecision.actions.join(", ") || "none recorded"}`,
+          }),
+          new Paragraph({ text: `Basis: ${m.regulatoryDecision.basis}` }),
+          new Paragraph({
+            text: `Decided by: ${m.regulatoryDecision.decidedBy} on ${fmtDateLocal(m.regulatoryDecision.decidedAt)}`,
+          }),
+        ]
+      : [
+          new Paragraph({ text: "Not yet recorded by the assessor." }),
+          ...(m.aiRecommendation
+            ? [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: `AI suggestion only (non-binding, not a decision): ${m.aiRecommendation.overallOutcome ?? "no outcome suggested"}`,
+                      italics: true,
+                    }),
+                  ],
+                }),
+              ]
+            : []),
+        ]),
+    new Paragraph({ text: "" }),
+
+    docxHeading("13. Conclusion, Sign-off & Document Control"),
+    ...(m.signOff
+      ? [
+          new Paragraph({ text: `Conclusion: ${m.signOff.conclusion}` }),
+          new Paragraph({
+            text: `Reviewer confidence: ${m.signOff.reviewerConfidence ?? "not set"}`,
+          }),
+          new Paragraph({
+            text: `Evaluator: ${m.signOff.evaluatorName ?? "not yet signed"}`,
+          }),
+          new Paragraph({
+            text: `Peer reviewer: ${m.signOff.peerReviewerName ?? "not yet signed"}`,
+          }),
+        ]
+      : [new Paragraph({ text: "Not yet recorded — Section 13 is still outstanding." })]),
+  ];
+
+  return new Document({ sections: [{ properties: {}, children }] });
+}
+
+function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
+  const headerCell = (text: string) =>
+    new TableCell({ children: [new Paragraph({ children: [new TextRun({ text, bold: true })] })] });
+  const cell = (text: string) => new TableCell({ children: [new Paragraph(text)] });
+
+  const table =
+    m.deficiencies.length > 0
+      ? new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              tableHeader: true,
+              children: [
+                headerCell("Ref."),
+                headerCell("V4 Section"),
+                headerCell("Severity"),
+                headerCell("What was identified / why it matters"),
+                headerCell("Required action"),
+                headerCell("Status"),
+              ],
+            }),
+            ...m.deficiencies.map(
+              (d) =>
+                new TableRow({
+                  children: [
+                    cell(d.referenceNo),
+                    cell(d.v4SectionLabel),
+                    cell(d.severity),
+                    cell(`${d.whatWasIdentified}\n\nEvidence: ${d.whyMaterial}`),
+                    cell(
+                      d.requiredAction +
+                        (d.suggestedSource
+                          ? `\n\nSuggested source: ${d.suggestedSource.label} — ${d.suggestedSource.note}`
+                          : "") +
+                        (d.assessorObservation
+                          ? `\n\nAssessor observation: ${d.assessorObservation}`
+                          : ""),
+                    ),
+                    cell(d.status),
+                  ],
+                }),
+            ),
+          ],
+        })
+      : new Paragraph({ text: "No outstanding MAH-facing deficiencies at this time." });
+
+  const children: (Paragraph | Table)[] = [
+    new Paragraph({ text: "PSUR/PBRER Compliance Directive", heading: HeadingLevel.TITLE }),
+    new Paragraph({ children: [new TextRun({ text: DOC_DISCLAIMER, italics: true })] }),
+    new Paragraph({ text: "" }),
+    docxLabelValue("Product", m.meta.product),
+    docxLabelValue("Marketing Authorisation Holder (MAH)", m.meta.mah),
+    docxLabelValue("Reporting period", m.meta.reportingPeriod),
+    docxLabelValue("Document reference", `${m.meta.filename} (internal ref: ${m.meta.documentId})`),
+    docxLabelValue("Date generated", m.meta.generatedAtLabel),
+    new Paragraph({ text: "" }),
+    docxHeading("Introduction"),
+    new Paragraph({ text: m.introduction }),
+    new Paragraph({ text: "" }),
+    docxHeading(`Deficiencies Requiring MAH Action (${m.deficiencies.length})`),
+    table,
+    new Paragraph({ text: "" }),
+  ];
+
+  if (m.regulatoryContext) {
+    children.push(
+      docxHeading("Regulatory Context"),
+      new Paragraph({
+        text: `Overall benefit-risk outcome: ${m.regulatoryContext.overallOutcome}`,
+      }),
+      new Paragraph({
+        text: `Actions requested of the MAH: ${m.regulatoryContext.mahFacingActions.join(", ")}`,
+      }),
+      new Paragraph({ text: `Basis: ${m.regulatoryContext.basis}` }),
+      new Paragraph({
+        text: `Decided by: ${m.regulatoryContext.decidedBy} on ${m.regulatoryContext.decidedAtLabel}`,
+      }),
+      new Paragraph({ text: "" }),
+    );
+  }
+
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: `Note: ${m.resolvedCount} previously-identified deficiency/deficiencies already resolved and ${m.dismissedCount} finding(s) dismissed as not applicable are not repeated above.`,
+          italics: true,
+        }),
+      ],
+    }),
+  );
+
+  return new Document({ sections: [{ properties: {}, children }] });
+}
+
 export const psur = {
   documents: async (): Promise<PsurDocument[]> => {
     const { data, error } = await supabase.from("pv_psur_documents").select("data");
@@ -664,6 +1199,7 @@ export const psur = {
         ...(aiResult.ai_used && aiResult.reporting_period
           ? { reportingPeriod: aiResult.reporting_period }
           : {}),
+        ...(aiResult.ai_used && aiResult.mah ? { mah: aiResult.mah } : {}),
         screening,
         ...(specialPopulations ? { specialPopulations } : {}),
         ...(benefitRisk ? { benefitRisk } : {}),
@@ -1228,222 +1764,63 @@ export const psur = {
   },
 
   /**
-   * Deterministic export (no new AI call) covering only findings a human
-   * has actually ACCEPTED — dismissed and still-pending findings are
-   * listed in the totals for context but never detailed, so the summary
-   * can't be mistaken for an unreviewed AI dump.
+   * INTERNAL/assessor-facing overview of the whole assessment — "what did
+   * the assessment find and where does it stand." Built entirely from
+   * buildExecutiveSummaryModel (the same authoritative model the
+   * assessment page itself would render), so this can never say something
+   * the on-screen page doesn't. DOCX is the primary, professional format;
+   * downloadExecutiveSummaryText below remains available as a lightweight
+   * plain-text alternative.
    */
   downloadExecutiveSummary: async (documentId: string): Promise<void> => {
     const doc = await readDocument(documentId);
     const findings = await readFindings(documentId);
-    const accepted = findings.filter((f) => f.humanAssessment === "ACCEPTED");
-    const dismissed = findings.filter((f) => f.humanAssessment === "DISMISSED");
-    const pending = findings.filter((f) => !f.humanAssessment);
-
-    const byCategory = new Map<string, PsurFinding[]>();
-    for (const f of accepted) {
-      const list = byCategory.get(f.category) ?? [];
-      list.push(f);
-      byCategory.set(f.category, list);
-    }
-
-    const lines: string[] = [];
-    const rule = "-".repeat(60);
-    lines.push("PSUR/PBRER EXECUTIVE SUMMARY");
-    lines.push("=".repeat(60));
-    lines.push(`Document: ${doc.filename}`);
-    lines.push(`Product: ${doc.product}`);
-    lines.push(`Reporting period: ${doc.reportingPeriod}`);
-    lines.push(
-      `Uploaded by: ${doc.uploadedBy} on ${doc.uploadedAt.slice(0, 16).replace("T", " ")} UTC`,
+    const model = buildExecutiveSummaryModel(doc, findings);
+    await downloadBlob(
+      await Packer.toBlob(buildExecutiveSummaryDocx(model)),
+      docBaseName(doc) + "-executive-summary.docx",
     );
-    lines.push("");
+  },
 
-    lines.push("TOTALS");
-    lines.push(rule);
-    lines.push(`Findings detected: ${findings.length}`);
-    lines.push(`Accepted (detailed below): ${accepted.length}`);
-    lines.push(`Dismissed: ${dismissed.length}`);
-    lines.push(`Still pending review: ${pending.length}`);
-    lines.push("");
-
-    // Read through the SAME authoritative derivation the assessment page
-    // itself renders (buildAuthoritativeSectionCoverage) — this export
-    // must never be able to say something the on-screen page doesn't.
-    const coverage = buildAuthoritativeSectionCoverage(doc);
-    lines.push("SECTION COVERAGE (authoritative — matches the assessment page)");
-    lines.push(rule);
-    for (const c of coverage) {
-      const name = PSUR_V4_TEMPLATE_SECTIONS.find((s) => s.id === c.section)?.name ?? c.section;
-      lines.push(
-        `[${c.status}] ${name}${c.notApplicableJustification ? ` — N/A: ${c.notApplicableJustification}` : ""}`,
-      );
-    }
-    lines.push("");
-
-    lines.push("ACCEPTED FINDINGS");
-    lines.push(rule);
-    if (accepted.length === 0) {
-      lines.push("No findings have been accepted yet — nothing to report.");
-    }
-    for (const [category, group] of byCategory) {
-      lines.push(`${category.replaceAll("_", " ")} — ${group.length} finding(s)`);
-      for (const f of group) {
-        lines.push(`  [${f.severity}] ${f.section}: ${f.description}`);
-        lines.push(`    Evidence: ${f.evidence}`);
-        if (f.rationale) lines.push(`    Reviewer rationale: ${f.rationale}`);
-        if (f.resolved && f.resolution) lines.push(`    Resolution: ${f.resolution}`);
-      }
-      lines.push("");
-    }
-
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    try {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = doc.filename.replace(/\.[^.]+$/, "") + "-executive-summary.txt";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+  /** Plain-text alternative to the DOCX above — same model, same content. */
+  downloadExecutiveSummaryText: async (documentId: string): Promise<void> => {
+    const doc = await readDocument(documentId);
+    const findings = await readFindings(documentId);
+    const model = buildExecutiveSummaryModel(doc, findings);
+    await downloadBlob(
+      new Blob([renderExecutiveSummaryText(model)], { type: "text/plain" }),
+      docBaseName(doc) + "-executive-summary.txt",
+    );
   },
 
   /**
-   * A structured deficiency list, grouped by V4 template section, with
-   * enough detail (section, deficiency type, severity, what's missing,
-   * why it matters, evidence, suggested source) to be used as the basis
-   * of a compliance directive to the MAH — this app doesn't assume or
-   * duplicate a specific compliance-directive template, it just exports
-   * the deficiency data in a structured, directly reusable form. Only
-   * ACCEPTED findings are included — an assessor decides what actually
-   * goes to the MAH, never every raw AI finding.
+   * EXTERNAL/MAH-facing directive — "what does the MAH need to
+   * address/provide/correct." Deliberately narrower than the Executive
+   * Summary: built from buildComplianceDirectiveModel, which includes
+   * ONLY findings the assessor has ACCEPTED, that genuinely require MAH
+   * action, and that are NOT YET resolved (accepting a finding records it
+   * as a valid deficiency — it does not by itself mean it's fixed).
+   * System-generated draft for assessor review, never presented as an
+   * official NAFDAC issuance. DOCX is the primary, professional format.
    */
   downloadComplianceDirective: async (documentId: string): Promise<void> => {
     const doc = await readDocument(documentId);
     const findings = await readFindings(documentId);
-    const accepted = findings.filter((f) => f.humanAssessment === "ACCEPTED");
-
-    // Never "blindly copy every UI field" — separate what genuinely needs
-    // MAH action from an internal assessor observation. A finding whose
-    // suggested source is explicitly REQUEST_FROM_MAH is the model's own
-    // judgement that only the MAH can supply this; everything else is
-    // something the assessor can resolve/track internally (cross-check
-    // VigiFlow, consult the RSI, etc.) — never force the assessor to
-    // produce information only the MAH can provide (e.g. the RSI itself).
-    const mahAction = accepted.filter((f) => f.suggestedSource?.type === "REQUEST_FROM_MAH");
-    const assessorInternal = accepted.filter((f) => f.suggestedSource?.type !== "REQUEST_FROM_MAH");
-    const resolved = accepted.filter((f) => f.resolved);
-    const stillOutstanding = accepted.filter((f) => !f.resolved);
-
-    function renderFinding(f: PsurFinding): string[] {
-      const out: string[] = [];
-      out.push(
-        `  [${f.severity}]${f.deficiencyType ? ` (${f.deficiencyType})` : ""} ${f.section}: ${f.description}`,
-      );
-      out.push(`    Evidence: ${f.evidence}`);
-      if (f.suggestedSource) {
-        out.push(`    Suggested source: ${f.suggestedSource.type} — ${f.suggestedSource.note}`);
-      }
-      if (f.rationale) out.push(`    Reviewer rationale: ${f.rationale}`);
-      if (f.resolved && f.resolution) out.push(`    Resolution: ${f.resolution}`);
-      return out;
-    }
-
-    const lines: string[] = [];
-    const rule = "-".repeat(60);
-    lines.push("PSUR/PBRER STRUCTURED DEFICIENCY SUMMARY — COMPLIANCE-DIRECTIVE BASIS");
-    lines.push("=".repeat(60));
-    lines.push(`Document: ${doc.filename}`);
-    lines.push(`Product: ${doc.product}`);
-    lines.push(`Reporting period: ${doc.reportingPeriod}`);
-    lines.push("");
-
-    if (doc.screening) {
-      lines.push("ADMINISTRATIVE SCREENING");
-      lines.push(rule);
-      lines.push(`AI recommendation: ${doc.screening.recommendation}`);
-      if (doc.screening.humanOverride) {
-        lines.push(
-          `Assessor decision: ${doc.screening.humanOverride.decision} (${doc.screening.humanOverride.by}, ${doc.screening.humanOverride.at.slice(0, 16).replace("T", " ")} UTC) — ${doc.screening.humanOverride.rationale}`,
-        );
-      } else {
-        lines.push("Assessor decision: not yet recorded.");
-      }
-      for (const c of doc.screening.administrativeChecks) {
-        lines.push(`  [${c.status}] ${c.label} — ${c.comment}`);
-      }
-      lines.push("");
-    }
-
-    const coverage = buildAuthoritativeSectionCoverage(doc);
-    lines.push("SECTION COVERAGE (authoritative — matches the assessment page)");
-    lines.push(rule);
-    for (const c of coverage) {
-      const name = PSUR_V4_TEMPLATE_SECTIONS.find((s) => s.id === c.section)?.name ?? c.section;
-      lines.push(
-        `[${c.status}] ${name}${c.notApplicableJustification ? ` — N/A: ${c.notApplicableJustification}` : ""}`,
-      );
-    }
-    lines.push("");
-
-    lines.push(`DEFICIENCIES REQUIRING MAH ACTION (${mahAction.length})`);
-    lines.push(rule);
-    if (mahAction.length === 0) {
-      lines.push("None of the accepted findings require direct MAH action.");
-    }
-    for (const f of mahAction) lines.push(...renderFinding(f));
-    lines.push("");
-
-    lines.push(`ASSESSOR-INTERNAL OBSERVATIONS (${assessorInternal.length})`);
-    lines.push(rule);
-    lines.push("Resolvable/trackable by the assessor without requiring an MAH response.");
-    if (assessorInternal.length === 0) {
-      lines.push("None.");
-    }
-    for (const f of assessorInternal) lines.push(...renderFinding(f));
-    lines.push("");
-
-    lines.push(`RESOLVED (${resolved.length}) / STILL OUTSTANDING (${stillOutstanding.length})`);
-    lines.push(rule);
-    lines.push(
-      "Note: an assessor ACCEPTING a finding records it as a valid deficiency — it does not by " +
-        "itself mean the deficiency has been fixed. Only findings with an applied resolution below " +
-        "are RESOLVED; everything else remains outstanding regardless of acceptance.",
+    const model = buildComplianceDirectiveModel(doc, findings);
+    await downloadBlob(
+      await Packer.toBlob(buildComplianceDirectiveDocx(model)),
+      docBaseName(doc) + "-compliance-directive.docx",
     );
-    if (accepted.length === 0) {
-      lines.push("No findings have been accepted yet — nothing to report.");
-    }
-    for (const f of accepted) {
-      lines.push(`  [${f.resolved ? "RESOLVED" : "OUTSTANDING"}] ${f.section}: ${f.description}`);
-    }
-    lines.push("");
+  },
 
-    if (doc.regulatoryDecision) {
-      lines.push("REGULATORY DECISION (assessor's own — never AI-decided)");
-      lines.push(rule);
-      lines.push(`Overall outcome: ${doc.regulatoryDecision.overallOutcome ?? "not set"}`);
-      lines.push(`Actions: ${doc.regulatoryDecision.actions.join(", ") || "none recorded"}`);
-      lines.push(`Basis: ${doc.regulatoryDecision.basis}`);
-      lines.push(
-        `Decided by: ${doc.regulatoryDecision.decidedBy} on ${doc.regulatoryDecision.decidedAt.slice(0, 16).replace("T", " ")} UTC`,
-      );
-      lines.push("");
-    }
-
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    try {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = doc.filename.replace(/\.[^.]+$/, "") + "-compliance-directive-summary.txt";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+  /** Plain-text alternative to the DOCX above — same model, same content. */
+  downloadComplianceDirectiveText: async (documentId: string): Promise<void> => {
+    const doc = await readDocument(documentId);
+    const findings = await readFindings(documentId);
+    const model = buildComplianceDirectiveModel(doc, findings);
+    await downloadBlob(
+      new Blob([renderComplianceDirectiveText(model)], { type: "text/plain" }),
+      docBaseName(doc) + "-compliance-directive.txt",
+    );
   },
 };

@@ -434,38 +434,80 @@ function PsurPage() {
                     </QueryBoundary>
                   ) : null}
                   {activeDoc.stage === "REVIEWED" ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          await psurApi.downloadExecutiveSummary(activeDoc.id);
-                        } catch (err) {
-                          toast.error(
-                            err instanceof Error ? err.message : "Could not download the summary.",
-                          );
-                        }
-                      }}
-                    >
-                      <FileText className="size-4" /> Download Executive Summary
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            await psurApi.downloadExecutiveSummary(activeDoc.id);
+                          } catch (err) {
+                            toast.error(
+                              err instanceof Error
+                                ? err.message
+                                : "Could not download the summary.",
+                            );
+                          }
+                        }}
+                      >
+                        <FileText className="size-4" /> Download Executive Summary (Word)
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          try {
+                            await psurApi.downloadExecutiveSummaryText(activeDoc.id);
+                          } catch (err) {
+                            toast.error(
+                              err instanceof Error
+                                ? err.message
+                                : "Could not download the summary.",
+                            );
+                          }
+                        }}
+                      >
+                        Plain text
+                      </Button>
+                    </>
                   ) : null}
                   {activeDoc.stage === "REVIEWED" ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          await psurApi.downloadComplianceDirective(activeDoc.id);
-                        } catch (err) {
-                          toast.error(
-                            err instanceof Error ? err.message : "Could not download the summary.",
-                          );
-                        }
-                      }}
-                    >
-                      <FileText className="size-4" /> Download Compliance Directive Summary
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            await psurApi.downloadComplianceDirective(activeDoc.id);
+                          } catch (err) {
+                            toast.error(
+                              err instanceof Error
+                                ? err.message
+                                : "Could not download the summary.",
+                            );
+                          }
+                        }}
+                      >
+                        <FileText className="size-4" /> Download Compliance Directive (Word)
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          try {
+                            await psurApi.downloadComplianceDirectiveText(activeDoc.id);
+                          } catch (err) {
+                            toast.error(
+                              err instanceof Error
+                                ? err.message
+                                : "Could not download the summary.",
+                            );
+                          }
+                        }}
+                      >
+                        Plain text
+                      </Button>
+                    </>
                   ) : null}
                 </div>
               }

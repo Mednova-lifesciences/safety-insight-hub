@@ -552,6 +552,14 @@ export interface PsurDocument {
   id: string;
   filename: string;
   product: string;
+  /** Marketing Authorisation Holder — Section 1 (Product & Regulatory
+   *  Information) requires this, but it is only ever populated from what
+   *  the AI could actually read off the submitted document's own text
+   *  (mirrors `product`/`reportingPeriod`'s extraction — see
+   *  AiPsurReview.mah). Undefined when never extracted; the Executive
+   *  Summary and Compliance Directive both render "Not extracted from
+   *  the submitted document" rather than inventing one. */
+  mah?: string | undefined;
   reportingPeriod: string;
   uploadedAt: string;
   uploadedBy: string;
