@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { runPreflight, validateBusinessRules, validateVigiFlowPreflight } from "./validation";
+import {
+  runPreflight,
+  validateBusinessRules,
+  validateVigiFlowPreflight,
+  validateCase,
+  isOverridable,
+  computeCaseEligibility,
+  E2B_NON_OVERRIDABLE_CODES,
+} from "./validation";
 import type { PVCase } from "./types";
 
 function minimalValidCase(overrides: Partial<PVCase> = {}): PVCase {
@@ -17,12 +25,22 @@ function minimalValidCase(overrides: Partial<PVCase> = {}): PVCase {
     otherCaseIdentifiersInPreviousTransmissions: { present: false, nullFlavor: "NI" },
     followUp: { isFollowUp: false },
     patient: { identity: { present: true, value: { kind: "INITIALS", initials: "A.B." } } },
-    reporter: { name: { present: false, nullFlavor: "NASK" }, qualificationVerbatim: "CHEW", qualificationCode: "3", country: "NG" },
+    reporter: {
+      name: { present: false, nullFlavor: "NASK" },
+      qualificationVerbatim: "CHEW",
+      qualificationCode: "3",
+      country: "NG",
+    },
     senderOrganisation: "MEDNOVA",
     reactions: [
       {
         id: "CASE-1-r1",
-        sourceDecoding: { status: "DECODED", localCode: "19", sourceTerm: "19", sourceProfileId: "test-profile" },
+        sourceDecoding: {
+          status: "DECODED",
+          localCode: "19",
+          sourceTerm: "19",
+          sourceProfileId: "test-profile",
+        },
         reaction: { sourceValue: "19", status: "UNMAPPED", mappingMethod: "NONE" },
         onsetDate: "2026-02-03",
         outcome: "RECOVERED",
@@ -36,7 +54,12 @@ function minimalValidCase(overrides: Partial<PVCase> = {}): PVCase {
         product: { sourceValue: "MR/MV", status: "UNMAPPED", mappingMethod: "NONE" },
       },
     ],
-    sourceInformation: { sourceFile: "test.xlsx", sourceRow: 1, jobId: "job-1", sourceProfileId: "test-profile" },
+    sourceInformation: {
+      sourceFile: "test.xlsx",
+      sourceRow: 1,
+      jobId: "job-1",
+      sourceProfileId: "test-profile",
+    },
     ...overrides,
   };
 }
@@ -107,7 +130,9 @@ describe("validateBusinessRules", () => {
     c.reactions[0]!.outcome = undefined;
     c.reactions[0]!.outcomeResolution = { rawSourceValue: "1", status: "UNKNOWN_SOURCE_CODE" };
     const errors = validateBusinessRules(c);
-    expect(errors.some((e) => e.code === "E2B-OUTCOME-UNMAPPED" && e.severity === "BLOCKING")).toBe(true);
+    expect(errors.some((e) => e.code === "E2B-OUTCOME-UNMAPPED" && e.severity === "BLOCKING")).toBe(
+      true,
+    );
   });
 
   it("blocks a case with a DECODED-but-unmappable outcome using the distinct E2B-OUTCOME-NOT-MAPPABLE code", () => {
@@ -177,7 +202,10 @@ describe("validateVigiFlowPreflight", () => {
 
 describe("runPreflight", () => {
   it("reports BLOCKED for the honest current state (no licensed dictionaries configured)", () => {
-    const summary = runPreflight([minimalValidCase(), minimalValidCase({ sendersCaseId: "NG-MEDNOVA-000002" })]);
+    const summary = runPreflight([
+      minimalValidCase(),
+      minimalValidCase({ sendersCaseId: "NG-MEDNOVA-000002" }),
+    ]);
     expect(summary.status).toBe("BLOCKED");
     expect(summary.blockedCases).toBe(2);
     expect(summary.readyCases).toBe(0);
@@ -191,5 +219,128 @@ describe("runPreflight", () => {
     const summary = runPreflight([]);
     expect(summary.status).toBe("BLOCKED");
     expect(summary.totalCases).toBe(0);
+  });
+});
+
+describe("isOverridable / computeCaseEligibility — the validated-export override boundary", () => {
+  it("a case with zero BLOCKING errors is trivially overridable", () => {
+    const c = minimalValidCase();
+    // This case still has other BLOCKING errors from validateVigiFlowPreflight
+    // (no MedDRA provider configured) in real use, but at the BUSINESS_RULES
+    // layer alone it's clean — use that mode to isolate the case.
+    const result = validateCase(c, "BUSINESS_RULES");
+    expect(result.blocked).toBe(false);
+    expect(isOverridable(result)).toBe(true);
+  });
+
+  it("a case blocked ONLY on an administrative/mapping issue (C.1.3 unresolved) is overridable", () => {
+    const c = minimalValidCase({ reportType: { present: false, nullFlavor: "NASK" } });
+    const result = validateCase(c, "BUSINESS_RULES");
+    expect(result.blocked).toBe(true);
+    expect(result.errors.some((e) => e.code === "E2B-C1.3-UNRESOLVED")).toBe(true);
+    expect(isOverridable(result)).toBe(true);
+  });
+
+  it("a case blocked on a structural-minimum issue (no identifiable patient) is NEVER overridable", () => {
+    const c = minimalValidCase({ patient: { identity: { present: false, nullFlavor: "UNK" } } });
+    const result = validateCase(c, "BUSINESS_RULES");
+    expect(result.blocked).toBe(true);
+    expect(result.errors.some((e) => e.code === "E2B-PATIENT-MISSING")).toBe(true);
+    expect(isOverridable(result)).toBe(false);
+  });
+
+  it("a case blocked on BOTH a structural-minimum AND an administrative issue is still never overridable", () => {
+    const c = minimalValidCase({
+      patient: { identity: { present: false, nullFlavor: "UNK" } },
+      reportType: { present: false, nullFlavor: "NASK" },
+    });
+    const result = validateCase(c, "BUSINESS_RULES");
+    expect(isOverridable(result)).toBe(false);
+  });
+
+  it("E2B_NON_OVERRIDABLE_CODES contains exactly the 4 ICH minimum-content codes plus the 3 case-identity codes", () => {
+    expect([...E2B_NON_OVERRIDABLE_CODES].sort()).toEqual(
+      [
+        "E2B-PATIENT-MISSING",
+        "E2B-REPORTER-MISSING",
+        "E2B-REACTION-MISSING",
+        "E2B-PRODUCT-MISSING",
+        "E2B-C1.1-MISSING",
+        "E2B-C1.5-MISSING",
+        "E2B-C1.8-MISSING",
+      ].sort(),
+    );
+  });
+
+  it("computeCaseEligibility: without an override, nothing blocked is includable", () => {
+    const clean = validateCase(minimalValidCase({ sendersCaseId: "NG-1" }), "BUSINESS_RULES");
+    const overridableBlocked = validateCase(
+      minimalValidCase({
+        sendersCaseId: "NG-2",
+        reportType: { present: false, nullFlavor: "NASK" },
+      }),
+      "BUSINESS_RULES",
+    );
+    const structurallyBlocked = validateCase(
+      minimalValidCase({
+        sendersCaseId: "NG-3",
+        patient: { identity: { present: false, nullFlavor: "UNK" } },
+      }),
+      "BUSINESS_RULES",
+    );
+    const eligibility = computeCaseEligibility(
+      [clean, overridableBlocked, structurallyBlocked],
+      false,
+    );
+    expect(eligibility.find((e) => e.caseId === "NG-1")).toMatchObject({
+      includable: true,
+      rescuedByOverride: false,
+    });
+    expect(eligibility.find((e) => e.caseId === "NG-2")).toMatchObject({
+      includable: false,
+      rescuedByOverride: false,
+    });
+    expect(eligibility.find((e) => e.caseId === "NG-3")).toMatchObject({
+      includable: false,
+      rescuedByOverride: false,
+    });
+  });
+
+  it("computeCaseEligibility: with an override, the administrative case is rescued but the structural one stays excluded", () => {
+    const clean = validateCase(minimalValidCase({ sendersCaseId: "NG-1" }), "BUSINESS_RULES");
+    const overridableBlocked = validateCase(
+      minimalValidCase({
+        sendersCaseId: "NG-2",
+        reportType: { present: false, nullFlavor: "NASK" },
+      }),
+      "BUSINESS_RULES",
+    );
+    const structurallyBlocked = validateCase(
+      minimalValidCase({
+        sendersCaseId: "NG-3",
+        patient: { identity: { present: false, nullFlavor: "UNK" } },
+      }),
+      "BUSINESS_RULES",
+    );
+    const eligibility = computeCaseEligibility(
+      [clean, overridableBlocked, structurallyBlocked],
+      true,
+    );
+
+    const rescued = eligibility.find((e) => e.caseId === "NG-2")!;
+    expect(rescued.includable).toBe(true);
+    expect(rescued.rescuedByOverride).toBe(true);
+
+    const stillExcluded = eligibility.find((e) => e.caseId === "NG-3")!;
+    expect(stillExcluded.includable).toBe(false);
+    expect(stillExcluded.rescuedByOverride).toBe(false);
+    expect(stillExcluded.nonOverridableErrors.some((e) => e.code === "E2B-PATIENT-MISSING")).toBe(
+      true,
+    );
+
+    // The already-clean case is unaffected either way.
+    const clean1 = eligibility.find((e) => e.caseId === "NG-1")!;
+    expect(clean1.includable).toBe(true);
+    expect(clean1.rescuedByOverride).toBe(false); // it didn't need rescuing
   });
 });

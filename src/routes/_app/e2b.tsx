@@ -24,6 +24,7 @@ import {
   StatusPill,
 } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,7 +69,11 @@ function E2bPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [preflightBusy, setPreflightBusy] = useState<string | null>(null);
-  const [preflightResults, setPreflightResults] = useState<Record<string, ValidatedExportResult>>({});
+  const [preflightResults, setPreflightResults] = useState<Record<string, ValidatedExportResult>>(
+    {},
+  );
+  const [overridingJobId, setOverridingJobId] = useState<string | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
 
   async function checkValidatedPreflight(jobId: string) {
     setPreflightBusy(jobId);
@@ -82,9 +87,13 @@ function E2bPage() {
       const result = await runValidatedPreflightForJob(jobId, UNCONFIRMED_DEFAULT_CONFIG);
       setPreflightResults((prev) => ({ ...prev, [jobId]: result }));
       if (result.readyForValidatedExport && result.transmissionConfigConfirmed) {
-        toast.success(`${result.totalCases} case(s) passed VigiFlow preflight — ready for real E2B(R3) export.`);
+        toast.success(
+          `${result.totalCases} case(s) passed VigiFlow preflight — ready for real E2B(R3) export.`,
+        );
       } else if (result.readyForValidatedExport) {
-        toast.warning("All cases passed VigiFlow preflight, but transmission configuration (sender/receiver identifiers) is not yet confirmed by NAFDAC/Ondo — export still blocked.");
+        toast.warning(
+          "All cases passed VigiFlow preflight, but transmission configuration (sender/receiver identifiers) is not yet confirmed by NAFDAC/Ondo — export still blocked.",
+        );
       } else {
         toast.warning(
           `${result.preflight.blockedCases}/${result.totalCases} case(s) blocked — see reasons below. Not ready for validated export.`,
@@ -102,9 +111,52 @@ function E2bPage() {
     try {
       const batches = await generateValidatedExportForJob(jobId, UNCONFIRMED_DEFAULT_CONFIG);
       for (const b of batches) await downloadValidatedBatch(jobId, b);
-      toast.success(`Downloaded ${batches.length} real E2B(R3) batch file(s) — ${batches.reduce((n, b) => n + b.caseCount, 0)} case(s) total.`);
+      toast.success(
+        `Downloaded ${batches.length} real E2B(R3) batch file(s) — ${batches.reduce((n, b) => n + b.caseCount, 0)} case(s) total.`,
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Validated export failed.");
+    } finally {
+      setPreflightBusy(null);
+    }
+  }
+
+  /**
+   * Records the REAL validated pipeline's own override (structurally
+   * separate from dismissErrors/e2bOverride below, which only ever
+   * affects the legacy draft path) — then immediately re-runs preflight
+   * so the UI reflects which cases the override actually rescues, per
+   * E2B_NON_OVERRIDABLE_CODES. A case missing the ICH structural minimum
+   * (patient/reporter/reaction/product) or a case-identity field stays
+   * excluded from the export even after this.
+   */
+  async function recordOverride(jobId: string) {
+    if (!overrideReason.trim()) {
+      toast.error("A reason is required to override the validated E2B(R3) export gate.");
+      return;
+    }
+    setPreflightBusy(jobId);
+    try {
+      await e2bApi.recordValidatedExportOverride(jobId, overrideReason.trim());
+      setOverridingJobId(null);
+      setOverrideReason("");
+      await checkValidatedPreflight(jobId);
+      toast.success("Override recorded — re-run preflight now reflects which cases it rescues.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not record the override.");
+    } finally {
+      setPreflightBusy(null);
+    }
+  }
+
+  async function clearOverride(jobId: string) {
+    setPreflightBusy(jobId);
+    try {
+      await e2bApi.clearValidatedExportOverride(jobId);
+      await checkValidatedPreflight(jobId);
+      toast.success("Override cleared.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not clear the override.");
     } finally {
       setPreflightBusy(null);
     }
@@ -307,13 +359,12 @@ function E2bPage() {
                             Validated E2B(R3) export (real HL7 v3 XML — VigiFlow/NAFDAC pipeline)
                           </p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            Runs the real normalize → validate → MedDRA/WHODrug preflight → batch
-                            → serialize pipeline. "READY_FOR_VALIDATED_IMPORT" here means every
-                            case passed VigiFlow's actual validated-import requirements — not
-                            merely that the generated XML is schema-valid. Download additionally
-                            requires the sender/receiver transmission identifiers to be confirmed
-                            by NAFDAC/Ondo (see the configuration gaps below) — neither condition
-                            alone unlocks it.
+                            Runs the real normalize → validate → MedDRA/WHODrug preflight → batch →
+                            serialize pipeline. "READY_FOR_VALIDATED_IMPORT" here means every case
+                            passed VigiFlow's actual validated-import requirements — not merely that
+                            the generated XML is schema-valid. Download additionally requires the
+                            sender/receiver transmission identifiers to be confirmed by NAFDAC/Ondo
+                            (see the configuration gaps below) — neither condition alone unlocks it.
                           </p>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <Button
@@ -328,35 +379,113 @@ function E2bPage() {
                               <>
                                 <StatusPill
                                   tone={
-                                    preflightResults[j.id]!.readyForValidatedExport &&
-                                    preflightResults[j.id]!.transmissionConfigConfirmed
+                                    preflightResults[j.id]!.readyForValidatedExport
                                       ? "success"
-                                      : "critical"
+                                      : preflightResults[j.id]!.exportableWithOverride
+                                        ? "warning"
+                                        : "critical"
                                   }
                                 >
-                                  {preflightResults[j.id]!.readyForValidatedExport &&
-                                  preflightResults[j.id]!.transmissionConfigConfirmed
+                                  {preflightResults[j.id]!.readyForValidatedExport
                                     ? "READY_FOR_VALIDATED_IMPORT"
-                                    : `BLOCKED (${preflightResults[j.id]!.preflight.blockedCases}/${preflightResults[j.id]!.totalCases} case(s))`}
+                                    : preflightResults[j.id]!.exportableWithOverride
+                                      ? `EXPORTABLE WITH OVERRIDE (${preflightResults[j.id]!.caseEligibility.filter((c) => c.includable).length}/${preflightResults[j.id]!.totalCases} case(s))`
+                                      : `BLOCKED (${preflightResults[j.id]!.preflight.blockedCases}/${preflightResults[j.id]!.totalCases} case(s))`}
                                 </StatusPill>
                                 <Button
                                   size="sm"
                                   disabled={
                                     preflightBusy === j.id ||
-                                    !preflightResults[j.id]!.readyForValidatedExport ||
-                                    !preflightResults[j.id]!.transmissionConfigConfirmed
+                                    !preflightResults[j.id]!.transmissionConfigConfirmed ||
+                                    (!preflightResults[j.id]!.readyForValidatedExport &&
+                                      !preflightResults[j.id]!.exportableWithOverride)
                                   }
                                   onClick={() => exportValidated(j.id)}
                                 >
                                   <Download className="size-4" /> Download validated E2B(R3) XML
                                 </Button>
+                                {!preflightResults[j.id]!.readyForValidatedExport &&
+                                !preflightResults[j.id]!.override ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={preflightBusy === j.id}
+                                    onClick={() => setOverridingJobId(j.id)}
+                                  >
+                                    <ShieldOff className="size-4" /> Override & Export Anyway
+                                  </Button>
+                                ) : null}
+                                {preflightResults[j.id]!.override ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={preflightBusy === j.id}
+                                    onClick={() => clearOverride(j.id)}
+                                  >
+                                    Clear override
+                                  </Button>
+                                ) : null}
                               </>
                             ) : null}
                           </div>
 
-                          {preflightResults[j.id] && !preflightResults[j.id]!.transmissionConfigConfirmed ? (
+                          {preflightResults[j.id]?.override ? (
                             <div className="mt-2 rounded-md border border-warning/30 bg-warning-soft px-2 py-1.5 text-xs text-foreground">
-                              <p className="font-medium">Transmission configuration not confirmed:</p>
+                              <p className="font-medium">
+                                Validated-export override on record:{" "}
+                                {preflightResults[j.id]!.override!.by} —{" "}
+                                {preflightResults[j.id]!.override!.reason}
+                              </p>
+                              <p className="mt-1 text-muted-foreground">
+                                This lets a case export despite administrative/mapping gaps
+                                (unresolved outcome mapping, unconfirmed report type, etc.). It can
+                                never export a case missing an identifiable patient/reporter, zero
+                                reactions, zero suspect products, or its own case-identity fields —
+                                those stay excluded below regardless.
+                              </p>
+                            </div>
+                          ) : null}
+
+                          {preflightResults[j.id]?.override &&
+                          preflightResults[j.id]!.caseEligibility.some((c) => !c.includable) ? (
+                            <div className="mt-2">
+                              <p className="text-xs font-medium text-critical">
+                                {
+                                  preflightResults[j.id]!.caseEligibility.filter(
+                                    (c) => !c.includable,
+                                  ).length
+                                }{" "}
+                                case(s) still excluded even with the override on record
+                                (non-overridable):
+                              </p>
+                              <div className="mt-1 max-h-48 space-y-2 overflow-y-auto text-xs">
+                                {preflightResults[j.id]!.caseEligibility.filter(
+                                  (c) => !c.includable,
+                                )
+                                  .slice(0, 10)
+                                  .map((c) => (
+                                    <div
+                                      key={c.caseId}
+                                      className="rounded border border-critical/30 bg-critical/5 p-2"
+                                    >
+                                      <p className="font-mono font-medium">{c.caseId} — EXCLUDED</p>
+                                      {c.nonOverridableErrors.map((e, i) => (
+                                        <p key={i} className="mt-1 pl-2 text-muted-foreground">
+                                          {e.code}: {e.message}
+                                        </p>
+                                      ))}
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {preflightResults[j.id] &&
+                          !preflightResults[j.id]!.transmissionConfigConfirmed ? (
+                            <div className="mt-2 rounded-md border border-warning/30 bg-warning-soft px-2 py-1.5 text-xs text-foreground">
+                              <p className="font-medium">
+                                Transmission configuration not confirmed:
+                              </p>
                               <ul className="mt-1 list-disc pl-4">
                                 {preflightResults[j.id]!.transmissionConfigGaps.map((gap) => (
                                   <li key={gap}>{gap}</li>
@@ -365,19 +494,26 @@ function E2bPage() {
                             </div>
                           ) : null}
 
-                          {preflightResults[j.id] && preflightResults[j.id]!.preflight.counts.whodrugNotConfiguredInfo > 0 ? (
+                          {preflightResults[j.id] &&
+                          preflightResults[j.id]!.preflight.counts.whodrugNotConfiguredInfo > 0 ? (
                             <p className="mt-2 rounded-md border border-info/30 bg-info-soft px-2 py-1.5 text-xs text-foreground">
-                              WHODrug coding not configured — exporting reported product name using Option A. This
-                              is informational only and does not block export.
+                              WHODrug coding not configured — exporting reported product name using
+                              Option A. This is informational only and does not block export.
                             </p>
                           ) : null}
 
-                          {preflightResults[j.id] && !preflightResults[j.id]!.readyForValidatedExport ? (
+                          {preflightResults[j.id] &&
+                          !preflightResults[j.id]!.readyForValidatedExport ? (
                             <div className="mt-2">
-                              <p className="text-xs font-medium text-critical">Blocking reasons (by rule):</p>
+                              <p className="text-xs font-medium text-critical">
+                                Blocking reasons (by rule):
+                              </p>
                               <ul className="mt-1 space-y-1 text-xs text-critical">
                                 {Object.entries(preflightResults[j.id]!.preflight.counts)
-                                  .filter(([code, count]) => count > 0 && code !== "whodrugNotConfiguredInfo")
+                                  .filter(
+                                    ([code, count]) =>
+                                      count > 0 && code !== "whodrugNotConfiguredInfo",
+                                  )
                                   .map(([code, count]) => (
                                     <li key={code}>
                                       {count}× {code}
@@ -388,11 +524,13 @@ function E2bPage() {
                                 Per-case detail (first 10 blocked cases):
                               </p>
                               <div className="mt-1 max-h-64 space-y-2 overflow-y-auto text-xs">
-                                {preflightResults[j.id]!
-                                  .preflight.results.filter((r) => r.blocked)
+                                {preflightResults[j.id]!.preflight.results.filter((r) => r.blocked)
                                   .slice(0, 10)
                                   .map((r) => (
-                                    <div key={r.caseId} className="rounded border border-critical/30 bg-critical/5 p-2">
+                                    <div
+                                      key={r.caseId}
+                                      className="rounded border border-critical/30 bg-critical/5 p-2"
+                                    >
                                       <p className="font-mono font-medium">{r.caseId} — BLOCKED</p>
                                       {r.errors
                                         .filter((e) => e.severity === "BLOCKING")
@@ -402,7 +540,9 @@ function E2bPage() {
                                               Field: {e.e2bField ?? "—"} · Rule: {e.code}
                                             </p>
                                             <p>Reason: {e.message}</p>
-                                            {e.sourceValue ? <p>Source value: "{e.sourceValue}"</p> : null}
+                                            {e.sourceValue ? (
+                                              <p>Source value: "{e.sourceValue}"</p>
+                                            ) : null}
                                             <p>Remediation: {e.remediation}</p>
                                           </div>
                                         ))}
@@ -411,6 +551,46 @@ function E2bPage() {
                               </div>
                             </div>
                           ) : null}
+
+                          <AlertDialog
+                            open={overridingJobId === j.id}
+                            onOpenChange={(open) => {
+                              if (!open) {
+                                setOverridingJobId(null);
+                                setOverrideReason("");
+                              }
+                            }}
+                          >
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Override the validated E2B(R3) export gate?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This lets cases blocked only on administrative/mapping gaps
+                                  (unresolved outcome mapping, unconfirmed report type, unresolved
+                                  reporter qualification, missing MedDRA coding, etc.) export as
+                                  real, schema-conformant E2B(R3) XML anyway. It can never export a
+                                  case missing an identifiable patient/reporter, zero reactions,
+                                  zero suspect products, or its own case-identity fields — those
+                                  always stay excluded. Recorded to the audit trail under your name;
+                                  you can clear it later.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <Textarea
+                                placeholder="Reason for overriding (required)"
+                                value={overrideReason}
+                                onChange={(e) => setOverrideReason(e.target.value)}
+                                rows={3}
+                              />
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => recordOverride(j.id)}>
+                                  Record override
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </li>
                     );

@@ -151,7 +151,10 @@ function mapSex(raw: string | undefined): "1" | "2" | null {
  *  un-normalised code (e.g. an AEFI form's own numeric serious_code) is
  *  left out rather than guessed. */
 function mapSeriousness(raw: string | undefined): "1" | "2" | null {
-  const v = (raw ?? "").trim().toUpperCase().replace(/[\s_-]+/g, "");
+  const v = (raw ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, "");
   if (v === "SERIOUS" || v === "YES" || v === "Y") return "1";
   if (v === "NONSERIOUS" || v === "NO" || v === "N") return "2";
   return null;
@@ -166,7 +169,10 @@ function mapSeriousness(raw: string | undefined): "1" | "2" | null {
  *  list) is left as verbatim text instead of silently re-interpreted
  *  under a different code list than it actually belongs to. */
 function mapOutcome(raw: string | undefined): "1" | "2" | "3" | "4" | "5" | "6" | null {
-  const v = (raw ?? "").trim().toUpperCase().replace(/[\s_-]+/g, "");
+  const v = (raw ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, "");
   switch (v) {
     case "RECOVERED":
     case "RESOLVED":
@@ -303,9 +309,7 @@ ${footer}`;
           : "";
       // outcome only falls back to a raw/verbatim element when it isn't
       // one of this app's own normalised outcome words — see mapOutcome.
-      const outcomeVerbatimEl = !outcomeCode
-        ? xmlEl("reactionoutcome_verbatim", row.outcome)
-        : "";
+      const outcomeVerbatimEl = !outcomeCode ? xmlEl("reactionoutcome_verbatim", row.outcome) : "";
 
       return `  <safetyreport>
     <safetyreportversion>1</safetyreportversion>
@@ -368,6 +372,73 @@ export const e2b = {
       entity: "LineListJob",
       entityId: jobId,
       newValue: `${job.invalidCases} invalid case(s) dismissed for export by ${actor.name}`,
+    });
+
+    return nextJob;
+  },
+
+  /**
+   * Records an explicit, mandatory-reason override of the REAL, validated
+   * E2B(R3) pipeline's export gate (src/services/e2b-r3/export.ts) —
+   * structurally separate from dismissErrors/e2bOverride above, which
+   * only ever affects the legacy draft generator. Persisted on the same
+   * job record (validatedE2bOverride) so it survives re-running preflight,
+   * exactly like e2bOverride does for the legacy path. This override can
+   * only ever rescue a case blocked purely on administrative/mapping
+   * judgment calls — it can never make a case export that's missing the
+   * ICH structural minimum (identifiable patient/reporter, >=1 reaction,
+   * >=1 suspect product) or its own case-identity fields — see
+   * E2B_NON_OVERRIDABLE_CODES in validation.ts, enforced in export.ts's
+   * generateValidatedExportForJob, not here. This function only records
+   * the decision; it does not itself decide what gets exported.
+   */
+  recordValidatedExportOverride: async (jobId: string, reason: string): Promise<LineListJob> => {
+    if (!reason.trim())
+      throw new Error("A reason is required to override the validated E2B(R3) export gate.");
+    const job = await readJob(jobId);
+    const actor = currentActor();
+    const nextJob: LineListJobRow = {
+      ...job,
+      validatedE2bOverride: { by: actor.name, at: new Date().toISOString(), reason: reason.trim() },
+    };
+    const { error } = await supabase
+      .from("pv_linelist_jobs")
+      .update({ data: toJson(nextJob) })
+      .eq("id", jobId);
+    if (error) throw new Error(error.message);
+
+    await recordAudit({
+      action: "E2B_R3_VALIDATED_EXPORT_OVERRIDDEN",
+      entity: "LineListJob",
+      entityId: jobId,
+      newValue: `Validated E2B(R3) export override recorded by ${actor.name}`,
+      reason: reason.trim(),
+    });
+
+    return nextJob;
+  },
+
+  /** Clears a previously-recorded validated-export override — an
+   *  assessor may want to withdraw the acknowledgement (e.g. they meant
+   *  to keep working on the underlying data instead of force-exporting
+   *  it). Recorded in the audit trail like the override itself. */
+  clearValidatedExportOverride: async (jobId: string): Promise<LineListJob> => {
+    const job = await readJob(jobId);
+    if (!job.validatedE2bOverride) return job;
+    const actor = currentActor();
+    const nextJob: LineListJobRow = { ...job, validatedE2bOverride: undefined };
+    const { error } = await supabase
+      .from("pv_linelist_jobs")
+      .update({ data: toJson(nextJob) })
+      .eq("id", jobId);
+    if (error) throw new Error(error.message);
+
+    await recordAudit({
+      action: "E2B_R3_VALIDATED_EXPORT_OVERRIDE_CLEARED",
+      entity: "LineListJob",
+      entityId: jobId,
+      previousValue: `overridden by ${job.validatedE2bOverride.by}`,
+      newValue: `cleared by ${actor.name}`,
     });
 
     return nextJob;

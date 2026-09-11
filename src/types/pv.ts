@@ -307,6 +307,19 @@ export interface LineListJob {
    *  bypasses this job's export gate. Recorded for the audit trail like
    *  every other consequential decision in this app. */
   e2bOverride?: { by: string; at: string; reason?: string } | undefined;
+  /** Set when an assessor has explicitly, auditedly chosen to force-export
+   *  the REAL, schema-validated E2B(R3) pipeline (src/services/e2b-r3/)
+   *  despite outstanding BLOCKING issues — structurally separate from
+   *  e2bOverride above, which only ever affects the legacy draft
+   *  generator and has no effect here. This override can rescue a case
+   *  blocked only on administrative/mapping-judgment issues (e.g.
+   *  unresolved outcome mapping, unconfirmed report type); it can NEVER
+   *  rescue a case failing the ICH structural minimum (no identifiable
+   *  patient/reporter, zero reactions, zero suspect products) or missing
+   *  its own case-identity fields (C.1.1/C.1.5/C.1.8) — see
+   *  E2B_NON_OVERRIDABLE_CODES in src/services/e2b-r3/validation.ts. A
+   *  reason is mandatory, exactly like e2bOverride. */
+  validatedE2bOverride?: { by: string; at: string; reason: string } | undefined;
 }
 
 export type LineListSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";

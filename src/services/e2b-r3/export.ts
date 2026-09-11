@@ -1,7 +1,15 @@
 import { readJob, type ParsedRow } from "@/services/api/e2b";
 import { currentActor, recordAudit } from "@/services/api/db";
 import { mapSourceRecordToPVCase, type MappingWarning } from "./mapping";
-import { runPreflight, validateBusinessRules, validateSourceDecoding, type PreflightSummary, type ValidationError } from "./validation";
+import {
+  runPreflight,
+  validateBusinessRules,
+  validateSourceDecoding,
+  computeCaseEligibility,
+  type CaseExportEligibility,
+  type PreflightSummary,
+  type ValidationError,
+} from "./validation";
 import { splitIntoBatches, batchFilename } from "./batching";
 import { serializeBatchToXml } from "./serializer";
 import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
@@ -14,7 +22,10 @@ import { getSourceProfile } from "./source-profiles/registry";
 import type { SourceProfile } from "./source-profiles/types";
 import { parseDiscoveredLegend, validateDiscoveredCodebook } from "./source-profiles/legend-parser";
 import { resolveRuntimeSourceProfile } from "./source-profiles/runtime-profile";
-import { fieldsCovered, type DiscoveredSourceCodebook } from "./source-profiles/discovered-codebook";
+import {
+  fieldsCovered,
+  type DiscoveredSourceCodebook,
+} from "./source-profiles/discovered-codebook";
 import type { PVCase } from "./types";
 
 /**
@@ -61,8 +72,23 @@ export interface ValidatedExportResult {
   mappingWarnings: MappingWarning[];
   /** True only when every case passed both business-rule and VigiFlow
    *  preflight validation — the sole condition under which a caller may
-   *  offer a download. Never inferred any other way. */
+   *  offer a download WITHOUT an override. Never inferred any other way,
+   *  and never changed by the presence of an override — see
+   *  exportableWithOverride for that. */
   readyForValidatedExport: boolean;
+  /** The job's currently-recorded validated-export override, if any —
+   *  read directly from the job record (never passed in by a caller).
+   *  See api/e2b.ts's recordValidatedExportOverride. */
+  override?: { by: string; at: string; reason: string } | undefined;
+  /** Per-case export eligibility given the current override state.
+   *  Always populated — with no override active, every case's
+   *  `includable` just mirrors "not blocked". */
+  caseEligibility: CaseExportEligibility[];
+  /** True when an override is active AND it actually rescues at least
+   *  one otherwise-blocked case. Distinct from readyForValidatedExport,
+   *  which stays the honest "zero blocking issues, no override needed"
+   *  signal — a caller must show both states differently. */
+  exportableWithOverride: boolean;
   /** True only when transmission-config.ts's sender/receiver identifiers
    *  have actually been confirmed (not the unconfirmed sentinel). A
    *  result can be readyForValidatedExport:true on every VigiFlow check
@@ -106,10 +132,14 @@ export async function runValidatedPreflightForJob(
   // upload actually contained (see tabular-parse.ts's discardedRows) —
   // never from a hand-authored mapping on the base profile — and use the
   // resulting runtime profile for every row in THIS job only.
-  const { runtimeProfile, discovered } = discoverAndApplyCodebook(sourceProfile, job.discardedRows, {
-    file: job.filename,
-    sheet: job.sheetName,
-  });
+  const { runtimeProfile, discovered } = discoverAndApplyCodebook(
+    sourceProfile,
+    job.discardedRows,
+    {
+      file: job.filename,
+      sheet: job.sheetName,
+    },
+  );
 
   const cases: PVCase[] = [];
   const mappingWarnings: MappingWarning[] = [];
@@ -128,16 +158,29 @@ export async function runValidatedPreflightForJob(
   // Both layers — validateSourceDecoding (codebook-unresolved/quarantined
   // findings) is a separate function from validateBusinessRules; omitting
   // it here would understate what's actually blocking each case.
-  const businessRuleErrors = cases.flatMap((c) => [...validateSourceDecoding(c), ...validateBusinessRules(c)]);
+  const businessRuleErrors = cases.flatMap((c) => [
+    ...validateSourceDecoding(c),
+    ...validateBusinessRules(c),
+  ]);
   const preflight = runPreflight(cases);
   const readyForValidatedExport = preflight.status === "READY_FOR_VALIDATED_IMPORT";
+
+  // Read the job's own recorded override (if any) — never passed in by
+  // the caller, so it can't drift from what's actually on record for
+  // this job (same pattern as the legacy e2bOverride).
+  const override = job.validatedE2bOverride;
+  const caseEligibility: CaseExportEligibility[] = computeCaseEligibility(
+    preflight.results,
+    !!override,
+  );
+  const exportableWithOverride = !!override && caseEligibility.some((c) => c.rescuedByOverride);
 
   const actor = currentActor();
   await recordAudit({
     action: readyForValidatedExport ? "E2B_R3_PREFLIGHT_PASSED" : "E2B_R3_PREFLIGHT_BLOCKED",
     entity: "LineListJob",
     entityId: jobId,
-    newValue: `source=${sourceProfile.id}: ${preflight.readyCases}/${preflight.totalCases} case(s) ready for validated import, run by ${actor.name}`,
+    newValue: `source=${sourceProfile.id}: ${preflight.readyCases}/${preflight.totalCases} case(s) ready for validated import, run by ${actor.name}${override ? ` (override on record: ${override.by})` : ""}`,
   });
 
   return {
@@ -149,6 +192,9 @@ export async function runValidatedPreflightForJob(
     preflight,
     mappingWarnings,
     readyForValidatedExport,
+    override,
+    caseEligibility,
+    exportableWithOverride,
     transmissionConfigConfirmed: isTransmissionConfigConfirmed(transmissionConfig),
     transmissionConfigGaps: describeUnconfirmedTransmissionConfig(transmissionConfig),
     codebookDiscovery: {
@@ -167,12 +213,22 @@ export interface ValidatedBatchArtifact {
 }
 
 /**
- * Serializes real E2B(R3) XML for a job — but ONLY when every case in it
- * has already passed VigiFlow preflight AND the transmission config has
- * actually been confirmed (not the unconfirmed sentinel from
- * transmission-config.ts). This is the fail-closed gate: a blocked case,
- * or an unconfirmed sender/receiver identifier, must never reach a
- * download link, regardless of what the caller does with the result.
+ * Serializes real E2B(R3) XML for a job. The transmission config must
+ * always be actually confirmed (not the unconfirmed sentinel) — that
+ * gate is never overridable, by anyone, for any reason. Case inclusion
+ * is otherwise either:
+ *  - the fail-closed default: every case must have passed VigiFlow
+ *    preflight cleanly, or
+ *  - if the job carries a recorded validatedE2bOverride (see
+ *    api/e2b.ts's recordValidatedExportOverride), individual cases whose
+ *    BLOCKING errors are all in the overridable set (see
+ *    E2B_NON_OVERRIDABLE_CODES in validation.ts) are exported anyway —
+ *    but a case failing the ICH structural minimum, or missing its own
+ *    identity fields, is EXCLUDED from the batch regardless of the
+ *    override; it is never silently smuggled through.
+ * Either way, a case that makes it into the output is real, schema-
+ * conformant E2B(R3) XML — an override changes WHICH cases are included,
+ * never HOW a included case is serialized.
  */
 export async function generateValidatedExportForJob(
   jobId: string,
@@ -187,17 +243,40 @@ export async function generateValidatedExportForJob(
     );
   }
 
+  let exportableCases = result.cases;
+  let excludedCount = 0;
+
   if (!result.readyForValidatedExport) {
-    const reasons = result.preflight.results
-      .filter((r) => r.blocked)
-      .flatMap((r) => r.errors.filter((e) => e.severity === "BLOCKING").map((e) => `${r.caseId}: ${e.message}`));
-    throw new Error(
-      `Not ready for validated E2B(R3) export — ${result.preflight.blockedCases}/${result.preflight.totalCases} case(s) blocked. ${reasons.slice(0, 3).join(" | ")}${reasons.length > 3 ? ` (+${reasons.length - 3} more)` : ""}`,
+    if (!result.override) {
+      const reasons = result.preflight.results
+        .filter((r) => r.blocked)
+        .flatMap((r) =>
+          r.errors.filter((e) => e.severity === "BLOCKING").map((e) => `${r.caseId}: ${e.message}`),
+        );
+      throw new Error(
+        `Not ready for validated E2B(R3) export — ${result.preflight.blockedCases}/${result.preflight.totalCases} case(s) blocked. ${reasons.slice(0, 3).join(" | ")}${reasons.length > 3 ? ` (+${reasons.length - 3} more)` : ""}`,
+      );
+    }
+
+    // An override is on record — include only the cases it can actually
+    // rescue (see runValidatedPreflightForJob's caseEligibility).
+    const includableIds = new Set(
+      result.caseEligibility.filter((c) => c.includable).map((c) => c.caseId),
     );
+    exportableCases = result.cases.filter((c) => includableIds.has(c.sendersCaseId));
+    excludedCount = result.totalCases - exportableCases.length;
+
+    if (exportableCases.length === 0) {
+      throw new Error(
+        `Validated export override is on record, but every case is blocked by a non-overridable issue ` +
+          `(missing identifiable patient/reporter, zero reactions, zero suspect products, or a case-identity ` +
+          `field) — nothing can be exported even with the override.`,
+      );
+    }
   }
 
   const now = new Date();
-  const batches = splitIntoBatches(result.cases, `MEDNOVA-${jobId}`);
+  const batches = splitIntoBatches(exportableCases, `MEDNOVA-${jobId}`);
   const artifacts = batches.map((batch) => ({
     filename: batchFilename(batch, now),
     xml: serializeBatchToXml(batch.cases, {
@@ -214,7 +293,12 @@ export async function generateValidatedExportForJob(
     action: "E2B_R3_VALIDATED_EXPORT_GENERATED",
     entity: "LineListJob",
     entityId: jobId,
-    newValue: `source=${sourceProfile.id}: ${artifacts.length} batch file(s), ${result.totalCases} case(s), all passed VigiFlow preflight, generated by ${actor.name} (sender=${transmissionConfig.sender.identifier}, receiver=${transmissionConfig.receiver.identifier})`,
+    newValue: result.override
+      ? `source=${sourceProfile.id}: OVERRIDE ON RECORD (${result.override.by}: "${result.override.reason}") — ` +
+        `${artifacts.length} batch file(s), ${exportableCases.length}/${result.totalCases} case(s) exported` +
+        `${excludedCount > 0 ? ` (${excludedCount} case(s) excluded — non-overridable issues remained)` : ""}, ` +
+        `generated by ${actor.name} (sender=${transmissionConfig.sender.identifier}, receiver=${transmissionConfig.receiver.identifier})`
+      : `source=${sourceProfile.id}: ${artifacts.length} batch file(s), ${result.totalCases} case(s), all passed VigiFlow preflight, generated by ${actor.name} (sender=${transmissionConfig.sender.identifier}, receiver=${transmissionConfig.receiver.identifier})`,
   });
   for (const b of batches) {
     await recordAudit({
@@ -234,7 +318,10 @@ export async function generateValidatedExportForJob(
  *  downloaded should still be visible as such in the audit trail). Never
  *  logs patient PII: only the filename and case count, both already
  *  free of patient data by construction (see batching.ts). */
-export async function downloadValidatedBatch(jobId: string, artifact: ValidatedBatchArtifact): Promise<void> {
+export async function downloadValidatedBatch(
+  jobId: string,
+  artifact: ValidatedBatchArtifact,
+): Promise<void> {
   const blob = new Blob([artifact.xml], { type: "application/xml" });
   const url = URL.createObjectURL(blob);
   try {
