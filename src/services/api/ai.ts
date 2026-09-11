@@ -1,4 +1,5 @@
 import { apiRequest, apiUpload } from "./client";
+import type { PsurSuggestedSource } from "@/types/pv";
 
 /**
  * Client for the server-side AI workflows (src/server/routes/ai_*.py).
@@ -68,6 +69,13 @@ export interface AiPsurFindingOut {
   section: string;
   description: string;
   evidence: string;
+  /** snake_case to match this file's existing wire-format convention
+   *  (reporting_period, prompt_version, etc.) — converted to
+   *  suggestedSource when mapped into the domain PsurFinding. Only
+   *  present for MISSING_SECTION/SIGNAL/BENEFIT_RISK — see
+   *  PsurSuggestedSource (types/pv.ts) for why this is a fixed category +
+   *  note, never a specific document/URL/citation. */
+  suggested_source?: PsurSuggestedSource | null;
 }
 
 export interface AiPsurReviewResponse {

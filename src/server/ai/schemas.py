@@ -154,6 +154,49 @@ class AiLineListFix(BaseModel):
 
 _KNOWN_PSUR_CATEGORIES = {"MISSING_SECTION", "CONSISTENCY", "NUMERICAL", "SIGNAL", "BENEFIT_RISK"}
 _KNOWN_PSUR_SEVERITIES = {"HIGH", "MEDIUM", "LOW"}
+# Every one of these is a place the NAFDAC PSUR/PBRER assessor template
+# itself already names as somewhere to check for missing evidence
+# (VigiFlow's Nigerian component, requesting info from the MAH, literature
+# review, the RSI/SmPC, other regulators' actions, patient/HCP feedback,
+# RMP/PASS) — never invented. This is a fixed category + a short note,
+# deliberately never a specific document title, URL, or citation: an LLM
+# naming a fabricated-but-authoritative-sounding source in a regulatory
+# tool is exactly the failure mode this schema exists to make impossible.
+_KNOWN_PSUR_SOURCE_TYPES = {
+    "VIGIFLOW_NIGERIA",
+    "REQUEST_FROM_MAH",
+    "PUBLISHED_LITERATURE",
+    "REFERENCE_SAFETY_INFORMATION",
+    "WORLDWIDE_REGULATORY_ACTIONS",
+    "PATIENT_HCP_FEEDBACK",
+    "RISK_MANAGEMENT_PLAN",
+    "OTHER",
+}
+# Only these categories are genuinely about missing EXTERNAL evidence;
+# CONSISTENCY/NUMERICAL findings are about an internal contradiction to
+# resolve, not something a source pointer helps with.
+_PSUR_CATEGORIES_ALLOWING_SOURCE = {"MISSING_SECTION", "SIGNAL", "BENEFIT_RISK"}
+
+
+class AiPsurSuggestedSource(BaseModel):
+    type: Literal[
+        "VIGIFLOW_NIGERIA",
+        "REQUEST_FROM_MAH",
+        "PUBLISHED_LITERATURE",
+        "REFERENCE_SAFETY_INFORMATION",
+        "WORLDWIDE_REGULATORY_ACTIONS",
+        "PATIENT_HCP_FEEDBACK",
+        "RISK_MANAGEMENT_PLAN",
+        "OTHER",
+    ]
+    note: str
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _normalize_type(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_PSUR_SOURCE_TYPES:
+            return v.strip().upper()
+        return "OTHER"
 
 
 class AiPsurFinding(BaseModel):
@@ -162,6 +205,7 @@ class AiPsurFinding(BaseModel):
     section: str
     description: str
     evidence: str
+    suggested_source: Optional[AiPsurSuggestedSource] = None
 
     # Same fragility as AiLineListFinding.severity above, and the same fix:
     # one finding with an off-enum category or severity would otherwise
@@ -179,6 +223,16 @@ class AiPsurFinding(BaseModel):
         if isinstance(v, str) and v.strip().upper() in _KNOWN_PSUR_SEVERITIES:
             return v.strip().upper()
         return "MEDIUM"
+
+    # A CONSISTENCY/NUMERICAL finding is about an internal contradiction,
+    # not missing external evidence — silently drop a source suggestion
+    # here rather than let the model attach one to the wrong kind of
+    # finding (never fail the whole finding over it).
+    @model_validator(mode="after")
+    def _drop_source_on_disallowed_category(self):
+        if self.category not in _PSUR_CATEGORIES_ALLOWING_SOURCE:
+            self.suggested_source = None
+        return self
 
 
 class AiPsurReview(BaseModel):

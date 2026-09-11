@@ -333,6 +333,41 @@ If, after this review, no findings survive, return {"findings": []}.
 )
 
 
+# Shared between PSUR_REVIEW_PDF_PROMPT and PSUR_REVIEW_SPREADSHEET_PROMPT.
+# Every category here is a place the NAFDAC PSUR/PBRER assessor template
+# itself already names as somewhere to check for missing evidence
+# (VigiFlow's Nigerian component, requesting info from the MAH, published
+# literature, the RSI/SmPC, other regulators' worldwide actions,
+# patient/HCP feedback, RMP/PASS) — never invented by this prompt. The
+# note must stay general guidance, never a specific document title, URL,
+# or citation: naming a fabricated-but-authoritative-sounding source in a
+# regulatory tool is exactly the failure mode this constrains against.
+PSUR_SUGGESTED_SOURCE_INSTRUCTIONS = """
+For any finding whose category is MISSING_SECTION, SIGNAL, or BENEFIT_RISK, additionally suggest \
+WHERE an assessor could go look for the missing or weak evidence, as a "suggested_source" object \
+with a "type" from this fixed list and a short "note":
+  - VIGIFLOW_NIGERIA: the Nigerian component of the product's ICSR safety data in VigiFlow
+  - REQUEST_FROM_MAH: ask the Marketing Authorisation Holder directly for the missing section/data
+  - PUBLISHED_LITERATURE: published studies or literature review relevant to this product/finding
+  - REFERENCE_SAFETY_INFORMATION: the product's current RSI/SmPC/CDS/CCDS
+  - WORLDWIDE_REGULATORY_ACTIONS: other regulators' worldwide actions/decisions on this product
+  - PATIENT_HCP_FEEDBACK: patient-reported outcomes, patient support programmes, or HCP feedback
+  - RISK_MANAGEMENT_PLAN: the product's RMP or an ongoing/planned PASS
+  - OTHER: only when none of the above genuinely fits — explain in the note
+The "note" must be general guidance (what to search for or ask about), never a specific document \
+title, URL, registry name, or citation you are not certain exists — do not invent one. Omit \
+"suggested_source" entirely (or set it to null) for CONSISTENCY/NUMERICAL findings and for any \
+finding where no source genuinely applies.
+"""
+
+PSUR_SUGGESTED_SOURCE_JSON_SHAPE = (
+    '{"type": "VIGIFLOW_NIGERIA" | "REQUEST_FROM_MAH" | "PUBLISHED_LITERATURE" | '
+    '"REFERENCE_SAFETY_INFORMATION" | "WORLDWIDE_REGULATORY_ACTIONS" | "PATIENT_HCP_FEEDBACK" | '
+    '"RISK_MANAGEMENT_PLAN" | "OTHER", "note": "<general guidance, never a specific citation>"} '
+    "or null"
+)
+
+
 PSUR_REVIEW_PDF_PROMPT = (
     SAFETY_PREAMBLE
     + """
@@ -354,6 +389,8 @@ itself (e.g. a title page, header, or introduction stating the product and inter
 declaredProduct/declaredReportingPeriod, which are only a hint of what the uploader expects and \
 may be wrong or absent. Leave a field null if the text doesn't let you determine it confidently.
 
+""" + PSUR_SUGGESTED_SOURCE_INSTRUCTIONS + """
+
 Respond with JSON exactly in this shape:
 {
   "findings": [
@@ -362,7 +399,8 @@ Respond with JSON exactly in this shape:
       "severity": "HIGH" | "MEDIUM" | "LOW",
       "section": "<section or topic name>",
       "description": "<one to two sentences, specific to this document>",
-      "evidence": "<what in the text supports this finding, or the caveat if based on absence/truncation>"
+      "evidence": "<what in the text supports this finding, or the caveat if based on absence/truncation>",
+      "suggested_source": """ + PSUR_SUGGESTED_SOURCE_JSON_SHAPE + """
     }
   ],
   "product": "<product name found in the text, or null>",
@@ -397,6 +435,8 @@ that's empty or a placeholder, a reporter-contact column that's empty or malform
 benefit-risk cross-reference reminder. Numbers you report must be computed from the actual rows \
 provided, and must always refer to a column by its exact original header text.
 
+""" + PSUR_SUGGESTED_SOURCE_INSTRUCTIONS + """
+
 Respond with JSON exactly in this shape:
 {
   "findings": [
@@ -405,7 +445,8 @@ Respond with JSON exactly in this shape:
       "severity": "HIGH" | "MEDIUM" | "LOW",
       "section": "<topic name, or the exact original column header text if this finding is about a specific column>",
       "description": "<one to two sentences>",
-      "evidence": "<what in the data supports this, e.g. exact counts>"
+      "evidence": "<what in the data supports this, e.g. exact counts>",
+      "suggested_source": """ + PSUR_SUGGESTED_SOURCE_JSON_SHAPE + """
     }
   ]
 }

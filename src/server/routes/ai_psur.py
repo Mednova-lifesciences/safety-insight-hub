@@ -61,12 +61,21 @@ def _extract_pdf_text(raw: bytes) -> tuple[str, int]:
     return "".join(parts), total_pages
 
 
+class PsurSuggestedSourceOut(BaseModel):
+    type: str
+    note: str
+
+
 class PsurFindingOut(BaseModel):
     category: str
     severity: str
     section: str
     description: str
     evidence: str
+    # Only present for MISSING_SECTION/SIGNAL/BENEFIT_RISK — see
+    # PSUR_REVIEW_PDF_PROMPT/PSUR_REVIEW_SPREADSHEET_PROMPT for the fixed
+    # category list and the "never a specific citation" constraint.
+    suggested_source: Optional[PsurSuggestedSourceOut] = None
 
 
 class ReviewResponse(BaseModel):

@@ -383,6 +383,27 @@ export interface PsurDocument {
   sourceType?: "PDF" | "SPREADSHEET";
 }
 
+/** A pointer to WHERE an assessor can go look for evidence a finding says
+ *  is missing/weak — never a specific document title, URL, or citation
+ *  (that would be an invented authoritative fact in a regulatory tool).
+ *  Every category is one the NAFDAC PSUR/PBRER assessor template itself
+ *  already names as a place to check (VigiFlow, the MAH, literature
+ *  review, RSI/SmPC, other regulators' actions, patient/HCP feedback,
+ *  RMP/PASS) — never invented. `note` is general guidance ("search for
+ *  X-type studies", "ask the MAH for Y"), not a fabricated source name. */
+export interface PsurSuggestedSource {
+  type:
+    | "VIGIFLOW_NIGERIA"
+    | "REQUEST_FROM_MAH"
+    | "PUBLISHED_LITERATURE"
+    | "REFERENCE_SAFETY_INFORMATION"
+    | "WORLDWIDE_REGULATORY_ACTIONS"
+    | "PATIENT_HCP_FEEDBACK"
+    | "RISK_MANAGEMENT_PLAN"
+    | "OTHER";
+  note: string;
+}
+
 export interface PsurFinding {
   id: string;
   category: "MISSING_SECTION" | "CONSISTENCY" | "NUMERICAL" | "SIGNAL" | "BENEFIT_RISK";
@@ -390,6 +411,11 @@ export interface PsurFinding {
   section: string;
   description: string;
   evidence: string;
+  /** Only ever populated for MISSING_SECTION / SIGNAL / BENEFIT_RISK —
+   *  see PsurSuggestedSource. CONSISTENCY/NUMERICAL findings are about an
+   *  internal contradiction to resolve, not missing external evidence, so
+   *  they never carry one. */
+  suggestedSource?: PsurSuggestedSource | undefined;
   assistGenerated: boolean;
   humanAssessment?: "ACCEPTED" | "DISMISSED" | null | undefined;
   /** Which engine produced this finding. Absent on findings generated

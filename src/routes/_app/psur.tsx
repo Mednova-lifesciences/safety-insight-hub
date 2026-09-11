@@ -58,6 +58,20 @@ const categoryTone: Record<PsurFinding["category"], Tone> = {
   BENEFIT_RISK: "assist",
 };
 
+/** Human-readable label for each fixed suggestedSource category — see
+ *  PsurSuggestedSource (types/pv.ts) for why this list is fixed and where
+ *  each category comes from (the NAFDAC PSUR/PBRER assessor template). */
+const suggestedSourceLabel: Record<NonNullable<PsurFinding["suggestedSource"]>["type"], string> = {
+  VIGIFLOW_NIGERIA: "Check VigiFlow (Nigerian data)",
+  REQUEST_FROM_MAH: "Request from the MAH",
+  PUBLISHED_LITERATURE: "Published literature",
+  REFERENCE_SAFETY_INFORMATION: "Reference Safety Information (RSI/SmPC)",
+  WORLDWIDE_REGULATORY_ACTIONS: "Worldwide regulatory actions",
+  PATIENT_HCP_FEEDBACK: "Patient/HCP feedback",
+  RISK_MANAGEMENT_PLAN: "Risk Management Plan / PASS",
+  OTHER: "Other source",
+};
+
 function assessmentTone(status: PsurFinding["humanAssessment"]): Tone {
   if (status === "ACCEPTED") return "success";
   if (status === "DISMISSED") return "neutral";
@@ -349,6 +363,15 @@ function PsurPage() {
                           <p className="mt-1 border-l-2 border-border pl-2 text-xs text-muted-foreground">
                             {f.evidence}
                           </p>
+                          {f.suggestedSource ? (
+                            <p className="mt-2 rounded-md border border-info/30 bg-info-soft px-2 py-1.5 text-xs text-foreground">
+                              <span className="font-medium">
+                                Suggested source: {suggestedSourceLabel[f.suggestedSource.type]}
+                              </span>
+                              {" — "}
+                              {f.suggestedSource.note}
+                            </p>
+                          ) : null}
                           {f.resolution ? (
                             <p className="mt-2 rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs">
                               <span className="font-medium">
