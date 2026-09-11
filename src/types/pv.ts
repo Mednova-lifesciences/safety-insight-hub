@@ -368,6 +368,173 @@ export interface LineListIssue {
   confidence?: "HIGH" | "LOW";
 }
 
+/** The 13 sections of the NAFDAC PSUR/PBRER Evaluation Form V4
+ *  (docs/NAFDAC_PSUR_Template_V4_Proposed.docx) — the authoritative
+ *  structure every screening/review pass checks a submission against.
+ *  This is the single source of truth on the frontend for rendering
+ *  section-coverage and labelling a finding's v4Section; prompts.py
+ *  mirrors the same section list/order for the AI side (two runtimes,
+ *  duplicated deliberately, kept in sync by cross-referencing comments). */
+export type PsurV4SectionId =
+  | "ADMIN_SCREENING"
+  | "S1_PRODUCT_REGULATORY"
+  | "S2_WORLDWIDE_STATUS"
+  | "S3_THERAPEUTIC_CONTEXT"
+  | "S4_RSI"
+  | "S5_EXPOSURE_ACTIONS"
+  | "S6_LITERATURE"
+  | "S7_AGGREGATE_SAFETY_DATA"
+  | "S8_SIGNAL_EVALUATION"
+  | "S9_SPECIAL_POPULATIONS"
+  | "S10_BENEFIT_RISK"
+  | "S11_UNCERTAINTIES"
+  | "S12_REGULATORY_DECISION"
+  | "S13_CONCLUSION_SIGNOFF";
+
+export interface PsurV4Section {
+  id: PsurV4SectionId;
+  name: string;
+  subItems: string[];
+}
+
+export const PSUR_V4_TEMPLATE_SECTIONS: PsurV4Section[] = [
+  {
+    id: "ADMIN_SCREENING",
+    name: "Administrative Completeness Check",
+    subItems: [
+      "Follows the NAFDAC/ICH E2C(R2) recommended template",
+      "Reporting interval / Data Lock Point (DLP) correctly stated/calculated",
+      "All mandatory ICH E2C(R2) sections present, or absence explicitly justified",
+      "Submission received within the required regulatory timeframe",
+    ],
+  },
+  {
+    id: "S1_PRODUCT_REGULATORY",
+    name: "1. Product & Regulatory Information",
+    subItems: [
+      "Date of Review",
+      "Name of Product / Strength / Dosage Form",
+      "Marketing Authorisation Holder (MAH)",
+      "NAFDAC Registration Number",
+      "Reporting Period",
+      "International Birth Date (IBD)",
+      "Nigerian Birth Date (NBD)",
+      "Therapeutic Indication(s)",
+    ],
+  },
+  {
+    id: "S2_WORLDWIDE_STATUS",
+    name: "2. Worldwide Regulatory & Marketing Status",
+    subItems: [
+      "Regulatory actions this interval (approvals, refusals, suspensions, withdrawals, variations)",
+      "Any action inconsistent with, or not yet reflected in, NAFDAC's current position",
+    ],
+  },
+  {
+    id: "S3_THERAPEUTIC_CONTEXT",
+    name: "3. Therapeutic Context",
+    subItems: [
+      "Incidence and prevalence of disease",
+      "Disease duration",
+      "Mortality and severity of the disease",
+      "Current treatment options",
+      "Quality-of-life impact given current treatment options",
+    ],
+  },
+  {
+    id: "S4_RSI",
+    name: "4. Reference Safety Information (RSI)",
+    subItems: [
+      "RSI type (SmPC/CDS/CCDS) and version",
+      "Changes made this interval",
+      "Rationale for the changes",
+    ],
+  },
+  {
+    id: "S5_EXPOSURE_ACTIONS",
+    name: "5. Exposure & Actions Taken for Safety Reasons",
+    subItems: [
+      "Reporting-interval exposure (global, Nigerian, other region)",
+      "Cumulative exposure",
+      "Actions taken for safety reasons during the reporting interval",
+    ],
+  },
+  {
+    id: "S6_LITERATURE",
+    name: "6. Literature",
+    subItems: ["Studies containing relevant safety information (company-sponsored and published)"],
+  },
+  {
+    id: "S7_AGGREGATE_SAFETY_DATA",
+    name: "7. Aggregate Safety Data Summary",
+    subItems: [
+      "MAH summary tabulation of ADRs / SOCs requiring specific regulatory assessment",
+      "Differences between Nigeria-specific and global data",
+      "VigiFlow's Nigerian ICSR count (reporting-interval and cumulative, including serious cases) vs. MAH-reported Nigerian cases",
+    ],
+  },
+  {
+    id: "S8_SIGNAL_EVALUATION",
+    name: "8. Signal Evaluation Log",
+    subItems: [
+      "Every signal new, ongoing, or closed this interval — or an explicit 'no signals under evaluation' statement",
+    ],
+  },
+  {
+    id: "S9_SPECIAL_POPULATIONS",
+    name: "9. Special Populations, Special Situations & Missing Information",
+    subItems: [
+      "Pregnancy & lactation",
+      "Paediatric population",
+      "Geriatric population",
+      "Hepatic impairment",
+      "Renal impairment",
+      "Overdose/misuse/abuse potential/medication error",
+      "Off-label use",
+      "Other missing information",
+    ],
+  },
+  {
+    id: "S10_BENEFIT_RISK",
+    name: "10. Benefit-Risk Assessment",
+    subItems: [
+      "10.1 Key Benefits",
+      "10.2 Key Risks (identified, potential, missing information)",
+      "10.3 Integrated Benefit-Risk Effects Table",
+      "10.4 Patient/HCP Perspective",
+      "10.5 Risk Minimisation Measures — Effectiveness",
+    ],
+  },
+  {
+    id: "S11_UNCERTAINTIES",
+    name: "11. Uncertainties Affecting the Benefit-Risk Assessment",
+    subItems: [
+      "Categorised uncertainties, impact on conclusion, whether the MAH addressed them, mandatory rationale",
+    ],
+  },
+  {
+    id: "S12_REGULATORY_DECISION",
+    name: "12. Regulatory Decision & Recommended Actions",
+    subItems: [
+      "Risk minimisation considerations",
+      "Overall benefit-risk outcome",
+      "Next PSUR/PBRER due date",
+      "Follow-up required",
+    ],
+  },
+  {
+    id: "S13_CONCLUSION_SIGNOFF",
+    name: "13. Conclusion, Sign-off & Document Control",
+    subItems: [
+      "Overall conclusion",
+      "Reviewer confidence",
+      "References",
+      "Evaluator sign-off",
+      "Peer review sign-off",
+    ],
+  },
+];
+
 export interface PsurDocument {
   id: string;
   filename: string;
@@ -381,6 +548,206 @@ export interface PsurDocument {
    *  summary tabulation). Defaults to PDF for documents uploaded before
    *  this field existed. */
   sourceType?: "PDF" | "SPREADSHEET";
+  /** Administrative Completeness Check — runs immediately at upload,
+   *  before detailed scientific review. Distinct pass, distinct data;
+   *  never collapsed into the findings list. Absent on documents
+   *  reviewed before this existed. */
+  screening?: PsurScreeningResult | undefined;
+  /** Structured Section 10 (Benefit-Risk Assessment) sub-tables — PDF
+   *  narrative reports only (a spreadsheet tabulation has no benefit-risk
+   *  narrative to extract from). Every field the AI could not support
+   *  from the actual text is marked accordingly, never fabricated. */
+  benefitRisk?: PsurBenefitRiskAssessment | undefined;
+  /** Section 11 — one row per identified uncertainty. */
+  uncertainties?: PsurUncertainty[] | undefined;
+  /** The AI's non-binding starting point for Section 12 — kept
+   *  structurally separate from `regulatoryDecision` (the assessor's own,
+   *  actual decision) so an AI suggestion can never be mistaken for, or
+   *  silently become, the regulatory conclusion. */
+  aiRecommendation?: PsurAiRecommendation | undefined;
+  /** Section 12 — the assessor's own decision. Undefined until an
+   *  assessor actually sets it; never defaulted from aiRecommendation. */
+  regulatoryDecision?: PsurRegulatoryDecision | undefined;
+  /** Section 13 — pure assessor input, never AI-generated. */
+  signOff?: PsurSignOff | undefined;
+}
+
+/** One item in the Administrative Completeness Check (template section
+ *  "Administrative Completeness Check", checked before scientific
+ *  review begins). */
+export interface PsurAdministrativeCheck {
+  id:
+    | "FOLLOWS_E2C_R2_TEMPLATE"
+    | "DLP_CORRECTLY_STATED"
+    | "MANDATORY_SECTIONS_PRESENT_OR_JUSTIFIED"
+    | "RECEIVED_WITHIN_TIMEFRAME";
+  label: string;
+  status: "YES" | "NO" | "NOT_ASSESSABLE";
+  comment: string;
+}
+
+export interface PsurSectionCoverage {
+  section: PsurV4SectionId;
+  present: boolean;
+  comment: string;
+}
+
+export interface PsurScreeningResult {
+  performedAt: string;
+  administrativeChecks: PsurAdministrativeCheck[];
+  /** Coarse "does this section appear to be addressed at all" check —
+   *  distinct from the deep per-field scientific review that follows. */
+  sectionCoverage: PsurSectionCoverage[];
+  /** A recommendation for the assessor, never an automatic decision —
+   *  see recordScreeningOverride in psur.ts. */
+  recommendation: "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST";
+  assistGenerated: boolean;
+  humanOverride?:
+    | {
+        decision: "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST";
+        by: string;
+        at: string;
+        rationale: string;
+      }
+    | undefined;
+}
+
+/** The 10 deficiency categories from the product-owner spec — a richer
+ *  classification layered ON TOP OF (not replacing) PsurFinding.category,
+ *  which stays for backward compatibility with findings stored before
+ *  this existed. Never force every finding into one of these if the
+ *  evidence doesn't actually support that categorisation — optional. */
+export type PsurDeficiencyType =
+  | "MISSING_INFORMATION"
+  | "INCOMPLETE_INFORMATION"
+  | "INADEQUATE_EVIDENCE"
+  | "INCONSISTENCY"
+  | "UNCLEAR_AMBIGUOUS_INFORMATION"
+  | "UNSUPPORTED_CLAIM"
+  | "MISSING_REQUIRED_SECTION"
+  | "INSUFFICIENT_LOCAL_EVIDENCE"
+  | "ADDITIONAL_LITERATURE_REQUIRED"
+  | "DATA_DISCREPANCY";
+
+export type PsurEvidenceQuality = "HIGH" | "MODERATE" | "LOW" | "VERY_LOW" | "NOT_ASSESSABLE";
+
+export interface PsurKeyBenefit {
+  id: string;
+  benefit: string;
+  evidenceSource: string;
+  magnitude: string;
+  evidenceQuality: PsurEvidenceQuality;
+}
+
+export interface PsurKeyRisk {
+  id: string;
+  kind: "IDENTIFIED" | "POTENTIAL";
+  risk: string;
+  severity: string;
+  frequency: string;
+  /** The template requires an appropriate denominator/category AND the
+   *  data source for any frequency estimate — never a bare number with
+   *  no provenance. */
+  frequencyDataSource: string;
+  reversibility: string;
+  duration: string;
+  preventabilityRiskManagement: string;
+  comment: string;
+}
+
+export interface PsurMissingInformationItem {
+  id: string;
+  missingInformation: string;
+  riskMinimisationImplication: string;
+}
+
+export interface PsurIntegratedEffectsRow {
+  dimension:
+    "CONDITION_UNMET_NEED" | "CURRENT_TREATMENT_OPTIONS" | "BENEFIT" | "RISK" | "RISK_MANAGEMENT";
+  evidenceAndUncertainty: string;
+  reviewerConclusion: string;
+}
+
+export interface PsurBenefitRiskAssessment {
+  keyBenefits: PsurKeyBenefit[];
+  keyRisks: PsurKeyRisk[];
+  missingInformation: PsurMissingInformationItem[];
+  /** Synthesised BEFORE the overall conclusion — the template requires
+   *  evidence and uncertainty for each dimension to be shown, not skipped
+   *  in favour of jumping straight to a verdict. */
+  integratedEffectsTable: PsurIntegratedEffectsRow[];
+  patientHcpPerspective: { available: boolean; summary: string };
+  riskMinimisationEffectiveness: {
+    outcome:
+      "NOT_APPLICABLE" | "EFFECTIVE" | "PARTIALLY_EFFECTIVE" | "NOT_EFFECTIVE" | "NOT_ASSESSABLE";
+    comment: string;
+  };
+  assistGenerated: boolean;
+}
+
+export type PsurUncertaintyCategory =
+  | "DATA_LIMITATIONS_UNDERREPORTING"
+  | "LIMITED_NIGERIAN_EXPOSURE"
+  | "MISSING_SUBPOPULATION_DATA"
+  | "SHORT_FOLLOWUP_DURATION"
+  | "STUDY_DESIGN_LIMITATIONS"
+  | "LIMITED_GENERALISABILITY"
+  | "OTHER";
+
+export interface PsurUncertainty {
+  id: string;
+  category: PsurUncertaintyCategory;
+  description: string;
+  impactOnConclusion: "LOW" | "MODERATE" | "HIGH";
+  /** Whether the MAH satisfactorily addressed this uncertainty — the
+   *  template requires this judgement to be tied to a specific
+   *  uncertainty, never a blanket statement. */
+  addressedByMah: "YES" | "PARTIALLY" | "NO";
+  rationale: string;
+}
+
+export type PsurRiskMinimisationAction =
+  | "NO_ACTION_REQUIRED"
+  | "CONTINUE_ROUTINE_PV"
+  | "REQUEST_ADDITIONAL_INFO_FROM_MAH"
+  | "REQUEST_MAH_CLARIFICATION"
+  | "TARGETED_COMMUNICATION_SAFETY_LETTER"
+  | "SUBMIT_UPDATE_RMP"
+  | "PROPOSAL_FOR_PASS"
+  | "UPDATE_SMPC_PIL_LABEL"
+  | "REFER_TO_EXPERT_ADVISORY_COMMITTEE"
+  | "RECOMMEND_SUSPENSION_WITHDRAWAL";
+
+export type PsurOverallBenefitRiskOutcome =
+  "FAVOURABLE" | "FAVOURABLE_WITH_CONDITIONS" | "UNCERTAIN_REQUIRES_FOLLOWUP" | "UNFAVOURABLE";
+
+/** AI's non-binding starting point for section 12 — see PsurDocument.aiRecommendation. */
+export interface PsurAiRecommendation {
+  actions: PsurRiskMinimisationAction[];
+  overallOutcome: PsurOverallBenefitRiskOutcome | undefined;
+  basis: string;
+}
+
+/** The assessor's own decision — see PsurDocument.regulatoryDecision. */
+export interface PsurRegulatoryDecision {
+  actions: PsurRiskMinimisationAction[];
+  overallOutcome: PsurOverallBenefitRiskOutcome | undefined;
+  basis: string;
+  nextPsurDueDate?: string | undefined;
+  followUpRequired?: string | undefined;
+  decidedBy: string;
+  decidedAt: string;
+}
+
+/** Section 13 — pure assessor input, never AI-generated. */
+export interface PsurSignOff {
+  conclusion: string;
+  reviewerConfidence: "HIGH" | "MEDIUM" | "LOW" | undefined;
+  references: string;
+  evaluatorName?: string | undefined;
+  evaluatorSignedAt?: string | undefined;
+  peerReviewerName?: string | undefined;
+  peerReviewedAt?: string | undefined;
 }
 
 /** A pointer to WHERE an assessor can go look for evidence a finding says
@@ -416,6 +783,14 @@ export interface PsurFinding {
    *  internal contradiction to resolve, not missing external evidence, so
    *  they never carry one. */
   suggestedSource?: PsurSuggestedSource | undefined;
+  /** Which of the 14 NAFDAC V4 template sections this finding belongs to
+   *  — see PsurV4SectionId. Undefined when the model/rule engine couldn't
+   *  confidently place it; never forced. */
+  v4Section?: PsurV4SectionId | undefined;
+  /** A richer, OPTIONAL classification layered on top of `category` —
+   *  see PsurDeficiencyType. Never forced onto a finding the evidence
+   *  doesn't clearly support. */
+  deficiencyType?: PsurDeficiencyType | undefined;
   assistGenerated: boolean;
   humanAssessment?: "ACCEPTED" | "DISMISSED" | null | undefined;
   /** Which engine produced this finding. Absent on findings generated

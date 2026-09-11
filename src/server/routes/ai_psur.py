@@ -76,6 +76,103 @@ class PsurFindingOut(BaseModel):
     # PSUR_REVIEW_PDF_PROMPT/PSUR_REVIEW_SPREADSHEET_PROMPT for the fixed
     # category list and the "never a specific citation" constraint.
     suggested_source: Optional[PsurSuggestedSourceOut] = None
+    # Which of the 14 NAFDAC V4 template sections this finding belongs to,
+    # and (optionally) which of the 10 deficiency types it is — see
+    # AiPsurFinding in schemas.py for the fixed lists both normalize to.
+    v4_section: Optional[str] = None
+    deficiency_type: Optional[str] = None
+
+
+class PsurAdministrativeCheckOut(BaseModel):
+    id: str
+    label: str
+    status: str
+    comment: str
+
+
+class PsurSectionCoverageOut(BaseModel):
+    section: str
+    present: bool
+    comment: str
+
+
+class PsurScreeningOut(BaseModel):
+    """Administrative Completeness Check — runs before scientific review,
+    per the V4 template's own instruction. A recommendation for the
+    assessor, never an automatic accept/reject."""
+
+    administrative_checks: list[PsurAdministrativeCheckOut] = []
+    section_coverage: list[PsurSectionCoverageOut] = []
+    recommendation: str = "PROCEED_TO_SCIENTIFIC_REVIEW"
+
+
+class PsurKeyBenefitOut(BaseModel):
+    benefit: str
+    evidence_source: str
+    magnitude: str
+    evidence_quality: str
+
+
+class PsurKeyRiskOut(BaseModel):
+    kind: str
+    risk: str
+    severity: str
+    frequency: str
+    frequency_data_source: str
+    reversibility: str
+    duration: str
+    preventability_risk_management: str
+    comment: str
+
+
+class PsurMissingInformationItemOut(BaseModel):
+    missing_information: str
+    risk_minimisation_implication: str
+
+
+class PsurIntegratedEffectsRowOut(BaseModel):
+    dimension: str
+    evidence_and_uncertainty: str
+    reviewer_conclusion: str
+
+
+class PsurPatientHcpPerspectiveOut(BaseModel):
+    available: bool = False
+    summary: str = ""
+
+
+class PsurRiskMinimisationEffectivenessOut(BaseModel):
+    outcome: str = "NOT_ASSESSABLE"
+    comment: str = ""
+
+
+class PsurBenefitRiskOut(BaseModel):
+    """Section 10 structured sub-tables — PDF narrative reports only."""
+
+    key_benefits: list[PsurKeyBenefitOut] = []
+    key_risks: list[PsurKeyRiskOut] = []
+    missing_information: list[PsurMissingInformationItemOut] = []
+    integrated_effects_table: list[PsurIntegratedEffectsRowOut] = []
+    patient_hcp_perspective: PsurPatientHcpPerspectiveOut = PsurPatientHcpPerspectiveOut()
+    risk_minimisation_effectiveness: PsurRiskMinimisationEffectivenessOut = PsurRiskMinimisationEffectivenessOut()
+
+
+class PsurUncertaintyOut(BaseModel):
+    category: str
+    description: str
+    impact_on_conclusion: str
+    addressed_by_mah: str
+    rationale: str
+
+
+class PsurRecommendationOut(BaseModel):
+    """The AI's non-binding starting point for Section 12 — see
+    AiPsurRecommendation in schemas.py. Never the assessor's actual
+    decision, which this app records separately once an assessor sets it."""
+
+    actions: list[str] = []
+    overall_outcome: Optional[str] = None
+    basis: str = ""
 
 
 class ReviewResponse(BaseModel):
@@ -88,6 +185,10 @@ class ReviewResponse(BaseModel):
     error: Optional[str] = None
     product: Optional[str] = None
     reporting_period: Optional[str] = None
+    screening: Optional[PsurScreeningOut] = None
+    benefit_risk: Optional[PsurBenefitRiskOut] = None
+    uncertainties: list[PsurUncertaintyOut] = []
+    ai_recommendation: Optional[PsurRecommendationOut] = None
 
 
 @router.get("/status")
@@ -146,6 +247,12 @@ async def review_pdf(
             model=completion.model,
             product=parsed.product,
             reporting_period=parsed.reporting_period,
+            screening=PsurScreeningOut(**parsed.screening.model_dump()) if parsed.screening else None,
+            benefit_risk=PsurBenefitRiskOut(**parsed.benefit_risk.model_dump()) if parsed.benefit_risk else None,
+            uncertainties=[PsurUncertaintyOut(**u.model_dump()) for u in parsed.uncertainties],
+            ai_recommendation=(
+                PsurRecommendationOut(**parsed.ai_recommendation.model_dump()) if parsed.ai_recommendation else None
+            ),
         )
     except AiNotConfiguredError as exc:
         logger.info("PSUR PDF AI review skipped: %s", exc)
@@ -205,6 +312,7 @@ async def review_spreadsheet(
             ai_used=True,
             prompt_version=PROMPT_VERSION,
             model=completion.model,
+            screening=PsurScreeningOut(**parsed.screening.model_dump()) if parsed.screening else None,
         )
     except AiNotConfiguredError as exc:
         logger.info("PSUR spreadsheet AI review skipped: %s", exc)

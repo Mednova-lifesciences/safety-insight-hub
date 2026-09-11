@@ -177,6 +177,28 @@ _KNOWN_PSUR_SOURCE_TYPES = {
 # resolve, not something a source pointer helps with.
 _PSUR_CATEGORIES_ALLOWING_SOURCE = {"MISSING_SECTION", "SIGNAL", "BENEFIT_RISK"}
 
+# The 14 sections of the NAFDAC PSUR/PBRER Evaluation Form V4
+# (docs/NAFDAC_PSUR_Template_V4_Proposed.docx) — mirrors
+# PSUR_V4_TEMPLATE_SECTIONS in src/types/pv.ts (TS-side source of truth
+# for the frontend). Two runtimes, deliberately duplicated; keep both in
+# sync if the template's section list ever changes.
+_KNOWN_V4_SECTIONS = {
+    "ADMIN_SCREENING", "S1_PRODUCT_REGULATORY", "S2_WORLDWIDE_STATUS", "S3_THERAPEUTIC_CONTEXT",
+    "S4_RSI", "S5_EXPOSURE_ACTIONS", "S6_LITERATURE", "S7_AGGREGATE_SAFETY_DATA",
+    "S8_SIGNAL_EVALUATION", "S9_SPECIAL_POPULATIONS", "S10_BENEFIT_RISK", "S11_UNCERTAINTIES",
+    "S12_REGULATORY_DECISION", "S13_CONCLUSION_SIGNOFF",
+}
+
+# The 10 deficiency categories from the product-owner spec — a richer,
+# OPTIONAL classification layered on top of the 5-value `category` above
+# (which stays for backward compatibility). Never force a finding into
+# one of these if the evidence doesn't support it.
+_KNOWN_DEFICIENCY_TYPES = {
+    "MISSING_INFORMATION", "INCOMPLETE_INFORMATION", "INADEQUATE_EVIDENCE", "INCONSISTENCY",
+    "UNCLEAR_AMBIGUOUS_INFORMATION", "UNSUPPORTED_CLAIM", "MISSING_REQUIRED_SECTION",
+    "INSUFFICIENT_LOCAL_EVIDENCE", "ADDITIONAL_LITERATURE_REQUIRED", "DATA_DISCREPANCY",
+}
+
 
 class AiPsurSuggestedSource(BaseModel):
     type: Literal[
@@ -206,6 +228,13 @@ class AiPsurFinding(BaseModel):
     description: str
     evidence: str
     suggested_source: Optional[AiPsurSuggestedSource] = None
+    # Which of the 14 real V4 template sections this finding is actually
+    # about — None when the model couldn't confidently place it (never
+    # forced), NOT a free-text guess.
+    v4_section: Optional[str] = None
+    # Richer, optional classification alongside `category` — see
+    # _KNOWN_DEFICIENCY_TYPES. None is a legitimate value, not a failure.
+    deficiency_type: Optional[str] = None
 
     # Same fragility as AiLineListFinding.severity above, and the same fix:
     # one finding with an off-enum category or severity would otherwise
@@ -224,6 +253,20 @@ class AiPsurFinding(BaseModel):
             return v.strip().upper()
         return "MEDIUM"
 
+    @field_validator("v4_section", mode="before")
+    @classmethod
+    def _normalize_v4_section(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_V4_SECTIONS:
+            return v.strip().upper()
+        return None
+
+    @field_validator("deficiency_type", mode="before")
+    @classmethod
+    def _normalize_deficiency_type(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_DEFICIENCY_TYPES:
+            return v.strip().upper()
+        return None
+
     # A CONSISTENCY/NUMERICAL finding is about an internal contradiction,
     # not missing external evidence — silently drop a source suggestion
     # here rather than let the model attach one to the wrong kind of
@@ -235,6 +278,254 @@ class AiPsurFinding(BaseModel):
         return self
 
 
+_KNOWN_ADMIN_CHECK_IDS = {
+    "FOLLOWS_E2C_R2_TEMPLATE", "DLP_CORRECTLY_STATED",
+    "MANDATORY_SECTIONS_PRESENT_OR_JUSTIFIED", "RECEIVED_WITHIN_TIMEFRAME",
+}
+_KNOWN_TRISTATE = {"YES", "NO", "NOT_ASSESSABLE"}
+
+
+class AiPsurAdministrativeCheck(BaseModel):
+    """One row of the Administrative Completeness Check — run BEFORE
+    detailed scientific review, per the V4 template's own instruction
+    that a deficient submission should be identifiable before scientific
+    assessment begins."""
+
+    id: Literal[
+        "FOLLOWS_E2C_R2_TEMPLATE", "DLP_CORRECTLY_STATED",
+        "MANDATORY_SECTIONS_PRESENT_OR_JUSTIFIED", "RECEIVED_WITHIN_TIMEFRAME",
+    ]
+    label: str
+    status: Literal["YES", "NO", "NOT_ASSESSABLE"]
+    comment: str
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _normalize_id(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_ADMIN_CHECK_IDS:
+            return v.strip().upper()
+        return "MANDATORY_SECTIONS_PRESENT_OR_JUSTIFIED"
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_TRISTATE:
+            return v.strip().upper()
+        return "NOT_ASSESSABLE"
+
+
+class AiPsurSectionCoverage(BaseModel):
+    """Coarse 'does this V4 section appear to be addressed at all' check
+    — distinct from the deep per-field findings in `AiPsurReview.findings`."""
+
+    section: Literal[
+        "ADMIN_SCREENING", "S1_PRODUCT_REGULATORY", "S2_WORLDWIDE_STATUS", "S3_THERAPEUTIC_CONTEXT",
+        "S4_RSI", "S5_EXPOSURE_ACTIONS", "S6_LITERATURE", "S7_AGGREGATE_SAFETY_DATA",
+        "S8_SIGNAL_EVALUATION", "S9_SPECIAL_POPULATIONS", "S10_BENEFIT_RISK", "S11_UNCERTAINTIES",
+        "S12_REGULATORY_DECISION", "S13_CONCLUSION_SIGNOFF",
+    ]
+    present: bool
+    comment: str
+
+    @field_validator("section", mode="before")
+    @classmethod
+    def _normalize_section(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_V4_SECTIONS:
+            return v.strip().upper()
+        return "S1_PRODUCT_REGULATORY"
+
+
+class AiPsurScreening(BaseModel):
+    """Administrative Completeness Check result — a RECOMMENDATION for
+    the assessor, never an automatic accept/reject (see prompts.py)."""
+
+    administrative_checks: list[AiPsurAdministrativeCheck] = []
+    section_coverage: list[AiPsurSectionCoverage] = []
+    recommendation: Literal["PROCEED_TO_SCIENTIFIC_REVIEW", "RETURN_TO_MAH_FIRST"] = "PROCEED_TO_SCIENTIFIC_REVIEW"
+
+    @field_validator("recommendation", mode="before")
+    @classmethod
+    def _normalize_recommendation(cls, v):
+        if isinstance(v, str) and v.strip().upper() in {"PROCEED_TO_SCIENTIFIC_REVIEW", "RETURN_TO_MAH_FIRST"}:
+            return v.strip().upper()
+        return "PROCEED_TO_SCIENTIFIC_REVIEW"
+
+
+_KNOWN_EVIDENCE_QUALITY = {"HIGH", "MODERATE", "LOW", "VERY_LOW", "NOT_ASSESSABLE"}
+
+
+class AiPsurKeyBenefit(BaseModel):
+    benefit: str
+    evidence_source: str
+    magnitude: str
+    evidence_quality: Literal["HIGH", "MODERATE", "LOW", "VERY_LOW", "NOT_ASSESSABLE"] = "NOT_ASSESSABLE"
+
+    @field_validator("evidence_quality", mode="before")
+    @classmethod
+    def _normalize_quality(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_EVIDENCE_QUALITY:
+            return v.strip().upper()
+        return "NOT_ASSESSABLE"
+
+
+class AiPsurKeyRisk(BaseModel):
+    kind: Literal["IDENTIFIED", "POTENTIAL"] = "POTENTIAL"
+    risk: str
+    severity: str
+    frequency: str
+    # The template requires an appropriate denominator/category AND the
+    # data source for any frequency estimate — never a bare number.
+    frequency_data_source: str
+    reversibility: str
+    duration: str
+    preventability_risk_management: str
+    comment: str
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _normalize_kind(cls, v):
+        if isinstance(v, str) and v.strip().upper() in {"IDENTIFIED", "POTENTIAL"}:
+            return v.strip().upper()
+        return "POTENTIAL"
+
+
+class AiPsurMissingInformationItem(BaseModel):
+    missing_information: str
+    risk_minimisation_implication: str
+
+
+class AiPsurIntegratedEffectsRow(BaseModel):
+    dimension: Literal["CONDITION_UNMET_NEED", "CURRENT_TREATMENT_OPTIONS", "BENEFIT", "RISK", "RISK_MANAGEMENT"]
+    evidence_and_uncertainty: str
+    reviewer_conclusion: str
+
+    @field_validator("dimension", mode="before")
+    @classmethod
+    def _normalize_dimension(cls, v):
+        known = {"CONDITION_UNMET_NEED", "CURRENT_TREATMENT_OPTIONS", "BENEFIT", "RISK", "RISK_MANAGEMENT"}
+        if isinstance(v, str) and v.strip().upper() in known:
+            return v.strip().upper()
+        return "BENEFIT"
+
+
+class AiPsurRiskMinimisationEffectiveness(BaseModel):
+    outcome: Literal["NOT_APPLICABLE", "EFFECTIVE", "PARTIALLY_EFFECTIVE", "NOT_EFFECTIVE", "NOT_ASSESSABLE"] = (
+        "NOT_ASSESSABLE"
+    )
+    comment: str = ""
+
+    @field_validator("outcome", mode="before")
+    @classmethod
+    def _normalize_outcome(cls, v):
+        known = {"NOT_APPLICABLE", "EFFECTIVE", "PARTIALLY_EFFECTIVE", "NOT_EFFECTIVE", "NOT_ASSESSABLE"}
+        if isinstance(v, str) and v.strip().upper() in known:
+            return v.strip().upper()
+        return "NOT_ASSESSABLE"
+
+
+class AiPsurPatientHcpPerspective(BaseModel):
+    available: bool = False
+    summary: str = ""
+
+
+class AiPsurBenefitRisk(BaseModel):
+    """Section 10 (Benefit-Risk Assessment) structured sub-tables. Every
+    field the model could not genuinely support from the actual document
+    text should read as empty/NOT_ASSESSABLE rather than be fabricated —
+    see PSUR_V4_ASSESSMENT_PROMPT's explicit instruction on this."""
+
+    key_benefits: list[AiPsurKeyBenefit] = []
+    key_risks: list[AiPsurKeyRisk] = []
+    missing_information: list[AiPsurMissingInformationItem] = []
+    integrated_effects_table: list[AiPsurIntegratedEffectsRow] = []
+    patient_hcp_perspective: AiPsurPatientHcpPerspective = Field(default_factory=AiPsurPatientHcpPerspective)
+    risk_minimisation_effectiveness: AiPsurRiskMinimisationEffectiveness = Field(
+        default_factory=AiPsurRiskMinimisationEffectiveness
+    )
+
+
+_KNOWN_UNCERTAINTY_CATEGORIES = {
+    "DATA_LIMITATIONS_UNDERREPORTING", "LIMITED_NIGERIAN_EXPOSURE", "MISSING_SUBPOPULATION_DATA",
+    "SHORT_FOLLOWUP_DURATION", "STUDY_DESIGN_LIMITATIONS", "LIMITED_GENERALISABILITY", "OTHER",
+}
+
+
+class AiPsurUncertainty(BaseModel):
+    category: Literal[
+        "DATA_LIMITATIONS_UNDERREPORTING", "LIMITED_NIGERIAN_EXPOSURE", "MISSING_SUBPOPULATION_DATA",
+        "SHORT_FOLLOWUP_DURATION", "STUDY_DESIGN_LIMITATIONS", "LIMITED_GENERALISABILITY", "OTHER",
+    ]
+    description: str
+    impact_on_conclusion: Literal["LOW", "MODERATE", "HIGH"] = "MODERATE"
+    addressed_by_mah: Literal["YES", "PARTIALLY", "NO"] = "NO"
+    rationale: str
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _normalize_category(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_UNCERTAINTY_CATEGORIES:
+            return v.strip().upper()
+        return "OTHER"
+
+    @field_validator("impact_on_conclusion", mode="before")
+    @classmethod
+    def _normalize_impact(cls, v):
+        if isinstance(v, str) and v.strip().upper() in {"LOW", "MODERATE", "HIGH"}:
+            return v.strip().upper()
+        return "MODERATE"
+
+    @field_validator("addressed_by_mah", mode="before")
+    @classmethod
+    def _normalize_addressed(cls, v):
+        if isinstance(v, str) and v.strip().upper() in {"YES", "PARTIALLY", "NO"}:
+            return v.strip().upper()
+        return "NO"
+
+
+_KNOWN_RISK_MINIMISATION_ACTIONS = {
+    "NO_ACTION_REQUIRED", "CONTINUE_ROUTINE_PV", "REQUEST_ADDITIONAL_INFO_FROM_MAH", "REQUEST_MAH_CLARIFICATION",
+    "TARGETED_COMMUNICATION_SAFETY_LETTER", "SUBMIT_UPDATE_RMP", "PROPOSAL_FOR_PASS", "UPDATE_SMPC_PIL_LABEL",
+    "REFER_TO_EXPERT_ADVISORY_COMMITTEE", "RECOMMEND_SUSPENSION_WITHDRAWAL",
+}
+_KNOWN_OVERALL_OUTCOMES = {
+    "FAVOURABLE", "FAVOURABLE_WITH_CONDITIONS", "UNCERTAIN_REQUIRES_FOLLOWUP", "UNFAVOURABLE",
+}
+
+
+class AiPsurRecommendation(BaseModel):
+    """The AI's NON-BINDING starting point for Section 12 — kept as a
+    structurally separate model from any assessor-owned decision record
+    so it can never be mistaken for, or silently promoted to, the actual
+    regulatory conclusion. The assessor decides; this only proposes."""
+
+    actions: list[
+        Literal[
+            "NO_ACTION_REQUIRED", "CONTINUE_ROUTINE_PV", "REQUEST_ADDITIONAL_INFO_FROM_MAH",
+            "REQUEST_MAH_CLARIFICATION", "TARGETED_COMMUNICATION_SAFETY_LETTER", "SUBMIT_UPDATE_RMP",
+            "PROPOSAL_FOR_PASS", "UPDATE_SMPC_PIL_LABEL", "REFER_TO_EXPERT_ADVISORY_COMMITTEE",
+            "RECOMMEND_SUSPENSION_WITHDRAWAL",
+        ]
+    ] = []
+    overall_outcome: Optional[
+        Literal["FAVOURABLE", "FAVOURABLE_WITH_CONDITIONS", "UNCERTAIN_REQUIRES_FOLLOWUP", "UNFAVOURABLE"]
+    ] = None
+    basis: str = ""
+
+    @field_validator("actions", mode="before")
+    @classmethod
+    def _normalize_actions(cls, v):
+        if not isinstance(v, list):
+            return []
+        return [a.strip().upper() for a in v if isinstance(a, str) and a.strip().upper() in _KNOWN_RISK_MINIMISATION_ACTIONS]
+
+    @field_validator("overall_outcome", mode="before")
+    @classmethod
+    def _normalize_outcome(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_OVERALL_OUTCOMES:
+            return v.strip().upper()
+        return None
+
+
 class AiPsurReview(BaseModel):
     findings: list[AiPsurFinding]  # required — see AiLineListAnalysis for why
     # Best-effort extraction from the document text itself — the frontend
@@ -244,6 +535,16 @@ class AiPsurReview(BaseModel):
     # confidently identify either from the (possibly truncated) text.
     product: Optional[str] = None
     reporting_period: Optional[str] = None
+    # Administrative Completeness Check — runs as part of the same call
+    # for a PDF (screening + scientific review share the same extracted
+    # text, so one call is more coherent than two that could disagree).
+    screening: Optional[AiPsurScreening] = None
+    # Section 10 structured sub-tables — PDF narrative reports only.
+    benefit_risk: Optional[AiPsurBenefitRisk] = None
+    # Section 11 — one row per identified uncertainty.
+    uncertainties: list[AiPsurUncertainty] = []
+    # AI's non-binding starting point for Section 12 — see AiPsurRecommendation.
+    ai_recommendation: Optional[AiPsurRecommendation] = None
 
 
 class AiPsurResolution(BaseModel):

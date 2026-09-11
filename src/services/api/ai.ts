@@ -76,6 +76,83 @@ export interface AiPsurFindingOut {
    *  PsurSuggestedSource (types/pv.ts) for why this is a fixed category +
    *  note, never a specific document/URL/citation. */
   suggested_source?: PsurSuggestedSource | null;
+  /** Which of the 14 NAFDAC V4 template sections this finding is about,
+   *  and (optionally) which of the 10 deficiency types — see PsurV4SectionId
+   *  / PsurDeficiencyType (types/pv.ts). Either may be null. */
+  v4_section?: string | null;
+  deficiency_type?: string | null;
+}
+
+export interface AiPsurAdministrativeCheckOut {
+  id: string;
+  label: string;
+  status: "YES" | "NO" | "NOT_ASSESSABLE";
+  comment: string;
+}
+
+export interface AiPsurSectionCoverageOut {
+  section: string;
+  present: boolean;
+  comment: string;
+}
+
+export interface AiPsurScreeningOut {
+  administrative_checks: AiPsurAdministrativeCheckOut[];
+  section_coverage: AiPsurSectionCoverageOut[];
+  recommendation: "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST";
+}
+
+export interface AiPsurKeyBenefitOut {
+  benefit: string;
+  evidence_source: string;
+  magnitude: string;
+  evidence_quality: string;
+}
+
+export interface AiPsurKeyRiskOut {
+  kind: string;
+  risk: string;
+  severity: string;
+  frequency: string;
+  frequency_data_source: string;
+  reversibility: string;
+  duration: string;
+  preventability_risk_management: string;
+  comment: string;
+}
+
+export interface AiPsurMissingInformationItemOut {
+  missing_information: string;
+  risk_minimisation_implication: string;
+}
+
+export interface AiPsurIntegratedEffectsRowOut {
+  dimension: string;
+  evidence_and_uncertainty: string;
+  reviewer_conclusion: string;
+}
+
+export interface AiPsurBenefitRiskOut {
+  key_benefits: AiPsurKeyBenefitOut[];
+  key_risks: AiPsurKeyRiskOut[];
+  missing_information: AiPsurMissingInformationItemOut[];
+  integrated_effects_table: AiPsurIntegratedEffectsRowOut[];
+  patient_hcp_perspective: { available: boolean; summary: string };
+  risk_minimisation_effectiveness: { outcome: string; comment: string };
+}
+
+export interface AiPsurUncertaintyOut {
+  category: string;
+  description: string;
+  impact_on_conclusion: "LOW" | "MODERATE" | "HIGH";
+  addressed_by_mah: "YES" | "PARTIALLY" | "NO";
+  rationale: string;
+}
+
+export interface AiPsurRecommendationOut {
+  actions: string[];
+  overall_outcome: string | null;
+  basis: string;
 }
 
 export interface AiPsurReviewResponse {
@@ -90,6 +167,13 @@ export interface AiPsurReviewResponse {
    *  text itself — PDF review only; null when not confidently determined. */
   product?: string | null;
   reporting_period?: string | null;
+  /** Administrative Completeness Check — undefined only for responses
+   *  from before this existed, or when ai_used is false. */
+  screening?: AiPsurScreeningOut | null;
+  /** Section 10 structured sub-tables — PDF review only. */
+  benefit_risk?: AiPsurBenefitRiskOut | null;
+  uncertainties?: AiPsurUncertaintyOut[];
+  ai_recommendation?: AiPsurRecommendationOut | null;
 }
 
 export interface AiPsurResolution {

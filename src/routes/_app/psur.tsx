@@ -22,7 +22,32 @@ import {
   type Tone,
 } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
-import type { PsurFinding } from "@/types/pv";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  PSUR_V4_TEMPLATE_SECTIONS,
+  type PsurBenefitRiskAssessment,
+  type PsurDocument,
+  type PsurEvidenceQuality,
+  type PsurFinding,
+  type PsurIntegratedEffectsRow,
+  type PsurKeyBenefit,
+  type PsurKeyRisk,
+  type PsurOverallBenefitRiskOutcome,
+  type PsurRiskMinimisationAction,
+  type PsurSignOff,
+  type PsurUncertainty,
+  type PsurUncertaintyCategory,
+  type PsurV4SectionId,
+} from "@/types/pv";
 
 export const Route = createFileRoute("/_app/psur")({
   head: () => ({
@@ -70,6 +95,59 @@ const suggestedSourceLabel: Record<NonNullable<PsurFinding["suggestedSource"]>["
   PATIENT_HCP_FEEDBACK: "Patient/HCP feedback",
   RISK_MANAGEMENT_PLAN: "Risk Management Plan / PASS",
   OTHER: "Other source",
+};
+
+const v4SectionLabel = new Map(PSUR_V4_TEMPLATE_SECTIONS.map((s) => [s.id, s.name]));
+
+const deficiencyTypeLabel: Record<NonNullable<PsurFinding["deficiencyType"]>, string> = {
+  MISSING_INFORMATION: "Missing information",
+  INCOMPLETE_INFORMATION: "Incomplete information",
+  INADEQUATE_EVIDENCE: "Inadequate evidence",
+  INCONSISTENCY: "Inconsistency",
+  UNCLEAR_AMBIGUOUS_INFORMATION: "Unclear/ambiguous",
+  UNSUPPORTED_CLAIM: "Unsupported claim",
+  MISSING_REQUIRED_SECTION: "Missing required section",
+  INSUFFICIENT_LOCAL_EVIDENCE: "Insufficient local (Nigerian) evidence",
+  ADDITIONAL_LITERATURE_REQUIRED: "Additional literature required",
+  DATA_DISCREPANCY: "Data discrepancy",
+};
+
+const riskMinimisationActionLabel: Record<PsurRiskMinimisationAction, string> = {
+  NO_ACTION_REQUIRED: "No action required",
+  CONTINUE_ROUTINE_PV: "Continue routine pharmacovigilance",
+  REQUEST_ADDITIONAL_INFO_FROM_MAH: "Request additional information from MAH",
+  REQUEST_MAH_CLARIFICATION: "Request MAH clarification",
+  TARGETED_COMMUNICATION_SAFETY_LETTER: "Targeted communication / safety letter",
+  SUBMIT_UPDATE_RMP: "Submit or update Risk Management Plan (RMP)",
+  PROPOSAL_FOR_PASS: "Proposal for Post-Authorisation Safety Study (PASS)",
+  UPDATE_SMPC_PIL_LABEL: "Update to SmPC / PIL / label (variation)",
+  REFER_TO_EXPERT_ADVISORY_COMMITTEE: "Refer to Expert Advisory Committee",
+  RECOMMEND_SUSPENSION_WITHDRAWAL: "Recommend suspension/withdrawal",
+};
+
+const overallOutcomeLabel: Record<PsurOverallBenefitRiskOutcome, string> = {
+  FAVOURABLE: "Favourable",
+  FAVOURABLE_WITH_CONDITIONS: "Favourable with conditions",
+  UNCERTAIN_REQUIRES_FOLLOWUP: "Uncertain — requires follow-up",
+  UNFAVOURABLE: "Unfavourable",
+};
+
+const uncertaintyCategoryLabel: Record<PsurUncertaintyCategory, string> = {
+  DATA_LIMITATIONS_UNDERREPORTING: "Data limitations or under-reporting",
+  LIMITED_NIGERIAN_EXPOSURE: "Limited data on local (Nigerian) exposure",
+  MISSING_SUBPOPULATION_DATA: "Missing subpopulation data",
+  SHORT_FOLLOWUP_DURATION: "Short follow-up duration",
+  STUDY_DESIGN_LIMITATIONS: "Study design limitations",
+  LIMITED_GENERALISABILITY: "Limited generalisability of the studied population",
+  OTHER: "Other",
+};
+
+const evidenceQualityLabel: Record<PsurEvidenceQuality, string> = {
+  HIGH: "High",
+  MODERATE: "Moderate",
+  LOW: "Low",
+  VERY_LOW: "Very low",
+  NOT_ASSESSABLE: "Not assessable",
 };
 
 function assessmentTone(status: PsurFinding["humanAssessment"]): Tone {
@@ -235,6 +313,12 @@ function PsurPage() {
               </div>
             </Section>
 
+            <AdministrativeScreeningPanel
+              key={`screening-${activeDoc.id}`}
+              doc={activeDoc}
+              onChanged={() => docs.refetch()}
+            />
+
             <Section
               title="Review findings"
               description="Missing sections, consistency issues, numerical discrepancies, signal-related items and benefit-risk areas requiring attention."
@@ -320,6 +404,23 @@ function PsurPage() {
                       <FileText className="size-4" /> Download Executive Summary
                     </Button>
                   ) : null}
+                  {activeDoc.stage === "REVIEWED" ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await psurApi.downloadComplianceDirective(activeDoc.id);
+                        } catch (err) {
+                          toast.error(
+                            err instanceof Error ? err.message : "Could not download the summary.",
+                          );
+                        }
+                      }}
+                    >
+                      <FileText className="size-4" /> Download Compliance Directive Summary
+                    </Button>
+                  ) : null}
                 </div>
               }
             >
@@ -347,6 +448,16 @@ function PsurPage() {
                               {f.severity.toLowerCase()} severity
                             </StatusPill>
                             <span className="text-sm font-medium">{f.section}</span>
+                            {f.v4Section ? (
+                              <StatusPill tone="neutral">
+                                {v4SectionLabel.get(f.v4Section) ?? f.v4Section}
+                              </StatusPill>
+                            ) : null}
+                            {f.deficiencyType ? (
+                              <StatusPill tone="warning">
+                                {deficiencyTypeLabel[f.deficiencyType]}
+                              </StatusPill>
+                            ) : null}
                             <StatusPill tone={f.source === "ai" ? "assist" : "neutral"}>
                               {f.source === "ai" ? "AI" : "rule"}
                             </StatusPill>
@@ -437,9 +548,989 @@ function PsurPage() {
                 }
               </QueryBoundary>
             </Section>
+
+            {activeDoc.sourceType !== "SPREADSHEET" ? (
+              <BenefitRiskPanel
+                key={`benefit-risk-${activeDoc.id}`}
+                doc={activeDoc}
+                onChanged={() => docs.refetch()}
+              />
+            ) : null}
+
+            <UncertaintiesPanel
+              key={`uncertainties-${activeDoc.id}`}
+              doc={activeDoc}
+              onChanged={() => docs.refetch()}
+            />
+
+            <RegulatoryDecisionPanel
+              key={`regdecision-${activeDoc.id}`}
+              doc={activeDoc}
+              onChanged={() => docs.refetch()}
+            />
+
+            <SignOffPanel
+              key={`signoff-${activeDoc.id}`}
+              doc={activeDoc}
+              onChanged={() => docs.refetch()}
+            />
           </>
         ) : null}
       </div>
     </>
+  );
+}
+
+/** Administrative Completeness Check — runs before scientific review, per
+ *  the V4 template's own instruction. Shows the AI's checks/coverage and
+ *  recommendation, and lets the assessor record their OWN decision on
+ *  whether to proceed — the AI's recommendation never governs on its own. */
+function AdministrativeScreeningPanel({
+  doc,
+  onChanged,
+}: {
+  doc: PsurDocument;
+  onChanged: () => void;
+}) {
+  const [rationale, setRationale] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const screening = doc.screening;
+
+  if (!screening) return null;
+
+  const override = screening.humanOverride;
+
+  async function decide(decision: "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST") {
+    setSubmitting(true);
+    try {
+      await psurApi.recordScreeningOverride(
+        doc.id,
+        decision,
+        rationale || "Assessor decision recorded.",
+      );
+      toast.success("Screening decision recorded.");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not record the decision.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Administrative Completeness Check"
+      description="Runs before detailed scientific review, per the V4 template. This is a recommendation for the assessor — it never automatically accepts or rejects a submission."
+    >
+      <div className="space-y-3">
+        <ul className="space-y-1.5">
+          {screening.administrativeChecks.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
+              <StatusPill
+                tone={c.status === "YES" ? "success" : c.status === "NO" ? "critical" : "neutral"}
+              >
+                {c.status.replaceAll("_", " ").toLowerCase()}
+              </StatusPill>
+              <span className="font-medium">{c.label}</span>
+              <span className="text-xs text-muted-foreground">{c.comment}</span>
+            </li>
+          ))}
+        </ul>
+
+        <details className="rounded-md border border-border p-2 text-sm">
+          <summary className="cursor-pointer font-medium">
+            Section coverage ({screening.sectionCoverage.filter((s) => s.present).length}/
+            {PSUR_V4_TEMPLATE_SECTIONS.length} sections addressed)
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {screening.sectionCoverage.map((s) => (
+              <li key={s.section} className="flex flex-wrap items-center gap-2 text-xs">
+                <StatusPill tone={s.present ? "success" : "warning"}>
+                  {s.present ? "present" : "absent"}
+                </StatusPill>
+                <span>{v4SectionLabel.get(s.section) ?? s.section}</span>
+                <span className="text-muted-foreground">— {s.comment}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm">AI recommendation:</span>
+          <StatusPill
+            tone={
+              screening.recommendation === "PROCEED_TO_SCIENTIFIC_REVIEW" ? "success" : "critical"
+            }
+          >
+            {screening.recommendation.replaceAll("_", " ").toLowerCase()}
+          </StatusPill>
+        </div>
+
+        {override ? (
+          <p className="rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs">
+            <span className="font-medium">
+              Assessor decision: {override.decision.replaceAll("_", " ").toLowerCase()}
+            </span>
+            {" — "}
+            {override.rationale} ({override.by}, {override.at.slice(0, 16).replace("T", " ")} UTC)
+          </p>
+        ) : (
+          <div className="space-y-2 rounded-md border border-border p-3">
+            <Textarea
+              placeholder="Rationale for your screening decision (required for an informed record)"
+              value={rationale}
+              onChange={(e) => setRationale(e.target.value)}
+              rows={2}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                disabled={submitting}
+                onClick={() => decide("PROCEED_TO_SCIENTIFIC_REVIEW")}
+              >
+                Proceed to scientific review
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={submitting}
+                onClick={() => decide("RETURN_TO_MAH_FIRST")}
+              >
+                Return to MAH first
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+/** Section 10 — Benefit-Risk Assessment. Displays the AI's best-effort
+ *  extraction (never fabricated — entries the text didn't support are
+ *  simply absent/NOT_ASSESSABLE) and lets the assessor edit every field
+ *  directly; saving marks the record as assessor-owned. */
+function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+  const empty: PsurBenefitRiskAssessment = {
+    keyBenefits: [],
+    keyRisks: [],
+    missingInformation: [],
+    integratedEffectsTable: [],
+    patientHcpPerspective: { available: false, summary: "" },
+    riskMinimisationEffectiveness: { outcome: "NOT_ASSESSABLE", comment: "" },
+    assistGenerated: true,
+  };
+  const [data, setData] = useState<PsurBenefitRiskAssessment>(doc.benefitRisk ?? empty);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await psurApi.updateBenefitRisk(doc.id, data);
+      toast.success("Benefit-risk assessment saved.");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section
+      title="10. Benefit-Risk Assessment"
+      description="Key benefits and risks, the integrated effects table, patient/HCP perspective, and risk-minimisation effectiveness. Edit anything the AI extraction got wrong or missed."
+      actions={
+        <Button size="sm" disabled={saving} onClick={save}>
+          {saving ? "Saving…" : "Save benefit-risk assessment"}
+        </Button>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <p className="label-caps mb-2">10.1 Key benefits</p>
+          {data.keyBenefits.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No key benefits recorded — the source text didn't support extracting any, or none have
+              been added yet.
+            </p>
+          ) : null}
+          <div className="space-y-2">
+            {data.keyBenefits.map((b, i) => (
+              <div
+                key={b.id}
+                className="grid gap-2 rounded-md border border-border p-2 sm:grid-cols-4"
+              >
+                <Input
+                  placeholder="Benefit"
+                  value={b.benefit}
+                  onChange={(e) =>
+                    setData((d) => ({
+                      ...d,
+                      keyBenefits: d.keyBenefits.map((x, j) =>
+                        j === i ? { ...x, benefit: e.target.value } : x,
+                      ),
+                    }))
+                  }
+                />
+                <Input
+                  placeholder="Evidence source"
+                  value={b.evidenceSource}
+                  onChange={(e) =>
+                    setData((d) => ({
+                      ...d,
+                      keyBenefits: d.keyBenefits.map((x, j) =>
+                        j === i ? { ...x, evidenceSource: e.target.value } : x,
+                      ),
+                    }))
+                  }
+                />
+                <Input
+                  placeholder="Magnitude"
+                  value={b.magnitude}
+                  onChange={(e) =>
+                    setData((d) => ({
+                      ...d,
+                      keyBenefits: d.keyBenefits.map((x, j) =>
+                        j === i ? { ...x, magnitude: e.target.value } : x,
+                      ),
+                    }))
+                  }
+                />
+                <Select
+                  value={b.evidenceQuality}
+                  onValueChange={(v) =>
+                    setData((d) => ({
+                      ...d,
+                      keyBenefits: d.keyBenefits.map((x, j) =>
+                        j === i ? { ...x, evidenceQuality: v as PsurEvidenceQuality } : x,
+                      ),
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(evidenceQualityLabel) as PsurEvidenceQuality[]).map((q) => (
+                      <SelectItem key={q} value={q}>
+                        {evidenceQualityLabel[q]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-2"
+            onClick={() =>
+              setData((d) => ({
+                ...d,
+                keyBenefits: [
+                  ...d.keyBenefits,
+                  {
+                    id: `krb-${Date.now()}`,
+                    benefit: "",
+                    evidenceSource: "",
+                    magnitude: "",
+                    evidenceQuality: "NOT_ASSESSABLE",
+                  },
+                ],
+              }))
+            }
+          >
+            Add key benefit
+          </Button>
+        </div>
+
+        <div>
+          <p className="label-caps mb-2">10.2 Key risks</p>
+          {data.keyRisks.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No key risks recorded yet.</p>
+          ) : null}
+          <div className="space-y-2">
+            {data.keyRisks.map((r, i) => (
+              <div key={r.id} className="space-y-2 rounded-md border border-border p-2">
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <Select
+                    value={r.kind}
+                    onValueChange={(v) =>
+                      setData((d) => ({
+                        ...d,
+                        keyRisks: d.keyRisks.map((x, j) =>
+                          j === i ? { ...x, kind: v as PsurKeyRisk["kind"] } : x,
+                        ),
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="IDENTIFIED">Important identified risk</SelectItem>
+                      <SelectItem value="POTENTIAL">Important potential risk</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    placeholder="Risk"
+                    value={r.risk}
+                    onChange={(e) =>
+                      setData((d) => ({
+                        ...d,
+                        keyRisks: d.keyRisks.map((x, j) =>
+                          j === i ? { ...x, risk: e.target.value } : x,
+                        ),
+                      }))
+                    }
+                  />
+                  <Input
+                    placeholder="Severity"
+                    value={r.severity}
+                    onChange={(e) =>
+                      setData((d) => ({
+                        ...d,
+                        keyRisks: d.keyRisks.map((x, j) =>
+                          j === i ? { ...x, severity: e.target.value } : x,
+                        ),
+                      }))
+                    }
+                  />
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Input
+                    placeholder="Frequency"
+                    value={r.frequency}
+                    onChange={(e) =>
+                      setData((d) => ({
+                        ...d,
+                        keyRisks: d.keyRisks.map((x, j) =>
+                          j === i ? { ...x, frequency: e.target.value } : x,
+                        ),
+                      }))
+                    }
+                  />
+                  <Input
+                    placeholder="Frequency data source (mandatory per template)"
+                    value={r.frequencyDataSource}
+                    onChange={(e) =>
+                      setData((d) => ({
+                        ...d,
+                        keyRisks: d.keyRisks.map((x, j) =>
+                          j === i ? { ...x, frequencyDataSource: e.target.value } : x,
+                        ),
+                      }))
+                    }
+                  />
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <Input
+                    placeholder="Reversibility"
+                    value={r.reversibility}
+                    onChange={(e) =>
+                      setData((d) => ({
+                        ...d,
+                        keyRisks: d.keyRisks.map((x, j) =>
+                          j === i ? { ...x, reversibility: e.target.value } : x,
+                        ),
+                      }))
+                    }
+                  />
+                  <Input
+                    placeholder="Duration"
+                    value={r.duration}
+                    onChange={(e) =>
+                      setData((d) => ({
+                        ...d,
+                        keyRisks: d.keyRisks.map((x, j) =>
+                          j === i ? { ...x, duration: e.target.value } : x,
+                        ),
+                      }))
+                    }
+                  />
+                  <Input
+                    placeholder="Preventability / risk management"
+                    value={r.preventabilityRiskManagement}
+                    onChange={(e) =>
+                      setData((d) => ({
+                        ...d,
+                        keyRisks: d.keyRisks.map((x, j) =>
+                          j === i ? { ...x, preventabilityRiskManagement: e.target.value } : x,
+                        ),
+                      }))
+                    }
+                  />
+                </div>
+                <Textarea
+                  placeholder="Comment"
+                  value={r.comment}
+                  rows={2}
+                  onChange={(e) =>
+                    setData((d) => ({
+                      ...d,
+                      keyRisks: d.keyRisks.map((x, j) =>
+                        j === i ? { ...x, comment: e.target.value } : x,
+                      ),
+                    }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-2"
+            onClick={() =>
+              setData((d) => ({
+                ...d,
+                keyRisks: [
+                  ...d.keyRisks,
+                  {
+                    id: `krk-${Date.now()}`,
+                    kind: "POTENTIAL",
+                    risk: "",
+                    severity: "",
+                    frequency: "",
+                    frequencyDataSource: "",
+                    reversibility: "",
+                    duration: "",
+                    preventabilityRiskManagement: "",
+                    comment: "",
+                  },
+                ],
+              }))
+            }
+          >
+            Add key risk
+          </Button>
+        </div>
+
+        <div>
+          <p className="label-caps mb-2">10.3 Integrated Benefit-Risk Effects Table</p>
+          <div className="space-y-2">
+            {data.integratedEffectsTable.map((row, i) => (
+              <div key={`${row.dimension}-${i}`} className="rounded-md border border-border p-2">
+                <p className="text-xs font-medium">{row.dimension.replaceAll("_", " ")}</p>
+                <Textarea
+                  className="mt-1"
+                  placeholder="Evidence and uncertainty"
+                  value={row.evidenceAndUncertainty}
+                  rows={2}
+                  onChange={(e) =>
+                    setData((d) => ({
+                      ...d,
+                      integratedEffectsTable: d.integratedEffectsTable.map((x, j) =>
+                        j === i ? { ...x, evidenceAndUncertainty: e.target.value } : x,
+                      ),
+                    }))
+                  }
+                />
+                <Textarea
+                  className="mt-1"
+                  placeholder="Reviewer conclusion"
+                  value={row.reviewerConclusion}
+                  rows={2}
+                  onChange={(e) =>
+                    setData((d) => ({
+                      ...d,
+                      integratedEffectsTable: d.integratedEffectsTable.map((x, j) =>
+                        j === i ? { ...x, reviewerConclusion: e.target.value } : x,
+                      ),
+                    }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          {data.integratedEffectsTable.length === 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  "CONDITION_UNMET_NEED",
+                  "CURRENT_TREATMENT_OPTIONS",
+                  "BENEFIT",
+                  "RISK",
+                  "RISK_MANAGEMENT",
+                ] as const
+              ).map((dim) => (
+                <Button
+                  key={dim}
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setData((d) => ({
+                      ...d,
+                      integratedEffectsTable: [
+                        ...d.integratedEffectsTable,
+                        { dimension: dim, evidenceAndUncertainty: "", reviewerConclusion: "" },
+                      ],
+                    }))
+                  }
+                >
+                  Add {dim.replaceAll("_", " ").toLowerCase()}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="label-caps mb-2">10.4 Patient/HCP perspective</p>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={data.patientHcpPerspective.available}
+                onCheckedChange={(c) =>
+                  setData((d) => ({
+                    ...d,
+                    patientHcpPerspective: { ...d.patientHcpPerspective, available: !!c },
+                  }))
+                }
+              />
+              Available
+            </label>
+            <Textarea
+              className="mt-2"
+              placeholder="Summary (leave blank if unavailable — never fabricated)"
+              value={data.patientHcpPerspective.summary}
+              rows={2}
+              onChange={(e) =>
+                setData((d) => ({
+                  ...d,
+                  patientHcpPerspective: { ...d.patientHcpPerspective, summary: e.target.value },
+                }))
+              }
+            />
+          </div>
+          <div>
+            <p className="label-caps mb-2">10.5 Risk minimisation effectiveness</p>
+            <Select
+              value={data.riskMinimisationEffectiveness.outcome}
+              onValueChange={(v) =>
+                setData((d) => ({
+                  ...d,
+                  riskMinimisationEffectiveness: {
+                    ...d.riskMinimisationEffectiveness,
+                    outcome:
+                      v as PsurBenefitRiskAssessment["riskMinimisationEffectiveness"]["outcome"],
+                  },
+                }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NOT_APPLICABLE">Not applicable</SelectItem>
+                <SelectItem value="EFFECTIVE">Effective</SelectItem>
+                <SelectItem value="PARTIALLY_EFFECTIVE">Partially effective</SelectItem>
+                <SelectItem value="NOT_EFFECTIVE">Not effective</SelectItem>
+                <SelectItem value="NOT_ASSESSABLE">Not assessable — insufficient data</SelectItem>
+              </SelectContent>
+            </Select>
+            <Textarea
+              className="mt-2"
+              placeholder="Comment"
+              value={data.riskMinimisationEffectiveness.comment}
+              rows={2}
+              onChange={(e) =>
+                setData((d) => ({
+                  ...d,
+                  riskMinimisationEffectiveness: {
+                    ...d.riskMinimisationEffectiveness,
+                    comment: e.target.value,
+                  },
+                }))
+              }
+            />
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/** Section 11 — Uncertainties Affecting the Benefit-Risk Assessment. */
+function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+  const [items, setItems] = useState<PsurUncertainty[]>(doc.uncertainties ?? []);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await psurApi.updateUncertainties(doc.id, items);
+      toast.success("Uncertainties saved.");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section
+      title="11. Uncertainties Affecting the Benefit-Risk Assessment"
+      description="This section must not be left blank — if genuinely none apply this interval, say so explicitly rather than leaving it empty."
+      actions={
+        <Button size="sm" disabled={saving} onClick={save}>
+          {saving ? "Saving…" : "Save uncertainties"}
+        </Button>
+      }
+    >
+      <div className="space-y-2">
+        {items.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No uncertainties recorded — add one, or state none apply this interval.
+          </p>
+        ) : null}
+        {items.map((u, i) => (
+          <div key={u.id} className="space-y-2 rounded-md border border-border p-2">
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Select
+                value={u.category}
+                onValueChange={(v) =>
+                  setItems((prev) =>
+                    prev.map((x, j) =>
+                      j === i ? { ...x, category: v as PsurUncertaintyCategory } : x,
+                    ),
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(uncertaintyCategoryLabel) as PsurUncertaintyCategory[]).map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {uncertaintyCategoryLabel[c]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={u.impactOnConclusion}
+                onValueChange={(v) =>
+                  setItems((prev) =>
+                    prev.map((x, j) =>
+                      j === i
+                        ? { ...x, impactOnConclusion: v as PsurUncertainty["impactOnConclusion"] }
+                        : x,
+                    ),
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="LOW">Impact: Low</SelectItem>
+                  <SelectItem value="MODERATE">Impact: Moderate</SelectItem>
+                  <SelectItem value="HIGH">Impact: High</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={u.addressedByMah}
+                onValueChange={(v) =>
+                  setItems((prev) =>
+                    prev.map((x, j) =>
+                      j === i
+                        ? { ...x, addressedByMah: v as PsurUncertainty["addressedByMah"] }
+                        : x,
+                    ),
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="YES">Addressed by MAH: Yes</SelectItem>
+                  <SelectItem value="PARTIALLY">Addressed by MAH: Partially</SelectItem>
+                  <SelectItem value="NO">Addressed by MAH: No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Textarea
+              placeholder="Description"
+              value={u.description}
+              rows={2}
+              onChange={(e) =>
+                setItems((prev) =>
+                  prev.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)),
+                )
+              }
+            />
+            <Textarea
+              placeholder="Rationale (mandatory — tie to this specific uncertainty)"
+              value={u.rationale}
+              rows={2}
+              onChange={(e) =>
+                setItems((prev) =>
+                  prev.map((x, j) => (j === i ? { ...x, rationale: e.target.value } : x)),
+                )
+              }
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setItems((prev) => prev.filter((_, j) => j !== i))}
+            >
+              Remove
+            </Button>
+          </div>
+        ))}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            setItems((prev) => [
+              ...prev,
+              {
+                id: `unc-${Date.now()}`,
+                category: "OTHER",
+                description: "",
+                impactOnConclusion: "MODERATE",
+                addressedByMah: "NO",
+                rationale: "",
+              },
+            ])
+          }
+        >
+          Add uncertainty
+        </Button>
+      </div>
+    </Section>
+  );
+}
+
+/** Section 12 — Regulatory Decision & Recommended Actions. The AI's
+ *  suggestion (document.aiRecommendation) is shown as a clearly-labelled,
+ *  non-binding starting point; the assessor's own decision is a
+ *  structurally separate field the assessor must set explicitly. */
+function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+  const [actions, setActions] = useState<PsurRiskMinimisationAction[]>(
+    doc.regulatoryDecision?.actions ?? [],
+  );
+  const [outcome, setOutcome] = useState<PsurOverallBenefitRiskOutcome | undefined>(
+    doc.regulatoryDecision?.overallOutcome,
+  );
+  const [basis, setBasis] = useState(doc.regulatoryDecision?.basis ?? "");
+  const [nextDue, setNextDue] = useState(doc.regulatoryDecision?.nextPsurDueDate ?? "");
+  const [followUp, setFollowUp] = useState(doc.regulatoryDecision?.followUpRequired ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await psurApi.updateRegulatoryDecision(doc.id, {
+        actions,
+        overallOutcome: outcome,
+        basis,
+        nextPsurDueDate: nextDue || undefined,
+        followUpRequired: followUp || undefined,
+      });
+      toast.success("Regulatory decision recorded.");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section
+      title="12. Regulatory Decision & Recommended Actions"
+      description="The assessor's own decision — the AI never makes a binding regulatory recommendation on its own."
+      actions={
+        <Button size="sm" disabled={saving} onClick={save}>
+          {saving ? "Saving…" : "Save regulatory decision"}
+        </Button>
+      }
+    >
+      <div className="space-y-4">
+        {doc.aiRecommendation ? (
+          <div className="rounded-md border border-info/30 bg-info-soft p-3 text-sm">
+            <p className="font-medium">AI suggestion (non-binding — the assessor decides)</p>
+            <p className="mt-1 text-xs">
+              {doc.aiRecommendation.overallOutcome
+                ? overallOutcomeLabel[doc.aiRecommendation.overallOutcome]
+                : "No outcome suggested"}
+              {doc.aiRecommendation.actions.length > 0
+                ? ` — ${doc.aiRecommendation.actions.map((a) => riskMinimisationActionLabel[a]).join("; ")}`
+                : ""}
+            </p>
+            {doc.aiRecommendation.basis ? (
+              <p className="mt-1 text-xs text-muted-foreground">{doc.aiRecommendation.basis}</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div>
+          <p className="label-caps mb-2">Risk minimisation considerations</p>
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {(Object.keys(riskMinimisationActionLabel) as PsurRiskMinimisationAction[]).map((a) => (
+              <label key={a} className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={actions.includes(a)}
+                  onCheckedChange={(c) =>
+                    setActions((prev) => (c ? [...prev, a] : prev.filter((x) => x !== a)))
+                  }
+                />
+                {riskMinimisationActionLabel[a]}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="label-caps mb-2">Overall benefit-risk outcome</p>
+          <Select
+            value={outcome ?? ""}
+            onValueChange={(v) => setOutcome(v as PsurOverallBenefitRiskOutcome)}
+          >
+            <SelectTrigger className="w-72">
+              <SelectValue placeholder="Not yet decided" />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(overallOutcomeLabel) as PsurOverallBenefitRiskOutcome[]).map((o) => (
+                <SelectItem key={o} value={o}>
+                  {overallOutcomeLabel[o]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <Textarea
+          placeholder="Regulatory action recommended and basis for the recommendation above"
+          value={basis}
+          rows={3}
+          onChange={(e) => setBasis(e.target.value)}
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="label-caps mb-1">Next PSUR/PBRER due date</p>
+            <Input type="date" value={nextDue} onChange={(e) => setNextDue(e.target.value)} />
+          </div>
+          <div>
+            <p className="label-caps mb-1">Follow-up information required/deadline</p>
+            <Input value={followUp} onChange={(e) => setFollowUp(e.target.value)} />
+          </div>
+        </div>
+
+        {doc.regulatoryDecision ? (
+          <p className="text-xs text-muted-foreground">
+            Last recorded by {doc.regulatoryDecision.decidedBy} on{" "}
+            {doc.regulatoryDecision.decidedAt.slice(0, 16).replace("T", " ")} UTC.
+          </p>
+        ) : null}
+      </div>
+    </Section>
+  );
+}
+
+/** Section 13 — Conclusion, Sign-off & Document Control. Pure assessor
+ *  input; never AI-generated. */
+function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+  const [signOff, setSignOff] = useState<PsurSignOff>(
+    doc.signOff ?? { conclusion: "", reviewerConfidence: undefined, references: "" },
+  );
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await psurApi.updateSignOff(doc.id, signOff);
+      toast.success("Sign-off recorded.");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section
+      title="13. Conclusion, Sign-off & Document Control"
+      description="Pure assessor input — never generated by the AI."
+      actions={
+        <Button size="sm" disabled={saving} onClick={save}>
+          {saving ? "Saving…" : "Save sign-off"}
+        </Button>
+      }
+    >
+      <div className="space-y-3">
+        <Textarea
+          placeholder="Overall conclusion, referencing the outcome selected in Section 12 and the key drivers from Section 10"
+          value={signOff.conclusion}
+          rows={3}
+          onChange={(e) => setSignOff((s) => ({ ...s, conclusion: e.target.value }))}
+        />
+        <div>
+          <p className="label-caps mb-2">Reviewer confidence in this conclusion</p>
+          <Select
+            value={signOff.reviewerConfidence ?? ""}
+            onValueChange={(v) =>
+              setSignOff((s) => ({
+                ...s,
+                reviewerConfidence: v as PsurSignOff["reviewerConfidence"],
+              }))
+            }
+          >
+            <SelectTrigger className="w-96">
+              <SelectValue placeholder="Not yet set" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="HIGH">
+                High — robust literature review, exposure and safety data
+              </SelectItem>
+              <SelectItem value="MEDIUM">Medium — some important uncertainties</SelectItem>
+              <SelectItem value="LOW">
+                Low — substantial missing information/limited or no exposure
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Textarea
+          placeholder="References"
+          value={signOff.references}
+          rows={2}
+          onChange={(e) => setSignOff((s) => ({ ...s, references: e.target.value }))}
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="label-caps mb-1">Evaluator's name and signature</p>
+            <Input
+              value={signOff.evaluatorName ?? ""}
+              onChange={(e) => setSignOff((s) => ({ ...s, evaluatorName: e.target.value }))}
+            />
+            {signOff.evaluatorSignedAt ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Signed {signOff.evaluatorSignedAt.slice(0, 16).replace("T", " ")} UTC
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <p className="label-caps mb-1">Peer reviewed by (name and signature)</p>
+            <Input
+              value={signOff.peerReviewerName ?? ""}
+              onChange={(e) => setSignOff((s) => ({ ...s, peerReviewerName: e.target.value }))}
+            />
+            {signOff.peerReviewedAt ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Signed {signOff.peerReviewedAt.slice(0, 16).replace("T", " ")} UTC
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </Section>
   );
 }

@@ -14,7 +14,33 @@ import { currentActor, newId, recordAudit, toJson } from "./db";
 import { isSpreadsheetFile, mapColumnsByKeywords, parseTabularFile } from "./tabular-parse";
 import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
-import type { PsurDocument, PsurFinding } from "@/types/pv";
+import type {
+  PsurAdministrativeCheck,
+  PsurAiRecommendation,
+  PsurBenefitRiskAssessment,
+  PsurDeficiencyType,
+  PsurDocument,
+  PsurEvidenceQuality,
+  PsurFinding,
+  PsurIntegratedEffectsRow,
+  PsurKeyRisk,
+  PsurOverallBenefitRiskOutcome,
+  PsurRegulatoryDecision,
+  PsurRiskMinimisationAction,
+  PsurScreeningResult,
+  PsurSignOff,
+  PsurUncertainty,
+  PsurUncertaintyCategory,
+  PsurV4SectionId,
+} from "@/types/pv";
+import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
+import type {
+  AiPsurBenefitRiskOut,
+  AiPsurFindingOut,
+  AiPsurRecommendationOut,
+  AiPsurScreeningOut,
+  AiPsurUncertaintyOut,
+} from "./ai";
 
 /** Findings are review assistance only — the regulatory assessment is
  *  always recorded by a human reviewer (see AssistLabel in psur.tsx). */
@@ -153,6 +179,118 @@ function computeStats(rows: ParsedCaseRow[]) {
   };
 }
 
+/** One AI finding -> one domain PsurFinding — shared by the PDF-upload,
+ *  PDF-retry, and spreadsheet review call sites so the mapping (including
+ *  the newer v4Section/deficiencyType fields) never drifts between them. */
+function mapAiFinding(f: AiPsurFindingOut): PsurFinding {
+  return {
+    id: newId("pf"),
+    category: f.category,
+    severity: f.severity,
+    section: f.section,
+    description: f.description,
+    evidence: f.evidence,
+    suggestedSource: f.suggested_source ?? undefined,
+    v4Section: (f.v4_section ?? undefined) as PsurV4SectionId | undefined,
+    deficiencyType: (f.deficiency_type ?? undefined) as PsurDeficiencyType | undefined,
+    assistGenerated: true,
+    humanAssessment: null,
+    source: "ai" as const,
+  };
+}
+
+/** AI screening result (wire shape) -> domain PsurScreeningResult. */
+function mapAiScreening(s: AiPsurScreeningOut | null | undefined): PsurScreeningResult | undefined {
+  if (!s) return undefined;
+  return {
+    performedAt: new Date().toISOString(),
+    administrativeChecks: s.administrative_checks.map((c) => ({
+      id: c.id as PsurAdministrativeCheck["id"],
+      label: c.label,
+      status: c.status,
+      comment: c.comment,
+    })),
+    sectionCoverage: s.section_coverage.map((c) => ({
+      section: c.section as PsurV4SectionId,
+      present: c.present,
+      comment: c.comment,
+    })),
+    recommendation: s.recommendation,
+    assistGenerated: true,
+  };
+}
+
+/** AI benefit-risk extraction (wire shape) -> domain PsurBenefitRiskAssessment. */
+function mapAiBenefitRisk(
+  b: AiPsurBenefitRiskOut | null | undefined,
+): PsurBenefitRiskAssessment | undefined {
+  if (!b) return undefined;
+  return {
+    keyBenefits: b.key_benefits.map((k) => ({
+      id: newId("krb"),
+      benefit: k.benefit,
+      evidenceSource: k.evidence_source,
+      magnitude: k.magnitude,
+      evidenceQuality: k.evidence_quality as PsurEvidenceQuality,
+    })),
+    keyRisks: b.key_risks.map((k): PsurKeyRisk => ({
+      id: newId("krk"),
+      kind: k.kind === "IDENTIFIED" ? "IDENTIFIED" : "POTENTIAL",
+      risk: k.risk,
+      severity: k.severity,
+      frequency: k.frequency,
+      frequencyDataSource: k.frequency_data_source,
+      reversibility: k.reversibility,
+      duration: k.duration,
+      preventabilityRiskManagement: k.preventability_risk_management,
+      comment: k.comment,
+    })),
+    missingInformation: b.missing_information.map((m) => ({
+      id: newId("mi"),
+      missingInformation: m.missing_information,
+      riskMinimisationImplication: m.risk_minimisation_implication,
+    })),
+    integratedEffectsTable: b.integrated_effects_table.map((r): PsurIntegratedEffectsRow => ({
+      dimension: r.dimension as PsurIntegratedEffectsRow["dimension"],
+      evidenceAndUncertainty: r.evidence_and_uncertainty,
+      reviewerConclusion: r.reviewer_conclusion,
+    })),
+    patientHcpPerspective: b.patient_hcp_perspective,
+    riskMinimisationEffectiveness: {
+      outcome: b.risk_minimisation_effectiveness
+        .outcome as PsurBenefitRiskAssessment["riskMinimisationEffectiveness"]["outcome"],
+      comment: b.risk_minimisation_effectiveness.comment,
+    },
+    assistGenerated: true,
+  };
+}
+
+/** AI uncertainties (wire shape) -> domain PsurUncertainty[]. */
+function mapAiUncertainties(list: AiPsurUncertaintyOut[] | undefined): PsurUncertainty[] {
+  return (list ?? []).map((u) => ({
+    id: newId("unc"),
+    category: u.category as PsurUncertaintyCategory,
+    description: u.description,
+    impactOnConclusion: u.impact_on_conclusion,
+    addressedByMah: u.addressed_by_mah,
+    rationale: u.rationale,
+  }));
+}
+
+/** AI's non-binding section-12 starting point (wire shape) -> domain
+ *  PsurAiRecommendation. Never conflated with PsurDocument.regulatoryDecision
+ *  (the assessor's own, separate decision). */
+function mapAiRecommendation(
+  r: AiPsurRecommendationOut | null | undefined,
+): PsurAiRecommendation | undefined {
+  if (!r) return undefined;
+  return {
+    actions: r.actions as PsurRiskMinimisationAction[],
+    overallOutcome: (r.overall_outcome ?? undefined) as PsurOverallBenefitRiskOutcome | undefined,
+    basis: r.basis,
+  };
+}
+
 /**
  * Standard PSUR/PBRER sections checked for a PDF narrative report when AI
  * review is unavailable — deterministic heuristics over the document's
@@ -166,6 +304,47 @@ const STANDARD_SECTIONS = [
   "Signal and risk evaluation",
   "Benefit-risk analysis",
 ];
+
+/** Deterministic Administrative Completeness Check for when AI review is
+ *  unavailable — honest about what a heuristic pass can't tell: every
+ *  check reads NOT_ASSESSABLE rather than guessing YES/NO, every
+ *  section's coverage reads "not assessable without AI review" rather
+ *  than a fabricated present/absent judgement, and the recommendation
+ *  stays PROCEED_TO_SCIENTIFIC_REVIEW (never an automatic rejection). */
+function generateFallbackScreening(): PsurScreeningResult {
+  return {
+    performedAt: new Date().toISOString(),
+    administrativeChecks: (
+      [
+        ["FOLLOWS_E2C_R2_TEMPLATE", "Follows the NAFDAC/ICH E2C(R2) recommended template"],
+        [
+          "DLP_CORRECTLY_STATED",
+          "Reporting interval / Data Lock Point (DLP) correctly stated/calculated",
+        ],
+        [
+          "MANDATORY_SECTIONS_PRESENT_OR_JUSTIFIED",
+          "All mandatory ICH E2C(R2) sections present, or absence justified",
+        ],
+        [
+          "RECEIVED_WITHIN_TIMEFRAME",
+          "Submission received within the required regulatory timeframe",
+        ],
+      ] as const
+    ).map(([id, label]) => ({
+      id,
+      label,
+      status: "NOT_ASSESSABLE" as const,
+      comment: "AI review is unavailable — this requires manual administrative screening.",
+    })),
+    sectionCoverage: PSUR_V4_TEMPLATE_SECTIONS.map((s) => ({
+      section: s.id,
+      present: false,
+      comment: "Not assessable without AI review — check manually against the V4 template.",
+    })),
+    recommendation: "PROCEED_TO_SCIENTIFIC_REVIEW",
+    assistGenerated: true,
+  };
+}
 
 function generatePdfFindingsFallback(doc: PsurDocument): PsurFinding[] {
   const seed = doc.id.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
@@ -417,18 +596,7 @@ export const psur = {
     try {
       const aiResult = await ai.psur.reviewPdf(file, doc.product, doc.reportingPeriod);
       const findings: PsurFinding[] = aiResult.ai_used
-        ? aiResult.findings.map((f) => ({
-            id: newId("pf"),
-            category: f.category,
-            severity: f.severity,
-            section: f.section,
-            description: f.description,
-            evidence: f.evidence,
-            suggestedSource: f.suggested_source ?? undefined,
-            assistGenerated: true,
-            humanAssessment: null,
-            source: "ai" as const,
-          }))
+        ? aiResult.findings.map(mapAiFinding)
         : RULE_BASED_DETECTION_ENABLED
           ? generatePdfFindingsFallback(doc)
           : [];
@@ -443,6 +611,14 @@ export const psur = {
         ...(aiResult.ai_used && aiResult.product ? { product: aiResult.product } : {}),
         ...(aiResult.ai_used && aiResult.reporting_period
           ? { reportingPeriod: aiResult.reporting_period }
+          : {}),
+        screening: aiResult.ai_used
+          ? mapAiScreening(aiResult.screening)
+          : generateFallbackScreening(),
+        ...(aiResult.ai_used ? { benefitRisk: mapAiBenefitRisk(aiResult.benefit_risk) } : {}),
+        ...(aiResult.ai_used ? { uncertainties: mapAiUncertainties(aiResult.uncertainties) } : {}),
+        ...(aiResult.ai_used
+          ? { aiRecommendation: mapAiRecommendation(aiResult.ai_recommendation) }
           : {}),
       };
       await saveDocument(reviewed);
@@ -469,6 +645,7 @@ export const psur = {
     let findings = await readFindings(documentId);
 
     if (findings.length === 0 && document.stage !== "REVIEWED" && document.stage !== "FAILED") {
+      let screening: PsurScreeningResult | undefined;
       if (document.sourceType === "SPREADSHEET" && document.parsedRows) {
         const stats = computeStats(document.parsedRows);
         try {
@@ -481,25 +658,18 @@ export const psur = {
             stats,
           });
           findings = aiResult.ai_used
-            ? aiResult.findings.map((f) => ({
-                id: newId("pf"),
-                category: f.category,
-                severity: f.severity,
-                section: f.section,
-                description: f.description,
-                evidence: f.evidence,
-                suggestedSource: f.suggested_source ?? undefined,
-                assistGenerated: true,
-                humanAssessment: null,
-                source: "ai" as const,
-              }))
+            ? aiResult.findings.map(mapAiFinding)
             : RULE_BASED_DETECTION_ENABLED
               ? generateSpreadsheetFindingsFallback(document)
               : [];
+          screening = aiResult.ai_used
+            ? mapAiScreening(aiResult.screening)
+            : generateFallbackScreening();
         } catch {
           findings = RULE_BASED_DETECTION_ENABLED
             ? generateSpreadsheetFindingsFallback(document)
             : [];
+          screening = generateFallbackScreening();
         }
       } else {
         // PDF that somehow reached review() without being reviewed at
@@ -507,10 +677,11 @@ export const psur = {
         // original bytes are gone, so only the metadata-based fallback
         // is possible here (when RULE_BASED_DETECTION_ENABLED is on).
         findings = RULE_BASED_DETECTION_ENABLED ? generatePdfFindingsFallback(document) : [];
+        screening = generateFallbackScreening();
       }
 
       await persistFindings(documentId, findings);
-      const next: PsurDocumentRow = { ...document, stage: "REVIEWED" };
+      const next: PsurDocumentRow = { ...document, stage: "REVIEWED", screening };
       await saveDocument(next);
       await recordAudit({
         action: "PSUR_REVIEWED",
@@ -549,6 +720,129 @@ export const psur = {
       previousValue: finding.humanAssessment ?? "PENDING",
       newValue: assessment,
       reason: rationale,
+    });
+    return next;
+  },
+
+  /** The assessor's own decision on whether to proceed to scientific
+   *  review or return the submission to the MAH first — the AI's
+   *  `screening.recommendation` is only ever a suggestion; this is what
+   *  actually governs the workflow going forward. */
+  recordScreeningOverride: async (
+    documentId: string,
+    decision: "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST",
+    rationale: string,
+  ): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    if (!document.screening) throw new Error("No screening result to override yet");
+    const actor = currentActor();
+    const next: PsurDocumentRow = {
+      ...document,
+      screening: {
+        ...document.screening,
+        humanOverride: { decision, by: actor.name, at: new Date().toISOString(), rationale },
+      },
+    };
+    await saveDocument(next);
+    await recordAudit({
+      action: "PSUR_SCREENING_OVERRIDDEN",
+      entity: "PsurDocument",
+      entityId: documentId,
+      previousValue: document.screening.recommendation,
+      newValue: decision,
+      reason: rationale,
+    });
+    return next;
+  },
+
+  /** Assessor edits to the Section 10 benefit-risk sub-tables — replaces
+   *  the whole structure (the UI always sends the full edited object back,
+   *  same pattern as a form save) and marks it no longer purely
+   *  AI-generated once a human has touched it. */
+  updateBenefitRisk: async (
+    documentId: string,
+    benefitRisk: PsurBenefitRiskAssessment,
+  ): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    const next: PsurDocumentRow = {
+      ...document,
+      benefitRisk: { ...benefitRisk, assistGenerated: false },
+    };
+    await saveDocument(next);
+    await recordAudit({
+      action: "PSUR_BENEFIT_RISK_UPDATED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      newValue: `${benefitRisk.keyBenefits.length} benefit(s), ${benefitRisk.keyRisks.length} risk(s) recorded by assessor`,
+    });
+    return next;
+  },
+
+  /** Assessor edits to the Section 11 uncertainties list — full replace. */
+  updateUncertainties: async (
+    documentId: string,
+    uncertainties: PsurUncertainty[],
+  ): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    const next: PsurDocumentRow = { ...document, uncertainties };
+    await saveDocument(next);
+    await recordAudit({
+      action: "PSUR_UNCERTAINTIES_UPDATED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      newValue: `${uncertainties.length} uncertainty/uncertainties recorded`,
+    });
+    return next;
+  },
+
+  /** The assessor's ACTUAL Section 12 decision — structurally separate
+   *  from `document.aiRecommendation` (the AI's non-binding starting
+   *  point), never defaulted from it. */
+  updateRegulatoryDecision: async (
+    documentId: string,
+    decision: Omit<PsurRegulatoryDecision, "decidedBy" | "decidedAt">,
+  ): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    const actor = currentActor();
+    const next: PsurDocumentRow = {
+      ...document,
+      regulatoryDecision: {
+        ...decision,
+        decidedBy: actor.name,
+        decidedAt: new Date().toISOString(),
+      },
+    };
+    await saveDocument(next);
+    await recordAudit({
+      action: "PSUR_REGULATORY_DECISION_RECORDED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      newValue: `${decision.overallOutcome ?? "no outcome set"} — ${decision.actions.length} action(s)`,
+    });
+    return next;
+  },
+
+  /** Section 13 — pure assessor input, never AI-generated (see
+   *  PsurSignOff). Signing sets the evaluator/peer-reviewer timestamps
+   *  only for whichever name is present in this call, so an evaluator can
+   *  sign before a peer reviewer does. */
+  updateSignOff: async (documentId: string, signOff: PsurSignOff): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    const now = new Date().toISOString();
+    const next: PsurDocumentRow = {
+      ...document,
+      signOff: {
+        ...signOff,
+        ...(signOff.evaluatorName ? { evaluatorSignedAt: signOff.evaluatorSignedAt ?? now } : {}),
+        ...(signOff.peerReviewerName ? { peerReviewedAt: signOff.peerReviewedAt ?? now } : {}),
+      },
+    };
+    await saveDocument(next);
+    await recordAudit({
+      action: "PSUR_SIGNED_OFF",
+      entity: "PsurDocument",
+      entityId: documentId,
+      newValue: `Conclusion recorded, reviewer confidence: ${signOff.reviewerConfidence ?? "not set"}`,
     });
     return next;
   },
@@ -888,6 +1182,102 @@ export const psur = {
       const a = document.createElement("a");
       a.href = url;
       a.download = doc.filename.replace(/\.[^.]+$/, "") + "-executive-summary.txt";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  },
+
+  /**
+   * A structured deficiency list, grouped by V4 template section, with
+   * enough detail (section, deficiency type, severity, what's missing,
+   * why it matters, evidence, suggested source) to be used as the basis
+   * of a compliance directive to the MAH — this app doesn't assume or
+   * duplicate a specific compliance-directive template, it just exports
+   * the deficiency data in a structured, directly reusable form. Only
+   * ACCEPTED findings are included — an assessor decides what actually
+   * goes to the MAH, never every raw AI finding.
+   */
+  downloadComplianceDirective: async (documentId: string): Promise<void> => {
+    const doc = await readDocument(documentId);
+    const findings = await readFindings(documentId);
+    const accepted = findings.filter((f) => f.humanAssessment === "ACCEPTED");
+
+    const bySection = new Map<string, PsurFinding[]>();
+    for (const f of accepted) {
+      const key = f.v4Section ?? "UNSPECIFIED_SECTION";
+      const list = bySection.get(key) ?? [];
+      list.push(f);
+      bySection.set(key, list);
+    }
+
+    const lines: string[] = [];
+    const rule = "-".repeat(60);
+    lines.push("PSUR/PBRER STRUCTURED DEFICIENCY SUMMARY — COMPLIANCE-DIRECTIVE BASIS");
+    lines.push("=".repeat(60));
+    lines.push(`Document: ${doc.filename}`);
+    lines.push(`Product: ${doc.product}`);
+    lines.push(`Reporting period: ${doc.reportingPeriod}`);
+    lines.push("");
+
+    if (doc.screening) {
+      lines.push("ADMINISTRATIVE SCREENING");
+      lines.push(rule);
+      lines.push(`AI recommendation: ${doc.screening.recommendation}`);
+      if (doc.screening.humanOverride) {
+        lines.push(
+          `Assessor decision: ${doc.screening.humanOverride.decision} (${doc.screening.humanOverride.by}, ${doc.screening.humanOverride.at.slice(0, 16).replace("T", " ")} UTC) — ${doc.screening.humanOverride.rationale}`,
+        );
+      } else {
+        lines.push("Assessor decision: not yet recorded.");
+      }
+      for (const c of doc.screening.administrativeChecks) {
+        lines.push(`  [${c.status}] ${c.label} — ${c.comment}`);
+      }
+      lines.push("");
+    }
+
+    lines.push("DEFICIENCIES (accepted findings only), BY V4 TEMPLATE SECTION");
+    lines.push(rule);
+    if (accepted.length === 0) {
+      lines.push("No findings have been accepted yet — nothing to report.");
+    }
+    for (const [section, group] of bySection) {
+      lines.push(`${section}`);
+      for (const f of group) {
+        lines.push(
+          `  [${f.severity}]${f.deficiencyType ? ` (${f.deficiencyType})` : ""} ${f.description}`,
+        );
+        lines.push(`    Evidence: ${f.evidence}`);
+        if (f.suggestedSource) {
+          lines.push(`    Suggested source: ${f.suggestedSource.type} — ${f.suggestedSource.note}`);
+        }
+        if (f.rationale) lines.push(`    Reviewer rationale: ${f.rationale}`);
+        if (f.resolved && f.resolution) lines.push(`    Resolution: ${f.resolution}`);
+      }
+      lines.push("");
+    }
+
+    if (doc.regulatoryDecision) {
+      lines.push("REGULATORY DECISION (assessor's own — never AI-decided)");
+      lines.push(rule);
+      lines.push(`Overall outcome: ${doc.regulatoryDecision.overallOutcome ?? "not set"}`);
+      lines.push(`Actions: ${doc.regulatoryDecision.actions.join(", ") || "none recorded"}`);
+      lines.push(`Basis: ${doc.regulatoryDecision.basis}`);
+      lines.push(
+        `Decided by: ${doc.regulatoryDecision.decidedBy} on ${doc.regulatoryDecision.decidedAt.slice(0, 16).replace("T", " ")} UTC`,
+      );
+      lines.push("");
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.filename.replace(/\.[^.]+$/, "") + "-compliance-directive-summary.txt";
       document.body.appendChild(a);
       a.click();
       a.remove();

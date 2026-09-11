@@ -368,28 +368,152 @@ PSUR_SUGGESTED_SOURCE_JSON_SHAPE = (
 )
 
 
+# The 14 sections of the NAFDAC PSUR/PBRER Evaluation Form V4
+# (docs/NAFDAC_PSUR_Template_V4_Proposed.docx) — mirrors
+# PSUR_V4_TEMPLATE_SECTIONS in src/types/pv.ts and _KNOWN_V4_SECTIONS in
+# schemas.py. This is the REAL checklist sent to the model — earlier
+# versions of this prompt referenced "the standard section checklist...
+# provided to you" without ever actually including one, which produced
+# generic, shallow findings not grounded in this specific template. Fixed
+# here: the checklist is now genuinely provided.
+PSUR_V4_SECTION_CHECKLIST = """
+ADMIN_SCREENING — Administrative Completeness Check: follows the NAFDAC/ICH E2C(R2) recommended \
+template; reporting interval/Data Lock Point (DLP) correctly stated/calculated; all mandatory ICH \
+E2C(R2) sections present or absence explicitly justified; received within the required regulatory \
+timeframe.
+S1_PRODUCT_REGULATORY — 1. Product & Regulatory Information: Date of Review; Name of Product / \
+Strength / Dosage Form; Marketing Authorisation Holder (MAH); NAFDAC Registration Number; \
+Reporting Period; International Birth Date (IBD); Nigerian Birth Date (NBD); Therapeutic \
+Indication(s).
+S2_WORLDWIDE_STATUS — 2. Worldwide Regulatory & Marketing Status: regulatory actions this interval \
+(approvals, refusals, suspensions, withdrawals, variations) worldwide; any action inconsistent \
+with, or not yet reflected in, NAFDAC's current position.
+S3_THERAPEUTIC_CONTEXT — 3. Therapeutic Context: incidence and prevalence of disease; disease \
+duration; mortality and severity; current treatment options; quality-of-life impact given current \
+treatment options.
+S4_RSI — 4. Reference Safety Information (RSI): RSI type (SmPC/CDS/CCDS) and version number; \
+changes made this interval; rationale for the changes.
+S5_EXPOSURE_ACTIONS — 5. Exposure & Actions Taken for Safety Reasons: reporting-interval and \
+cumulative exposure (global, Nigerian, other region — patient years, patients, prescriptions, \
+units sold, defined daily doses where available); actions taken for safety reasons this interval.
+S6_LITERATURE — 6. Literature: studies containing relevant safety information, company-sponsored \
+and published.
+S7_AGGREGATE_SAFETY_DATA — 7. Aggregate Safety Data Summary: MAH's summary tabulation of ADRs / \
+SOCs requiring specific regulatory assessment; differences between Nigeria-specific and global \
+data; VigiFlow's Nigerian ICSR count (reporting-interval and cumulative, including serious cases) \
+compared with Nigerian cases reported by the MAH.
+S8_SIGNAL_EVALUATION — 8. Signal Evaluation Log: every signal new, ongoing, or closed this \
+interval — or an explicit "no signals under evaluation this interval" statement (this section must \
+not simply be left blank).
+S9_SPECIAL_POPULATIONS — 9. Special Populations, Special Situations & Missing Information: \
+pregnancy & lactation; paediatric population; geriatric population; hepatic impairment; renal \
+impairment; overdose/misuse/abuse potential/medication error; off-label use; other missing \
+information.
+S10_BENEFIT_RISK — 10. Benefit-Risk Assessment: 10.1 Key Benefits (benefit, evidence source, \
+magnitude, evidence quality); 10.2 Key Risks — important identified and potential risks (severity, \
+frequency + data source, reversibility, duration, preventability/risk management) and missing \
+information (with risk-minimisation implication); 10.3 Integrated Benefit-Risk Effects Table \
+across condition/unmet need, current treatment options, benefit, risk, and risk management — \
+evidence and uncertainty synthesised BEFORE the reviewer conclusion, never a conclusion alone; \
+10.4 Patient/HCP Perspective (if available); 10.5 Risk Minimisation Measures — Effectiveness this \
+interval.
+S11_UNCERTAINTIES — 11. Uncertainties Affecting the Benefit-Risk Assessment: category (data \
+limitations/under-reporting, limited Nigerian exposure, missing subpopulation data, short \
+follow-up duration, study design limitations, limited generalisability, other), impact on the \
+benefit-risk conclusion (Low/Moderate/High), whether the MAH satisfactorily addressed it \
+(Yes/Partially/No), mandatory rationale tied to the specific uncertainty.
+S12_REGULATORY_DECISION — 12. Regulatory Decision & Recommended Actions: risk-minimisation \
+considerations (a fixed list — see ai_recommendation.actions below); overall benefit-risk outcome \
+(Favourable / Favourable with conditions / Uncertain-requires follow-up / Unfavourable); this is a \
+RECOMMENDATION for the assessor, never a binding decision the AI makes on its own.
+S13_CONCLUSION_SIGNOFF — 13. Conclusion, Sign-off & Document Control: overall conclusion; \
+reviewer confidence (High/Medium/Low); references; evaluator and peer-reviewer sign-off — this \
+section is pure assessor input and is never populated by you.
+"""
+
+PSUR_V4_ASSESSOR_CONTROL_INSTRUCTIONS = """
+This is an AI-ASSISTED assessment tool, not an autonomous regulator. Follow these rules exactly:
+- Never fabricate evidence, references, Nigerian data, VigiFlow data, regulatory actions, or \
+scientific conclusions. If evidence is unavailable, say "Insufficient information available to \
+assess" — never invent a plausible-sounding fact to fill the gap.
+- Never treat absence of evidence as evidence of absence — if the text doesn't mention something, \
+say it wasn't found, not that it doesn't exist.
+- Never assume Nigerian data or Nigerian applicability of global data — if the document doesn't \
+separately address the Nigerian context, flag that as a gap; do not assume global figures apply \
+to Nigeria.
+- Never convert uncertainty into false certainty, and never make a binding regulatory \
+recommendation — `ai_recommendation` is explicitly a non-binding starting point for the assessor, \
+not a decision.
+- Be specific to what THIS document actually contains. Generic filler like "the PSUR should \
+provide sufficient information regarding safety and efficacy" is not acceptable — if exposure data \
+exists but has no Nigerian component, say exactly that; if a risk is called rare but no denominator \
+is given, flag the missing frequency basis specifically; if a benefit is claimed but its evidence \
+quality is unclear, flag that specifically.
+- Do not flag a deficiency where the submission genuinely, adequately addresses that point — do \
+not manufacture findings to pad the list.
+"""
+
+
 PSUR_REVIEW_PDF_PROMPT = (
     SAFETY_PREAMBLE
     + """
-TASK: Review the extracted text of a PSUR/PBRER (Periodic Safety Update Report / Periodic \
-Benefit-Risk Evaluation Report) against the standard section checklist and reporting-quality \
-expectations provided to you, and identify findings for a human reviewer.
+TASK: Perform a full NAFDAC PSUR/PBRER V4 assessment of the extracted text of a submitted PSUR/PBRER \
+(Periodic Safety Update Report / Periodic Benefit-Risk Evaluation Report) — administrative \
+completeness screening, section-by-section deficiency/gap identification, and (where the text \
+supports it) structured benefit-risk extraction — producing output for a human assessor to review, \
+edit, and act on. This assessment must be genuinely grounded in the real V4 template structure \
+below, not a generic PSUR checklist.
 
 You will be given: the document's declared metadata (filename, product, reporting period) and \
 its extracted text content (which may be truncated for length — judge only what you can see).
 
-Look for: sections from the checklist that do not appear to be present, internal numerical \
-inconsistencies you can actually observe in the text (e.g. a stated total that doesn't match a \
-sum given elsewhere in the same text), vague or missing benefit-risk conclusions, and other \
-concrete, text-grounded concerns. Do not assert that a section is missing if the text is \
-truncated and you simply didn't see it — say so as a caveat instead in that finding's evidence.
+THE REAL V4 TEMPLATE STRUCTURE (check the submission against this, section by section):
+""" + PSUR_V4_SECTION_CHECKLIST + """
+
+""" + PSUR_V4_ASSESSOR_CONTROL_INSTRUCTIONS + """
+
+STEP 1 — Administrative screening ("screening" in your response): for the 4 administrative checks \
+above, judge YES/NO/NOT_ASSESSABLE from what's actually in the text, with a specific comment. For \
+"section_coverage", judge whether each of the 14 sections above appears to be addressed AT ALL \
+(a coarse presence check) — this is separate from and precedes the detailed findings in step 2. \
+Set "recommendation" to RETURN_TO_MAH_FIRST only when the submission is so administratively \
+deficient that scientific review isn't yet meaningful; otherwise PROCEED_TO_SCIENTIFIC_REVIEW \
+(the assessor reviews and can override this either way — never treat it as a rejection).
+
+STEP 2 — Detailed findings ("findings" in your response): for each concrete, text-grounded \
+deficiency, gap, omission, inconsistency, or area needing further assessment, identify which of \
+the 14 sections above it belongs to (v4_section) and, where a specific deficiency type genuinely \
+fits, which of these applies (deficiency_type, optional — leave null rather than force a bad fit): \
+MISSING_INFORMATION, INCOMPLETE_INFORMATION, INADEQUATE_EVIDENCE, INCONSISTENCY, \
+UNCLEAR_AMBIGUOUS_INFORMATION, UNSUPPORTED_CLAIM, MISSING_REQUIRED_SECTION, \
+INSUFFICIENT_LOCAL_EVIDENCE, ADDITIONAL_LITERATURE_REQUIRED, DATA_DISCREPANCY. Do not assert a \
+section is missing if the text is truncated and you simply didn't see it — say so as a caveat in \
+the finding's evidence instead.
+
+""" + PSUR_SUGGESTED_SOURCE_INSTRUCTIONS + """
+
+STEP 3 — Benefit-risk extraction ("benefit_risk" in your response, section 10 only): extract \
+key_benefits and key_risks (identified/potential) with their evidence quality/severity/frequency \
+etc. ONLY where the text actually supports a specific entry — do not invent a benefit or risk the \
+text doesn't mention. Populate integrated_effects_table with evidence-and-uncertainty for each \
+dimension BEFORE any reviewer_conclusion — never a bare conclusion with no supporting reasoning \
+shown. patient_hcp_perspective.available is false (with an empty summary) when the text has \
+nothing on this. risk_minimisation_effectiveness.outcome is NOT_ASSESSABLE when the text doesn't \
+support judging it.
+
+STEP 4 — Uncertainties ("uncertainties" in your response, section 11): one entry per genuine \
+uncertainty you can identify from the text (e.g. limited Nigerian exposure, short follow-up), each \
+with impact_on_conclusion and addressed_by_mah tied to a specific rationale — never a generic \
+blanket entry.
+
+STEP 5 — Non-binding recommendation ("ai_recommendation", section 12): propose actions/overall \
+outcome as a STARTING POINT ONLY — the response's own field name says non-binding; do not present \
+this as a decision.
 
 Also identify the product name and the reporting period this document covers, from the text \
 itself (e.g. a title page, header, or introduction stating the product and interval) — not from \
 declaredProduct/declaredReportingPeriod, which are only a hint of what the uploader expects and \
 may be wrong or absent. Leave a field null if the text doesn't let you determine it confidently.
-
-""" + PSUR_SUGGESTED_SOURCE_INSTRUCTIONS + """
 
 Respond with JSON exactly in this shape:
 {
@@ -400,13 +524,40 @@ Respond with JSON exactly in this shape:
       "section": "<section or topic name>",
       "description": "<one to two sentences, specific to this document>",
       "evidence": "<what in the text supports this finding, or the caveat if based on absence/truncation>",
+      "v4_section": "<one of the 14 section IDs above, or null>",
+      "deficiency_type": "<one of the 10 deficiency types above, or null>",
       "suggested_source": """ + PSUR_SUGGESTED_SOURCE_JSON_SHAPE + """
     }
   ],
   "product": "<product name found in the text, or null>",
-  "reporting_period": "<reporting period found in the text, e.g. '01 Jan 2026 - 30 Jun 2026', or null>"
+  "reporting_period": "<reporting period found in the text, e.g. '01 Jan 2026 - 30 Jun 2026', or null>",
+  "screening": {
+    "administrative_checks": [
+      {"id": "FOLLOWS_E2C_R2_TEMPLATE" | "DLP_CORRECTLY_STATED" | "MANDATORY_SECTIONS_PRESENT_OR_JUSTIFIED" | "RECEIVED_WITHIN_TIMEFRAME", "label": "<short label>", "status": "YES" | "NO" | "NOT_ASSESSABLE", "comment": "<specific comment>"}
+    ],
+    "section_coverage": [
+      {"section": "<one of the 14 section IDs>", "present": true | false, "comment": "<why>"}
+    ],
+    "recommendation": "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST"
+  },
+  "benefit_risk": {
+    "key_benefits": [{"benefit": "...", "evidence_source": "...", "magnitude": "...", "evidence_quality": "HIGH" | "MODERATE" | "LOW" | "VERY_LOW" | "NOT_ASSESSABLE"}],
+    "key_risks": [{"kind": "IDENTIFIED" | "POTENTIAL", "risk": "...", "severity": "...", "frequency": "...", "frequency_data_source": "...", "reversibility": "...", "duration": "...", "preventability_risk_management": "...", "comment": "..."}],
+    "missing_information": [{"missing_information": "...", "risk_minimisation_implication": "..."}],
+    "integrated_effects_table": [{"dimension": "CONDITION_UNMET_NEED" | "CURRENT_TREATMENT_OPTIONS" | "BENEFIT" | "RISK" | "RISK_MANAGEMENT", "evidence_and_uncertainty": "...", "reviewer_conclusion": "..."}],
+    "patient_hcp_perspective": {"available": true | false, "summary": "..."},
+    "risk_minimisation_effectiveness": {"outcome": "NOT_APPLICABLE" | "EFFECTIVE" | "PARTIALLY_EFFECTIVE" | "NOT_EFFECTIVE" | "NOT_ASSESSABLE", "comment": "..."}
+  },
+  "uncertainties": [
+    {"category": "DATA_LIMITATIONS_UNDERREPORTING" | "LIMITED_NIGERIAN_EXPOSURE" | "MISSING_SUBPOPULATION_DATA" | "SHORT_FOLLOWUP_DURATION" | "STUDY_DESIGN_LIMITATIONS" | "LIMITED_GENERALISABILITY" | "OTHER", "description": "...", "impact_on_conclusion": "LOW" | "MODERATE" | "HIGH", "addressed_by_mah": "YES" | "PARTIALLY" | "NO", "rationale": "..."}
+  ],
+  "ai_recommendation": {
+    "actions": ["NO_ACTION_REQUIRED" | "CONTINUE_ROUTINE_PV" | "REQUEST_ADDITIONAL_INFO_FROM_MAH" | "REQUEST_MAH_CLARIFICATION" | "TARGETED_COMMUNICATION_SAFETY_LETTER" | "SUBMIT_UPDATE_RMP" | "PROPOSAL_FOR_PASS" | "UPDATE_SMPC_PIL_LABEL" | "REFER_TO_EXPERT_ADVISORY_COMMITTEE" | "RECOMMEND_SUSPENSION_WITHDRAWAL"],
+    "overall_outcome": "FAVOURABLE" | "FAVOURABLE_WITH_CONDITIONS" | "UNCERTAIN_REQUIRES_FOLLOWUP" | "UNFAVOURABLE" | null,
+    "basis": "<one to two sentences tying the recommendation to the findings/uncertainties above>"
+  }
 }
-If you find no issues, return findings as [] — still populate product/reporting_period if you can.
+If you find no issues, return findings as [] — still populate every other field with your best-effort, evidence-grounded assessment.
 """
 )
 
@@ -435,6 +586,18 @@ that's empty or a placeholder, a reporter-contact column that's empty or malform
 benefit-risk cross-reference reminder. Numbers you report must be computed from the actual rows \
 provided, and must always refer to a column by its exact original header text.
 
+This tabulation corresponds to NAFDAC V4 template sections S7_AGGREGATE_SAFETY_DATA (the case \
+data itself) and S5_EXPOSURE_ACTIONS (if exposure-shaped columns are present) — tag findings with \
+v4_section accordingly where they genuinely fit; leave it null otherwise. A spreadsheet tabulation \
+has no narrative benefit-risk write-up, so do NOT attempt full benefit-risk extraction here (that \
+only applies to PDF narrative reports) — only include the lightweight "screening" object below, \
+judging section_coverage ONLY for S7_AGGREGATE_SAFETY_DATA and S5_EXPOSURE_ACTIONS from what the \
+columns actually show; leave every other section's coverage as present:false, comment "not \
+assessable from a tabulation alone" rather than guessing. Set every administrative_checks status \
+to NOT_ASSESSABLE — a tabulation alone cannot support judging template-format/DLP/timeframe \
+compliance; recommendation is always PROCEED_TO_SCIENTIFIC_REVIEW (screening cannot competently \
+reject a submission from tabulation data alone).
+
 """ + PSUR_SUGGESTED_SOURCE_INSTRUCTIONS + """
 
 Respond with JSON exactly in this shape:
@@ -446,9 +609,21 @@ Respond with JSON exactly in this shape:
       "section": "<topic name, or the exact original column header text if this finding is about a specific column>",
       "description": "<one to two sentences>",
       "evidence": "<what in the data supports this, e.g. exact counts>",
+      "v4_section": "S7_AGGREGATE_SAFETY_DATA" | "S5_EXPOSURE_ACTIONS" | null,
+      "deficiency_type": "<one of MISSING_INFORMATION, INCOMPLETE_INFORMATION, INADEQUATE_EVIDENCE, INCONSISTENCY, UNCLEAR_AMBIGUOUS_INFORMATION, UNSUPPORTED_CLAIM, MISSING_REQUIRED_SECTION, INSUFFICIENT_LOCAL_EVIDENCE, ADDITIONAL_LITERATURE_REQUIRED, DATA_DISCREPANCY, or null>",
       "suggested_source": """ + PSUR_SUGGESTED_SOURCE_JSON_SHAPE + """
     }
-  ]
+  ],
+  "screening": {
+    "administrative_checks": [
+      {"id": "FOLLOWS_E2C_R2_TEMPLATE" | "DLP_CORRECTLY_STATED" | "MANDATORY_SECTIONS_PRESENT_OR_JUSTIFIED" | "RECEIVED_WITHIN_TIMEFRAME", "label": "<short label>", "status": "NOT_ASSESSABLE", "comment": "A cumulative case tabulation alone cannot support this administrative check."}
+    ],
+    "section_coverage": [
+      {"section": "S7_AGGREGATE_SAFETY_DATA", "present": true | false, "comment": "<why>"},
+      {"section": "S5_EXPOSURE_ACTIONS", "present": true | false, "comment": "<why>"}
+    ],
+    "recommendation": "PROCEED_TO_SCIENTIFIC_REVIEW"
+  }
 }
 """
 )
