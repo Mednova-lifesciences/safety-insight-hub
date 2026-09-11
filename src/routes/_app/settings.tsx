@@ -582,6 +582,7 @@ const QUALIFICATION_CODE_LABELS: Record<"1" | "2" | "3" | "4" | "5", string> = {
 function RegulatoryProfileSection() {
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<OrgRegulatoryConfig | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [senderOrg, setSenderOrg] = useState("");
@@ -599,6 +600,7 @@ function RegulatoryProfileSection() {
 
   async function load() {
     setLoading(true);
+    setLoadError(null);
     try {
       const c = await regulatoryConfig.get();
       setConfig(c);
@@ -621,7 +623,14 @@ function RegulatoryProfileSection() {
       setReportType(c.transmission.reportType);
       setReportTypeConfirmed(c.transmission.reportTypeConfirmed === true);
       setEnvironment(c.transmission.environment);
-    } catch {
+    } catch (err) {
+      // Never fail silently: a section that just vanishes when its fetch
+      // errors (e.g. the underlying table/migration isn't live yet, or a
+      // transient network issue) is indistinguishable from "this feature
+      // doesn't exist" to whoever's looking at Settings — exactly the bug
+      // this replaces. Show the real reason and a way to retry instead.
+      const message = err instanceof Error ? err.message : "Unknown error.";
+      setLoadError(message);
       toast.error("Could not load NAFDAC E2B(R3) regulatory configuration.");
     } finally {
       setLoading(false);
@@ -637,7 +646,29 @@ function RegulatoryProfileSection() {
   }, []);
 
   if (loading) return null;
-  if (!config) return null;
+  if (loadError || !config) {
+    return (
+      <Section
+        title="Regulatory Profiles — NAFDAC E2B(R3)"
+        description="Configure sender/receiver identifiers, report type, reporter-qualification mappings, and the outcome codelist ONCE — every future E2B(R3) export reuses this automatically."
+      >
+        <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <div className="space-y-2">
+            <p className="text-sm text-foreground">
+              Could not load this organization's regulatory configuration.
+              {loadError ? (
+                <span className="block text-xs text-muted-foreground">{loadError}</span>
+              ) : null}
+            </p>
+            <Button size="sm" variant="outline" onClick={load}>
+              Retry
+            </Button>
+          </div>
+        </div>
+      </Section>
+    );
+  }
 
   const readiness = computeOrganizationReadiness(config);
 
