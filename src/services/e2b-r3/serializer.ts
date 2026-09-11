@@ -98,36 +98,36 @@ const DRUG_CHARACTERIZATION_CODE: Record<DrugCharacterization, string> = {
   NOT_ADMINISTERED: "4",
 };
 
-/** E.i.7 — STILL UNVERIFIED, and deliberately so; this is a genuine open
- *  item, not an oversight. The developer spec (section 5.6) names the OID
- *  (...2.1.1.11, matching this file's codeSystem) and the six permitted
- *  concepts in this exact order — recovered/resolved, recovering/resolving,
- *  not recovered/not resolved, recovered/resolved with sequelae, fatal,
- *  unknown — which is what the 1-6 values below encode. But unlike G.k.1,
- *  the spec explicitly withholds the numbers themselves here ("Bind
- *  numeric values from Appendix I(F)") and separately warns (section 6):
- *  "ICH maintains its code lists outside the Implementation Guide, so
- *  values printed in the IG can go stale. Treat every numeric value in
- *  this document as a starting binding and confirm it against Appendix
- *  I(F) — ICH E2B code lists — in the current implementation package
- *  before coding." Appendix I(F) is a separate ICH-published document,
- *  not included in this repo's regulatory-assets/e2b-r3/official-ich/
- *  (schemas + reference/example instances only) — a live web check for it
- *  was attempted and blocked by a tool outage, not completed. Do not
- *  upgrade this comment on the strength of an LLM's own training-data
- *  recollection of "the standard ICH order" — that is exactly the kind of
- *  invented external-authority value this codebase's validation layer
- *  exists to refuse. Only a real Appendix I(F) citation may confirm this. */
-const OUTCOME_CODE: Record<NonNullable<PVReaction["outcome"]>, string> = {
-  RECOVERED: "1",
-  RECOVERING: "2",
-  NOT_RECOVERED: "3",
-  RECOVERED_WITH_SEQUELAE: "4",
-  FATAL: "5",
-  UNKNOWN: "6",
-};
-
-function serializeReaction(r: PVReaction): string {
+/** E.i.7 — the developer spec (section 5.6) names the OID (...2.1.1.11,
+ *  matching this file's codeSystem) and the six permitted concepts in this
+ *  exact order — recovered/resolved, recovering/resolving, not recovered/
+ *  not resolved, recovered/resolved with sequelae, fatal, unknown — but
+ *  explicitly withholds the numbers themselves ("Bind numeric values from
+ *  Appendix I(F)") and separately warns (section 6): "ICH maintains its
+ *  code lists outside the Implementation Guide, so values printed in the
+ *  IG can go stale. Treat every numeric value in this document as a
+ *  starting binding and confirm it against Appendix I(F) — ICH E2B code
+ *  lists — in the current implementation package before coding." Appendix
+ *  I(F) is a separate ICH-published document, not included in this repo's
+ *  regulatory-assets/e2b-r3/official-ich/ (schemas + reference/example
+ *  instances only).
+ *
+ *  This is no longer a hardcoded constant: there is no single correct
+ *  numbering this codebase can ship, because Appendix I(F) binding is
+ *  organization-specific regulatory configuration NAFDAC must confirm,
+ *  not a universal ICH constant this file could embed once and reuse
+ *  forever (see docs/E2B-R3-NAFDAC-VIGIFLOW.md). The caller now supplies
+ *  the org's own persisted, admin-configured codelist (services/e2b-r3/
+ *  regulatory-config.ts's OrgRegulatoryConfig.outcomeCodes). An outcome
+ *  with no entry in it is validated as BLOCKING before this module ever
+ *  runs on a real export (see validation.ts's
+ *  validateOutcomeCodeConfiguration) and, as a second, independent line
+ *  of defense here, is simply omitted from the serialized XML rather than
+ *  guessed — see serializeReaction below. */
+function serializeReaction(
+  r: PVReaction,
+  outcomeCodes: Partial<Record<NonNullable<PVReaction["outcome"]>, string>>,
+): string {
   const id = esc(r.id);
   const onset = r.onsetDate
     ? `<effectiveTime xsi:type="IVL_TS"><low value="${toHl7Ts(r.onsetDate)}"/></effectiveTime>`
@@ -142,8 +142,14 @@ function serializeReaction(r: PVReaction): string {
     return `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="${code}" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="${name}"/><value xsi:type="BL" ${val}/></observation></outboundRelationship2>`;
   };
 
-  const outcome = r.outcome
-    ? `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="27" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="outcome"/><value xsi:type="CE" code="${OUTCOME_CODE[r.outcome]}" codeSystem="2.16.840.1.113883.3.989.2.1.1.11" codeSystemVersion="1.0"/></observation></outboundRelationship2>`
+  // r.outcome may be a resolved canonical concept with no confirmed E2B
+  // code yet (validation.ts's E2B-OUTCOME-CODE-NOT-CONFIGURED — blocking
+  // by default, but overridable, so a case can still reach this function
+  // with an override on record). Never emit a guessed/placeholder code:
+  // treat it exactly as if outcome were absent instead.
+  const outcomeCode = r.outcome ? outcomeCodes[r.outcome] : undefined;
+  const outcome = outcomeCode
+    ? `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="27" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="outcome"/><value xsi:type="CE" code="${esc(outcomeCode)}" codeSystem="2.16.840.1.113883.3.989.2.1.1.11" codeSystemVersion="1.0"/></observation></outboundRelationship2>`
     : "";
 
   const sc = r.seriousnessCriteria;
@@ -166,7 +172,9 @@ function serializeDrugComponent(p: PVProduct): string {
   const route = p.route
     ? `<routeCode nullFlavor="UNK"><originalText>${esc(p.route)}</originalText></routeCode>`
     : "";
-  const dose = p.dose ? `<doseQuantity nullFlavor="UNK"/><!-- dose (free text, no PQ unit known): ${esc(p.dose)} -->` : "";
+  const dose = p.dose
+    ? `<doseQuantity nullFlavor="UNK"/><!-- dose (free text, no PQ unit known): ${esc(p.dose)} -->`
+    : "";
   const batch = p.batchNumber
     ? `<consumable typeCode="CSM"><instanceOfKind classCode="INST"><productInstanceInstance classCode="MMAT" determinerCode="INSTANCE"><lotNumberText>${esc(p.batchNumber)}</lotNumberText></productInstanceInstance></instanceOfKind></consumable>`
     : "";
@@ -188,20 +196,28 @@ function serializeCausality(p: PVProduct): string {
  *  no batch wrapper — see serializeBatchToXml for that). */
 export function serializeCaseToMessage(
   pvCase: PVCase,
-  opts: { messageId: string; senderId: string; receiverId: string },
+  opts: {
+    messageId: string;
+    senderId: string;
+    receiverId: string;
+    outcomeCodes: Partial<Record<NonNullable<PVReaction["outcome"]>, string>>;
+  },
 ): string {
   const name =
     pvCase.patient.identity.present && pvCase.patient.identity.value.kind === "INITIALS"
       ? `<name>${esc(pvCase.patient.identity.value.initials)}</name>`
       : `<name nullFlavor="${pvCase.patient.identity.present ? "MSK" : pvCase.patient.identity.nullFlavor}"/>`;
-  const sexCode = pvCase.patient.sex === "MALE" ? "1" : pvCase.patient.sex === "FEMALE" ? "2" : undefined;
+  const sexCode =
+    pvCase.patient.sex === "MALE" ? "1" : pvCase.patient.sex === "FEMALE" ? "2" : undefined;
   const sex = sexCode ? `<administrativeGenderCode code="${sexCode}" codeSystem="1.0.5218"/>` : "";
   const age =
     pvCase.patient.age && pvCase.patient.ageUnit
       ? `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><code code="3" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="age"/><value xsi:type="PQ" value="${esc(pvCase.patient.age)}" unit="${pvCase.patient.ageUnit}"/></observation></subjectOf2>`
       : "";
 
-  const reactionsXml = pvCase.reactions.map(serializeReaction).join("");
+  const reactionsXml = pvCase.reactions
+    .map((r) => serializeReaction(r, opts.outcomeCodes))
+    .join("");
   const drugComponentsXml = pvCase.products.map(serializeDrugComponent).join("");
   const causalityXml = pvCase.products.map(serializeCausality).join("");
 
@@ -209,10 +225,9 @@ export function serializeCaseToMessage(
     ? `<subjectOf2 typeCode="SBJ"><organizer classCode="CATEGORY" moodCode="EVN"><code code="4" codeSystem="2.16.840.1.113883.3.989.2.1.1.20" codeSystemVersion="1.0" displayName="drugInformation"/>${drugComponentsXml}</organizer></subjectOf2>`
     : "";
 
-  const c17 =
-    pvCase.fulfilsExpeditedCriteria.present
-      ? `value="${pvCase.fulfilsExpeditedCriteria.value ? "true" : "false"}"`
-      : `nullFlavor="${pvCase.fulfilsExpeditedCriteria.nullFlavor}"`;
+  const c17 = pvCase.fulfilsExpeditedCriteria.present
+    ? `value="${pvCase.fulfilsExpeditedCriteria.value ? "true" : "false"}"`
+    : `nullFlavor="${pvCase.fulfilsExpeditedCriteria.nullFlavor}"`;
 
   const reporterQual = pvCase.reporter.qualificationCode
     ? `<asQualifiedEntity classCode="QUAL"><code code="${pvCase.reporter.qualificationCode}" codeSystem="2.16.840.1.113883.3.989.2.1.1.6" codeSystemVersion="1.0"/></asQualifiedEntity>`
@@ -255,7 +270,9 @@ export function serializeCaseToMessage(
       ? `<outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code nullFlavor="NA"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><id extension="${esc(pvCase.followUp.previousTransmissionRef)}" root="2.16.840.1.113883.3.989.2.1.3.2"/></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>`
       : "";
 
-  const narrative = esc(pvCase.narrative && pvCase.narrative.trim() ? pvCase.narrative : "No narrative provided.");
+  const narrative = esc(
+    pvCase.narrative && pvCase.narrative.trim() ? pvCase.narrative : "No narrative provided.",
+  );
 
   return `<PORR_IN049016UV><id extension="${esc(opts.messageId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.sendersCaseId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}</player1>${age}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${followUpBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
 }
@@ -265,6 +282,11 @@ export interface BatchOptions {
   senderId: string;
   receiverId: string;
   transmissionTimestamp: Date;
+  /** The org's persisted E.i.7 outcome codelist (services/e2b-r3/
+   *  regulatory-config.ts's OrgRegulatoryConfig.outcomeCodes). Defaults to
+   *  an empty object (every outcome omitted from output) when not
+   *  supplied — never a hardcoded fallback numbering. */
+  outcomeCodes?: Partial<Record<NonNullable<PVReaction["outcome"]>, string>> | undefined;
 }
 
 /**
@@ -280,6 +302,7 @@ export function serializeBatchToXml(cases: PVCase[], opts: BatchOptions): string
         messageId: `${opts.batchId}-MSG${i + 1}`,
         senderId: opts.senderId,
         receiverId: opts.receiverId,
+        outcomeCodes: opts.outcomeCodes ?? {},
       }),
     )
     .join("");

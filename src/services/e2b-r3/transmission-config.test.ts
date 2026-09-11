@@ -19,10 +19,11 @@ describe("transmission configuration (sender/receiver/environment)", () => {
 
   it("reports every specific missing value, not just a generic failure", () => {
     const gaps = describeUnconfirmedTransmissionConfig(UNCONFIRMED_DEFAULT_CONFIG);
-    expect(gaps.length).toBe(3);
+    expect(gaps.length).toBe(4);
     expect(gaps.some((g) => g.includes("Sender organisation"))).toBe(true);
     expect(gaps.some((g) => g.includes("Sender transmission identifier"))).toBe(true);
     expect(gaps.some((g) => g.includes("Receiver transmission identifier"))).toBe(true);
+    expect(gaps.some((g) => g.includes("Report type (C.1.3)"))).toBe(true);
   });
 
   it("a fully supplied configuration is recognised as confirmed", () => {
@@ -31,6 +32,7 @@ describe("transmission configuration (sender/receiver/environment)", () => {
       sender: { organization: "MEDNOVA", identifier: "MEDNOVA-SND-01" },
       receiver: { identifier: "NAFDAC-RCV-01" },
       reportType: "1",
+      reportTypeConfirmed: true,
     };
     expect(isTransmissionConfigConfirmed(config)).toBe(true);
     expect(describeUnconfirmedTransmissionConfig(config)).toEqual([]);
@@ -42,11 +44,44 @@ describe("transmission configuration (sender/receiver/environment)", () => {
       sender: { organization: "MEDNOVA", identifier: "MEDNOVA-SND-01" },
       receiver: { identifier: UNCONFIRMED_SENTINEL },
       reportType: "1",
+      reportTypeConfirmed: true,
     };
     expect(isTransmissionConfigConfirmed(config)).toBe(false);
     const gaps = describeUnconfirmedTransmissionConfig(config);
     expect(gaps).toHaveLength(1);
     expect(gaps[0]).toContain("Receiver transmission identifier");
+  });
+
+  it("REGRESSION: sender/receiver being confirmed never silently confirms report type too", () => {
+    // This is the exact bug found during the NAFDAC regulatory-config
+    // implementation: isTransmissionConfigConfirmed used to check only
+    // sender.organization/sender.identifier/receiver.identifier, so a
+    // config with a fully confirmed sender/receiver but an UNCONFIRMED
+    // report type (still carrying the internal "4" placeholder) was
+    // reported as fully confirmed — meaning the placeholder could flow
+    // into produced XML as if NAFDAC had signed off on it.
+    const config: E2bTransmissionConfig = {
+      environment: "uat",
+      sender: { organization: "MEDNOVA", identifier: "MEDNOVA-SND-01" },
+      receiver: { identifier: "NAFDAC-RCV-01" },
+      reportType: "4", // the internal placeholder — must never read as confirmed
+      reportTypeConfirmed: false,
+    };
+    expect(isTransmissionConfigConfirmed(config)).toBe(false);
+    const gaps = describeUnconfirmedTransmissionConfig(config);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toContain("Report type (C.1.3)");
+  });
+
+  it("reportTypeConfirmed defaults to unconfirmed when omitted (fail-closed)", () => {
+    const config = {
+      environment: "uat" as const,
+      sender: { organization: "MEDNOVA", identifier: "MEDNOVA-SND-01" },
+      receiver: { identifier: "NAFDAC-RCV-01" },
+      reportType: "1" as const,
+      // reportTypeConfirmed intentionally omitted
+    };
+    expect(isTransmissionConfigConfirmed(config)).toBe(false);
   });
 
   it("never hardcodes a real NAFDAC/VigiFlow/MedNova identifier anywhere in this module", () => {

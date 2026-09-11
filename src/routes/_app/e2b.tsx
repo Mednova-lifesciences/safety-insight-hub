@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, FileStack, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 import { e2b as e2bApi } from "@/services/api/e2b";
@@ -10,7 +10,11 @@ import {
   downloadValidatedBatch,
   type ValidatedExportResult,
 } from "@/services/e2b-r3/export";
-import { UNCONFIRMED_DEFAULT_CONFIG } from "@/services/e2b-r3/transmission-config";
+import { regulatoryConfig } from "@/services/api/regulatory-config";
+import {
+  unconfiguredOrgRegulatoryConfig,
+  type OrgRegulatoryConfig,
+} from "@/services/e2b-r3/regulatory-config";
 import { linelist as linelistApi } from "@/services/api/linelist";
 import { demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
@@ -74,17 +78,32 @@ function E2bPage() {
   );
   const [overridingJobId, setOverridingJobId] = useState<string | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
+  // The org's persisted NAFDAC E2B(R3) regulatory configuration (sender/
+  // receiver identifiers, C.1.3, the outcome codelist, and reporter-
+  // qualification mappings — see Settings → Regulatory Profiles). Starts
+  // honestly unconfigured and is replaced by the real persisted value
+  // once loaded — preflight still runs against the unconfigured default
+  // so data-quality gaps are visible even before those decisions land,
+  // but export stays blocked separately on transmissionConfigConfirmed
+  // regardless of preflight (see runValidatedPreflightForJob).
+  const [regConfig, setRegConfig] = useState<OrgRegulatoryConfig>(
+    unconfiguredOrgRegulatoryConfig(),
+  );
+
+  useEffect(() => {
+    regulatoryConfig
+      .get()
+      .then(setRegConfig)
+      .catch(() => {
+        /* stays on the honest unconfigured default — export remains
+         * correctly blocked either way. */
+      });
+  }, []);
 
   async function checkValidatedPreflight(jobId: string) {
     setPreflightBusy(jobId);
     try {
-      // UNCONFIRMED_DEFAULT_CONFIG is the honest default: sender/receiver
-      // identifiers and the reporter-qualification map have not been
-      // confirmed by NAFDAC/Ondo yet (decisions D2-D4). Preflight still
-      // runs against it so MedDRA/WHODrug/data-quality gaps are visible
-      // even before those decisions land — but export stays blocked
-      // separately on transmissionConfigConfirmed regardless of preflight.
-      const result = await runValidatedPreflightForJob(jobId, UNCONFIRMED_DEFAULT_CONFIG);
+      const result = await runValidatedPreflightForJob(jobId, regConfig);
       setPreflightResults((prev) => ({ ...prev, [jobId]: result }));
       if (result.readyForValidatedExport && result.transmissionConfigConfirmed) {
         toast.success(
@@ -109,7 +128,7 @@ function E2bPage() {
   async function exportValidated(jobId: string) {
     setPreflightBusy(jobId);
     try {
-      const batches = await generateValidatedExportForJob(jobId, UNCONFIRMED_DEFAULT_CONFIG);
+      const batches = await generateValidatedExportForJob(jobId, regConfig);
       for (const b of batches) await downloadValidatedBatch(jobId, b);
       toast.success(
         `Downloaded ${batches.length} real E2B(R3) batch file(s) — ${batches.reduce((n, b) => n + b.caseCount, 0)} case(s) total.`,
@@ -481,16 +500,66 @@ function E2bPage() {
                           ) : null}
 
                           {preflightResults[j.id] &&
-                          !preflightResults[j.id]!.transmissionConfigConfirmed ? (
-                            <div className="mt-2 rounded-md border border-warning/30 bg-warning-soft px-2 py-1.5 text-xs text-foreground">
-                              <p className="font-medium">
-                                Transmission configuration not confirmed:
-                              </p>
-                              <ul className="mt-1 list-disc pl-4">
-                                {preflightResults[j.id]!.transmissionConfigGaps.map((gap) => (
-                                  <li key={gap}>{gap}</li>
+                          (!preflightResults[j.id]!.transmissionConfigConfirmed ||
+                            preflightResults[j.id]!.caseLevelBlockers.unmappedReporterDesignations
+                              .length > 0 ||
+                            preflightResults[j.id]!.caseLevelBlockers.unresolvedOutcomeCaseCount >
+                              0) ? (
+                            <div className="mt-2 rounded-md border border-warning/30 bg-warning-soft px-2 py-2 text-xs text-foreground">
+                              <p className="font-medium">E2B(R3) generation blocked</p>
+                              <p className="mt-2 label-caps">Organization configuration</p>
+                              <ul className="mt-1 space-y-0.5">
+                                {preflightResults[j.id]!.organizationReadiness.map((item) => (
+                                  <li key={item.key}>
+                                    {item.label}:{" "}
+                                    <span
+                                      className={
+                                        item.status === "CONFIGURED"
+                                          ? "text-success"
+                                          : "text-critical"
+                                      }
+                                    >
+                                      {item.status === "CONFIGURED"
+                                        ? "Configured"
+                                        : item.status === "MISSING"
+                                          ? "Missing"
+                                          : "Not verified"}
+                                    </span>
+                                  </li>
                                 ))}
                               </ul>
+                              {preflightResults[j.id]!.caseLevelBlockers
+                                .unmappedReporterDesignations.length > 0 ||
+                              preflightResults[j.id]!.caseLevelBlockers.unresolvedOutcomeCaseCount >
+                                0 ? (
+                                <>
+                                  <p className="mt-2 label-caps">Case data</p>
+                                  <ul className="mt-1 space-y-0.5">
+                                    {preflightResults[
+                                      j.id
+                                    ]!.caseLevelBlockers.unmappedReporterDesignations.map((d) => (
+                                      <li key={d.designation}>
+                                        {d.caseCount} case(s) have unmapped reporter designation: "
+                                        {d.designation}"
+                                      </li>
+                                    ))}
+                                    {preflightResults[j.id]!.caseLevelBlockers
+                                      .unresolvedOutcomeCaseCount > 0 ? (
+                                      <li>
+                                        {
+                                          preflightResults[j.id]!.caseLevelBlockers
+                                            .unresolvedOutcomeCaseCount
+                                        }{" "}
+                                        case(s) have unresolved outcome values (E.i.7 codelist gap)
+                                      </li>
+                                    ) : null}
+                                  </ul>
+                                </>
+                              ) : null}
+                              <p className="mt-2 text-muted-foreground">
+                                Resolve these under Settings → Regulatory Profiles → NAFDAC E2B(R3)
+                                before generating a production E2B(R3) submission.
+                              </p>
                             </div>
                           ) : null}
 

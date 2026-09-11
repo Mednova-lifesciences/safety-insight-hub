@@ -58,7 +58,8 @@ export type Permission =
   | "follow_up.view"
   | "follow_up.create"
   | "catalog.view"
-  | "catalog.manage";
+  | "catalog.manage"
+  | "regulatory.manage";
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   FIELD_ASSOCIATE: [
@@ -113,6 +114,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "team.view",
     "catalog.view",
     "catalog.manage",
+    "regulatory.manage",
   ],
   ADMIN: [
     "case.create",
@@ -134,6 +136,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "team.view",
     "catalog.view",
     "catalog.manage",
+    "regulatory.manage",
   ],
 };
 
@@ -348,49 +351,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string, name: string, opts: SignUpOptions) => {
-    if (isApiConfigured()) {
-      // Use real backend authentication
-      const response = await apiAuth.signup({
-        email,
-        password,
-        name,
-        mode: opts.mode,
-        ...(opts.mode === "CREATE_ORG"
-          ? { organization_name: opts.orgName }
-          : { org_code: opts.orgCode, role: opts.role }),
-      });
-      await syncSupabaseSession(response);
-      const currentUser = buildCurrentUser(response);
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
-      setUser(currentUser);
-      setStatus("authenticated");
-    } else {
-      // Mock authentication (dev mode without backend)
-      const n = deriveName(email);
-      const orgName = opts.mode === "CREATE_ORG" ? opts.orgName : "MedNova Drug Safety";
-      const next: CurrentUser = {
-        id: `usr_${email.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`,
-        name: n,
-        initials:
-          n
-            .split(" ")
-            .map((p) => p[0])
-            .join("")
-            .slice(0, 2)
-            .toUpperCase() || "PV",
-        email,
-        role: opts.mode === "CREATE_ORG" ? "PV_MANAGER" : opts.role,
-        organisation: orgName,
-        organizationId: "mock-org",
-        organizationSlug: "mednova-demo",
-        organizationInviteCode: opts.mode === "CREATE_ORG" ? "MOCK-0000" : undefined,
-      };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      setUser(next);
-      setStatus("authenticated");
-    }
-  }, []);
+  const signUp = useCallback(
+    async (email: string, password: string, name: string, opts: SignUpOptions) => {
+      if (isApiConfigured()) {
+        // Use real backend authentication
+        const response = await apiAuth.signup({
+          email,
+          password,
+          name,
+          mode: opts.mode,
+          ...(opts.mode === "CREATE_ORG"
+            ? { organization_name: opts.orgName }
+            : { org_code: opts.orgCode, role: opts.role }),
+        });
+        await syncSupabaseSession(response);
+        const currentUser = buildCurrentUser(response);
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
+        setUser(currentUser);
+        setStatus("authenticated");
+      } else {
+        // Mock authentication (dev mode without backend)
+        const n = deriveName(email);
+        const orgName = opts.mode === "CREATE_ORG" ? opts.orgName : "MedNova Drug Safety";
+        const next: CurrentUser = {
+          id: `usr_${email.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`,
+          name: n,
+          initials:
+            n
+              .split(" ")
+              .map((p) => p[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase() || "PV",
+          email,
+          role: opts.mode === "CREATE_ORG" ? "PV_MANAGER" : opts.role,
+          organisation: orgName,
+          organizationId: "mock-org",
+          organizationSlug: "mednova-demo",
+          organizationInviteCode: opts.mode === "CREATE_ORG" ? "MOCK-0000" : undefined,
+        };
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        setUser(next);
+        setStatus("authenticated");
+      }
+    },
+    [],
+  );
 
   const signOut = useCallback(async () => {
     // Clear the local session FIRST so the UI is immediately
@@ -435,7 +441,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const trimmed = name.trim();
       if (!trimmed) throw new Error("Name cannot be empty");
       if (isApiConfigured()) {
-        const { error } = await supabase.from("profiles").update({ full_name: trimmed }).eq("id", user.id);
+        const { error } = await supabase
+          .from("profiles")
+          .update({ full_name: trimmed })
+          .eq("id", user.id);
         if (error) throw new Error(error.message);
       }
       const initials =

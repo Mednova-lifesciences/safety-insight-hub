@@ -131,10 +131,19 @@ describe("mapConceptToOutcome — the canonical-mapping step only (a DECODED con
 
 describe("splitBySourceProfile", () => {
   it("splits on the profile's configured comma separator", () => {
-    expect(splitBySourceProfile("8,19", ondoAefiProfile)).toEqual({ values: ["8", "19"], quarantined: false, rawValue: "8,19" });
+    expect(splitBySourceProfile("8,19", ondoAefiProfile)).toEqual({
+      values: ["8", "19"],
+      quarantined: false,
+      rawValue: "8,19",
+    });
   });
   it("splits on comma with spaces", () => {
-    expect(splitBySourceProfile("5,14,23, 19", ondoAefiProfile).values).toEqual(["5", "14", "23", "19"]);
+    expect(splitBySourceProfile("5,14,23, 19", ondoAefiProfile).values).toEqual([
+      "5",
+      "14",
+      "23",
+      "19",
+    ]);
   });
   it("does NOT split on 'AND' as an unconditional profile separator (that's handled conditionally by compound-source-parser.ts for reactions specifically, never blindly here)", () => {
     // splitBySourceProfile is the plain unconditional splitter used for
@@ -144,7 +153,11 @@ describe("splitBySourceProfile", () => {
     expect(splitBySourceProfile("12 AND 20", ondoAefiProfile).values).toEqual(["12 AND 20"]);
   });
   it("splits comma-separated product names", () => {
-    expect(splitBySourceProfile("PENTA,IPV,PCV", ondoAefiProfile).values).toEqual(["PENTA", "IPV", "PCV"]);
+    expect(splitBySourceProfile("PENTA,IPV,PCV", ondoAefiProfile).values).toEqual([
+      "PENTA",
+      "IPV",
+      "PCV",
+    ]);
   });
   it("quarantines a dot-separated list — Ondo's profile does not configure '.' as a delimiter", () => {
     const result = splitBySourceProfile("8.19.21", ondoAefiProfile);
@@ -153,15 +166,35 @@ describe("splitBySourceProfile", () => {
     expect(result.rawValue).toBe("8.19.21");
   });
   it("does NOT quarantine a plain decimal number", () => {
-    expect(splitBySourceProfile("0.5", ondoAefiProfile)).toEqual({ values: ["0.5"], quarantined: false, rawValue: "0.5" });
+    expect(splitBySourceProfile("0.5", ondoAefiProfile)).toEqual({
+      values: ["0.5"],
+      quarantined: false,
+      rawValue: "0.5",
+    });
   });
   it("returns a single value, not quarantined, for a plain single token", () => {
-    expect(splitBySourceProfile("19", ondoAefiProfile)).toEqual({ values: ["19"], quarantined: false, rawValue: "19" });
-    expect(splitBySourceProfile("MR/MV", ondoAefiProfile)).toEqual({ values: ["MR/MV"], quarantined: false, rawValue: "MR/MV" });
+    expect(splitBySourceProfile("19", ondoAefiProfile)).toEqual({
+      values: ["19"],
+      quarantined: false,
+      rawValue: "19",
+    });
+    expect(splitBySourceProfile("MR/MV", ondoAefiProfile)).toEqual({
+      values: ["MR/MV"],
+      quarantined: false,
+      rawValue: "MR/MV",
+    });
   });
   it("returns empty for missing input", () => {
-    expect(splitBySourceProfile(undefined, ondoAefiProfile)).toEqual({ values: [], quarantined: false, rawValue: "" });
-    expect(splitBySourceProfile("", ondoAefiProfile)).toEqual({ values: [], quarantined: false, rawValue: "" });
+    expect(splitBySourceProfile(undefined, ondoAefiProfile)).toEqual({
+      values: [],
+      quarantined: false,
+      rawValue: "",
+    });
+    expect(splitBySourceProfile("", ondoAefiProfile)).toEqual({
+      values: [],
+      quarantined: false,
+      rawValue: "",
+    });
   });
 });
 
@@ -170,11 +203,17 @@ const confirmedConfig: E2bTransmissionConfig = {
   sender: { organization: "MEDNOVA", identifier: "MEDNOVA-SND-ID" },
   receiver: { identifier: "NAFDAC-RCV-ID" },
   reportType: "1",
+  reportTypeConfirmed: true,
 };
 
 describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
   const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
-  const context = { jobId: "ll-test", sourceFile: "test.xlsx", sourceRow: 1, processedAt: "2026-09-09T00:00:00Z" };
+  const context = {
+    jobId: "ll-test",
+    sourceFile: "test.xlsx",
+    sourceRow: 1,
+    processedAt: "2026-09-09T00:00:00Z",
+  };
 
   it("maps a real Ondo-shaped row correctly end to end", async () => {
     const { pvCase, warnings } = await mapSourceRecordToPVCase(
@@ -262,6 +301,44 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
     expect(pvCase.senderOrganisation).toBe("MEDNOVA");
   });
 
+  it("REGRESSION: report type stays unresolved when reportTypeConfirmed is false, even with sender/receiver confirmed — the internal placeholder must never leak through as if NAFDAC confirmed it", async () => {
+    const senderReceiverConfirmedOnly: E2bTransmissionConfig = {
+      ...confirmedConfig,
+      reportType: "4", // the internal placeholder
+      reportTypeConfirmed: false,
+    };
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { reaction: "19", product: "MR/MV", patient_identifier: "A B" },
+      ondoAefiProfile,
+      senderReceiverConfirmedOnly,
+      context,
+      providers,
+    );
+    expect(pvCase.reportType.present).toBe(false);
+    // Sender organisation still resolves independently — confirming this
+    // is genuinely a per-field gate, not one bundled all-or-nothing check.
+    expect(pvCase.senderOrganisation).toBe("MEDNOVA");
+  });
+
+  it("report type resolves independently of sender/receiver confirmation — a config can have D3 confirmed before D4 lands", async () => {
+    const reportTypeOnlyConfirmed: E2bTransmissionConfig = {
+      environment: "uat",
+      sender: { organization: "__UNCONFIRMED__", identifier: "__UNCONFIRMED__" },
+      receiver: { identifier: "__UNCONFIRMED__" },
+      reportType: "2",
+      reportTypeConfirmed: true,
+    };
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { reaction: "19", product: "MR/MV", patient_identifier: "A B" },
+      ondoAefiProfile,
+      reportTypeOnlyConfirmed,
+      context,
+      providers,
+    );
+    expect(pvCase.reportType).toEqual({ present: true, value: "2" });
+    expect(pvCase.senderOrganisation).toBeUndefined();
+  });
+
   it("splits a multi-reaction row into separate PVReaction entries, each independently decoded", async () => {
     const { pvCase } = await mapSourceRecordToPVCase(
       { reaction: "8,19,21", product: "MR/MV", patient_identifier: "A B" },
@@ -311,7 +388,9 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
         sourceId: "ondo-aefi",
         field: "reaction",
         version: "test-1",
-        entries: { "8": { localCode: "8", sourceTerm: "Term 8 (test entry)", effectiveFrom: "2026-01-01" } },
+        entries: {
+          "8": { localCode: "8", sourceTerm: "Term 8 (test entry)", effectiveFrom: "2026-01-01" },
+        },
       },
     };
     const { pvCase, warnings } = await mapSourceRecordToPVCase(
@@ -335,7 +414,13 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
         sourceId: "ondo-aefi",
         field: "reaction",
         version: "test-1",
-        entries: { "19": { localCode: "19", sourceTerm: "Pyrexia (test entry)", effectiveFrom: "2026-01-01" } },
+        entries: {
+          "19": {
+            localCode: "19",
+            sourceTerm: "Pyrexia (test entry)",
+            effectiveFrom: "2026-01-01",
+          },
+        },
       },
     };
     const { pvCase } = await mapSourceRecordToPVCase(

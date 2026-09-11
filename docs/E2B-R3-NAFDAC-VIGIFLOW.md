@@ -144,13 +144,41 @@ RawLineListRow  →  mapRowToPVCase()  →  PVCase  →  validateBusinessRules()
   validated — never typed from memory of the HL7 v3 R-MIM. Handles C.1.10
   follow-up (a linked-report `<id>`, present only when `previousTransmissionRef`
   is set — there's no separate boolean flag element in the schema).
-- **`transmission-config.ts`** — the explicit, non-hardcoded home for
-  decisions D2–D4 (sender/receiver identifiers, report type, reporter
-  qualification code mapping). `UNCONFIRMED_DEFAULT_CONFIG` is the shipped
-  default — every field is a sentinel meaning "nobody has confirmed this
-  yet," and `isTransmissionConfigConfirmed()` / `describeUnconfirmedTransmissionConfig()`
-  make that gap visible to callers instead of silently proceeding with
-  placeholder values.
+- **`transmission-config.ts`** — the explicit, non-hardcoded home for the
+  shape of decisions D2–D4 (sender/receiver identifiers, report type).
+  `UNCONFIRMED_DEFAULT_CONFIG` is the shipped default — every field is a
+  sentinel meaning "nobody has confirmed this yet." `isTransmissionConfigConfirmed()`
+  checks sender organisation, sender identifier, receiver identifier, AND
+  the separate `reportTypeConfirmed` flag — report type is gated
+  independently of sender/receiver (a config can have D3 confirmed before
+  D4 lands, or vice versa), and `reportType`'s mere presence (it always
+  carries a syntactically valid value, even the `"4"` placeholder) is
+  never treated as proof it was confirmed.
+- **`regulatory-config.ts` / `regulatory-readiness.ts`** — the persistent,
+  org-level configuration layer decisions D2–D4 actually live in now (no
+  longer function-parameter-only). `OrgRegulatoryConfig` bundles an
+  `E2bTransmissionConfig` with the E.i.7 outcome codelist (canonical
+  `ReactionOutcome` → NAFDAC/Appendix I(F)-confirmed numeric code) and an
+  open-ended reporter-qualification designation → code table (never
+  hardcoded to any one source's vocabulary — CHEW, CHO, Nurse, Midwife,
+  Doctor, HMIS, OIC, DENTAL, or anything else a line-list uses).
+  `mergeOrgRegulatoryConfigIntoProfile` layers an org's own persisted
+  mappings on top of a base `SourceProfile`'s hardcoded map (kept only as
+  a seed), following the same "base + overlay, never mutate" pattern
+  `runtime-profile.ts` already established for discovered codebooks.
+  `computeOrganizationReadiness`/`summarizeCaseLevelBlockers` produce the
+  two-tier readiness check the `/e2b` and `/settings` pages render:
+  ORGANIZATION-level gaps (sender/receiver/report-type/outcome-codelist —
+  resolved once by an admin) shown separately from CASE-level gaps (this
+  job's rows have an unmapped designation, an unconfigured outcome).
+  Persisted via `services/api/regulatory-config.ts` — one
+  `pv_regulatory_config` row per org plus an open-ended
+  `pv_reporter_qualification_mappings` table, both org-isolated by RLS
+  exactly like every other `pv_*` table, every write audited via
+  `recordAudit`. Configured from Settings → Regulatory Profiles → NAFDAC
+  E2B(R3). Values are only ever entered by an admin — never inferred,
+  copied from `docs/ONDO.xml`'s observed values, or defaulted from this
+  document's own illustrative numbering.
 - **`export.ts`** — the real, UI-wired pipeline for one line-list job:
   normalize → map → validate → VigiFlow preflight → batch → serialize,
   gated on both VigiFlow preflight passing AND the transmission config
@@ -196,9 +224,9 @@ and nothing below has been defaulted silently.
 | ID | Decision | Status | Current pipeline behaviour |
 |---|---|---|---|
 | D1 | How is patient identity represented (initials vs. medical record number vs. nullFlavor)? | Interim: option (a) implemented | `mapRowToPVCase` derives initials ("ADEBOLA ESTHER" → "A.E.") when a patient identifier exists, since the spec itself lists this as a pre-approved option — not because D1 has been formally signed off |
-| D2 | Who is the reporter (C.2.r.1 name), and how is `reporter_designation` bound to an Appendix I(F) qualification code? | **Unresolved** | `reporter.name` is always `{present:false, nullFlavor:"NASK"}` regardless of D2 (source has no name column). `reporter.qualificationCode` is now resolvable via `transmission-config.ts`'s `reporterQualificationMap` — but that map ships **empty**; no designation (e.g. "CHEW") has an actual confirmed code yet |
-| D3 | Report type (C.1.3) for routine AEFI surveillance — 1/3/4? | **Unresolved** | `UNCONFIRMED_DEFAULT_CONFIG.reportType` is `"4"` ("Not available to sender") as an honest placeholder, not a guess at the real value; every case is `BLOCKING` on `E2B-C1.3-UNRESOLVED` until NAFDAC/Ondo confirm the real value and it's set in `transmission-config.ts` |
-| D4 | Sender/receiver identifiers (C.3.2 and transmission-level identifiers), agreed bilaterally with NAFDAC | **Unresolved** | `transmission-config.ts`'s `UNCONFIRMED_DEFAULT_CONFIG` uses an explicit sentinel (`"__UNCONFIRMED__"`) for `senderOrganisation`/`senderIdentifier`/`receiverIdentifier`; `isTransmissionConfigConfirmed()` returns `false` and blocks export until real values replace it |
+| D2 | Who is the reporter (C.2.r.1 name), and how is `reporter_designation` bound to an Appendix I(F) qualification code? | **Mechanism built; values unresolved** | `reporter.name` is always `{present:false, nullFlavor:"NASK"}` regardless of D2 (source has no name column). `reporter.qualificationCode` resolves via `regulatory-config.ts`'s org-level, admin-editable, Appendix-I(F) designation→code table (Settings → Regulatory Profiles), seeded (not authoritatively confirmed) by `ondo-aefi.ts`'s example mappings. `E2B-REPORTER-QUALIFICATION-UNRESOLVED` case-level findings auto-discover a new/unmapped designation into that table so it appears there for an admin to configure — no code change needed to support a new designation |
+| D3 | Report type (C.1.3) for routine AEFI surveillance — 1/3/4? | **Mechanism built; value unresolved** | `pv_regulatory_config.report_type_confirmed` is a separate, explicit boolean an admin must set — `report_type`'s mere presence (even the `"4"` placeholder) is never read as confirmation; every case is `BLOCKING` on `E2B-C1.3-UNRESOLVED` until an admin confirms the real value in Settings → Regulatory Profiles |
+| D4 | Sender/receiver identifiers (C.3.2 and transmission-level identifiers), agreed bilaterally with NAFDAC | **Mechanism built; values unresolved** | Persisted per-org in `pv_regulatory_config`, configured from Settings → Regulatory Profiles. Unset fields resolve to the explicit sentinel (`"__UNCONFIRMED__"`); `isTransmissionConfigConfirmed()` returns `false` and blocks export until an admin enters real NAFDAC-supplied values |
 | D5 | MedDRA subscription/version | **Unresolved** | `unavailableMedDraProvider` marks every reaction `PROVIDER_UNAVAILABLE`. `AuthorizedMappingTableMedDraProvider` exists as real plumbing for an interim Ondo-supplied codebook, but no table has been supplied |
 | D6 | Is WHODrug coding required by NAFDAC? (contact vigibase@who-umc.org) | **Unresolved** | `unavailableWhoDrugProvider` marks every product `PROVIDER_UNAVAILABLE`. `AuthorizedMappingTableWhoDrugProvider` exists as the same kind of real, unpopulated plumbing |
 | D7 | Validated vs. non-validated VigiFlow import | Recommend validated | `validateVigiFlowPreflight` is built assuming validated import is the target; if non-validated is chosen instead, this gate can be relaxed |

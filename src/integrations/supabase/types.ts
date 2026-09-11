@@ -239,6 +239,84 @@ export type Database = {
         }
         Relationships: []
       }
+      pv_regulatory_config: {
+        Row: {
+          case_id_prefix: string | null
+          environment: string
+          organization_id: string
+          outcome_codes: Json
+          receiver_identifier: string | null
+          receiver_organization: string | null
+          report_type: string | null
+          report_type_confirmed: boolean
+          sender_identifier: string | null
+          sender_organization: string | null
+          sender_person_responsible: string | null
+          sender_type: string | null
+          updated_at: string
+        }
+        Insert: {
+          case_id_prefix?: string | null
+          environment?: string
+          organization_id?: string
+          outcome_codes?: Json
+          receiver_identifier?: string | null
+          receiver_organization?: string | null
+          report_type?: string | null
+          report_type_confirmed?: boolean
+          sender_identifier?: string | null
+          sender_organization?: string | null
+          sender_person_responsible?: string | null
+          sender_type?: string | null
+          updated_at?: string
+        }
+        Update: {
+          case_id_prefix?: string | null
+          environment?: string
+          organization_id?: string
+          outcome_codes?: Json
+          receiver_identifier?: string | null
+          receiver_organization?: string | null
+          report_type?: string | null
+          report_type_confirmed?: boolean
+          sender_identifier?: string | null
+          sender_organization?: string | null
+          sender_person_responsible?: string | null
+          sender_type?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      pv_reporter_qualification_mappings: {
+        Row: {
+          created_at: string
+          designation: string
+          designation_key: string
+          id: string
+          organization_id: string
+          qualification_code: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          designation: string
+          designation_key: string
+          id: string
+          organization_id?: string
+          qualification_code?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          designation?: string
+          designation_key?: string
+          id?: string
+          organization_id?: string
+          qualification_code?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       pv_follow_ups: {
         Row: {
           case_id: string

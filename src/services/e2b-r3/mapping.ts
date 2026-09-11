@@ -16,7 +16,7 @@ import type {
 } from "./types";
 import type { MedDraCodingProvider, WhoDrugCodingProvider } from "./coding-provider";
 import type { SourceProfile } from "./source-profiles/types";
-import { isTransmissionConfigConfirmed, type E2bTransmissionConfig } from "./transmission-config";
+import type { E2bTransmissionConfig } from "./transmission-config";
 import { parseCompoundSourceValue } from "./compound-source-parser";
 
 /**
@@ -111,7 +111,12 @@ export function parseSourceDate(raw: string | undefined): string | null {
   return null;
 }
 
-const DEFAULT_SEX_WORDS: Record<string, SexCode> = { M: "MALE", MALE: "MALE", F: "FEMALE", FEMALE: "FEMALE" };
+const DEFAULT_SEX_WORDS: Record<string, SexCode> = {
+  M: "MALE",
+  MALE: "MALE",
+  F: "FEMALE",
+  FEMALE: "FEMALE",
+};
 
 /** Consults the active profile's sexMap first (a source can use its own
  *  vocabulary), falling back to this engine's built-in M/F/MALE/FEMALE
@@ -139,8 +144,14 @@ const DEFAULT_SERIOUSNESS_WORDS: Record<string, boolean> = {
  *  — this is the source's case-level AGGREGATE value only; per the spec it
  *  must never itself become an E2B seriousness element (see
  *  PVCase.aggregateSeriousnessAsReported and PVReaction.seriousnessCriteria). */
-export function mapSeriousness(raw: string | undefined, profile?: SourceProfile): boolean | undefined {
-  const v = (raw ?? "").trim().toUpperCase().replace(/[\s_-]+/g, "");
+export function mapSeriousness(
+  raw: string | undefined,
+  profile?: SourceProfile,
+): boolean | undefined {
+  const v = (raw ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, "");
   if (!v) return undefined;
   return profile?.seriousnessMap?.[v] ?? DEFAULT_SERIOUSNESS_WORDS[v];
 }
@@ -233,8 +244,14 @@ const CANONICAL_OUTCOME_CONCEPTS: Record<string, ReactionOutcome> = {
 /** The canonical-mapping step for outcome — consults the active
  *  profile's explicit override (SourceProfile.outcomeMap) first, then
  *  the fixed ICH synonym dictionary above. Never anything else. */
-export function mapConceptToOutcome(concept: string, profile?: SourceProfile): ReactionOutcome | undefined {
-  const key = concept.trim().toUpperCase().replace(/[\s_-]+/g, "");
+export function mapConceptToOutcome(
+  concept: string,
+  profile?: SourceProfile,
+): ReactionOutcome | undefined {
+  const key = concept
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, "");
   if (!key) return undefined;
   return profile?.outcomeMap?.[key] ?? CANONICAL_OUTCOME_CONCEPTS[key];
 }
@@ -263,10 +280,14 @@ function looksLikePlainDecimal(v: string): boolean {
  *  vocabulary. A decoded concept that matches none of these (e.g. a
  *  future source's "Significant harm") is never guessed at — see
  *  resolveFieldConcept. */
-function canonicalSeriousnessCriterionConcept(meaning: string): Partial<SeriousnessCriteria> | undefined {
+function canonicalSeriousnessCriterionConcept(
+  meaning: string,
+): Partial<SeriousnessCriteria> | undefined {
   const v = meaning.toUpperCase();
-  if (v.includes("DEATH") || v.includes("DIED") || v.includes("DECEASED") || v.includes("FATAL")) return { resultsInDeath: true };
-  if (v.includes("LIFE") && (v.includes("THREAT") || v.includes("TREATH"))) return { lifeThreatening: true };
+  if (v.includes("DEATH") || v.includes("DIED") || v.includes("DECEASED") || v.includes("FATAL"))
+    return { resultsInDeath: true };
+  if (v.includes("LIFE") && (v.includes("THREAT") || v.includes("TREATH")))
+    return { lifeThreatening: true };
   if (v.includes("HOSPITAL")) return { hospitalization: true };
   if (v.includes("CONGENITAL")) return { congenitalAnomaly: true };
   if (v.includes("DISAB")) return { disabling: true };
@@ -302,11 +323,16 @@ export function splitBySourceProfile(raw: string | undefined, profile: SourcePro
   const rawValue = (raw ?? "").trim();
   if (!rawValue) return { values: [], quarantined: false, rawValue };
 
-  const escaped = profile.reactionDelimiter.separators.map((s) => s.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const escaped = profile.reactionDelimiter.separators.map((s) =>
+    s.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
   if (escaped.length > 0) {
     const pattern = new RegExp(`\\s*(?:${escaped.join("|")})\\s*`, "i");
     if (pattern.test(rawValue)) {
-      const parts = rawValue.split(pattern).map((p) => p.trim()).filter(Boolean);
+      const parts = rawValue
+        .split(pattern)
+        .map((p) => p.trim())
+        .filter(Boolean);
       if (parts.length > 1) return { values: parts, quarantined: false, rawValue };
     }
   }
@@ -336,7 +362,10 @@ export function splitBySourceProfile(raw: string | undefined, profile: SourcePro
  * This function's only job is translating that generic result into this
  * module's SourceReactionDecoding shape.
  */
-export function decodeReactionField(raw: string | undefined, profile: SourceProfile): SourceReactionDecoding[] {
+export function decodeReactionField(
+  raw: string | undefined,
+  profile: SourceProfile,
+): SourceReactionDecoding[] {
   if (!raw || !raw.trim()) return [];
 
   const parsed = parseCompoundSourceValue(
@@ -373,11 +402,17 @@ export function decodeReactionField(raw: string | undefined, profile: SourceProf
   });
 }
 
-async function codeReactionTerm(provider: MedDraCodingProvider, verbatim: string): Promise<CodedTerm> {
+async function codeReactionTerm(
+  provider: MedDraCodingProvider,
+  verbatim: string,
+): Promise<CodedTerm> {
   return provider.resolveReaction(verbatim);
 }
 
-async function codeProductTerm(provider: WhoDrugCodingProvider, verbatim: string): Promise<WhoDrugCodedProduct> {
+async function codeProductTerm(
+  provider: WhoDrugCodingProvider,
+  verbatim: string,
+): Promise<WhoDrugCodedProduct> {
   return provider.resolveProduct(verbatim);
 }
 
@@ -439,8 +474,14 @@ export async function mapSourceRecordToPVCase(
   // unmappable concept (e.g. "Hospitalized") never becomes `outcome` —
   // it surfaces only via outcomeResolution.status === "HUMAN_REVIEW_REQUIRED",
   // for validation.ts to block on, never inferred past.
-  const outcomeResolution = resolveFieldConcept(row.outcome, profile, "outcome", mapConceptToOutcome);
-  const outcome = outcomeResolution?.status === "MAPPED" ? outcomeResolution.canonicalValue : undefined;
+  const outcomeResolution = resolveFieldConcept(
+    row.outcome,
+    profile,
+    "outcome",
+    mapConceptToOutcome,
+  );
+  const outcome =
+    outcomeResolution?.status === "MAPPED" ? outcomeResolution.canonicalValue : undefined;
 
   // A separate NUMERIC seriousness-criterion code (e.g. Ondo's "If serious
   // case select appropriate code below", distinct from the word-shaped
@@ -502,18 +543,20 @@ export async function mapSourceRecordToPVCase(
   }
   const drugStartDate = parseSourceDate(row.vaccination_date) ?? undefined;
   const products: PVProduct[] = await Promise.all(
-    (productSplit.quarantined ? [productSplit.rawValue] : productSplit.values).map(async (value, i) => {
-      const coded = await codeProductTerm(providers.whodrug, value);
-      const characterization: DrugCharacterization = "SUSPECT";
-      return {
-        id: `${sendersCaseId}-p${i + 1}`,
-        characterization,
-        product: coded,
-        batchNumber: row.vaccine_batch?.trim() || undefined,
-        dose: row.dose?.trim() || undefined,
-        startDate: drugStartDate,
-      } satisfies PVProduct;
-    }),
+    (productSplit.quarantined ? [productSplit.rawValue] : productSplit.values).map(
+      async (value, i) => {
+        const coded = await codeProductTerm(providers.whodrug, value);
+        const characterization: DrugCharacterization = "SUSPECT";
+        return {
+          id: `${sendersCaseId}-p${i + 1}`,
+          characterization,
+          product: coded,
+          batchNumber: row.vaccine_batch?.trim() || undefined,
+          dose: row.dose?.trim() || undefined,
+          startDate: drugStartDate,
+        } satisfies PVProduct;
+      },
+    ),
   );
 
   const patientIdentifierRaw = row.patient_identifier?.trim();
@@ -537,16 +580,20 @@ export async function mapSourceRecordToPVCase(
   const isFollowUp = isFollowUpRaw === "YES" || isFollowUpRaw === "TRUE" || isFollowUpRaw === "1";
   const previousTransmissionRef = row.previous_case_id?.trim() || undefined;
 
-  // Report type (decision D3) is bundled with the same sender/receiver
-  // confirmation gate (decision D4) — both come from the same
-  // NAFDAC/Ondo/MedNova-leadership sign-off, so an unconfirmed
-  // transmission config means report type isn't authoritative either, not
-  // just "some other field is missing." See transmission-config.ts.
-  const reportType: RequiredValue<typeof transmissionConfig.reportType> = isTransmissionConfigConfirmed(
-    transmissionConfig,
-  )
-    ? { present: true, value: transmissionConfig.reportType }
-    : { present: false, nullFlavor: "NASK" };
+  // Report type (decision D3) is gated on its OWN explicit confirmation
+  // flag — never on isTransmissionConfigConfirmed() (that checks the
+  // whole D3+D4 bundle) and never on reportType's mere presence, since
+  // transmissionConfig.reportType always holds a syntactically valid
+  // ReportType (the "4" placeholder in the unconfirmed default) whether or
+  // not NAFDAC has actually confirmed it — see transmission-config.ts's
+  // reportTypeConfirmed doc comment for the bug this independent check
+  // fixes. Kept independent of sender/receiver confirmation on purpose: a
+  // deployment could legitimately have NAFDAC confirm C.1.3 before D4's
+  // sender/receiver identifiers land, and this field should reflect that.
+  const reportType: RequiredValue<typeof transmissionConfig.reportType> =
+    transmissionConfig.reportTypeConfirmed === true
+      ? { present: true, value: transmissionConfig.reportType }
+      : { present: false, nullFlavor: "NASK" };
 
   const otherCaseIdentifiers: OtherCaseIdentifiers = { present: false, nullFlavor: "NI" };
 
@@ -591,7 +638,9 @@ export async function mapSourceRecordToPVCase(
       country: profile.country || undefined,
     },
     senderOrganisation:
-      transmissionConfig.sender.organization === "__UNCONFIRMED__" ? undefined : transmissionConfig.sender.organization,
+      transmissionConfig.sender.organization === "__UNCONFIRMED__"
+        ? undefined
+        : transmissionConfig.sender.organization,
     reactions,
     products,
     aggregateSeriousnessAsReported: row.seriousness?.trim() || undefined,

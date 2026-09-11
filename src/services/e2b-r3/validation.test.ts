@@ -4,6 +4,7 @@ import {
   validateBusinessRules,
   validateVigiFlowPreflight,
   validateCase,
+  validateOutcomeCodeConfiguration,
   isOverridable,
   computeCaseEligibility,
   E2B_NON_OVERRIDABLE_CODES,
@@ -342,5 +343,52 @@ describe("isOverridable / computeCaseEligibility — the validated-export overri
     const clean1 = eligibility.find((e) => e.caseId === "NG-1")!;
     expect(clean1.includable).toBe(true);
     expect(clean1.rescuedByOverride).toBe(false); // it didn't need rescuing
+  });
+});
+
+describe("validateOutcomeCodeConfiguration — E.i.7 org-level codelist gate", () => {
+  it("blocks a case whose resolved outcome has no confirmed org codelist entry", () => {
+    const errors = validateOutcomeCodeConfiguration(minimalValidCase(), {});
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.code).toBe("E2B-OUTCOME-CODE-NOT-CONFIGURED");
+    expect(errors[0]!.severity).toBe("BLOCKING");
+  });
+
+  it("passes once the org has confirmed a code for that specific outcome", () => {
+    const errors = validateOutcomeCodeConfiguration(minimalValidCase(), { RECOVERED: "1" });
+    expect(errors).toHaveLength(0);
+  });
+
+  it("never fires for a reaction with no resolved outcome at all", () => {
+    const c = minimalValidCase();
+    c.reactions[0]!.outcome = undefined;
+    expect(validateOutcomeCodeConfiguration(c, {})).toHaveLength(0);
+  });
+
+  it("is overridable — never added to E2B_NON_OVERRIDABLE_CODES (it's an administrative config gap, not a structural defect)", () => {
+    expect(E2B_NON_OVERRIDABLE_CODES.has("E2B-OUTCOME-CODE-NOT-CONFIGURED")).toBe(false);
+  });
+});
+
+describe("runPreflight with an org outcome codelist", () => {
+  // minimalValidCase's reaction is intentionally UNMAPPED (no licensed
+  // MedDRA dictionary configured in this codebase — see the "runPreflight"
+  // describe block above), so overall preflight `status` is always
+  // BLOCKED regardless of outcome-code configuration; these tests assert
+  // the outcomeCodeNotConfigured COUNT specifically, which is the thing
+  // this feature actually changes.
+  it("does not evaluate the E.i.7 codelist gap when outcomeCodes is omitted (backward compatible)", () => {
+    const summary = runPreflight([minimalValidCase()]);
+    expect(summary.counts.outcomeCodeNotConfigured).toBe(0);
+  });
+
+  it("counts a case as outcome-code-blocked when outcomeCodes is supplied but incomplete", () => {
+    const summary = runPreflight([minimalValidCase()], {});
+    expect(summary.counts.outcomeCodeNotConfigured).toBe(1);
+  });
+
+  it("stops counting the case once every outcome it uses has a confirmed code", () => {
+    const summary = runPreflight([minimalValidCase()], { RECOVERED: "1" });
+    expect(summary.counts.outcomeCodeNotConfigured).toBe(0);
   });
 });

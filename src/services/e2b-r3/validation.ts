@@ -1,4 +1,4 @@
-import type { PVCase } from "./types";
+import type { PVCase, ReactionOutcome } from "./types";
 
 export type ValidationSeverity = "BLOCKING" | "WARNING" | "INFO";
 
@@ -404,6 +404,45 @@ export function validateBusinessRules(pvCase: PVCase): ValidationError[] {
 }
 
 /**
+ * E.i.7's LAST mile: a reaction's `outcome` field only ever holds one of
+ * the six fixed ReactionOutcome concepts once mapping.ts's decode ->
+ * explicit-canonical-map pipeline has already resolved it (see
+ * mapping.ts's resolveFieldConcept) — that says nothing yet about whether
+ * this ORGANIZATION has confirmed the actual NAFDAC/Appendix I(F) numeric
+ * code for that concept. `outcomeCodes` is the org's persisted E.i.7
+ * codelist (services/e2b-r3/regulatory-config.ts's OrgRegulatoryConfig) —
+ * a concept present here with no entry blocks the case rather than
+ * letting serializer.ts fall back to any hardcoded/guessed number. This
+ * check is intentionally separate from validateBusinessRules (which knows
+ * nothing about org-level regulatory configuration) so it can be run only
+ * where that configuration is actually available (export.ts's
+ * runPreflight, which now takes it as an explicit parameter).
+ */
+export function validateOutcomeCodeConfiguration(
+  pvCase: PVCase,
+  outcomeCodes: Partial<Record<ReactionOutcome, string>>,
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+  const id = pvCase.sendersCaseId;
+  for (const reaction of pvCase.reactions) {
+    if (reaction.outcome && !outcomeCodes[reaction.outcome]) {
+      errors.push(
+        err(
+          id,
+          "E2B-OUTCOME-CODE-NOT-CONFIGURED",
+          "BLOCKING",
+          "BUSINESS_RULE",
+          `Outcome "${reaction.outcome}" is a resolved canonical E2B(R3) concept, but this organization has not confirmed its NAFDAC/Appendix I(F) numeric code (E.i.7) yet.`,
+          `Add "${reaction.outcome}" to the organization's outcome codelist under Settings → Regulatory Profiles → NAFDAC E2B(R3), confirmed against Appendix I(F). Never guessed or defaulted.`,
+          { e2bField: "E.i.7", sourceField: "outcome" },
+        ),
+      );
+    }
+  }
+  return errors;
+}
+
+/**
  * LAYER E (VIGIFLOW_PREFLIGHT): the stricter gate for "VigiFlow / NAFDAC
  * Validated Import" mode. A genuinely MedDRA-coded reaction is required —
  * MedDRA remains non-negotiable because VigiFlow's validated-import path
@@ -651,11 +690,35 @@ export interface PreflightSummary {
     unknownOutcomeCodes: number;
     seriousnessCodeNeedsHumanReview: number;
     unknownSeriousnessCodes: number;
+    /** Cases with a resolved canonical outcome the org's E.i.7 codelist
+     *  doesn't cover yet — see validateOutcomeCodeConfiguration. Zero
+     *  when `outcomeCodes` isn't supplied at all (the check is skipped,
+     *  not silently passed — see runPreflight's doc comment). */
+    outcomeCodeNotConfigured: number;
   };
 }
 
-export function runPreflight(cases: PVCase[]): PreflightSummary {
-  const results = cases.map((c) => validateCase(c, "VIGIFLOW_PREFLIGHT"));
+/** `outcomeCodes` is optional so every existing caller/test that doesn't
+ *  care about org-level E.i.7 configuration keeps working unchanged; when
+ *  omitted, validateOutcomeCodeConfiguration simply never runs (this is a
+ *  deliberate "not evaluated" state, not an implicit pass — a caller that
+ *  DOES have org config, like export.ts's runValidatedPreflightForJob,
+ *  must always pass it). */
+export function runPreflight(
+  cases: PVCase[],
+  outcomeCodes?: Partial<Record<ReactionOutcome, string>>,
+): PreflightSummary {
+  const results = cases.map((c) => {
+    const base = validateCase(c, "VIGIFLOW_PREFLIGHT");
+    if (!outcomeCodes) return base;
+    const outcomeCodeErrors = validateOutcomeCodeConfiguration(c, outcomeCodes);
+    if (outcomeCodeErrors.length === 0) return base;
+    return {
+      ...base,
+      errors: [...base.errors, ...outcomeCodeErrors],
+      blocked: true,
+    };
+  });
   const blockedCases = results.filter((r) => r.blocked).length;
   const countOf = (code: string) =>
     results.reduce((n, r) => n + r.errors.filter((e) => e.code === code).length, 0);
@@ -690,6 +753,7 @@ export function runPreflight(cases: PVCase[]): PreflightSummary {
     unknownOutcomeCodes: countOf("E2B-OUTCOME-UNMAPPED"),
     seriousnessCodeNeedsHumanReview: countOf("E2B-SERIOUSNESS-CODE-NOT-MAPPABLE"),
     unknownSeriousnessCodes: countOf("E2B-SERIOUSNESS-CODE-UNMAPPED"),
+    outcomeCodeNotConfigured: countOf("E2B-OUTCOME-CODE-NOT-CONFIGURED"),
   };
   return {
     totalCases: cases.length,

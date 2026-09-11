@@ -16,7 +16,6 @@ import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-
 import {
   isTransmissionConfigConfirmed,
   describeUnconfirmedTransmissionConfig,
-  type E2bTransmissionConfig,
 } from "./transmission-config";
 import { getSourceProfile } from "./source-profiles/registry";
 import type { SourceProfile } from "./source-profiles/types";
@@ -26,6 +25,14 @@ import {
   fieldsCovered,
   type DiscoveredSourceCodebook,
 } from "./source-profiles/discovered-codebook";
+import { mergeOrgRegulatoryConfigIntoProfile, type OrgRegulatoryConfig } from "./regulatory-config";
+import {
+  computeOrganizationReadiness,
+  summarizeCaseLevelBlockers,
+  type CaseLevelBlockerSummary,
+  type OrganizationReadinessItem,
+} from "./regulatory-readiness";
+import { discoverReporterDesignations } from "@/services/api/regulatory-config";
 import type { PVCase } from "./types";
 
 /**
@@ -98,6 +105,16 @@ export interface ValidatedExportResult {
    *  other. */
   transmissionConfigConfirmed: boolean;
   transmissionConfigGaps: string[];
+  /** The two-tier readiness check (task-mandated): ORGANIZATION-level
+   *  configuration status (sender/receiver identifiers, report type,
+   *  outcome codelist — resolved once, in Settings, by an admin) shown
+   *  completely separately from CASE-level data gaps below. Never
+   *  collapsed into one generic pass/fail. */
+  organizationReadiness: OrganizationReadinessItem[];
+  /** CASE-level blockers this specific job's data has — unmapped reporter
+   *  designations (with per-designation case counts) and cases whose
+   *  resolved outcome has no confirmed E.i.7 code yet. */
+  caseLevelBlockers: CaseLevelBlockerSummary;
   /** What the codebook-discovery step actually found in this specific
    *  job's own document — never a static claim about the source profile
    *  in general, since two different uploads of the "same" source could
@@ -120,7 +137,7 @@ function toSourceRecord(row: ParsedRow): Record<string, string | undefined> {
 
 export async function runValidatedPreflightForJob(
   jobId: string,
-  transmissionConfig: E2bTransmissionConfig,
+  regulatoryConfig: OrgRegulatoryConfig,
   sourceProfile: SourceProfile = getSourceProfile("ondo-aefi"),
 ): Promise<ValidatedExportResult> {
   const job = await readJob(jobId);
@@ -130,9 +147,12 @@ export async function runValidatedPreflightForJob(
 
   // Discover this job's own codebook from whatever legend text its
   // upload actually contained (see tabular-parse.ts's discardedRows) —
-  // never from a hand-authored mapping on the base profile — and use the
-  // resulting runtime profile for every row in THIS job only.
-  const { runtimeProfile, discovered } = discoverAndApplyCodebook(
+  // never from a hand-authored mapping on the base profile — then layer
+  // the ORG's persisted reporter-qualification mappings on top (see
+  // regulatory-config.ts's mergeOrgRegulatoryConfigIntoProfile) — the
+  // profile's own hardcoded map, if any, is kept only as a seed/fallback,
+  // never the authoritative source once an org has its own mappings.
+  const { runtimeProfile: discoveredProfile, discovered } = discoverAndApplyCodebook(
     sourceProfile,
     job.discardedRows,
     {
@@ -140,6 +160,7 @@ export async function runValidatedPreflightForJob(
       sheet: job.sheetName,
     },
   );
+  const runtimeProfile = mergeOrgRegulatoryConfigIntoProfile(discoveredProfile, regulatoryConfig);
 
   const cases: PVCase[] = [];
   const mappingWarnings: MappingWarning[] = [];
@@ -147,7 +168,7 @@ export async function runValidatedPreflightForJob(
     const { pvCase, warnings } = await mapSourceRecordToPVCase(
       toSourceRecord(rows[i]!),
       runtimeProfile,
-      transmissionConfig,
+      regulatoryConfig.transmission,
       { jobId, sourceFile: job.filename, sourceRow: i + 1, processedAt },
       providers,
     );
@@ -162,7 +183,10 @@ export async function runValidatedPreflightForJob(
     ...validateSourceDecoding(c),
     ...validateBusinessRules(c),
   ]);
-  const preflight = runPreflight(cases);
+  // outcomeCodes is always passed (never omitted) here — this is the one
+  // caller that actually has the org's regulatory config, so the E.i.7
+  // codelist check must always run, not silently skip.
+  const preflight = runPreflight(cases, regulatoryConfig.outcomeCodes);
   const readyForValidatedExport = preflight.status === "READY_FOR_VALIDATED_IMPORT";
 
   // Read the job's own recorded override (if any) — never passed in by
@@ -174,6 +198,25 @@ export async function runValidatedPreflightForJob(
     !!override,
   );
   const exportableWithOverride = !!override && caseEligibility.some((c) => c.rescuedByOverride);
+
+  // Passively DISCOVER any reporter designation this job's cases used
+  // that the org has never seen before, so it shows up on the Settings
+  // page as "Not configured" without an admin having to already know it
+  // exists — never overwrites an existing (possibly already-configured)
+  // row. Best-effort: a failure here must never block preflight itself.
+  const unmappedDesignations = [
+    ...new Set(
+      cases
+        .filter((c) => c.reporter.qualificationVerbatim && !c.reporter.qualificationCode)
+        .map((c) => c.reporter.qualificationVerbatim!),
+    ),
+  ];
+  if (unmappedDesignations.length > 0) {
+    await discoverReporterDesignations(unmappedDesignations).catch(() => {
+      /* discovery is a convenience, not a correctness requirement — a
+       * failed upsert here must never fail preflight itself. */
+    });
+  }
 
   const actor = currentActor();
   await recordAudit({
@@ -195,8 +238,10 @@ export async function runValidatedPreflightForJob(
     override,
     caseEligibility,
     exportableWithOverride,
-    transmissionConfigConfirmed: isTransmissionConfigConfirmed(transmissionConfig),
-    transmissionConfigGaps: describeUnconfirmedTransmissionConfig(transmissionConfig),
+    transmissionConfigConfirmed: isTransmissionConfigConfirmed(regulatoryConfig.transmission),
+    transmissionConfigGaps: describeUnconfirmedTransmissionConfig(regulatoryConfig.transmission),
+    organizationReadiness: computeOrganizationReadiness(regulatoryConfig),
+    caseLevelBlockers: summarizeCaseLevelBlockers(preflight.results),
     codebookDiscovery: {
       status: discovered.discoveryStatus,
       fieldsCovered: fieldsCovered(discovered),
@@ -232,10 +277,10 @@ export interface ValidatedBatchArtifact {
  */
 export async function generateValidatedExportForJob(
   jobId: string,
-  transmissionConfig: E2bTransmissionConfig,
+  regulatoryConfig: OrgRegulatoryConfig,
   sourceProfile: SourceProfile = getSourceProfile("ondo-aefi"),
 ): Promise<ValidatedBatchArtifact[]> {
-  const result = await runValidatedPreflightForJob(jobId, transmissionConfig, sourceProfile);
+  const result = await runValidatedPreflightForJob(jobId, regulatoryConfig, sourceProfile);
 
   if (!result.transmissionConfigConfirmed) {
     throw new Error(
@@ -281,9 +326,10 @@ export async function generateValidatedExportForJob(
     filename: batchFilename(batch, now),
     xml: serializeBatchToXml(batch.cases, {
       batchId: batch.transmissionId,
-      senderId: transmissionConfig.sender.identifier,
-      receiverId: transmissionConfig.receiver.identifier,
+      senderId: regulatoryConfig.transmission.sender.identifier,
+      receiverId: regulatoryConfig.transmission.receiver.identifier,
       transmissionTimestamp: now,
+      outcomeCodes: regulatoryConfig.outcomeCodes,
     }),
     caseCount: batch.cases.length,
   }));
@@ -297,8 +343,8 @@ export async function generateValidatedExportForJob(
       ? `source=${sourceProfile.id}: OVERRIDE ON RECORD (${result.override.by}: "${result.override.reason}") — ` +
         `${artifacts.length} batch file(s), ${exportableCases.length}/${result.totalCases} case(s) exported` +
         `${excludedCount > 0 ? ` (${excludedCount} case(s) excluded — non-overridable issues remained)` : ""}, ` +
-        `generated by ${actor.name} (sender=${transmissionConfig.sender.identifier}, receiver=${transmissionConfig.receiver.identifier})`
-      : `source=${sourceProfile.id}: ${artifacts.length} batch file(s), ${result.totalCases} case(s), all passed VigiFlow preflight, generated by ${actor.name} (sender=${transmissionConfig.sender.identifier}, receiver=${transmissionConfig.receiver.identifier})`,
+        `generated by ${actor.name} (sender=${regulatoryConfig.transmission.sender.identifier}, receiver=${regulatoryConfig.transmission.receiver.identifier})`
+      : `source=${sourceProfile.id}: ${artifacts.length} batch file(s), ${result.totalCases} case(s), all passed VigiFlow preflight, generated by ${actor.name} (sender=${regulatoryConfig.transmission.sender.identifier}, receiver=${regulatoryConfig.transmission.receiver.identifier})`,
   });
   for (const b of batches) {
     await recordAudit({

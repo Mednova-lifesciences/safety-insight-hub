@@ -57,8 +57,23 @@ export interface E2bTransmissionConfig {
   environment: "uat" | "production";
   sender: SenderConfig;
   receiver: ReceiverConfig;
-  /** C.1.3 — report type for routine AEFI surveillance (decision D3). */
+  /** C.1.3's raw value (decision D3). NEVER trust this field's mere
+   *  presence as proof NAFDAC confirmed it — it still holds the "4"
+   *  placeholder even in the shipped unconfirmed default, purely so this
+   *  field always has a syntactically valid ReportType to carry. Whether
+   *  it is actually authoritative is decided ONLY by `reportTypeConfirmed`
+   *  below — see that field's doc comment for the bug this split fixes. */
   reportType: ReportType;
+  /** True only once an admin has explicitly confirmed C.1.3 (decision D3)
+   *  via persisted regulatory configuration — never inferred from
+   *  `reportType` merely being set, and never implied by sender/receiver
+   *  being confirmed. Before this flag existed, `isTransmissionConfigConfirmed`
+   *  checked only sender/receiver identifiers, so a real deployment could
+   *  confirm those and unknowingly have the "4" placeholder start flowing
+   *  into produced PVCase.reportType/XML as if NAFDAC had signed off on
+   *  it. See mapping.ts's reportType resolution and
+   *  services/api/regulatory-config.ts's OrgRegulatoryConfig. */
+  reportTypeConfirmed?: boolean | undefined;
   /** Global fallback case-id prefix, used only when the active
    *  SourceProfile doesn't define its own (see
    *  source-profiles/types.ts's SourceProfile.caseIdPrefix, which takes
@@ -83,13 +98,21 @@ export const UNCONFIRMED_DEFAULT_CONFIG: E2bTransmissionConfig = {
     identifier: UNCONFIRMED_SENTINEL,
   },
   reportType: "4", // "Not available to sender" — the one ReportType value that is itself an honest placeholder, not a guess about which real type applies
+  reportTypeConfirmed: false,
 };
 
+/** True only when EVERY decision D3/D4 element is confirmed: sender
+ *  organisation, sender identifier, receiver identifier, AND report type.
+ *  Report type is checked via the explicit `reportTypeConfirmed` flag —
+ *  never inferred from `reportType`'s mere presence, since that field
+ *  always holds a syntactically valid value (the "4" placeholder in the
+ *  unconfirmed default) whether or not NAFDAC has actually confirmed it. */
 export function isTransmissionConfigConfirmed(config: E2bTransmissionConfig): boolean {
   return (
     config.sender.organization !== UNCONFIRMED_SENTINEL &&
     config.sender.identifier !== UNCONFIRMED_SENTINEL &&
-    config.receiver.identifier !== UNCONFIRMED_SENTINEL
+    config.receiver.identifier !== UNCONFIRMED_SENTINEL &&
+    config.reportTypeConfirmed === true
   );
 }
 
@@ -103,10 +126,19 @@ export function describeUnconfirmedTransmissionConfig(config: E2bTransmissionCon
     gaps.push("Sender organisation (C.3.2) — decision D4, confirm with NAFDAC/Ondo.");
   }
   if (config.sender.identifier === UNCONFIRMED_SENTINEL) {
-    gaps.push("Sender transmission identifier (N.2.r.2 / N.1.3) — decision D4, NAFDAC/UMC-assigned.");
+    gaps.push(
+      "Sender transmission identifier (N.2.r.2 / N.1.3) — decision D4, NAFDAC/UMC-assigned.",
+    );
   }
   if (config.receiver.identifier === UNCONFIRMED_SENTINEL) {
-    gaps.push("Receiver transmission identifier (N.2.r.3 / N.1.4) — decision D4, NAFDAC/UMC-assigned.");
+    gaps.push(
+      "Receiver transmission identifier (N.2.r.3 / N.1.4) — decision D4, NAFDAC/UMC-assigned.",
+    );
+  }
+  if (config.reportTypeConfirmed !== true) {
+    gaps.push(
+      "Report type (C.1.3) — decision D3, confirm with NAFDAC before it can be emitted as a real value.",
+    );
   }
   return gaps;
 }
