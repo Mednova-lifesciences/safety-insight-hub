@@ -1317,6 +1317,31 @@ export const psur = {
       return { document: next, findings };
     }
 
+    // Already-reviewed documents still have to satisfy the reconciliation
+    // guarantee. Reconciling only on the first-pass branch above left every
+    // document reviewed before that guarantee existed permanently
+    // inconsistent: a section whose authoritative status is MISSING, with no
+    // finding tagged to it, which the assessor therefore cannot accept and
+    // which can never reach a Compliance Directive. The Section Coverage
+    // panel says so out loud ("No corresponding finding yet — this should
+    // not happen"), and on real submissions this was the norm, not the
+    // exception.
+    //
+    // Safe to run on every read: reconcileSectionFindings is idempotent and
+    // pure, and only writes when it actually synthesizes something, so a
+    // consistent document does no database work at all.
+    const missing = reconcileSectionFindings(buildAuthoritativeSectionCoverage(document), findings);
+    if (missing.length > 0) {
+      await persistFindings(documentId, missing);
+      await recordAudit({
+        action: "PSUR_SECTION_FINDINGS_RECONCILED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        newValue: `${missing.length} section finding(s) synthesized for deficient sections that had none`,
+      });
+      findings = [...findings, ...missing];
+    }
+
     return { document, findings };
   },
 

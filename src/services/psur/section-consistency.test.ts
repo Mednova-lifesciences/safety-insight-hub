@@ -456,3 +456,56 @@ describe("reconciliation after an assessor edits Sections 9-11", () => {
     expect(second.filter((f) => f.v4Section === "S9_SPECIAL_POPULATIONS")).toHaveLength(0);
   });
 });
+
+describe("reconciliation is safe and effective to run on every read", () => {
+  it("heals a document whose deficient section has no finding", () => {
+    // The production case: documents reviewed before the guarantee existed
+    // kept a MISSING section with nothing tagged to it, so the deficiency
+    // could never be accepted and never reached a Compliance Directive.
+    const coverage = buildAuthoritativeSectionCoverage({
+      screening: {
+        sectionCoverage: [
+          {
+            section: "S6_LITERATURE",
+            status: "MISSING",
+            comment: "No literature section.",
+            source: "ai",
+          },
+        ],
+      },
+    } as Parameters<typeof buildAuthoritativeSectionCoverage>[0]);
+
+    const synthesized = reconcileSectionFindings(coverage, []);
+    expect(synthesized.some((f) => f.v4Section === "S6_LITERATURE")).toBe(true);
+  });
+
+  it("does nothing on an already-consistent document, so repeat reads never write", () => {
+    const coverage = buildAuthoritativeSectionCoverage({
+      screening: {
+        sectionCoverage: [
+          {
+            section: "S6_LITERATURE",
+            status: "MISSING",
+            comment: "No literature section.",
+            source: "ai",
+          },
+        ],
+      },
+    } as Parameters<typeof buildAuthoritativeSectionCoverage>[0]);
+
+    const first = reconcileSectionFindings(coverage, []);
+    expect(reconcileSectionFindings(coverage, first)).toHaveLength(0);
+    // And a third read, simulating repeated page opens.
+    expect(reconcileSectionFindings(coverage, [...first])).toHaveLength(0);
+  });
+
+  it("never synthesizes for sections that are an assessor task, not a submission defect", () => {
+    const coverage = buildAuthoritativeSectionCoverage(
+      {} as Parameters<typeof buildAuthoritativeSectionCoverage>[0],
+    );
+    const synthesized = reconcileSectionFindings(coverage, []);
+    for (const excluded of RECONCILIATION_EXCLUDED_SECTIONS) {
+      expect(synthesized.some((f) => f.v4Section === excluded)).toBe(false);
+    }
+  });
+});
