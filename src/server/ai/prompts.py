@@ -395,7 +395,12 @@ S4_RSI — 4. Reference Safety Information (RSI): RSI type (SmPC/CDS/CCDS) and v
 changes made this interval; rationale for the changes.
 S5_EXPOSURE_ACTIONS — 5. Exposure & Actions Taken for Safety Reasons: reporting-interval and \
 cumulative exposure (global, Nigerian, other region — patient years, patients, prescriptions, \
-units sold, defined daily doses where available); actions taken for safety reasons this interval.
+units sold, defined daily doses where available); actions taken for safety reasons this interval. \
+CRITICAL: global/worldwide exposure does NOT satisfy the Nigerian exposure requirement. The V4 \
+template asks for a Nigerian row specifically. A submission stating only worldwide patient-years, \
+vials or packs has NOT provided Nigerian exposure, however thorough the global figures are — \
+without a Nigerian denominator no Nigerian reporting rate can be calculated. Judge the Nigerian \
+denominator separately from the global one and report it in nigerian_context below.
 S6_LITERATURE — 6. Literature: studies containing relevant safety information, company-sponsored \
 and published, AS DESCRIBED IN THE SUBMITTED DOCUMENT ITSELF. You are assessing whether the MAH's \
 own submission contains a literature review — you have not performed, and must never claim to have \
@@ -404,7 +409,14 @@ submission has no literature-review content; it does not mean "no relevant liter
 S7_AGGREGATE_SAFETY_DATA — 7. Aggregate Safety Data Summary: MAH's summary tabulation of ADRs / \
 SOCs requiring specific regulatory assessment; differences between Nigeria-specific and global \
 data; VigiFlow's Nigerian ICSR count (reporting-interval and cumulative, including serious cases) \
-compared with Nigerian cases reported by the MAH.
+compared with Nigerian cases reported by the MAH. \
+CRITICAL: worldwide case counts do NOT satisfy this. Two separate things are required and each \
+must be judged on its own: (a) a Nigerian case count — reporting-interval and cumulative, \
+including serious cases; and (b) an explicit reconciliation of those Nigerian figures against \
+NAFDAC's own VigiFlow data, with any discrepancy documented. A submission that reports only \
+global totals has provided neither. Merely naming VigiFlow, or saying the data "is consistent \
+with" national data without stating the compared figures, is NOT a reconciliation. Report both \
+separately in nigerian_context below.
 S8_SIGNAL_EVALUATION — 8. Signal Evaluation Log: every signal new, ongoing, or closed this \
 interval — or an explicit "no signals under evaluation this interval" statement (this section must \
 not simply be left blank).
@@ -457,6 +469,15 @@ is given, flag the missing frequency basis specifically; if a benefit is claimed
 quality is unclear, flag that specifically.
 - Do not flag a deficiency where the submission genuinely, adequately addresses that point — do \
 not manufacture findings to pad the list.
+- THIS SYSTEM HAS NO LIVE VIGIFLOW ACCESS. It cannot query VigiFlow, WHO VigiBase, or any \
+national ICSR database, and holds no case counts of its own. Never state or imply that VigiFlow \
+has been checked, never report what VigiFlow "shows" or "holds", and never produce a number \
+attributed to VigiFlow. You may only report whether the SUBMISSION ITSELF states a Nigerian case \
+count or a reconciliation against national data. Where that is absent, the correct output is that \
+the assessor must obtain and verify it — not a fabricated comparison.
+- Nigerian requirements are specific and are never satisfied by global data. Global exposure is \
+not Nigerian exposure; worldwide aggregate safety data is not a Nigerian case count; mentioning \
+VigiFlow is not reconciling against VigiFlow.
 """
 
 
@@ -577,6 +598,14 @@ Respond with JSON exactly in this shape:
   "special_populations": [
     {"area": "PREGNANCY_LACTATION" | "PAEDIATRIC" | "GERIATRIC" | "HEPATIC_IMPAIRMENT" | "RENAL_IMPAIRMENT" | "OVERDOSE_MISUSE_ABUSE_MEDICATION_ERROR" | "OFF_LABEL_USE" | "OTHER_MISSING_INFORMATION", "status": "ADEQUATELY_ADDRESSED" | "PRESENT_BUT_INCOMPLETE" | "MISSING" | "NOT_APPLICABLE", "comment": "...", "not_applicable_justification": "<required when status is NOT_APPLICABLE, else null>"}
   ],
+  "nigerian_context": {
+    "nigerian_exposure_provided": true | false,
+    "nigerian_exposure_evidence": "<quote or describe the Nigeria-specific exposure figure the submission states; if absent, say what it does state instead, e.g. 'worldwide vials distributed only'>",
+    "nigerian_case_count_provided": true | false,
+    "nigerian_case_count_evidence": "<the Nigerian case count the submission states, interval and cumulative; if absent, say what it states instead>",
+    "vigiflow_reconciliation_provided": true | false,
+    "vigiflow_reconciliation_evidence": "<how the submission describes reconciling its Nigerian figures against NAFDAC/VigiFlow data; if absent, say so — never state what VigiFlow holds, you have not queried it>"
+  },
   "benefit_risk": {
     "key_benefits": [{"benefit": "...", "evidence_source": "...", "magnitude": "...", "evidence_quality": "HIGH" | "MODERATE" | "LOW" | "VERY_LOW" | "NOT_ASSESSABLE"}],
     "key_risks": [{"kind": "IDENTIFIED" | "POTENTIAL", "risk": "...", "severity": "...", "frequency": "...", "frequency_data_source": "...", "reversibility": "...", "duration": "...", "preventability_risk_management": "...", "comment": "..."}],

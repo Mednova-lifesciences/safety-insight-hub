@@ -53,6 +53,10 @@ import {
 } from "@/types/pv";
 import { buildAuthoritativeSectionCoverage } from "@/services/psur/section-consistency";
 import {
+  deriveScreeningRecommendation,
+  explainScreeningRecommendation,
+} from "@/services/psur/administrative-screening";
+import {
   actionOwnerLabel,
   isActionOwnerOverridden,
   requiresMahAction,
@@ -886,6 +890,14 @@ function AdministrativeScreeningPanel({
   }
 
   const override = screening.humanOverride;
+  const effectiveRecommendation = deriveScreeningRecommendation(
+    screening.administrativeChecks,
+    screening.recommendation,
+  );
+  const recommendationReason = explainScreeningRecommendation(
+    screening.administrativeChecks,
+    screening.recommendation,
+  );
 
   async function decide(decision: "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST") {
     setSubmitting(true);
@@ -981,16 +993,26 @@ function AdministrativeScreeningPanel({
           </ul>
         </details>
 
+        {/* The recommendation shown is the one the four checks imply, which
+            can differ from the model's own suggestion — a submission whose
+            mandatory-sections check failed must not read "proceed". It stays
+            ADVISORY either way: the assessor's decision below is what
+            governs, and nothing here writes it. */}
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm">AI recommendation:</span>
+          <span className="text-sm">Recommendation (advisory — the assessor decides):</span>
           <StatusPill
             tone={
-              screening.recommendation === "PROCEED_TO_SCIENTIFIC_REVIEW" ? "success" : "critical"
+              effectiveRecommendation === "PROCEED_TO_SCIENTIFIC_REVIEW" ? "success" : "critical"
             }
           >
-            {screening.recommendation.replaceAll("_", " ").toLowerCase()}
+            {effectiveRecommendation.replaceAll("_", " ").toLowerCase()}
           </StatusPill>
         </div>
+        {recommendationReason ? (
+          <p className="rounded-md border border-warning/30 bg-warning-soft px-2 py-1.5 text-xs">
+            {recommendationReason}
+          </p>
+        ) : null}
 
         {override ? (
           <p className="rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs">
@@ -1860,6 +1882,9 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
     doc.regulatoryDecision?.supportingFinding ?? "",
   );
   const [nextDue, setNextDue] = useState(doc.regulatoryDecision?.nextPsurDueDate ?? "");
+  const [responseDeadline, setResponseDeadline] = useState(
+    doc.regulatoryDecision?.mahResponseDeadline ?? "",
+  );
   const [followUp, setFollowUp] = useState(doc.regulatoryDecision?.followUpRequired ?? "");
   const [saving, setSaving] = useState(false);
 
@@ -1872,6 +1897,7 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
         basis,
         supportingFinding: supportingFinding || undefined,
         nextPsurDueDate: nextDue || undefined,
+        mahResponseDeadline: responseDeadline || undefined,
         followUpRequired: followUp || undefined,
       });
       toast.success("Regulatory decision recorded.");
@@ -1968,13 +1994,30 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <p className="label-caps mb-1">Next PSUR/PBRER due date</p>
-            <Input type="date" value={nextDue} onChange={(e) => setNextDue(e.target.value)} />
+            {/* Two distinct obligations — when the MAH must answer THIS
+                directive, and when the next periodic report falls due.
+                Neither is ever derived from the other. */}
+            <p className="label-caps mb-1">MAH response deadline</p>
+            <Input
+              type="date"
+              value={responseDeadline}
+              onChange={(e) => setResponseDeadline(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Printed on the Compliance Directive as the date the MAH must respond by.
+            </p>
           </div>
           <div>
-            <p className="label-caps mb-1">Follow-up information required/deadline</p>
-            <Input value={followUp} onChange={(e) => setFollowUp(e.target.value)} />
+            <p className="label-caps mb-1">Next PSUR/PBRER due date</p>
+            <Input type="date" value={nextDue} onChange={(e) => setNextDue(e.target.value)} />
+            <p className="mt-1 text-xs text-muted-foreground">
+              The next reporting cycle — not the deadline for answering this assessment.
+            </p>
           </div>
+        </div>
+        <div>
+          <p className="label-caps mb-1">Follow-up information required</p>
+          <Input value={followUp} onChange={(e) => setFollowUp(e.target.value)} />
         </div>
 
         {doc.regulatoryDecision ? (

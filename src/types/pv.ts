@@ -588,6 +588,9 @@ export interface PsurDocument {
    *  area (see PsurSpecialPopulationArea). Assessor-editable, same
    *  ownership pattern as `benefitRisk`. */
   specialPopulations?: PsurSpecialPopulationItem[] | undefined;
+  /** The Nigeria-specific facts Sections 5 and 7 turn on — see
+   *  PsurNigerianContext. Absent on documents reviewed before this existed. */
+  nigerianContext?: PsurNigerianContext | undefined;
   /** Section 11 — one row per identified uncertainty. */
   uncertainties?: PsurUncertainty[] | undefined;
   /** Section 11's closing free-text field, "Evaluator's comments
@@ -688,6 +691,29 @@ export interface PsurSectionCoverage {
    *  AI-asserted or rule-derived status silently read as if an assessor
    *  personally judged it. */
   source: "ai" | "rule" | "assessor";
+}
+
+/**
+ * The Nigeria-specific facts Sections 5 and 7 turn on, collected as narrow
+ * yes/no questions rather than folded into one holistic per-section verdict
+ * — see services/psur/nigeria-requirements.ts for why (a mostly-complete
+ * section was absorbing a specifically-missing Nigerian datum, measured in
+ * two separate live submissions).
+ *
+ * `vigiflowReconciliationProvided` means "the SUBMISSION states that a
+ * reconciliation was performed". It never means this application queried
+ * VigiFlow — there is no such integration.
+ */
+export interface PsurNigerianContext {
+  /** Whether Section 5 must carry Nigeria-specific exposure at all. False
+   *  for sources with no exposure narrative to assess (spreadsheet annexes). */
+  exposureRequired: boolean;
+  nigerianExposureProvided: boolean;
+  nigerianExposureEvidence?: string | undefined;
+  nigerianCaseCountProvided: boolean;
+  nigerianCaseCountEvidence?: string | undefined;
+  vigiflowReconciliationProvided: boolean;
+  vigiflowReconciliationEvidence?: string | undefined;
 }
 
 export interface PsurScreeningResult {
@@ -871,7 +897,16 @@ export interface PsurRegulatoryDecision {
    *  reasoning). Kept apart so a recommendation can never be justified by
    *  reasoning alone with no identified finding behind it. */
   supportingFinding?: string | undefined;
+  /** When the NEXT periodic report is due — a reporting-cycle date. Never
+   *  the deadline for answering this directive; the two were previously
+   *  liable to be read as one. */
   nextPsurDueDate?: string | undefined;
+  /** The date by which the MAH must respond to this assessment's requests.
+   *  Distinct from nextPsurDueDate and rendered separately in the
+   *  Compliance Directive. */
+  mahResponseDeadline?: string | undefined;
+  /** What the MAH must supply, in the assessor's words — the substance of
+   *  the follow-up, as opposed to its date. */
   followUpRequired?: string | undefined;
   decidedBy: string;
   decidedAt: string;
