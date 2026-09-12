@@ -48,11 +48,43 @@ describe("legacy generator isolation", () => {
   });
 
   it("exportValidated() itself (the button's handler) calls only generateValidatedExportForJob/downloadValidatedBatch, never e2bApi", () => {
-    const handlerMatch = routeTsx.match(/async function exportValidated\(jobId: string\) \{[\s\S]*?\n  \}/);
+    const handlerMatch = routeTsx.match(
+      /async function exportValidated\(jobId: string\) \{[\s\S]*?\n {2}\}/,
+    );
     expect(handlerMatch).not.toBeNull();
     const handler = handlerMatch![0];
     expect(handler).toContain("generateValidatedExportForJob");
     expect(handler).toContain("downloadValidatedBatch");
     expect(handler).not.toContain("e2bApi.");
+  });
+});
+
+describe("the legacy generator is unreachable from the UI", () => {
+  const routeTsx = readFileSync(join(__dirname, "..", "..", "routes", "_app", "e2b.tsx"), "utf-8");
+
+  it("no button invokes the legacy generate/download/dismiss handlers", () => {
+    // The legacy generator emits a flat E2B(R2)-shaped <ichicsr> draft whose
+    // own header says it "must never be presented to NAFDAC, loaded into
+    // VigiFlow, or described as E2B(R3)-compliant" — while the button that
+    // called it was labelled "Generate E2B(R3)". Two adjacent downloads, one
+    // conformant and one explicitly not, is not a safe thing to ship; the
+    // buttons were removed and this keeps them from coming back.
+    expect(routeTsx).not.toMatch(/e2bApi\.generate\(/);
+    expect(routeTsx).not.toMatch(/e2bApi\.download\(/);
+    expect(routeTsx).not.toMatch(/e2bApi\.dismissErrors\(/);
+  });
+
+  it("the retired button labels are gone from the page", () => {
+    // Matched outside the explanatory comment that records why they went.
+    const withoutComments = routeTsx.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+    expect(withoutComments).not.toMatch(/>\s*Generate E2B\(R3\)\s*</);
+    expect(withoutComments).not.toMatch(/Download XML/);
+    expect(withoutComments).not.toMatch(/Dismiss Errors/);
+  });
+
+  it("the validated export button survives — this must not remove the real path", () => {
+    expect(routeTsx).toMatch(/Download validated E2B\(R3\) XML/);
+    expect(routeTsx).toMatch(/Run VigiFlow preflight/);
+    expect(routeTsx).toMatch(/exportValidated/);
   });
 });
