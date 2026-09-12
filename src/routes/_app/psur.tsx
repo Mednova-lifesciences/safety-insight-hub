@@ -231,6 +231,7 @@ function PsurPage() {
   const [uploading, setUploading] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [docsPage, setDocsPage] = useState(1);
+  const [findingsPage, setFindingsPage] = useState(1);
   const [dismissingId, setDismissingId] = useState<string | null>(null);
   const [dismissReason, setDismissReason] = useState("");
   const [reassigningId, setReassigningId] = useState<string | null>(null);
@@ -356,7 +357,12 @@ function PsurPage() {
                           size="sm"
                           variant="outline"
                           className="ml-auto"
-                          onClick={() => setSelected(d.id)}
+                          onClick={() => {
+                            setSelected(d.id);
+                            // Opening a different document must not leave the
+                            // findings list on a page that document doesn't have.
+                            setFindingsPage(1);
+                          }}
                         >
                           Open review
                         </Button>
@@ -544,7 +550,7 @@ function PsurPage() {
                     <EmptyState title="No findings returned" />
                   ) : (
                     <ul className="space-y-3">
-                      {items.map((f) => (
+                      {paginate(items, findingsPage).map((f) => (
                         <li key={f.id} className="rounded-md border border-border p-3">
                           <div className="flex flex-wrap items-center gap-2">
                             <StatusPill tone={categoryTone[f.category]}>
@@ -814,6 +820,17 @@ function PsurPage() {
                           ) : null}
                         </li>
                       ))}
+                      {/* A deficient submission now routinely produces more
+                          than a screenful of findings — the Nigerian
+                          requirements alone add up to three — so this list
+                          pages at the same size as the documents list above
+                          rather than running the whole assessment off the
+                          bottom of the page. */}
+                      <Pager
+                        page={findingsPage}
+                        total={items.length}
+                        onPageChange={setFindingsPage}
+                      />
                     </ul>
                   )
                 }
