@@ -106,6 +106,13 @@ const NAV: NavGroup[] = [
     ],
   },
   {
+    // Every item here hides ADMIN, matching every other operational group
+    // in this file: an administrator manages access and the audit surface
+    // rather than running processing workflows. It previously hid
+    // PV_MANAGER and PV_COORDINATOR instead — the two roles that actually
+    // own this work and hold these permissions — so the whole Processing
+    // group was invisible to them and /psur was reachable only by typing
+    // the URL.
     label: "Processing",
     items: [
       {
@@ -113,21 +120,21 @@ const NAV: NavGroup[] = [
         label: "Line-list processing",
         icon: FileSpreadsheet,
         permission: "linelist.process",
-        hiddenForRoles: ["PV_MANAGER", "PV_COORDINATOR"],
+        hiddenForRoles: ["ADMIN"],
       },
       {
         to: "/e2b",
         label: "E2B(R3) preparation",
         icon: FileStack,
         permission: "e2b.generate",
-        hiddenForRoles: ["PV_MANAGER", "PV_COORDINATOR"],
+        hiddenForRoles: ["ADMIN"],
       },
       {
         to: "/psur",
         label: "PSUR / PBRER review",
         icon: FileText,
         permission: "psur.review",
-        hiddenForRoles: ["PV_MANAGER", "PV_COORDINATOR"],
+        hiddenForRoles: ["ADMIN"],
       },
     ],
   },
@@ -198,8 +205,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav className="flex-1 overflow-y-auto px-2 py-3">
           {NAV.map((group) => {
             const items = group.items.filter(
-              (i) =>
-                (!i.permission || can(i.permission)) && !i.hiddenForRoles?.includes(user.role),
+              (i) => (!i.permission || can(i.permission)) && !i.hiddenForRoles?.includes(user.role),
             );
             if (items.length === 0) return null;
             return (
@@ -209,8 +215,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </p>
                 <ul className="space-y-0.5">
                   {items.map((item) => {
-                    const active =
-                      pathname === item.to || pathname.startsWith(`${item.to}/`);
+                    const active = pathname === item.to || pathname.startsWith(`${item.to}/`);
                     return (
                       <li key={item.to}>
                         <Link
@@ -262,7 +267,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
             {!backendConnected ? (
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Switch checked={demoData} onCheckedChange={setDemoData} aria-label="Show demo dataset" />
+                <Switch
+                  checked={demoData}
+                  onCheckedChange={setDemoData}
+                  aria-label="Show demo dataset"
+                />
                 Demo dataset
               </label>
             ) : null}

@@ -49,9 +49,27 @@ const stepState = (
 };
 
 export const demoProducts: import("@/services/api/products").CatalogDrug[] = [
-  { id: "drug-demo-1", name: "Amoxicillin", activeIngredient: "Amoxicillin", strength: "500mg", route: "Oral" },
-  { id: "drug-demo-2", name: "Artemether/Lumefantrine", activeIngredient: "Artemether, Lumefantrine", strength: "20/120mg", route: "Oral" },
-  { id: "drug-demo-3", name: "Oxytocin Injection", activeIngredient: "Oxytocin", strength: "10IU/mL", route: "Intramuscular" },
+  {
+    id: "drug-demo-1",
+    name: "Amoxicillin",
+    activeIngredient: "Amoxicillin",
+    strength: "500mg",
+    route: "Oral",
+  },
+  {
+    id: "drug-demo-2",
+    name: "Artemether/Lumefantrine",
+    activeIngredient: "Artemether, Lumefantrine",
+    strength: "20/120mg",
+    route: "Oral",
+  },
+  {
+    id: "drug-demo-3",
+    name: "Oxytocin Injection",
+    activeIngredient: "Oxytocin",
+    strength: "10IU/mL",
+    route: "Intramuscular",
+  },
 ];
 
 export const demoCases: CaseSummary[] = [
@@ -533,12 +551,271 @@ export const demoPsurDocuments: PsurDocument[] = [
   {
     id: "psur-2026-004",
     filename: "PBRER_amlodipine_2025-2026.pdf",
-    product: "Amlodipine besilate",
+    product: "Amlodipine besilate 10 mg tablets",
+    mah: "Lagos Generics Manufacturing Ltd",
     reportingPeriod: "01 Jul 2025 – 30 Jun 2026",
     uploadedAt: "2026-08-13T12:00:00Z",
     uploadedBy: "L. Mensah",
-    stage: "EXTRACTED",
+    stage: "REVIEWED",
     pages: 148,
+    sourceType: "PDF",
+    screening: {
+      performedAt: "2026-08-13T12:04:00Z",
+      administrativeChecks: [
+        {
+          id: "FOLLOWS_E2C_R2_TEMPLATE",
+          label: "Follows the NAFDAC/ICH E2C(R2) recommended template",
+          status: "YES",
+          comment: "Section numbering follows the E2C(R2) structure throughout.",
+        },
+        {
+          id: "DLP_CORRECTLY_STATED",
+          label: "Reporting interval / Data Lock Point (DLP) correctly stated/calculated",
+          status: "YES",
+          comment: "DLP of 30 Jun 2026 stated on the cover page and used consistently.",
+        },
+        {
+          id: "MANDATORY_SECTIONS_PRESENT_OR_JUSTIFIED",
+          label: "All mandatory ICH E2C(R2) sections present, or absence justified",
+          status: "NO",
+          comment: "No literature review section, and its absence is not justified.",
+        },
+        {
+          id: "RECEIVED_WITHIN_TIMEFRAME",
+          label: "Submission received within the required regulatory timeframe",
+          status: "YES",
+          comment: "Received 13 Aug 2026, within the required window after DLP.",
+        },
+      ],
+      sectionCoverage: [
+        {
+          section: "ADMIN_SCREENING",
+          status: "ADEQUATELY_ADDRESSED",
+          comment: "Administrative screening completed.",
+          source: "ai",
+        },
+        {
+          section: "S1_PRODUCT_REGULATORY",
+          status: "ADEQUATELY_ADDRESSED",
+          comment: "Product, MAH, registration number, IBD and NBD all stated.",
+          source: "ai",
+        },
+        {
+          section: "S2_WORLDWIDE_STATUS",
+          status: "ADEQUATELY_ADDRESSED",
+          comment: "Worldwide actions listed with a NAFDAC-consistency statement.",
+          source: "ai",
+        },
+        {
+          section: "S3_THERAPEUTIC_CONTEXT",
+          status: "ADEQUATELY_ADDRESSED",
+          comment: "Incidence, duration, mortality and treatment options addressed.",
+          source: "ai",
+        },
+        {
+          section: "S4_RSI",
+          status: "ADEQUATELY_ADDRESSED",
+          comment: "CCDS v4.1 identified; changes this interval described with rationale.",
+          source: "ai",
+        },
+        {
+          section: "S5_EXPOSURE_ACTIONS",
+          status: "PRESENT_BUT_INCOMPLETE",
+          comment: "Global patient-years given; the Nigerian exposure row is blank.",
+          source: "ai",
+        },
+        {
+          section: "S6_LITERATURE",
+          status: "MISSING",
+          comment: "No literature review section found in the submitted document.",
+          source: "ai",
+        },
+        {
+          section: "S7_AGGREGATE_SAFETY_DATA",
+          status: "PRESENT_BUT_INCOMPLETE",
+          comment: "Summary tabulation supplied; no VigiFlow comparison for Nigerian ICSRs.",
+          source: "ai",
+        },
+        {
+          section: "S8_SIGNAL_EVALUATION",
+          status: "PRESENT_BUT_INCOMPLETE",
+          comment: "Peripheral oedema signal listed as closed with an empty outcome column.",
+          source: "ai",
+        },
+        {
+          section: "S9_SPECIAL_POPULATIONS",
+          status: "ASSESSOR_PENDING",
+          comment: "Not yet assessed.",
+          source: "ai",
+        },
+        {
+          section: "S10_BENEFIT_RISK",
+          status: "ASSESSOR_PENDING",
+          comment: "Not yet assessed.",
+          source: "ai",
+        },
+        {
+          section: "S11_UNCERTAINTIES",
+          status: "ASSESSOR_PENDING",
+          comment: "Not yet assessed.",
+          source: "ai",
+        },
+        {
+          section: "S12_REGULATORY_DECISION",
+          status: "ASSESSOR_PENDING",
+          comment: "The assessor has not yet recorded a regulatory decision.",
+          source: "assessor",
+        },
+        {
+          section: "S13_CONCLUSION_SIGNOFF",
+          status: "ASSESSOR_PENDING",
+          comment: "The assessor has not yet recorded a conclusion/sign-off.",
+          source: "assessor",
+        },
+      ],
+      recommendation: "RETURN_TO_MAH_FIRST",
+      assistGenerated: true,
+    },
+    specialPopulations: [
+      {
+        area: "PREGNANCY_LACTATION",
+        status: "PRESENT_BUT_INCOMPLETE",
+        comment: "Exposure discussed, but no Nigerian pregnancy outcome data.",
+        source: "ai",
+      },
+      {
+        area: "PAEDIATRIC",
+        status: "NOT_APPLICABLE",
+        comment: "No paediatric indication.",
+        notApplicableJustification:
+          "Product is authorised for adults only; no paediatric use reported this interval.",
+        source: "ai",
+      },
+      {
+        area: "GERIATRIC",
+        status: "ADEQUATELY_ADDRESSED",
+        comment: "Dedicated geriatric subsection with case breakdown.",
+        source: "ai",
+      },
+      {
+        area: "HEPATIC_IMPAIRMENT",
+        status: "MISSING",
+        comment: "Not addressed anywhere in the submission.",
+        source: "ai",
+      },
+      {
+        area: "RENAL_IMPAIRMENT",
+        status: "ADEQUATELY_ADDRESSED",
+        comment: "Dose adjustment guidance reproduced from the RSI.",
+        source: "ai",
+      },
+      {
+        area: "OVERDOSE_MISUSE_ABUSE_MEDICATION_ERROR",
+        status: "PRESENT_BUT_INCOMPLETE",
+        comment: "Three medication-error reports noted without root-cause analysis.",
+        source: "ai",
+      },
+      {
+        area: "OFF_LABEL_USE",
+        status: "ADEQUATELY_ADDRESSED",
+        comment: "No off-label use identified this interval, stated explicitly.",
+        source: "ai",
+      },
+      {
+        area: "OTHER_MISSING_INFORMATION",
+        status: "ADEQUATELY_ADDRESSED",
+        comment: "Long-term use data described as complete.",
+        source: "ai",
+      },
+    ],
+    benefitRisk: {
+      keyBenefits: [
+        {
+          id: "kb-1",
+          benefit: "Sustained reduction in systolic and diastolic blood pressure",
+          evidenceSource: "Pooled controlled trials cited in the submission",
+          magnitude: "Mean reduction 12/7 mmHg vs placebo at 12 weeks",
+          evidenceQuality: "HIGH",
+        },
+      ],
+      keyRisks: [
+        {
+          id: "kr-1",
+          kind: "IDENTIFIED",
+          risk: "Peripheral oedema",
+          severity: "Non-serious in most reports",
+          frequency: "Common (>=1/100 to <1/10)",
+          frequencyDataSource: "CCDS v4.1",
+          reversibility: "Reversible on dose reduction or discontinuation",
+          duration: "Days to weeks",
+          preventabilityRiskManagement: "Dose titration; patient counselling",
+          comment: "Most frequently reported event in the Nigerian cases this interval.",
+        },
+        {
+          id: "kr-2",
+          kind: "POTENTIAL",
+          risk: "Hepatic enzyme elevation",
+          severity: "Potentially serious",
+          frequency: "Not established",
+          frequencyDataSource: "Not stated in the submission",
+          reversibility: "Usually reversible",
+          duration: "Weeks",
+          preventabilityRiskManagement: "Consider liver function monitoring",
+          comment: "Discussed in the risk section but absent from the benefit-risk conclusion.",
+        },
+      ],
+      missingInformation: [
+        {
+          id: "mi-1",
+          missingInformation: "Safety in severe hepatic impairment",
+          riskMinimisationImplication: "Existing RSI precaution retained pending data",
+        },
+      ],
+      integratedEffectsTable: [
+        {
+          dimension: "CONDITION_UNMET_NEED",
+          evidenceAndUncertainty:
+            "Hypertension is highly prevalent in Nigeria and frequently undertreated.",
+          reviewerConclusion: "Substantial public-health need.",
+        },
+        {
+          dimension: "CURRENT_TREATMENT_OPTIONS",
+          evidenceAndUncertainty:
+            "Several antihypertensive classes available; adherence is the limiting factor.",
+          reviewerConclusion: "Product remains a reasonable first-line option.",
+        },
+        {
+          dimension: "BENEFIT",
+          evidenceAndUncertainty:
+            "Consistent BP reduction; no Nigeria-specific effectiveness data submitted.",
+          reviewerConclusion: "Benefit established; local generalisability not demonstrated.",
+        },
+        {
+          dimension: "RISK",
+          evidenceAndUncertainty:
+            "Peripheral oedema well characterised; hepatic signal unquantified.",
+          reviewerConclusion: "Risks broadly known; one potential risk outstanding.",
+        },
+        {
+          dimension: "RISK_MANAGEMENT",
+          evidenceAndUncertainty:
+            "Routine pharmacovigilance only; no additional measures proposed.",
+          reviewerConclusion: "Routine measures adequate pending the hepatic signal outcome.",
+        },
+      ],
+      patientHcpPerspective: { available: false, summary: "" },
+      riskMinimisationEffectiveness: {
+        outcome: "NOT_ASSESSABLE",
+        comment: "No risk-minimisation effectiveness data submitted for this interval.",
+      },
+      assistGenerated: true,
+    },
+    aiRecommendation: {
+      actions: ["REQUEST_ADDITIONAL_INFO_FROM_MAH", "CONTINUE_ROUTINE_PV"],
+      overallOutcome: "UNCERTAIN_REQUIRES_FOLLOWUP",
+      basis:
+        "Benefit remains established, but the missing literature review and absent Nigerian exposure denominator prevent a firm local benefit-risk conclusion this interval.",
+    },
   },
 ];
 
@@ -547,48 +824,110 @@ export const demoPsurFindings: PsurFinding[] = [
     id: "pf-1",
     category: "MISSING_SECTION",
     severity: "HIGH",
-    section: "16.3 Characterisation of risks",
-    description: "Expected PBRER section was not detected in the extracted document structure.",
-    evidence: "No heading matching section 16.3 found between sections 16.2 and 16.4.",
+    section: "6. Literature",
+    description: '"6. Literature" was assessed as missing from this submission.',
+    evidence: "No literature review section found in the submitted document.",
+    suggestedSource: {
+      type: "PUBLISHED_LITERATURE",
+      note: "Ask the MAH for their literature search strategy and results, and independently screen published safety literature for this active substance.",
+    },
+    v4Section: "S6_LITERATURE",
+    deficiencyType: "MISSING_REQUIRED_SECTION",
     assistGenerated: true,
+    humanAssessment: null,
+    source: "ai",
   },
   {
     id: "pf-2",
     category: "NUMERICAL",
     severity: "HIGH",
-    section: "6.2 Cumulative summary tabulations",
+    section: "7. Aggregate Safety Data Summary",
     description:
       "Cumulative serious case count differs between the narrative text and the summary tabulation.",
     evidence: "Narrative states 412 cumulative serious cases; tabulation totals 407.",
+    suggestedSource: {
+      type: "REQUEST_FROM_MAH",
+      note: "Ask the MAH to reconcile the narrative and tabulated cumulative serious case counts and confirm which figure is correct.",
+    },
+    v4Section: "S7_AGGREGATE_SAFETY_DATA",
+    deficiencyType: "DATA_DISCREPANCY",
     assistGenerated: true,
+    humanAssessment: null,
+    source: "ai",
   },
   {
     id: "pf-3",
     category: "CONSISTENCY",
     severity: "MEDIUM",
-    section: "5 Estimated exposure",
+    section: "5. Exposure & Actions Taken for Safety Reasons",
     description:
-      "Reporting period stated in the cover page differs from the period used in the exposure calculation.",
-    evidence: "Cover page: 01 Jul 2025 – 30 Jun 2026. Section 5: 01 Jan 2025 – 31 Dec 2025.",
+      "Reporting period stated on the cover page differs from the period used in the exposure calculation.",
+    evidence: "Cover page: 01 Jul 2025 – 30 Jun 2026. Exposure section: 01 Jan 2025 – 31 Dec 2025.",
+    v4Section: "S5_EXPOSURE_ACTIONS",
+    deficiencyType: "INCONSISTENCY",
     assistGenerated: true,
+    humanAssessment: null,
+    source: "ai",
   },
   {
     id: "pf-4",
     category: "SIGNAL",
     severity: "MEDIUM",
-    section: "15 Signal evaluation",
+    section: "8. Signal Evaluation Log",
     description: "A signal listed as closed in this period has no documented evaluation outcome.",
-    evidence: "Signal 'peripheral oedema' listed in table 15.1 with an empty outcome column.",
+    evidence: "Signal 'peripheral oedema' listed in the signal log with an empty outcome column.",
+    suggestedSource: {
+      type: "REQUEST_FROM_MAH",
+      note: "Ask the MAH for the evaluation method, outcome and closure date for each signal closed during the interval.",
+    },
+    v4Section: "S8_SIGNAL_EVALUATION",
+    deficiencyType: "INCOMPLETE_INFORMATION",
     assistGenerated: true,
+    humanAssessment: null,
+    source: "ai",
   },
   {
     id: "pf-5",
     category: "BENEFIT_RISK",
     severity: "LOW",
-    section: "18 Integrated benefit-risk analysis",
-    description: "Benefit-risk conclusion does not reference the new risk described in section 16.",
-    evidence: "Section 18 conclusion text does not mention hepatic events discussed earlier.",
+    section: "10. Benefit-Risk Assessment",
+    description:
+      "Benefit-risk conclusion does not reference the hepatic enzyme elevation risk described earlier in the submission.",
+    evidence:
+      "The concluding benefit-risk text does not mention the hepatic events discussed in the risk section.",
+    suggestedSource: {
+      type: "REFERENCE_SAFETY_INFORMATION",
+      note: "Check the current RSI/SmPC for how hepatic enzyme elevation is characterised before deciding whether the conclusion must be revised.",
+    },
+    v4Section: "S10_BENEFIT_RISK",
+    deficiencyType: "INADEQUATE_EVIDENCE",
     assistGenerated: true,
+    humanAssessment: null,
+    source: "ai",
+  },
+  {
+    // Section 9 derives its status from the special-population areas above,
+    // where hepatic impairment is MISSING — so the reconciliation guarantee
+    // requires a matching finding to exist. Kept here so the demo dataset is
+    // internally consistent in exactly the way the real pipeline enforces;
+    // without it the Section Coverage panel correctly reports that a
+    // deficient section has no corresponding finding.
+    id: "pf-6",
+    category: "MISSING_SECTION",
+    severity: "HIGH",
+    section: "9. Special Populations, Special Situations & Missing Information",
+    description:
+      "Hepatic impairment is not addressed anywhere in the submission, leaving Section 9 incomplete.",
+    evidence: "No hepatic impairment content found in the special-populations section.",
+    suggestedSource: {
+      type: "REQUEST_FROM_MAH",
+      note: "Ask the MAH for available safety data in hepatic impairment, or an explicit justification for why the area does not apply to this product.",
+    },
+    v4Section: "S9_SPECIAL_POPULATIONS",
+    deficiencyType: "MISSING_INFORMATION",
+    assistGenerated: true,
+    humanAssessment: null,
+    source: "ai",
   },
 ];
 

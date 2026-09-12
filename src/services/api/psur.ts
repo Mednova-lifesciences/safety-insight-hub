@@ -57,6 +57,7 @@ import {
   type ComplianceDirectiveModel,
   type ExecutiveSummaryModel,
 } from "@/services/psur/document-model";
+import { derivedRequiresMahAction, requiresMahAction } from "@/services/psur/finding-ownership";
 
 /** Findings are review assistance only — the regulatory assessment is
  *  always recorded by a human reviewer (see AssistLabel in psur.tsx). */
@@ -323,20 +324,6 @@ function mapAiRecommendation(
   };
 }
 
-/**
- * Standard PSUR/PBRER sections checked for a PDF narrative report when AI
- * review is unavailable — deterministic heuristics over the document's
- * declared metadata, always labelled assistGenerated so the UI shows "AI-
- * generated review assistance" and requires a human accept/dismiss.
- */
-const STANDARD_SECTIONS = [
-  "Worldwide marketing authorisation status",
-  "Actions taken for safety reasons",
-  "Summary of safety concerns",
-  "Signal and risk evaluation",
-  "Benefit-risk analysis",
-];
-
 /** Deterministic Administrative Completeness Check for when AI review is
  *  unavailable — honest about what a heuristic pass can't tell: every
  *  check reads NOT_ASSESSABLE rather than guessing YES/NO, every
@@ -383,60 +370,48 @@ function generateFallbackScreening(): PsurScreeningResult {
   };
 }
 
+/**
+ * Deterministic PDF fallback for when AI review is unavailable — the same
+ * honesty contract as generateFallbackScreening above.
+ *
+ * Nothing here inspects the PDF's text (the bytes are never stored, and
+ * no text was extracted on this path), so this function CANNOT know
+ * whether any section is present, and must never claim otherwise. The
+ * previous implementation selected sections to declare missing with
+ * `(idHash + i) % 3 === 0`, asserted "X was not clearly identified in the
+ * uploaded document", and cited "Expected heading not found near page N"
+ * with N derived from the same hash — a fabricated deficiency carrying a
+ * fabricated page citation, tagged REQUEST_FROM_MAH so it flowed into the
+ * MAH-facing Compliance Directive. In a regulatory tool that is the exact
+ * failure mode every other part of this module is built to prevent.
+ *
+ * What is honest to say without reading the document: that the automated
+ * pass did not run, and that a manual section-by-section assessment
+ * against the V4 template is therefore required. One advisory finding,
+ * no invented specifics, no claimed absence.
+ */
 function generatePdfFindingsFallback(doc: PsurDocument): PsurFinding[] {
-  const seed = doc.id.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  const findings: PsurFinding[] = [];
-
-  STANDARD_SECTIONS.forEach((section, i) => {
-    if ((seed + i) % 3 === 0) {
-      findings.push({
-        id: newId("pf"),
-        category: "MISSING_SECTION",
-        severity: i === 0 ? "HIGH" : "MEDIUM",
-        section,
-        description: `"${section}" was not clearly identified in the uploaded document.`,
-        evidence: `Expected heading not found near page ${((seed + i) % Math.max(doc.pages, 1)) + 1}.`,
-        suggestedSource: {
-          type: "REQUEST_FROM_MAH",
-          note: `Ask the MAH to supply or clarify the "${section}" section directly.`,
-        },
-        assistGenerated: true,
-        humanAssessment: null,
-        source: "rule",
-      });
-    }
-  });
-
-  findings.push({
-    id: newId("pf"),
-    category: "CONSISTENCY",
-    severity: "MEDIUM",
-    section: "Cumulative case counts",
-    description:
-      "Cumulative case totals for this reporting period should be reconciled against the prior period's closing count.",
-    evidence: `Reporting period: ${doc.reportingPeriod}.`,
-    assistGenerated: true,
-    humanAssessment: null,
-    source: "rule",
-  });
-
-  findings.push({
-    id: newId("pf"),
-    category: "BENEFIT_RISK",
-    severity: "LOW",
-    section: "Benefit-risk analysis",
-    description: `Confirm the benefit-risk conclusion for ${doc.product} reflects any safety signals identified elsewhere in this system.`,
-    evidence: "Cross-reference with the Signals workspace before finalising.",
-    suggestedSource: {
-      type: "PUBLISHED_LITERATURE",
-      note: "Cross-reference against the current RSI/SmPC and any recent published literature on this product before finalising the benefit-risk conclusion.",
+  return [
+    {
+      id: newId("pf"),
+      category: "MISSING_SECTION",
+      severity: "MEDIUM",
+      section: "Whole submission — automated review unavailable",
+      description:
+        "AI review did not run for this document, so no automated section-by-section assessment " +
+        "was performed. This is not a finding about the submission's content: nothing has been " +
+        "confirmed present or absent. Assess every section manually against the NAFDAC V4 template.",
+      evidence: `No automated review result is available for ${doc.filename}.`,
+      suggestedSource: {
+        type: "OTHER",
+        note: "Work through the 13 V4 template sections manually and record each section's status in the Section Coverage panel above.",
+      },
+      deficiencyType: "INADEQUATE_EVIDENCE",
+      assistGenerated: true,
+      humanAssessment: null,
+      source: "rule",
     },
-    assistGenerated: true,
-    humanAssessment: null,
-    source: "rule",
-  });
-
-  return findings;
+  ];
 }
 
 function generateSpreadsheetFindingsFallback(doc: PsurDocumentRow): PsurFinding[] {
@@ -501,6 +476,32 @@ function generateSpreadsheetFindingsFallback(doc: PsurDocumentRow): PsurFinding[
   });
 
   return findings;
+}
+
+/**
+ * Re-runs the section/finding reconciliation guarantee after an assessor
+ * edit that can CHANGE a derived section status, and persists whatever it
+ * synthesizes.
+ *
+ * Sections 9-13's coverage status is derived from their own structured
+ * data (see section-consistency.ts), so saving Section 9/10/11 can flip a
+ * section to MISSING or PRESENT_BUT_INCOMPLETE long after the upload-time
+ * reconciliation ran. Without this, the invariant that module exists to
+ * enforce — "every deficient section has a corresponding actionable
+ * finding" — held only for the AI's original judgement and broke the
+ * moment a human corrected it. The visible symptom was the Section
+ * Coverage panel printing its own "No corresponding finding yet — this
+ * should not happen" diagnostic, with the deficiency then unable to be
+ * accepted and therefore never reaching the Compliance Directive.
+ *
+ * reconcileSectionFindings is idempotent (it no-ops for any section that
+ * already has a finding), so this is always safe to call on every save.
+ */
+async function reconcileAfterAssessorEdit(doc: PsurDocumentRow): Promise<void> {
+  const existing = await readFindings(doc.id);
+  const synthesized = reconcileSectionFindings(buildAuthoritativeSectionCoverage(doc), existing);
+  if (synthesized.length === 0) return;
+  await persistFindings(doc.id, synthesized);
 }
 
 async function persistFindings(documentId: string, findings: PsurFinding[]): Promise<void> {
@@ -605,8 +606,7 @@ function renderExecutiveSummaryText(m: ExecutiveSummaryModel): string {
     lines.push("No findings have been accepted yet.");
   }
   for (const f of m.findings.acceptedFindings) {
-    const mahTag =
-      f.suggestedSource?.type === "REQUEST_FROM_MAH" ? "MAH action needed" : "assessor-internal";
+    const mahTag = requiresMahAction(f) ? "MAH action needed" : "assessor-internal";
     lines.push(
       `  [${f.severity}] ${f.section} — ${mahTag} — ${f.resolved ? "RESOLVED" : "OUTSTANDING"}`,
     );
@@ -653,6 +653,11 @@ function renderExecutiveSummaryText(m: ExecutiveSummaryModel): string {
   } else {
     lines.push("Not yet recorded — Section 11 is still outstanding.");
   }
+  lines.push(
+    m.uncertainties.evaluatorComments
+      ? `Evaluator's comments: ${m.uncertainties.evaluatorComments}`
+      : "Evaluator's comments: not yet recorded.",
+  );
   lines.push("");
 
   lines.push("SECTION 12 — REGULATORY DECISION & RECOMMENDED ACTIONS");
@@ -662,6 +667,11 @@ function renderExecutiveSummaryText(m: ExecutiveSummaryModel): string {
     lines.push(`  Overall outcome: ${m.regulatoryDecision.overallOutcome ?? "not set"}`);
     lines.push(`  Actions: ${m.regulatoryDecision.actions.join(", ") || "none recorded"}`);
     lines.push(`  Basis: ${m.regulatoryDecision.basis}`);
+    lines.push(
+      `  Specific safety/benefit-risk finding supporting the recommendation: ${
+        m.regulatoryDecision.supportingFinding?.trim() || "not recorded"
+      }`,
+    );
     lines.push(
       `  Decided by: ${m.regulatoryDecision.decidedBy} on ${fmtDateLocal(m.regulatoryDecision.decidedAt)}`,
     );
@@ -731,6 +741,10 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
     if (d.assessorObservation) lines.push(`  Assessor observation: ${d.assessorObservation}`);
     if (d.suggestedSource)
       lines.push(`  Suggested source: ${d.suggestedSource.label} — ${d.suggestedSource.note}`);
+    if (d.ownershipOverride)
+      lines.push(
+        `  Referred to the MAH by assessor decision: ${d.ownershipOverride.by} on ${d.ownershipOverride.atLabel} — ${d.ownershipOverride.rationale}`,
+      );
     lines.push(`  Status: ${d.status}`);
     lines.push("");
   }
@@ -826,10 +840,7 @@ function buildExecutiveSummaryDocx(m: ExecutiveSummaryModel): Document {
     ...(m.findings.acceptedFindings.length === 0
       ? [new Paragraph({ text: "No findings have been accepted yet." })]
       : m.findings.acceptedFindings.flatMap((f) => {
-          const mahTag =
-            f.suggestedSource?.type === "REQUEST_FROM_MAH"
-              ? "MAH action needed"
-              : "assessor-internal";
+          const mahTag = requiresMahAction(f) ? "MAH action needed" : "assessor-internal";
           return [
             new Paragraph({
               children: [
@@ -886,6 +897,11 @@ function buildExecutiveSummaryDocx(m: ExecutiveSummaryModel): Document {
               }),
           )
         : [new Paragraph({ text: "Not yet recorded — Section 11 is still outstanding." })]),
+    new Paragraph({
+      text: m.uncertainties.evaluatorComments
+        ? `Evaluator's comments: ${m.uncertainties.evaluatorComments}`
+        : "Evaluator's comments: not yet recorded.",
+    }),
     new Paragraph({ text: "" }),
 
     docxHeading("12. Regulatory Decision & Recommended Actions"),
@@ -903,6 +919,11 @@ function buildExecutiveSummaryDocx(m: ExecutiveSummaryModel): Document {
             text: `Actions: ${m.regulatoryDecision.actions.join(", ") || "none recorded"}`,
           }),
           new Paragraph({ text: `Basis: ${m.regulatoryDecision.basis}` }),
+          new Paragraph({
+            text: `Specific safety/benefit-risk finding supporting the recommendation: ${
+              m.regulatoryDecision.supportingFinding?.trim() || "not recorded"
+            }`,
+          }),
           new Paragraph({
             text: `Decided by: ${m.regulatoryDecision.decidedBy} on ${fmtDateLocal(m.regulatoryDecision.decidedAt)}`,
           }),
@@ -980,6 +1001,9 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
                           : "") +
                         (d.assessorObservation
                           ? `\n\nAssessor observation: ${d.assessorObservation}`
+                          : "") +
+                        (d.ownershipOverride
+                          ? `\n\nReferred to the MAH by assessor decision: ${d.ownershipOverride.by} on ${d.ownershipOverride.atLabel} — ${d.ownershipOverride.rationale}`
                           : ""),
                     ),
                     cell(d.status),
@@ -1144,7 +1168,12 @@ export const psur = {
       uploadedAt: new Date().toISOString(),
       uploadedBy: actor.name,
       stage: "UPLOADED",
+      // Nothing has opened the PDF at this point, so this is a size-based
+      // guess, not a page count — flagged as such so the UI never renders
+      // it as a fact. Replaced with the real count below the moment the
+      // backend reports pages_extracted from pdfplumber.
       pages: Math.max(1, Math.round(file.size / 3000)),
+      pagesEstimated: true,
       sourceType: "PDF",
     };
     const { error } = await supabase
@@ -1200,6 +1229,12 @@ export const psur = {
           ? { reportingPeriod: aiResult.reporting_period }
           : {}),
         ...(aiResult.ai_used && aiResult.mah ? { mah: aiResult.mah } : {}),
+        // pdfplumber actually opened the file — replace the upload-time
+        // size estimate with the real page count. Reported even when the
+        // AI call itself failed, since extraction happens first.
+        ...(typeof aiResult.pages_extracted === "number" && aiResult.pages_extracted > 0
+          ? { pages: aiResult.pages_extracted, pagesEstimated: false }
+          : {}),
         screening,
         ...(specialPopulations ? { specialPopulations } : {}),
         ...(benefitRisk ? { benefitRisk } : {}),
@@ -1314,6 +1349,68 @@ export const psur = {
     return next;
   },
 
+  /**
+   * The assessor's own decision on WHO must act on a finding, overriding
+   * the deterministic derivation in services/psur/finding-ownership.ts.
+   *
+   * This is what moves a finding into or out of the MAH-facing Compliance
+   * Directive, so it is a regulated action: it requires a rationale and
+   * writes an audit event naming what the rules had concluded and what the
+   * assessor changed it to. The derived value is never overwritten — the
+   * override is stored alongside it, so "the rule said X, this person said
+   * Y because Z" stays reconstructable.
+   */
+  recordActionOwnerOverride: async (
+    documentId: string,
+    findingId: string,
+    owner: "MAH" | "ASSESSOR",
+    rationale: string,
+  ): Promise<PsurFinding> => {
+    const findings = await readFindings(documentId);
+    const finding = findings.find((f) => f.id === findingId);
+    if (!finding) throw new Error("Finding not found");
+    const actor = currentActor();
+    const derived = derivedRequiresMahAction(finding) ? "MAH" : "ASSESSOR";
+    const next: PsurFinding = {
+      ...finding,
+      actionOwnerOverride: {
+        owner,
+        by: actor.name,
+        at: new Date().toISOString(),
+        rationale,
+      },
+    };
+    await saveFinding(documentId, next);
+    await recordAudit({
+      action: "PSUR_FINDING_ACTION_OWNER_OVERRIDDEN",
+      entity: "PsurFinding",
+      entityId: findingId,
+      previousValue: `derived: ${derived}`,
+      newValue: `assessor: ${owner}`,
+      reason: rationale,
+    });
+    return next;
+  },
+
+  /** Clears an assessor's ownership override, returning the finding to
+   *  whatever the derivation concludes. Audited like setting one. */
+  clearActionOwnerOverride: async (documentId: string, findingId: string): Promise<PsurFinding> => {
+    const findings = await readFindings(documentId);
+    const finding = findings.find((f) => f.id === findingId);
+    if (!finding) throw new Error("Finding not found");
+    const previous = finding.actionOwnerOverride;
+    const next: PsurFinding = { ...finding, actionOwnerOverride: undefined };
+    await saveFinding(documentId, next);
+    await recordAudit({
+      action: "PSUR_FINDING_ACTION_OWNER_OVERRIDE_CLEARED",
+      entity: "PsurFinding",
+      entityId: findingId,
+      previousValue: previous ? `assessor: ${previous.owner}` : "none",
+      newValue: `derived: ${derivedRequiresMahAction(next) ? "MAH" : "ASSESSOR"}`,
+    });
+    return next;
+  },
+
   /** The assessor's own decision on whether to proceed to scientific
    *  review or return the submission to the MAH first — the AI's
    *  `screening.recommendation` is only ever a suggestion; this is what
@@ -1359,6 +1456,7 @@ export const psur = {
       benefitRisk: { ...benefitRisk, assistGenerated: false },
     };
     await saveDocument(next);
+    await reconcileAfterAssessorEdit(next);
     await recordAudit({
       action: "PSUR_BENEFIT_RISK_UPDATED",
       entity: "PsurDocument",
@@ -1383,6 +1481,7 @@ export const psur = {
       specialPopulations: items.map((i) => ({ ...i, source: "assessor" as const })),
     };
     await saveDocument(next);
+    await reconcileAfterAssessorEdit(next);
     await recordAudit({
       action: "PSUR_SPECIAL_POPULATIONS_UPDATED",
       entity: "PsurDocument",
@@ -1403,12 +1502,17 @@ export const psur = {
     documentId: string,
     uncertainties: PsurUncertainty[],
     confirmNoneApply = false,
+    evaluatorComments?: string,
   ): Promise<PsurDocument> => {
     const document = await readDocument(documentId);
     const actor = currentActor();
     const next: PsurDocumentRow = {
       ...document,
       uncertainties,
+      // Section 11's "Evaluator's comments" field — only overwritten when
+      // this call actually carries a value, so saving the uncertainty rows
+      // alone never silently blanks an appraisal the assessor already wrote.
+      ...(evaluatorComments !== undefined ? { evaluatorComments } : {}),
       uncertaintiesNoneConfirmed:
         uncertainties.length === 0 && confirmNoneApply
           ? {
@@ -1421,6 +1525,7 @@ export const psur = {
             : undefined,
     };
     await saveDocument(next);
+    await reconcileAfterAssessorEdit(next);
     await recordAudit({
       action: "PSUR_UNCERTAINTIES_UPDATED",
       entity: "PsurDocument",

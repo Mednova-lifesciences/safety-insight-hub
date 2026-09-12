@@ -565,6 +565,11 @@ export interface PsurDocument {
   uploadedBy: string;
   stage: "UPLOADED" | "EXTRACTED" | "REVIEWED" | "FAILED";
   pages: number;
+  /** True while `pages` is only a file-size-derived guess made before
+   *  anything opened the PDF. Cleared once the backend reports the real
+   *  pdfplumber page count. The UI must never present an estimate as a
+   *  measured figure — see the "~N pages (estimated)" rendering. */
+  pagesEstimated?: boolean | undefined;
   /** PDF narrative report vs. a spreadsheet annex (e.g. a cumulative
    *  summary tabulation). Defaults to PDF for documents uploaded before
    *  this field existed. */
@@ -585,6 +590,11 @@ export interface PsurDocument {
   specialPopulations?: PsurSpecialPopulationItem[] | undefined;
   /** Section 11 — one row per identified uncertainty. */
   uncertainties?: PsurUncertainty[] | undefined;
+  /** Section 11's closing free-text field, "Evaluator's comments
+   *  (critically assess the MAH's benefit-risk profile)" — the assessor's
+   *  own critical appraisal, distinct from the per-uncertainty rationales
+   *  above it. Pure assessor input; never AI-generated. */
+  evaluatorComments?: string | undefined;
   /** Explicit assessor confirmation that NO uncertainties apply this
    *  interval — structurally distinct from an empty/never-touched
    *  `uncertainties` array, which only means "not yet assessed." The V4
@@ -855,6 +865,12 @@ export interface PsurRegulatoryDecision {
   actions: PsurRiskMinimisationAction[];
   overallOutcome: PsurOverallBenefitRiskOutcome | undefined;
   basis: string;
+  /** The V4 template's separate "Specific safety/benefit–risk finding
+   *  supporting the recommendation" field — the concrete finding the
+   *  recommendation rests on, deliberately distinct from `basis` (the
+   *  reasoning). Kept apart so a recommendation can never be justified by
+   *  reasoning alone with no identified finding behind it. */
+  supportingFinding?: string | undefined;
   nextPsurDueDate?: string | undefined;
   followUpRequired?: string | undefined;
   decidedBy: string;
@@ -924,6 +940,26 @@ export interface PsurFinding {
   /** Set once "Run Full Fix" has proposed a resolution for this finding. */
   resolution?: string | undefined;
   resolved?: boolean | undefined;
+  /** The assessor's own decision on WHO must act on this finding,
+   *  overriding the deterministic derivation in
+   *  services/psur/finding-ownership.ts. The derivation is a defensible
+   *  default, not a judgement the tool is entitled to make on the
+   *  assessor's behalf: a reviewer may know, for instance, that a
+   *  particular "incomplete information" gap is one they can close from
+   *  VigiFlow without troubling the MAH, or conversely that a data
+   *  discrepancy really does need the MAH to answer for it. Structurally
+   *  separate from the derived value (never written back over it) and
+   *  always attributed, so the exported documents can show that a human
+   *  — not the rule — made this call. Same shape and intent as
+   *  PsurScreeningResult.humanOverride. */
+  actionOwnerOverride?:
+    | {
+        owner: "MAH" | "ASSESSOR";
+        by: string;
+        at: string;
+        rationale: string;
+      }
+    | undefined;
 }
 
 export interface Signal {
