@@ -168,3 +168,52 @@ describe("the derived statuses reach the authoritative coverage", () => {
     );
   });
 });
+
+describe("no duplicate findings when the model already raised the gap itself", () => {
+  const aiFinding = (section: string, description: string) =>
+    ({
+      id: "ai-1",
+      category: "MISSING_SECTION",
+      severity: "HIGH",
+      section: "s",
+      description,
+      evidence: "e",
+      v4Section: section,
+      assistGenerated: true,
+      humanAssessment: null,
+      source: "ai",
+    }) as never;
+
+  it("skips the exposure finding when an AI finding already covers it", () => {
+    const existing = [
+      aiFinding(
+        "S5_EXPOSURE_ACTIONS",
+        "The submission does not provide Nigerian-specific exposure data, which is required to calculate the Nigerian reporting rate.",
+      ),
+    ];
+    const out = buildNigerianRequirementFindings(ctx(), existing);
+    expect(out.some((f) => f.v4Section === "S5_EXPOSURE_ACTIONS")).toBe(false);
+  });
+
+  it("skips the Section 7 findings when an AI finding already covers them", () => {
+    const existing = [
+      aiFinding(
+        "S7_AGGREGATE_SAFETY_DATA",
+        "The submission lacks a Nigerian case count and does not reconcile these figures against NAFDAC/VigiFlow data.",
+      ),
+    ];
+    const out = buildNigerianRequirementFindings(ctx(), existing);
+    expect(out.some((f) => f.v4Section === "S7_AGGREGATE_SAFETY_DATA")).toBe(false);
+  });
+
+  it("still synthesizes when the existing finding is about something else entirely", () => {
+    const existing = [
+      aiFinding("S5_EXPOSURE_ACTIONS", "No actions taken for safety reasons are described."),
+    ];
+    expect(
+      buildNigerianRequirementFindings(ctx(), existing).some(
+        (f) => f.v4Section === "S5_EXPOSURE_ACTIONS",
+      ),
+    ).toBe(true);
+  });
+});
