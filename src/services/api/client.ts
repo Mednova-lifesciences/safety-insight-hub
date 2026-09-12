@@ -87,8 +87,25 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * "This backend simply isn't connected" — the condition that makes the
+ * seeded demo dataset the right thing to show, as opposed to a genuine
+ * failure of a connected backend, which must surface as an error.
+ *
+ * Services that read Supabase directly (PSUR, line-list, cases…) never
+ * construct an ApiNotConfiguredError: an unconfigured Supabase client
+ * throws a plain Error from integrations/supabase/client.ts. Matching only
+ * the typed error therefore left every Supabase-backed screen rendering
+ * "Backend request failed — Missing Supabase environment variable(s)"
+ * while the header still advertised "Demo dataset", with the demo data
+ * unreachable. Recognising that message here is what makes demo mode
+ * actually work for those screens.
+ */
+const SUPABASE_NOT_CONFIGURED = /Missing Supabase environment variable/i;
+
 export const isNotConfigured = (e: unknown): e is ApiNotConfiguredError =>
-  e instanceof ApiNotConfiguredError;
+  e instanceof ApiNotConfiguredError ||
+  (e instanceof Error && SUPABASE_NOT_CONFIGURED.test(e.message));
 
 interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";

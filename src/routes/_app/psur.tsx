@@ -52,6 +52,15 @@ import {
   type PsurV4SectionId,
 } from "@/types/pv";
 import { buildAuthoritativeSectionCoverage } from "@/services/psur/section-consistency";
+import {
+  actionOwnerLabel,
+  isActionOwnerOverridden,
+  requiresMahAction,
+} from "@/services/psur/finding-ownership";
+// The one shared suggested-source label map — this page used to keep a
+// byte-identical private copy, which is two places for the same wording
+// to drift apart.
+import { SUGGESTED_SOURCE_LABEL as suggestedSourceLabel } from "@/services/psur/document-model";
 
 export const Route = createFileRoute("/_app/psur")({
   head: () => ({
@@ -85,20 +94,6 @@ const categoryTone: Record<PsurFinding["category"], Tone> = {
   NUMERICAL: "warning",
   SIGNAL: "info",
   BENEFIT_RISK: "assist",
-};
-
-/** Human-readable label for each fixed suggestedSource category — see
- *  PsurSuggestedSource (types/pv.ts) for why this list is fixed and where
- *  each category comes from (the NAFDAC PSUR/PBRER assessor template). */
-const suggestedSourceLabel: Record<NonNullable<PsurFinding["suggestedSource"]>["type"], string> = {
-  VIGIFLOW_NIGERIA: "Check VigiFlow (Nigerian data)",
-  REQUEST_FROM_MAH: "Request from the MAH",
-  PUBLISHED_LITERATURE: "Published literature",
-  REFERENCE_SAFETY_INFORMATION: "Reference Safety Information (RSI/SmPC)",
-  WORLDWIDE_REGULATORY_ACTIONS: "Worldwide regulatory actions",
-  PATIENT_HCP_FEEDBACK: "Patient/HCP feedback",
-  RISK_MANAGEMENT_PLAN: "Risk Management Plan / PASS",
-  OTHER: "Other source",
 };
 
 const v4SectionLabel = new Map(PSUR_V4_TEMPLATE_SECTIONS.map((s) => [s.id, s.name]));
@@ -212,11 +207,27 @@ function PsurPage() {
     async () => (await psurApi.review(activeDoc!.id)).findings,
     () => demoPsurFindings,
   );
+  /**
+   * Saving Sections 9-11 can SYNTHESIZE new findings server-side — those
+   * sections' coverage status is derived from their own data, and
+   * reconcileAfterAssessorEdit guarantees a deficient section always gets
+   * a matching finding (see services/api/psur.ts). So an assessor edit
+   * invalidates the findings list, not just the document: refetching only
+   * the document left the freshly-created finding invisible, and the
+   * Section Coverage panel still rendering its "No corresponding finding
+   * yet — this should not happen" diagnostic against stale data.
+   */
+  const refreshDocAndFindings = () => {
+    docs.refetch();
+    findings.refetch();
+  };
   const [uploading, setUploading] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [docsPage, setDocsPage] = useState(1);
   const [dismissingId, setDismissingId] = useState<string | null>(null);
   const [dismissReason, setDismissReason] = useState("");
+  const [reassigningId, setReassigningId] = useState<string | null>(null);
+  const [reassignReason, setReassignReason] = useState("");
 
   return (
     <>
@@ -324,7 +335,15 @@ function PsurPage() {
                           {d.stage === "REVIEWED" ? "AI reviewed" : d.stage.toLowerCase()}
                         </StatusPill>
                         <span className="mono-num text-xs text-muted-foreground">
-                          {d.pages} {d.sourceType === "SPREADSHEET" ? "case rows" : "pages"}
+                          {/* An unreviewed PDF's page count is only a
+                              file-size estimate until the backend actually
+                              opens the file — never shown as a measured
+                              figure. */}
+                          {d.sourceType === "SPREADSHEET"
+                            ? `${d.pages} case rows`
+                            : d.pagesEstimated
+                              ? `~${d.pages} pages (estimated)`
+                              : `${d.pages} pages`}
                         </span>
                         <Button
                           size="sm"
@@ -362,7 +381,7 @@ function PsurPage() {
               key={`screening-${activeDoc.id}`}
               doc={activeDoc}
               findings={findings.data?.data ?? []}
-              onChanged={() => docs.refetch()}
+              onChanged={refreshDocAndFindings}
             />
 
             <Section
@@ -557,13 +576,19 @@ function PsurPage() {
                                 {f.humanAssessment.toLowerCase()}
                               </StatusPill>
                             ) : null}
-                            {f.suggestedSource?.type === "REQUEST_FROM_MAH" ? (
-                              <StatusPill tone="critical">Needs MAH response</StatusPill>
-                            ) : (
-                              <StatusPill tone="neutral">
-                                Assessor can resolve internally
-                              </StatusPill>
-                            )}
+                            {/* Ownership is derived from what the finding
+                                actually IS (see finding-ownership.ts), not
+                                from which source was suggested for further
+                                reading — the two answer different
+                                questions, and conflating them used to drop
+                                genuine MAH deficiencies out of the
+                                Compliance Directive entirely. */}
+                            <StatusPill tone={requiresMahAction(f) ? "critical" : "neutral"}>
+                              {actionOwnerLabel(f)}
+                            </StatusPill>
+                            {isActionOwnerOverridden(f) ? (
+                              <StatusPill tone="success">set by assessor</StatusPill>
+                            ) : null}
                           </div>
                           <p className="mt-2 text-sm">{f.description}</p>
                           <p className="mt-1 border-l-2 border-border pl-2 text-xs text-muted-foreground">
@@ -597,6 +622,19 @@ function PsurPage() {
                                 {f.resolved ? "Resolution: " : "Unresolved: "}
                               </span>
                               {f.resolution}
+                            </p>
+                          ) : null}
+                          {f.actionOwnerOverride ? (
+                            <p className="mt-2 rounded-md border border-success/30 bg-success-soft px-2 py-1.5 text-xs">
+                              <span className="font-medium">
+                                Ownership set by {f.actionOwnerOverride.by} to{" "}
+                                {f.actionOwnerOverride.owner === "MAH"
+                                  ? "MAH action"
+                                  : "assessor-internal"}
+                              </span>
+                              {" — "}
+                              {f.actionOwnerOverride.rationale} (
+                              {f.actionOwnerOverride.at.slice(0, 16).replace("T", " ")} UTC)
                             </p>
                           ) : null}
                           <div className="mt-3 flex flex-wrap gap-2">
@@ -634,7 +672,94 @@ function PsurPage() {
                             >
                               Dismiss
                             </Button>
+                            {/* Reassigning ownership is what moves a finding
+                                into or out of the MAH-facing directive, so
+                                it takes a rationale and is audited — the
+                                same treatment accept/dismiss gets. */}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setReassigningId(f.id);
+                                setReassignReason("");
+                              }}
+                            >
+                              {requiresMahAction(f)
+                                ? "Mark assessor-internal"
+                                : "Refer to MAH instead"}
+                            </Button>
+                            {f.actionOwnerOverride ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={async () => {
+                                  try {
+                                    await psurApi.clearActionOwnerOverride(activeDoc.id, f.id);
+                                    toast.success("Ownership returned to the derived value.");
+                                    findings.refetch();
+                                  } catch (err) {
+                                    toast.error(
+                                      isNotConfigured(err)
+                                        ? "Backend not connected — nothing was changed."
+                                        : "Could not clear the override.",
+                                    );
+                                  }
+                                }}
+                              >
+                                Reset to derived
+                              </Button>
+                            ) : null}
                           </div>
+                          {reassigningId === f.id ? (
+                            <div className="mt-3 space-y-2 rounded-md border border-border p-2">
+                              <p className="text-xs text-muted-foreground">
+                                {requiresMahAction(f)
+                                  ? "This finding will be treated as assessor-internal and removed from the Compliance Directive."
+                                  : "This finding will be treated as requiring MAH action and added to the Compliance Directive."}
+                              </p>
+                              <Textarea
+                                autoFocus
+                                placeholder="Reason for reassigning this finding (required — e.g. 'I can close this from VigiFlow without going back to the MAH')"
+                                value={reassignReason}
+                                onChange={(e) => setReassignReason(e.target.value)}
+                                rows={2}
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  disabled={!reassignReason.trim()}
+                                  onClick={async () => {
+                                    try {
+                                      await psurApi.recordActionOwnerOverride(
+                                        activeDoc.id,
+                                        f.id,
+                                        requiresMahAction(f) ? "ASSESSOR" : "MAH",
+                                        reassignReason.trim(),
+                                      );
+                                      toast.success("Ownership recorded.");
+                                      setReassigningId(null);
+                                      findings.refetch();
+                                    } catch (err) {
+                                      toast.error(
+                                        isNotConfigured(err)
+                                          ? "Backend not connected — nothing was changed."
+                                          : "Could not record the change.",
+                                      );
+                                    }
+                                  }}
+                                >
+                                  Confirm
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setReassigningId(null)}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
                           {dismissingId === f.id ? (
                             <div className="mt-3 space-y-2 rounded-md border border-border p-2">
                               <Textarea
@@ -692,7 +817,7 @@ function PsurPage() {
               <SpecialPopulationsPanel
                 key={`special-populations-${activeDoc.id}`}
                 doc={activeDoc}
-                onChanged={() => docs.refetch()}
+                onChanged={refreshDocAndFindings}
               />
             ) : null}
 
@@ -700,26 +825,26 @@ function PsurPage() {
               <BenefitRiskPanel
                 key={`benefit-risk-${activeDoc.id}`}
                 doc={activeDoc}
-                onChanged={() => docs.refetch()}
+                onChanged={refreshDocAndFindings}
               />
             ) : null}
 
             <UncertaintiesPanel
               key={`uncertainties-${activeDoc.id}`}
               doc={activeDoc}
-              onChanged={() => docs.refetch()}
+              onChanged={refreshDocAndFindings}
             />
 
             <RegulatoryDecisionPanel
               key={`regdecision-${activeDoc.id}`}
               doc={activeDoc}
-              onChanged={() => docs.refetch()}
+              onChanged={refreshDocAndFindings}
             />
 
             <SignOffPanel
               key={`signoff-${activeDoc.id}`}
               doc={activeDoc}
-              onChanged={() => docs.refetch()}
+              onChanged={refreshDocAndFindings}
             />
           </>
         ) : null}
@@ -1539,13 +1664,14 @@ function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: ()
 /** Section 11 — Uncertainties Affecting the Benefit-Risk Assessment. */
 function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
   const [items, setItems] = useState<PsurUncertainty[]>(doc.uncertainties ?? []);
+  const [evaluatorComments, setEvaluatorComments] = useState(doc.evaluatorComments ?? "");
   const [saving, setSaving] = useState(false);
   const noneConfirmed = doc.uncertaintiesNoneConfirmed;
 
   async function save(confirmNoneApply = false) {
     setSaving(true);
     try {
-      await psurApi.updateUncertainties(doc.id, items, confirmNoneApply);
+      await psurApi.updateUncertainties(doc.id, items, confirmNoneApply, evaluatorComments);
       toast.success(
         confirmNoneApply
           ? "Confirmed: no uncertainties apply this interval."
@@ -1701,6 +1827,18 @@ function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: 
         >
           Add uncertainty
         </Button>
+
+        <div className="pt-2">
+          <p className="label-caps mb-1">
+            Evaluator's comments — critically assess the MAH's benefit-risk profile
+          </p>
+          <Textarea
+            placeholder="Your own critical appraisal of the MAH's benefit-risk profile, over and above the per-uncertainty rationales above"
+            value={evaluatorComments}
+            rows={3}
+            onChange={(e) => setEvaluatorComments(e.target.value)}
+          />
+        </div>
       </div>
     </Section>
   );
@@ -1718,6 +1856,9 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
     doc.regulatoryDecision?.overallOutcome,
   );
   const [basis, setBasis] = useState(doc.regulatoryDecision?.basis ?? "");
+  const [supportingFinding, setSupportingFinding] = useState(
+    doc.regulatoryDecision?.supportingFinding ?? "",
+  );
   const [nextDue, setNextDue] = useState(doc.regulatoryDecision?.nextPsurDueDate ?? "");
   const [followUp, setFollowUp] = useState(doc.regulatoryDecision?.followUpRequired ?? "");
   const [saving, setSaving] = useState(false);
@@ -1729,6 +1870,7 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
         actions,
         overallOutcome: outcome,
         basis,
+        supportingFinding: supportingFinding || undefined,
         nextPsurDueDate: nextDue || undefined,
         followUpRequired: followUp || undefined,
       });
@@ -1811,6 +1953,18 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
           rows={3}
           onChange={(e) => setBasis(e.target.value)}
         />
+
+        <div>
+          <p className="label-caps mb-1">
+            Specific safety/benefit-risk finding supporting the recommendation
+          </p>
+          <Textarea
+            placeholder="The concrete finding this recommendation rests on — kept separate from the reasoning above, so a recommendation is never justified by reasoning alone"
+            value={supportingFinding}
+            rows={2}
+            onChange={(e) => setSupportingFinding(e.target.value)}
+          />
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>

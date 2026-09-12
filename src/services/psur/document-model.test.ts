@@ -315,3 +315,152 @@ describe("buildComplianceDirectiveModel — narrower, action-oriented, MAH-facin
     expect(model.regulatoryContext).toBeNull();
   });
 });
+
+describe("buildComplianceDirectiveModel — MAH-facing deficiencies are not lost to suggestedSource", () => {
+  it("an accepted missing-section finding reaches the directive even with a research-y source", () => {
+    // Regression for the reproduced failure: the assessor accepted a HIGH
+    // "6. Literature is missing" finding, the Executive Summary listed it
+    // as outstanding, and the directive still printed
+    // "DEFICIENCIES REQUIRING MAH ACTION (0)" — because its suggested
+    // source was PUBLISHED_LITERATURE rather than REQUEST_FROM_MAH.
+    const literature = mahFinding({
+      id: "pf-lit",
+      section: "6. Literature",
+      description: '"6. Literature" was assessed as missing from this submission.',
+      evidence: "No literature review section found in the submitted document.",
+      v4Section: "S6_LITERATURE",
+      deficiencyType: "MISSING_REQUIRED_SECTION",
+      suggestedSource: {
+        type: "PUBLISHED_LITERATURE",
+        note: "Screen published safety literature for this active substance.",
+      },
+      humanAssessment: "ACCEPTED",
+    });
+
+    const model = buildComplianceDirectiveModel(baseDoc(), [literature]);
+    expect(model.deficiencies).toHaveLength(1);
+    expect(model.deficiencies[0]!.v4SectionLabel).toBe("6. Literature");
+    expect(model.deficiencies[0]!.requiredAction).toContain("Provide");
+    // The pointer to where evidence can be found is still carried through,
+    // it just no longer decides whether the MAH hears about the gap.
+    expect(model.deficiencies[0]!.suggestedSource?.label).toBe("Published literature");
+  });
+
+  it("the executive summary counts that same finding as MAH action, not assessor-internal", () => {
+    const literature = mahFinding({
+      id: "pf-lit",
+      v4Section: "S6_LITERATURE",
+      deficiencyType: "MISSING_REQUIRED_SECTION",
+      suggestedSource: { type: "PUBLISHED_LITERATURE", note: "Screen the literature." },
+      humanAssessment: "ACCEPTED",
+    });
+    const model = buildExecutiveSummaryModel(baseDoc(), [literature]);
+    expect(model.findings.mahActionCount).toBe(1);
+    expect(model.findings.assessorInternalCount).toBe(0);
+  });
+
+  it("a genuinely assessor-resolvable finding still stays out of the directive", () => {
+    const vigiflow = mahFinding({
+      id: "pf-vf",
+      category: "NUMERICAL",
+      deficiencyType: "DATA_DISCREPANCY",
+      suggestedSource: { type: "VIGIFLOW_NIGERIA", note: "Compare against VigiFlow." },
+      humanAssessment: "ACCEPTED",
+    });
+    expect(buildComplianceDirectiveModel(baseDoc(), [vigiflow]).deficiencies).toHaveLength(0);
+  });
+});
+
+describe("buildComplianceDirectiveModel — assessor ownership overrides", () => {
+  const override = (owner: "MAH" | "ASSESSOR") => ({
+    owner,
+    by: "A. Okafor",
+    at: "2026-09-12T09:00:00Z",
+    rationale: "I can close this from VigiFlow without going back to the MAH.",
+  });
+
+  it("an assessor can remove a derived-MAH deficiency from the directive", () => {
+    const f = mahFinding({
+      deficiencyType: "MISSING_REQUIRED_SECTION",
+      humanAssessment: "ACCEPTED",
+      actionOwnerOverride: override("ASSESSOR"),
+    });
+    expect(buildComplianceDirectiveModel(baseDoc(), [f]).deficiencies).toHaveLength(0);
+  });
+
+  it("an assessor can add an assessor-resolvable finding to the directive, with attribution", () => {
+    const f = mahFinding({
+      category: "NUMERICAL",
+      deficiencyType: "DATA_DISCREPANCY",
+      suggestedSource: { type: "VIGIFLOW_NIGERIA", note: "Check VigiFlow." },
+      humanAssessment: "ACCEPTED",
+      actionOwnerOverride: override("MAH"),
+    });
+    const model = buildComplianceDirectiveModel(baseDoc(), [f]);
+    expect(model.deficiencies).toHaveLength(1);
+    // The directive must show a human made this call, not the rules.
+    expect(model.deficiencies[0]!.ownershipOverride?.by).toBe("A. Okafor");
+    expect(model.deficiencies[0]!.ownershipOverride?.rationale).toContain("VigiFlow");
+  });
+
+  it("an override that merely agrees with the derivation adds no attribution noise", () => {
+    const f = mahFinding({
+      deficiencyType: "MISSING_REQUIRED_SECTION",
+      humanAssessment: "ACCEPTED",
+      actionOwnerOverride: override("MAH"),
+    });
+    const model = buildComplianceDirectiveModel(baseDoc(), [f]);
+    expect(model.deficiencies).toHaveLength(1);
+    expect(model.deficiencies[0]!.ownershipOverride).toBeNull();
+  });
+});
+
+describe("buildRequiredAction — an assessor referral states what the MAH must do", () => {
+  it("uses the assessor's referral rationale rather than restating the observation", () => {
+    const f = mahFinding({
+      category: "NUMERICAL",
+      deficiencyType: "DATA_DISCREPANCY",
+      description: "MAH-reported Nigerian case count is not reconciled against VigiFlow.",
+      suggestedSource: { type: "VIGIFLOW_NIGERIA", note: "Check VigiFlow." },
+      actionOwnerOverride: {
+        owner: "MAH",
+        by: "A. Okafor",
+        at: "2026-09-12T09:00:00Z",
+        rationale: "VigiFlow shows 41 Nigerian ICSRs against the MAH's 34; account for the gap.",
+      },
+    });
+    expect(buildRequiredAction(f)).toBe(
+      "VigiFlow shows 41 Nigerian ICSRs against the MAH's 34; account for the gap.",
+    );
+  });
+
+  it("a missing section still uses the V4 sub-item checklist, not the rationale", () => {
+    const f = mahFinding({
+      deficiencyType: "MISSING_REQUIRED_SECTION",
+      v4Section: "S4_RSI",
+      actionOwnerOverride: {
+        owner: "MAH",
+        by: "A. Okafor",
+        at: "2026-09-12T09:00:00Z",
+        rationale: "Confirming this is for the MAH.",
+      },
+    });
+    expect(buildRequiredAction(f)).toContain("RSI type (SmPC/CDS/CCDS) and version");
+  });
+
+  it("an override to ASSESSOR never becomes a required action", () => {
+    const f = mahFinding({
+      category: "NUMERICAL",
+      deficiencyType: "DATA_DISCREPANCY",
+      description: "Counts differ.",
+      suggestedSource: undefined,
+      actionOwnerOverride: {
+        owner: "ASSESSOR",
+        by: "A. Okafor",
+        at: "2026-09-12T09:00:00Z",
+        rationale: "I will close this from VigiFlow.",
+      },
+    });
+    expect(buildRequiredAction(f)).toBe("Counts differ.");
+  });
+});

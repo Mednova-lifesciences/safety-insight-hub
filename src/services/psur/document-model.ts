@@ -14,6 +14,7 @@ import {
   type PsurUncertainty,
   type PsurV4SectionId,
 } from "@/types/pv";
+import { isActionOwnerOverridden, requiresMahAction } from "./finding-ownership";
 import { buildAuthoritativeSectionCoverage } from "./section-consistency";
 
 /**
@@ -128,6 +129,8 @@ export interface ExecutiveSummaryModel {
     status: "CONFIRMED_NONE" | "RECORDED" | "PENDING";
     items: PsurUncertainty[];
     noneConfirmed: PsurDocument["uncertaintiesNoneConfirmed"] | null;
+    /** Section 11's "Evaluator's comments" free-text appraisal. */
+    evaluatorComments: string | null;
   };
   aiRecommendation: PsurAiRecommendation | null;
   regulatoryDecision: PsurRegulatoryDecision | null;
@@ -141,7 +144,7 @@ export function buildExecutiveSummaryModel(
   const accepted = allFindings.filter((f) => f.humanAssessment === "ACCEPTED");
   const dismissed = allFindings.filter((f) => f.humanAssessment === "DISMISSED");
   const pending = allFindings.filter((f) => !f.humanAssessment);
-  const mahAction = accepted.filter((f) => f.suggestedSource?.type === "REQUEST_FROM_MAH");
+  const mahAction = accepted.filter(requiresMahAction);
   const resolved = accepted.filter((f) => f.resolved);
 
   return {
@@ -185,6 +188,7 @@ export function buildExecutiveSummaryModel(
           : "PENDING",
       items: doc.uncertainties ?? [],
       noneConfirmed: doc.uncertaintiesNoneConfirmed ?? null,
+      evaluatorComments: doc.evaluatorComments?.trim() || null,
     },
     aiRecommendation: doc.aiRecommendation ?? null,
     regulatoryDecision: doc.regulatoryDecision ?? null,
@@ -206,6 +210,10 @@ export interface ComplianceDeficiencyRow {
   requiredAction: string;
   assessorObservation: string | null;
   suggestedSource: { label: string; note: string } | null;
+  /** Present only when an assessor deliberately reassigned this finding to
+   *  the MAH against the derivation — recorded so the directive shows a
+   *  human made that call, never presenting it as a system classification. */
+  ownershipOverride: { by: string; atLabel: string; rationale: string } | null;
   status: "OUTSTANDING";
 }
 
@@ -234,6 +242,15 @@ export function buildRequiredAction(f: PsurFinding): string {
       return `${verb} "${section.name}", addressing: ${section.subItems.join("; ")}.`;
     }
   }
+  // When an assessor has deliberately referred a finding to the MAH, their
+  // own rationale is the most specific statement of what the MAH must
+  // account for — and is usually the only place it is stated at all, since
+  // a finding the rules called assessor-resolvable carries no MAH-facing
+  // guidance. Preferred over the bare description, which merely restates
+  // the observation without asking for anything.
+  if (f.actionOwnerOverride?.owner === "MAH" && f.actionOwnerOverride.rationale.trim()) {
+    return f.actionOwnerOverride.rationale.trim();
+  }
   if (f.suggestedSource?.type === "REQUEST_FROM_MAH") {
     return f.suggestedSource.note;
   }
@@ -258,7 +275,9 @@ export interface ComplianceDirectiveModel {
 /**
  * Builds the MAH-facing directive from the assessor's FINALIZED state —
  * never raw AI output. Only findings the assessor has ACCEPTED, that
- * genuinely require MAH action (suggestedSource.type === "REQUEST_FROM_MAH"),
+ * genuinely require MAH action (see requiresMahAction in
+ * finding-ownership.ts — NOT the suggestedSource category, which answers
+ * the unrelated "where could I go look for this evidence" question),
  * and that are NOT YET resolved appear in the action table — accepting a
  * finding records it as a valid deficiency, it does not by itself mean
  * it's been fixed, and a resolved deficiency has nothing left for the
@@ -272,9 +291,7 @@ export function buildComplianceDirectiveModel(
 ): ComplianceDirectiveModel {
   const accepted = allFindings.filter((f) => f.humanAssessment === "ACCEPTED");
   const dismissed = allFindings.filter((f) => f.humanAssessment === "DISMISSED");
-  const outstandingMahAction = accepted.filter(
-    (f) => f.suggestedSource?.type === "REQUEST_FROM_MAH" && !f.resolved,
-  );
+  const outstandingMahAction = accepted.filter((f) => requiresMahAction(f) && !f.resolved);
   const resolved = accepted.filter((f) => f.resolved);
 
   const deficiencies: ComplianceDeficiencyRow[] = outstandingMahAction
@@ -293,6 +310,14 @@ export function buildComplianceDirectiveModel(
       suggestedSource: f.suggestedSource
         ? { label: SUGGESTED_SOURCE_LABEL[f.suggestedSource.type], note: f.suggestedSource.note }
         : null,
+      ownershipOverride:
+        isActionOwnerOverridden(f) && f.actionOwnerOverride
+          ? {
+              by: f.actionOwnerOverride.by,
+              atLabel: fmtDate(f.actionOwnerOverride.at),
+              rationale: f.actionOwnerOverride.rationale,
+            }
+          : null,
       status: "OUTSTANDING",
     }));
 

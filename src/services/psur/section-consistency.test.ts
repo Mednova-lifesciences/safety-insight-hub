@@ -394,3 +394,65 @@ describe("buildAuthoritativeSectionCoverage — the single authoritative model",
     expect(new Set(result.map((c) => c.section)).size).toBe(14);
   });
 });
+
+describe("reconciliation after an assessor edits Sections 9-11", () => {
+  it("an assessor marking a Section 9 area MISSING yields a corresponding finding", () => {
+    // Reproduces the live symptom: the AI found nothing wrong with S9 at
+    // upload (so no S9 finding was synthesized), the assessor then marked
+    // an area MISSING, and the Section Coverage panel rendered its own
+    // "No corresponding finding yet — this should not happen" diagnostic
+    // because nothing re-ran reconciliation after the edit.
+    const doc = {
+      specialPopulations: [
+        {
+          area: "GERIATRIC",
+          status: "MISSING",
+          comment: "No geriatric data presented.",
+          source: "assessor",
+        },
+        { area: "PAEDIATRIC", status: "ADEQUATELY_ADDRESSED", comment: "Addressed.", source: "ai" },
+      ],
+    } as Parameters<typeof buildAuthoritativeSectionCoverage>[0];
+
+    const coverage = buildAuthoritativeSectionCoverage(doc);
+    expect(coverage.find((c) => c.section === "S9_SPECIAL_POPULATIONS")?.status).toBe("MISSING");
+
+    const synthesized = reconcileSectionFindings(coverage, []);
+    const s9 = synthesized.find((f) => f.v4Section === "S9_SPECIAL_POPULATIONS");
+    expect(s9).toBeDefined();
+    expect(s9!.deficiencyType).toBe("MISSING_REQUIRED_SECTION");
+  });
+
+  it("an assessor emptying the Section 10 benefit-risk tables yields a finding", () => {
+    const doc = {
+      benefitRisk: {
+        keyBenefits: [],
+        keyRisks: [],
+        missingInformation: [],
+        integratedEffectsTable: [],
+        patientHcpPerspective: { available: false, summary: "" },
+        riskMinimisationEffectiveness: { outcome: "NOT_ASSESSABLE", comment: "" },
+        assistGenerated: false,
+      },
+    } as Parameters<typeof buildAuthoritativeSectionCoverage>[0];
+
+    const coverage = buildAuthoritativeSectionCoverage(doc);
+    expect(coverage.find((c) => c.section === "S10_BENEFIT_RISK")?.status).toBe("MISSING");
+    expect(
+      reconcileSectionFindings(coverage, []).some((f) => f.v4Section === "S10_BENEFIT_RISK"),
+    ).toBe(true);
+  });
+
+  it("re-running after the edit is idempotent — no duplicate finding for the same section", () => {
+    const doc = {
+      specialPopulations: [
+        { area: "GERIATRIC", status: "MISSING", comment: "No geriatric data.", source: "assessor" },
+      ],
+    } as Parameters<typeof buildAuthoritativeSectionCoverage>[0];
+
+    const coverage = buildAuthoritativeSectionCoverage(doc);
+    const first = reconcileSectionFindings(coverage, []);
+    const second = reconcileSectionFindings(coverage, first);
+    expect(second.filter((f) => f.v4Section === "S9_SPECIAL_POPULATIONS")).toHaveLength(0);
+  });
+});
