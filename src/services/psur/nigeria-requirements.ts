@@ -97,8 +97,20 @@ function newFindingId(): string {
   return `pf-${crypto.randomUUID()}`;
 }
 
-function has(findings: PsurFinding[], section: PsurV4SectionId, marker: string): boolean {
-  return findings.some((f) => f.v4Section === section && f.description.includes(marker));
+/**
+ * Does a finding for this section already cover this Nigerian requirement?
+ *
+ * Checked by TOPIC, not by this module's own wording. Once the prompt began
+ * asking about the Nigerian requirements explicitly, the model started
+ * raising them itself — so a marker-only check produced two findings for the
+ * same gap, which would become two separate DEF- entries asking the MAH for
+ * one thing twice. Whichever engine got there first is enough; this module
+ * exists to guarantee the finding EXISTS, not to author it.
+ */
+function alreadyCovered(findings: PsurFinding[], section: PsurV4SectionId, topic: RegExp): boolean {
+  return findings.some(
+    (f) => f.v4Section === section && topic.test(`${f.description} ${f.evidence}`),
+  );
 }
 
 /**
@@ -118,8 +130,11 @@ export function buildNigerianRequirementFindings(
   const out: PsurFinding[] = [];
 
   const EXPOSURE_MARKER = "Nigerian exposure denominator";
+  // Any existing S5 finding about Nigerian exposure counts, whoever wrote it.
+  const EXPOSURE_TOPIC =
+    /nigeria[n]?[^.]{0,80}(exposure|denominator|patient-years)|exposure[^.]{0,40}nigeria/i;
   if (ctx.exposureRequired && !ctx.nigerianExposureProvided) {
-    if (!has(existing, "S5_EXPOSURE_ACTIONS", EXPOSURE_MARKER)) {
+    if (!alreadyCovered(existing, "S5_EXPOSURE_ACTIONS", EXPOSURE_TOPIC)) {
       out.push({
         id: newFindingId(),
         category: "MISSING_SECTION",
@@ -150,8 +165,9 @@ export function buildNigerianRequirementFindings(
   }
 
   const COUNT_MARKER = "Nigerian case count";
+  const COUNT_TOPIC = /nigeria[n]?[^.]{0,80}(case count|cases|icsr)|case count[^.]{0,40}nigeria/i;
   if (!ctx.nigerianCaseCountProvided) {
-    if (!has(existing, "S7_AGGREGATE_SAFETY_DATA", COUNT_MARKER)) {
+    if (!alreadyCovered(existing, "S7_AGGREGATE_SAFETY_DATA", COUNT_TOPIC)) {
       out.push({
         id: newFindingId(),
         category: "MISSING_SECTION",
@@ -182,8 +198,9 @@ export function buildNigerianRequirementFindings(
   }
 
   const RECON_MARKER = "not been reconciled against the Nigerian ICSR data";
+  const RECON_TOPIC = /reconcil|vigiflow/i;
   if (!ctx.vigiflowReconciliationProvided) {
-    if (!has(existing, "S7_AGGREGATE_SAFETY_DATA", RECON_MARKER)) {
+    if (!alreadyCovered(existing, "S7_AGGREGATE_SAFETY_DATA", RECON_TOPIC)) {
       out.push({
         id: newFindingId(),
         category: "NUMERICAL",

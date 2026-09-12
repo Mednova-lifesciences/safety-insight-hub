@@ -51,7 +51,10 @@ import {
   type PsurUncertaintyCategory,
   type PsurV4SectionId,
 } from "@/types/pv";
-import { buildAuthoritativeSectionCoverage } from "@/services/psur/section-consistency";
+import {
+  buildAuthoritativeSectionCoverage,
+  RECONCILIATION_EXCLUDED_SECTIONS,
+} from "@/services/psur/section-consistency";
 import {
   deriveScreeningRecommendation,
   explainScreeningRecommendation,
@@ -972,21 +975,30 @@ function AdministrativeScreeningPanel({
                       {s.notApplicableJustification}
                     </p>
                   ) : null}
-                  {(s.status === "MISSING" || s.status === "PRESENT_BUT_INCOMPLETE") && (
-                    <p className="mt-1">
-                      {related.length > 0 ? (
-                        <span className="text-foreground">
-                          → {related.length} related finding{related.length === 1 ? "" : "s"} below:{" "}
-                          <span className="text-muted-foreground">{related[0]!.description}</span>
-                        </span>
-                      ) : (
-                        <span className="text-critical">
-                          → No corresponding finding yet — this should not happen; see Review
-                          Findings below.
-                        </span>
-                      )}
-                    </p>
-                  )}
+                  {/* Sections excluded from finding synthesis are deficient
+                      in their own right without a matching finding — the
+                      administrative check's four results are displayed
+                      directly above this list, and Sections 12/13 are
+                      assessor tasks with their own panels. Demanding a
+                      finding for them would report a defect that is working
+                      exactly as designed. */}
+                  {(s.status === "MISSING" || s.status === "PRESENT_BUT_INCOMPLETE") &&
+                    !RECONCILIATION_EXCLUDED_SECTIONS.has(s.section) && (
+                      <p className="mt-1">
+                        {related.length > 0 ? (
+                          <span className="text-foreground">
+                            → {related.length} related finding{related.length === 1 ? "" : "s"}{" "}
+                            below:{" "}
+                            <span className="text-muted-foreground">{related[0]!.description}</span>
+                          </span>
+                        ) : (
+                          <span className="text-critical">
+                            → No corresponding finding yet — this should not happen; see Review
+                            Findings below.
+                          </span>
+                        )}
+                      </p>
+                    )}
                 </li>
               );
             })}
