@@ -24,6 +24,7 @@ import type {
   PsurFinding,
   PsurIntegratedEffectsRow,
   PsurKeyRisk,
+  PsurNigerianContext,
   PsurOverallBenefitRiskOutcome,
   PsurRegulatoryDecision,
   PsurRiskMinimisationAction,
@@ -44,6 +45,7 @@ import type {
   AiPsurRecommendationOut,
   AiPsurScreeningOut,
   AiPsurSpecialPopulationItemOut,
+  AiPsurNigerianContextOut,
   AiPsurUncertaintyOut,
 } from "./ai";
 import {
@@ -58,6 +60,10 @@ import {
   type ExecutiveSummaryModel,
 } from "@/services/psur/document-model";
 import { derivedRequiresMahAction, requiresMahAction } from "@/services/psur/finding-ownership";
+import {
+  buildNigerianRequirementFindings,
+  nigerianExposureRequired,
+} from "@/services/psur/nigeria-requirements";
 
 /** Findings are review assistance only — the regulatory assessment is
  *  always recorded by a human reviewer (see AssistLabel in psur.tsx). */
@@ -299,6 +305,26 @@ function mapAiBenefitRisk(
 }
 
 /** AI uncertainties (wire shape) -> domain PsurUncertainty[]. */
+/** Maps the AI's Nigeria-specific answers, defaulting every "provided" flag
+ *  to FALSE when the model omitted it. A missing answer is not evidence the
+ *  requirement was met — treating silence as "provided" would reinstate
+ *  exactly the miss this whole mechanism exists to catch. */
+function mapAiNigerianContext(
+  raw: AiPsurNigerianContextOut | null | undefined,
+  sourceType: "PDF" | "SPREADSHEET",
+): PsurNigerianContext | undefined {
+  if (!raw) return undefined;
+  return {
+    exposureRequired: nigerianExposureRequired(sourceType),
+    nigerianExposureProvided: raw.nigerian_exposure_provided === true,
+    nigerianExposureEvidence: raw.nigerian_exposure_evidence ?? undefined,
+    nigerianCaseCountProvided: raw.nigerian_case_count_provided === true,
+    nigerianCaseCountEvidence: raw.nigerian_case_count_evidence ?? undefined,
+    vigiflowReconciliationProvided: raw.vigiflow_reconciliation_provided === true,
+    vigiflowReconciliationEvidence: raw.vigiflow_reconciliation_evidence ?? undefined,
+  };
+}
+
 function mapAiUncertainties(list: AiPsurUncertaintyOut[] | undefined): PsurUncertainty[] {
   return (list ?? []).map((u) => ({
     id: newId("unc"),
@@ -759,8 +785,34 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
     );
     lines.push("");
   }
+
+  // Response deadline and next-PSUR date are separate obligations and are
+  // never derived from one another; each appears only when recorded.
+  if (m.followUp.responseDeadline || m.followUp.nextPsurDueDate || m.followUp.informationRequired) {
+    lines.push("REQUIRED FOLLOW-UP");
+    lines.push(rule);
+    if (m.followUp.informationRequired) {
+      lines.push(`Information required: ${m.followUp.informationRequired}`);
+    }
+    lines.push(
+      `Response deadline: ${m.followUp.responseDeadline ?? "not specified in this directive"}`,
+    );
+    lines.push(`Next PSUR/PBRER due date: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`);
+    lines.push("");
+  }
+
+  lines.push("ASSESSED BY");
+  lines.push(rule);
+  lines.push(`Evaluator / Assessing Officer: ${m.signatory.evaluatorName ?? "pending signature"}`);
+  lines.push(`Date: ${m.signatory.evaluatorSignedAtLabel ?? "pending"}`);
+  lines.push(`Signature: ${m.signatory.evaluatorName ? "recorded electronically" : "pending"}`);
+  lines.push("");
+  lines.push(`Peer reviewer: ${m.signatory.peerReviewerName ?? "pending signature"}`);
+  lines.push(`Date: ${m.signatory.peerReviewedAtLabel ?? "pending"}`);
+  lines.push(`Signature: ${m.signatory.peerReviewerName ? "recorded electronically" : "pending"}`);
+  lines.push("");
   lines.push(
-    `Note: ${m.resolvedCount} previously-identified deficiency/deficiencies already resolved and ${m.dismissedCount} finding(s) dismissed as not applicable are not repeated above.`,
+    `Note: ${m.resolvedCount} previously-identified deficiency/deficiencies already resolved and ${m.dismissedCount} finding(s) dismissed as not applicable are not restated in this directive.`,
   );
   return lines.join("\n");
 }
@@ -1049,11 +1101,47 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
     );
   }
 
+  if (m.followUp.responseDeadline || m.followUp.nextPsurDueDate || m.followUp.informationRequired) {
+    children.push(docxHeading("Required follow-up", HeadingLevel.HEADING_2));
+    if (m.followUp.informationRequired) {
+      children.push(
+        new Paragraph({ text: `Information required: ${m.followUp.informationRequired}` }),
+      );
+    }
+    children.push(
+      new Paragraph({
+        text: `Response deadline: ${m.followUp.responseDeadline ?? "not specified in this directive"}`,
+      }),
+      new Paragraph({
+        text: `Next PSUR/PBRER due date: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`,
+      }),
+      new Paragraph({ text: "" }),
+    );
+  }
+
+  children.push(
+    docxHeading("Assessed by", HeadingLevel.HEADING_2),
+    docxLabelValue(
+      "Evaluator / Assessing Officer",
+      m.signatory.evaluatorName ?? "pending signature",
+    ),
+    docxLabelValue("Date", m.signatory.evaluatorSignedAtLabel ?? "pending"),
+    docxLabelValue("Signature", m.signatory.evaluatorName ? "recorded electronically" : "pending"),
+    new Paragraph({ text: "" }),
+    docxLabelValue("Peer reviewer", m.signatory.peerReviewerName ?? "pending signature"),
+    docxLabelValue("Date", m.signatory.peerReviewedAtLabel ?? "pending"),
+    docxLabelValue(
+      "Signature",
+      m.signatory.peerReviewerName ? "recorded electronically" : "pending",
+    ),
+    new Paragraph({ text: "" }),
+  );
+
   children.push(
     new Paragraph({
       children: [
         new TextRun({
-          text: `Note: ${m.resolvedCount} previously-identified deficiency/deficiencies already resolved and ${m.dismissedCount} finding(s) dismissed as not applicable are not repeated above.`,
+          text: `Note: ${m.resolvedCount} previously-identified deficiency/deficiencies already resolved and ${m.dismissedCount} finding(s) dismissed as not applicable are not restated in this directive.`,
           italics: true,
         }),
       ],
@@ -1204,6 +1292,9 @@ export const psur = {
       const uncertainties = aiResult.ai_used
         ? mapAiUncertainties(aiResult.uncertainties)
         : undefined;
+      const nigerianContext = aiResult.ai_used
+        ? mapAiNigerianContext(aiResult.nigerian_context, "PDF")
+        : undefined;
       // Guarantee every section the coverage check calls MISSING/
       // PRESENT_BUT_INCOMPLETE has a corresponding actionable finding —
       // see section-consistency.ts's module doc comment for why this is
@@ -1211,10 +1302,16 @@ export const psur = {
       // (coverage vs. findings) to already agree.
       const coverage = buildAuthoritativeSectionCoverage({
         screening,
+        sourceType: "PDF",
+        nigerianContext,
         specialPopulations,
         benefitRisk,
         uncertainties,
       });
+      // The Nigeria-specific findings come first so reconcileSectionFindings
+      // sees them and does not also synthesize a generic "section is
+      // incomplete" finding for the same section.
+      findings.push(...buildNigerianRequirementFindings(nigerianContext, findings));
       findings.push(...reconcileSectionFindings(coverage, findings));
       await persistFindings(doc.id, findings);
       const reviewed: PsurDocumentRow = {
@@ -1239,6 +1336,7 @@ export const psur = {
         ...(specialPopulations ? { specialPopulations } : {}),
         ...(benefitRisk ? { benefitRisk } : {}),
         ...(uncertainties ? { uncertainties } : {}),
+        ...(nigerianContext ? { nigerianContext } : {}),
         ...(aiResult.ai_used
           ? { aiRecommendation: mapAiRecommendation(aiResult.ai_recommendation) }
           : {}),
@@ -1330,7 +1428,18 @@ export const psur = {
     // Safe to run on every read: reconcileSectionFindings is idempotent and
     // pure, and only writes when it actually synthesizes something, so a
     // consistent document does no database work at all.
-    const missing = reconcileSectionFindings(buildAuthoritativeSectionCoverage(document), findings);
+    // The Nigeria-specific requirements heal the same way: a document
+    // reviewed before those were assessed separately carries no finding for
+    // them, and would otherwise show a deficient S5/S7 with nothing an
+    // assessor could accept. Synthesized first so reconciliation sees them.
+    const nigerian = buildNigerianRequirementFindings(document.nigerianContext, findings);
+    const missing = [
+      ...nigerian,
+      ...reconcileSectionFindings(buildAuthoritativeSectionCoverage(document), [
+        ...findings,
+        ...nigerian,
+      ]),
+    ];
     if (missing.length > 0) {
       await persistFindings(documentId, missing);
       await recordAudit({

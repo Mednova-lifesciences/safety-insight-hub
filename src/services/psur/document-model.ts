@@ -257,6 +257,70 @@ export function buildRequiredAction(f: PsurFinding): string {
   return f.description;
 }
 
+/**
+ * Strips application-internal phrasing out of anything bound for the
+ * MAH-facing directive.
+ *
+ * The directive is a standalone letter. Text that reads correctly on the
+ * assessment page — where "below" points at a panel the reader can see, and
+ * "AI-generated" is a provenance badge the assessor needs — becomes either
+ * meaningless or inappropriate once it leaves the screen. A real example
+ * that reached a generated directive: "Derived from the
+ * special-population/special-situation area assessments below", where there
+ * is no "below" in a letter and "area assessments" names a UI panel.
+ *
+ * Deliberately FAIL-SAFE rather than best-effort. Targeted rewrites handle
+ * the phrasings whose meaning is recoverable; then the result is re-tested
+ * against the same detector, and anything still carrying an internal marker
+ * is replaced wholesale by a neutral sentence naming the V4 requirement the
+ * finding is about. Patching phrase by phrase is how "See the section
+ * coverage panel below for the AI-generated finding" becomes "See the
+ * assessment below for the ." — each individual rule fires and the sentence
+ * still leaks. A whole-string fallback cannot leave that residue.
+ *
+ * Applied to every prose field bound for the letter, not just the one field
+ * the leak was first observed in.
+ */
+const INTERNAL_MARKERS =
+  /\b(below|above|in this (UI|interface|panel|view)|on the assessment page|AI[- ]generated|system[- ]generated finding|AI finding|section coverage panel|review findings panel|sub-tables)\b/i;
+
+const INTERNAL_REWRITES: { pattern: RegExp; replace: (f: PsurFinding) => string }[] = [
+  {
+    // Section 9/10/11's coverage comments are written for the panel that
+    // renders their sub-tables underneath. This one has a real meaning worth
+    // preserving, so it is rewritten rather than dropped.
+    pattern: /derived from the .*?(assessments|sub-tables|recorded)\s*(below|above)\.?/i,
+    replace: (f) =>
+      `Assessed against the requirements of ${sectionName(f)} in the NAFDAC PSUR/PBRER evaluation template.`,
+  },
+];
+
+function sectionName(f: PsurFinding): string {
+  return f.v4Section
+    ? (sectionById.get(f.v4Section as PsurV4SectionId)?.name ?? f.section)
+    : f.section;
+}
+
+function neutralStatement(f: PsurFinding): string {
+  return `Assessed against the requirements of ${sectionName(f)} in the NAFDAC PSUR/PBRER evaluation template.`;
+}
+
+export function externalise(text: string, f: PsurFinding): string {
+  let out = (text ?? "").trim();
+  if (!out) return out;
+  for (const { pattern, replace } of INTERNAL_REWRITES) {
+    out = out.replace(pattern, replace(f));
+  }
+  out = out.replace(/\s{2,}/g, " ").trim();
+  // Fail safe: if anything internal survived the targeted rewrites, do not
+  // ship a half-cleaned sentence into a regulatory letter.
+  if (INTERNAL_MARKERS.test(out)) return neutralStatement(f);
+  if (!out) {
+    return neutralStatement(f);
+  }
+  return out;
+}
+
 export interface ComplianceDirectiveModel {
   meta: DocumentMeta;
   introduction: string;
@@ -268,8 +332,54 @@ export interface ComplianceDirectiveModel {
     decidedBy: string;
     decidedAtLabel: string;
   } | null;
+  /** Dates the MAH needs, kept strictly apart: one is when they must answer
+   *  THIS directive, the other is when the next periodic report falls due.
+   *  Either is null when the assessor has not recorded it — never inferred
+   *  from the other, and never defaulted to a computed date. */
+  followUp: {
+    responseDeadline: string | null;
+    nextPsurDueDate: string | null;
+    informationRequired: string | null;
+  };
+  /** Closing signature block, from the assessor's own Section 13 record.
+   *  Every field is null until actually signed; nothing here is invented.
+   *  Reviewer confidence is deliberately NOT carried across — it is an
+   *  internal appraisal of the assessment, not something the MAH is owed. */
+  signatory: {
+    evaluatorName: string | null;
+    evaluatorSignedAtLabel: string | null;
+    peerReviewerName: string | null;
+    peerReviewedAtLabel: string | null;
+  };
   resolvedCount: number;
   dismissedCount: number;
+}
+
+/** Formats a stored `yyyy-mm-dd` (the HTML date input's format) for a
+ *  regulatory letter, leaving anything unparseable exactly as recorded
+ *  rather than guessing at it. */
+function fmtDueDate(value: string | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!m) return raw;
+  const MONTHS = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  const month = MONTHS[Number(m[2]) - 1];
+  if (!month) return raw;
+  return `${Number(m[3])} ${month} ${m[1]}`;
 }
 
 /**
@@ -303,9 +413,9 @@ export function buildComplianceDirectiveModel(
         : f.section,
       deficiencyType: f.deficiencyType ?? null,
       severity: f.severity,
-      whatWasIdentified: f.description,
-      whyMaterial: f.evidence,
-      requiredAction: buildRequiredAction(f),
+      whatWasIdentified: externalise(f.description, f),
+      whyMaterial: externalise(f.evidence, f),
+      requiredAction: externalise(buildRequiredAction(f), f),
       assessorObservation: f.rationale?.trim() || null,
       suggestedSource: f.suggestedSource
         ? { label: SUGGESTED_SOURCE_LABEL[f.suggestedSource.type], note: f.suggestedSource.note }
@@ -327,11 +437,16 @@ export function buildComplianceDirectiveModel(
 
   return {
     meta: buildMeta(doc),
+    // "the item(s) below" was the one internal-sounding phrase that is
+    // genuinely correct here: the deficiency table does follow it in the
+    // letter itself. Reworded anyway to name what follows, so the sentence
+    // stands on its own if the table is ever laid out differently.
     introduction:
-      `This PSUR/PBRER submission (${doc.product}, reporting period ${doc.reportingPeriod}) has been ` +
-      `assessed by NAFDAC pharmacovigilance. The item(s) below require clarification, correction, ` +
-      `additional information, or supporting evidence from the Marketing Authorisation Holder (MAH) ` +
-      `before this assessment can be finalized.`,
+      `This PSUR/PBRER submission for ${doc.product}, covering the reporting period ` +
+      `${doc.reportingPeriod}, has been assessed by NAFDAC pharmacovigilance against the ` +
+      `Agency's PSUR/PBRER evaluation requirements. The deficiencies set out in this directive ` +
+      `require clarification, correction, additional information or supporting evidence from the ` +
+      `Marketing Authorisation Holder before the assessment can be finalised.`,
     deficiencies,
     regulatoryContext:
       doc.regulatoryDecision && mahFacingActions.length > 0
@@ -343,6 +458,19 @@ export function buildComplianceDirectiveModel(
             decidedAtLabel: fmtDate(doc.regulatoryDecision.decidedAt),
           }
         : null,
+    followUp: {
+      responseDeadline: fmtDueDate(doc.regulatoryDecision?.mahResponseDeadline),
+      nextPsurDueDate: fmtDueDate(doc.regulatoryDecision?.nextPsurDueDate),
+      informationRequired: doc.regulatoryDecision?.followUpRequired?.trim() || null,
+    },
+    signatory: {
+      evaluatorName: doc.signOff?.evaluatorName?.trim() || null,
+      evaluatorSignedAtLabel: doc.signOff?.evaluatorSignedAt
+        ? fmtDate(doc.signOff.evaluatorSignedAt)
+        : null,
+      peerReviewerName: doc.signOff?.peerReviewerName?.trim() || null,
+      peerReviewedAtLabel: doc.signOff?.peerReviewedAt ? fmtDate(doc.signOff.peerReviewedAt) : null,
+    },
     resolvedCount: resolved.length,
     dismissedCount: dismissed.length,
   };

@@ -1,6 +1,15 @@
 import {
+  deriveAdministrativeStatus,
+  describeAdministrativeStatus,
+} from "./administrative-screening";
+import {
+  deriveAggregateSafetySectionStatus,
+  deriveExposureSectionStatus,
+} from "./nigeria-requirements";
+import {
   PSUR_V4_TEMPLATE_SECTIONS,
   type PsurBenefitRiskAssessment,
+  type PsurNigerianContext,
   type PsurFinding,
   type PsurRegulatoryDecision,
   type PsurScreeningResult,
@@ -174,7 +183,14 @@ export function deriveBenefitRiskSectionStatus(
 }
 
 export interface AuthoritativeCoverageInput {
-  screening?: Pick<PsurScreeningResult, "sectionCoverage"> | undefined;
+  screening?:
+    | (Pick<PsurScreeningResult, "sectionCoverage"> &
+        Partial<Pick<PsurScreeningResult, "administrativeChecks">>)
+    | undefined;
+  /** PDF vs spreadsheet — decides whether Section 5's Nigerian exposure
+   *  requirement binds at all (see nigerianExposureRequired). */
+  sourceType?: "PDF" | "SPREADSHEET" | undefined;
+  nigerianContext?: PsurNigerianContext | undefined;
   specialPopulations?: PsurSpecialPopulationItem[] | undefined;
   benefitRisk?: PsurBenefitRiskAssessment | undefined;
   uncertainties?: PsurUncertainty[] | undefined;
@@ -213,6 +229,48 @@ export function buildAuthoritativeSectionCoverage(
     };
 
     switch (s.id) {
+      case "ADMIN_SCREENING": {
+        // Derived from the four checks themselves — the parent row used to
+        // read "Not yet assessed" directly above its own completed results.
+        const checks = doc.screening?.administrativeChecks;
+        if (!checks || checks.length === 0) return fallback;
+        return {
+          section: s.id,
+          status: deriveAdministrativeStatus(checks),
+          comment: describeAdministrativeStatus(checks),
+          source: "rule",
+        };
+      }
+      case "S5_EXPOSURE_ACTIONS": {
+        // Global exposure does not satisfy a Nigerian requirement — see
+        // nigeria-requirements.ts for the measured failure this fixes.
+        const derived = deriveExposureSectionStatus(doc.nigerianContext, fallback.status);
+        if (derived === null) return fallback;
+        return {
+          section: s.id,
+          status: derived,
+          comment:
+            "Exposure is reported, but no Nigeria-specific exposure denominator is stated for the reporting interval.",
+          source: "rule",
+        };
+      }
+      case "S7_AGGREGATE_SAFETY_DATA": {
+        const derived = deriveAggregateSafetySectionStatus(doc.nigerianContext, fallback.status);
+        if (derived === null) return fallback;
+        const ctx = doc.nigerianContext!;
+        const gaps = [
+          ctx.nigerianCaseCountProvided ? null : "the Nigerian case count",
+          ctx.vigiflowReconciliationProvided
+            ? null
+            : "reconciliation against the Nigerian ICSR data",
+        ].filter(Boolean);
+        return {
+          section: s.id,
+          status: derived,
+          comment: `Aggregate safety data is reported, but ${gaps.join(" and ")} ${gaps.length > 1 ? "are" : "is"} not provided.`,
+          source: "rule",
+        };
+      }
       case "S9_SPECIAL_POPULATIONS": {
         if (!doc.specialPopulations || doc.specialPopulations.length === 0) return fallback;
         return {

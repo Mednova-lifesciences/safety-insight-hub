@@ -464,3 +464,213 @@ describe("buildRequiredAction — an assessor referral states what the MAH must 
     expect(buildRequiredAction(f)).toBe("Counts differ.");
   });
 });
+
+describe("the Compliance Directive reads as a standalone regulatory letter", () => {
+  const INTERNAL = [
+    /\bbelow\b/i,
+    /\babove\b/i,
+    /\bin this UI\b/i,
+    /\bon the assessment page\b/i,
+    /\bAI[- ]generated\b/i,
+    /\bsystem-generated finding\b/i,
+    /\bAI finding\b/i,
+    /\bsection coverage panel\b/i,
+    /\breview findings panel\b/i,
+    /\bsub-tables\b/i,
+  ];
+
+  function allProse(m: ReturnType<typeof buildComplianceDirectiveModel>): string {
+    return [
+      m.introduction,
+      ...m.deficiencies.flatMap((d) => [
+        d.whatWasIdentified,
+        d.whyMaterial,
+        d.requiredAction,
+        d.assessorObservation ?? "",
+        d.suggestedSource?.note ?? "",
+      ]),
+    ].join("\n");
+  }
+
+  it("strips the internal phrasing that reached a real directive", () => {
+    // Verbatim from a generated directive: the S9 coverage comment, written
+    // for a UI panel, became the MAH-facing "why this matters".
+    const f = mahFinding({
+      v4Section: "S9_SPECIAL_POPULATIONS",
+      section: "9. Special Populations, Special Situations & Missing Information",
+      evidence: "Derived from the special-population/special-situation area assessments below.",
+      humanAssessment: "ACCEPTED",
+    });
+    const m = buildComplianceDirectiveModel(baseDoc(), [f]);
+    expect(m.deficiencies[0]!.whyMaterial).not.toMatch(/below/i);
+    expect(m.deficiencies[0]!.whyMaterial).toMatch(/NAFDAC PSUR\/PBRER evaluation template/i);
+  });
+
+  it("carries no internal language anywhere in its prose", () => {
+    const m = buildComplianceDirectiveModel(baseDoc(), [
+      mahFinding({
+        evidence: "See the section coverage panel below for the AI-generated finding.",
+        humanAssessment: "ACCEPTED",
+      }),
+    ]);
+    const prose = allProse(m);
+    for (const re of INTERNAL) expect(prose).not.toMatch(re);
+  });
+
+  it("never emits an empty field after stripping", () => {
+    const m = buildComplianceDirectiveModel(baseDoc(), [
+      mahFinding({ evidence: "See below.", humanAssessment: "ACCEPTED" }),
+    ]);
+    expect(m.deficiencies[0]!.whyMaterial.trim().length).toBeGreaterThan(0);
+  });
+});
+
+describe("Compliance Directive — follow-up dates", () => {
+  const decision = (over: Record<string, string>) => ({
+    actions: ["REQUEST_ADDITIONAL_INFO_FROM_MAH"] as const,
+    overallOutcome: "UNCERTAIN_REQUIRES_FOLLOWUP" as const,
+    basis: "b",
+    decidedBy: "A. Okafor",
+    decidedAt: "2026-09-12T09:00:00Z",
+    ...over,
+  });
+
+  it("a saved response deadline appears, formatted for a letter", () => {
+    const m = buildComplianceDirectiveModel(
+      baseDoc({ regulatoryDecision: decision({ mahResponseDeadline: "2026-10-31" }) as never }),
+      [],
+    );
+    expect(m.followUp.responseDeadline).toBe("31 October 2026");
+  });
+
+  it("the next PSUR due date is carried separately and never conflated", () => {
+    const m = buildComplianceDirectiveModel(
+      baseDoc({
+        regulatoryDecision: decision({
+          mahResponseDeadline: "2026-10-31",
+          nextPsurDueDate: "2027-06-30",
+        }) as never,
+      }),
+      [],
+    );
+    expect(m.followUp.responseDeadline).toBe("31 October 2026");
+    expect(m.followUp.nextPsurDueDate).toBe("30 June 2027");
+    expect(m.followUp.responseDeadline).not.toBe(m.followUp.nextPsurDueDate);
+  });
+
+  it("a missing date is null, never invented or derived from the other", () => {
+    const m = buildComplianceDirectiveModel(
+      baseDoc({ regulatoryDecision: decision({ nextPsurDueDate: "2027-06-30" }) as never }),
+      [],
+    );
+    expect(m.followUp.responseDeadline).toBeNull();
+    expect(m.followUp.nextPsurDueDate).toBe("30 June 2027");
+  });
+
+  it("no regulatory decision at all yields no dates", () => {
+    const m = buildComplianceDirectiveModel(baseDoc(), []);
+    expect(m.followUp.responseDeadline).toBeNull();
+    expect(m.followUp.nextPsurDueDate).toBeNull();
+    expect(m.followUp.informationRequired).toBeNull();
+  });
+});
+
+describe("Compliance Directive — signatory block", () => {
+  it("uses the saved Section 13 names and dates", () => {
+    const m = buildComplianceDirectiveModel(
+      baseDoc({
+        signOff: {
+          conclusion: "c",
+          reviewerConfidence: "LOW",
+          references: "r",
+          evaluatorName: "A. Okafor",
+          evaluatorSignedAt: "2026-09-12T10:00:00Z",
+          peerReviewerName: "N. Bello",
+          peerReviewedAt: "2026-09-12T11:00:00Z",
+        },
+      }),
+      [],
+    );
+    expect(m.signatory.evaluatorName).toBe("A. Okafor");
+    expect(m.signatory.peerReviewerName).toBe("N. Bello");
+    expect(m.signatory.evaluatorSignedAtLabel).toContain("2026-09-12");
+  });
+
+  it("leaves unsigned fields null rather than inventing a name or date", () => {
+    const m = buildComplianceDirectiveModel(baseDoc(), []);
+    expect(m.signatory.evaluatorName).toBeNull();
+    expect(m.signatory.evaluatorSignedAtLabel).toBeNull();
+    expect(m.signatory.peerReviewerName).toBeNull();
+    expect(m.signatory.peerReviewedAtLabel).toBeNull();
+  });
+
+  it("does not leak the assessor's internal confidence to the MAH", () => {
+    const m = buildComplianceDirectiveModel(
+      baseDoc({
+        signOff: {
+          conclusion: "c",
+          reviewerConfidence: "LOW",
+          references: "r",
+          evaluatorName: "A. Okafor",
+        },
+      }),
+      [],
+    );
+    expect(JSON.stringify(m.signatory)).not.toMatch(/LOW|confidence/i);
+  });
+});
+
+describe("Executive Summary and Compliance Directive stay consistent", () => {
+  it("both read the same authoritative state for the same document", () => {
+    const doc = baseDoc({
+      regulatoryDecision: {
+        actions: ["REQUEST_ADDITIONAL_INFO_FROM_MAH"],
+        overallOutcome: "UNCERTAIN_REQUIRES_FOLLOWUP",
+        basis: "Mandatory sections absent.",
+        mahResponseDeadline: "2026-10-31",
+        nextPsurDueDate: "2027-06-30",
+        decidedBy: "A. Okafor",
+        decidedAt: "2026-09-12T09:00:00Z",
+      },
+      signOff: {
+        conclusion: "Uncertain.",
+        reviewerConfidence: "LOW",
+        references: "r",
+        evaluatorName: "A. Okafor",
+      },
+    });
+    const findings = [mahFinding({ humanAssessment: "ACCEPTED" })];
+
+    const exec = buildExecutiveSummaryModel(doc, findings);
+    const dir = buildComplianceDirectiveModel(doc, findings);
+
+    // One accepted MAH-facing deficiency, counted the same way in both.
+    expect(exec.findings.mahActionCount).toBe(1);
+    expect(dir.deficiencies).toHaveLength(1);
+    // The same regulatory decision drives both.
+    expect(exec.regulatoryDecision?.overallOutcome).toBe(dir.regulatoryContext?.overallOutcome);
+    // The evaluator named in Section 13 is the one who signs the directive.
+    expect(dir.signatory.evaluatorName).toBe(doc.signOff?.evaluatorName);
+    // …but the directive never carries the internal confidence rating.
+    expect(exec.signOff?.reviewerConfidence).toBe("LOW");
+    expect(JSON.stringify(dir)).not.toMatch(/reviewerConfidence/);
+  });
+
+  it("a dismissed finding appears in neither document's action list", () => {
+    const doc = baseDoc();
+    const findings = [mahFinding({ humanAssessment: "DISMISSED" })];
+    expect(buildComplianceDirectiveModel(doc, findings).deficiencies).toHaveLength(0);
+    expect(buildExecutiveSummaryModel(doc, findings).findings.mahActionCount).toBe(0);
+  });
+
+  it("an accepted-but-resolved deficiency leaves the directive but stays counted", () => {
+    // Acceptance, resolution and MAH-facing are three different things.
+    const doc = baseDoc();
+    const findings = [mahFinding({ humanAssessment: "ACCEPTED", resolved: true })];
+    expect(buildComplianceDirectiveModel(doc, findings).deficiencies).toHaveLength(0);
+    const exec = buildExecutiveSummaryModel(doc, findings);
+    expect(exec.findings.accepted).toBe(1);
+    expect(exec.findings.resolvedCount).toBe(1);
+    expect(exec.findings.outstandingCount).toBe(0);
+  });
+});

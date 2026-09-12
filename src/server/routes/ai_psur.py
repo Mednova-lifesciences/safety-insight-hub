@@ -183,6 +183,19 @@ class PsurRecommendationOut(BaseModel):
     basis: str = ""
 
 
+class PsurNigerianContextOut(BaseModel):
+    """Nigeria-specific facts for Sections 5 and 7 — see
+    AiPsurNigerianContext in schemas.py. Never carries VigiFlow figures:
+    this service has no VigiFlow integration."""
+
+    nigerian_exposure_provided: bool = False
+    nigerian_exposure_evidence: Optional[str] = None
+    nigerian_case_count_provided: bool = False
+    nigerian_case_count_evidence: Optional[str] = None
+    vigiflow_reconciliation_provided: bool = False
+    vigiflow_reconciliation_evidence: Optional[str] = None
+
+
 class ReviewResponse(BaseModel):
     findings: list[PsurFindingOut]
     ai_used: bool
@@ -198,6 +211,7 @@ class ReviewResponse(BaseModel):
     benefit_risk: Optional[PsurBenefitRiskOut] = None
     special_populations: list[PsurSpecialPopulationItemOut] = []
     uncertainties: list[PsurUncertaintyOut] = []
+    nigerian_context: Optional[PsurNigerianContextOut] = None
     ai_recommendation: Optional[PsurRecommendationOut] = None
 
 
@@ -264,6 +278,11 @@ async def review_pdf(
                 PsurSpecialPopulationItemOut(**p.model_dump()) for p in parsed.special_populations
             ],
             uncertainties=[PsurUncertaintyOut(**u.model_dump()) for u in parsed.uncertainties],
+            nigerian_context=(
+                PsurNigerianContextOut(**parsed.nigerian_context.model_dump())
+                if parsed.nigerian_context
+                else None
+            ),
             ai_recommendation=(
                 PsurRecommendationOut(**parsed.ai_recommendation.model_dump()) if parsed.ai_recommendation else None
             ),

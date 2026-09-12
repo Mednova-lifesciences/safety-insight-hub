@@ -676,6 +676,19 @@ export const demoPsurDocuments: PsurDocument[] = [
       recommendation: "RETURN_TO_MAH_FIRST",
       assistGenerated: true,
     },
+    // Demonstrates the Nigeria-specific checks: this submission states a
+    // Nigerian exposure denominator and case count, but never reconciles
+    // those figures against VigiFlow — so S7 reads incomplete.
+    nigerianContext: {
+      exposureRequired: true,
+      nigerianExposureProvided: true,
+      nigerianExposureEvidence: "214,000 Nigerian patient-days (~586 patient-years) this interval.",
+      nigerianCaseCountProvided: true,
+      nigerianCaseCountEvidence: "31 Nigerian reports this interval, 4 serious.",
+      vigiflowReconciliationProvided: false,
+      vigiflowReconciliationEvidence:
+        "The submission does not describe any comparison against NAFDAC's VigiFlow data.",
+    },
     specialPopulations: [
       {
         area: "PREGNANCY_LACTATION",

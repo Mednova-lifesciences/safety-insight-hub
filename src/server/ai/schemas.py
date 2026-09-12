@@ -589,6 +589,28 @@ _KNOWN_OVERALL_OUTCOMES = {
 }
 
 
+class AiPsurNigerianContext(BaseModel):
+    """The Nigeria-specific facts Sections 5 and 7 turn on.
+
+    Deliberately three yes/no questions plus their evidence rather than a
+    per-section verdict: a mostly-complete section was absorbing a
+    specifically-missing Nigerian datum, and a narrow factual question is far
+    harder to answer wrongly than a holistic one.
+
+    `vigiflow_reconciliation_provided` means "the SUBMISSION states that a
+    reconciliation was performed". This system has no VigiFlow integration
+    and never reports what VigiFlow holds — see the assessor-control
+    instructions in prompts.py.
+    """
+
+    nigerian_exposure_provided: bool = False
+    nigerian_exposure_evidence: Optional[str] = None
+    nigerian_case_count_provided: bool = False
+    nigerian_case_count_evidence: Optional[str] = None
+    vigiflow_reconciliation_provided: bool = False
+    vigiflow_reconciliation_evidence: Optional[str] = None
+
+
 class AiPsurRecommendation(BaseModel):
     """The AI's NON-BINDING starting point for Section 12 — kept as a
     structurally separate model from any assessor-owned decision record
@@ -648,6 +670,13 @@ class AiPsurReview(BaseModel):
     special_populations: list[AiPsurSpecialPopulationItem] = []
     # Section 11 — one row per identified uncertainty.
     uncertainties: list[AiPsurUncertainty] = []
+    # The Nigeria-specific facts Sections 5 and 7 turn on, collected as
+    # narrow yes/no questions rather than folded into a per-section verdict.
+    # See services/psur/nigeria-requirements.ts for the measured failure this
+    # exists to fix: asked for one overall judgement, the model twice called
+    # a section "adequately addressed" while its Nigerian requirement was
+    # entirely absent.
+    nigerian_context: Optional[AiPsurNigerianContext] = None
     # AI's non-binding starting point for Section 12 — see AiPsurRecommendation.
     ai_recommendation: Optional[AiPsurRecommendation] = None
 

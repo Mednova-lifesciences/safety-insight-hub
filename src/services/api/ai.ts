@@ -157,6 +157,18 @@ export interface AiPsurBenefitRiskOut {
   risk_minimisation_effectiveness: { outcome: string; comment: string };
 }
 
+/** Nigeria-specific facts for Sections 5 and 7 — narrow yes/no questions
+ *  the status is derived from, rather than a per-section verdict. Never
+ *  carries VigiFlow figures: there is no VigiFlow integration. */
+export interface AiPsurNigerianContextOut {
+  nigerian_exposure_provided?: boolean;
+  nigerian_exposure_evidence?: string | null;
+  nigerian_case_count_provided?: boolean;
+  nigerian_case_count_evidence?: string | null;
+  vigiflow_reconciliation_provided?: boolean;
+  vigiflow_reconciliation_evidence?: string | null;
+}
+
 export interface AiPsurUncertaintyOut {
   category: string;
   description: string;
@@ -195,6 +207,7 @@ export interface AiPsurReviewResponse {
   /** Section 9 — one entry per fixed area. PDF review only. */
   special_populations?: AiPsurSpecialPopulationItemOut[];
   uncertainties?: AiPsurUncertaintyOut[];
+  nigerian_context?: AiPsurNigerianContextOut | null;
   ai_recommendation?: AiPsurRecommendationOut | null;
 }
 
