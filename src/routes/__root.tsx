@@ -81,7 +81,22 @@ const SITE_NAME = "MedNova PV Assist";
 const SITE_TITLE = "MedNova PV Assist — Pharmacovigilance Operations Platform";
 const SITE_DESCRIPTION =
   "Human-in-the-loop pharmacovigilance operations platform for ICSR triage, MedDRA/WHODrug coding, line-list processing, E2B(R3) preparation, PSUR/PBRER review and signal management.";
-const SOCIAL_IMAGE = new URL(mednovaLogo, SITE_URL).toString();
+/**
+ * Open Graph / Twitter card image.
+ *
+ * Deliberately NOT the logo asset itself. src/index.png is a transparent
+ * PNG whose artwork is white, and every social consumer (Slack, WhatsApp,
+ * LinkedIn, X, Facebook) composites a transparent image onto a white card
+ * — so the logo rendered as an invisible blank rectangle everywhere the
+ * link was shared.
+ *
+ * public/og-image.png is that logo pre-composited onto a near-black
+ * background at 1200x630, the size those consumers render without
+ * re-cropping. Served from public/ rather than imported so the URL stays
+ * stable across builds: platforms cache OG images aggressively by URL, and
+ * a content-hashed filename would strand the cached copy on every deploy.
+ */
+const SOCIAL_IMAGE = new URL("/og-image.png", SITE_URL).toString();
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
@@ -101,8 +116,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:url", content: SITE_URL },
       { property: "og:locale", content: "en_US" },
       { property: "og:image", content: SOCIAL_IMAGE },
-      { property: "og:image:width", content: "815" },
-      { property: "og:image:height", content: "306" },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
       { property: "og:image:alt", content: "MedNova Lifesciences" },
 
       // Twitter/X card
