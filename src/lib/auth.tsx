@@ -221,15 +221,45 @@ function mapRoleFromApi(apiRole: string): Role {
  * inside RLS policies for the direct-to-Supabase data calls used elsewhere in
  * the app. Without this, those calls run as fully anonymous requests.
  */
+/**
+ * Hands the backend's tokens to the Supabase client, which is what actually
+ * authorises every database read: the `authenticated` role holds the table
+ * grants, `anon` holds none.
+ *
+ * This used to swallow its own failure, so sign-in could "succeed" with no
+ * Supabase session at all — the UI showed a signed-in dashboard while every
+ * query went out as anon and came back "permission denied for table
+ * pv_psur_documents". A half-authenticated state is worse than a failed
+ * sign-in, because the person cannot tell anything is wrong. It now throws,
+ * and signIn surfaces it.
+ */
 async function syncSupabaseSession(authResponse: AuthResponse): Promise<void> {
-  if (!authResponse.access_token || !authResponse.refresh_token) return;
-  try {
-    await supabase.auth.setSession({
-      access_token: authResponse.access_token,
-      refresh_token: authResponse.refresh_token,
-    });
-  } catch (error) {
+  if (!authResponse.access_token || !authResponse.refresh_token) {
+    throw new Error(
+      "Sign-in did not return the tokens needed to read your data. Please try again.",
+    );
+  }
+  const { error } = await supabase.auth.setSession({
+    access_token: authResponse.access_token,
+    refresh_token: authResponse.refresh_token,
+  });
+  if (error) {
     console.error("Failed to sync Supabase session:", error);
+    throw new Error(
+      "Signed in, but your data session could not be established. Please try signing in again.",
+    );
+  }
+}
+
+/** Is there a live Supabase session — the thing that actually authorises
+ *  reads? Answers false rather than throwing when Supabase is unreachable
+ *  or unconfigured, so callers treat "cannot tell" as "not authorised". */
+async function hasLiveSupabaseSession(): Promise<boolean> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return !!data.session?.access_token;
+  } catch {
+    return false;
   }
 }
 
@@ -273,7 +303,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const profile = await apiAuth.getCurrentUser();
             if (profile) {
               const storedUserJson = window.localStorage.getItem(STORAGE_KEY);
-              if (storedUserJson) {
+              // The backend recognised the token, but reads are authorised
+              // by Supabase — both must hold, or the session is only half
+              // restored and every query fails as anon.
+              const supabaseLive = await hasLiveSupabaseSession();
+              if (storedUserJson && supabaseLive) {
                 const storedUser = JSON.parse(storedUserJson) as CurrentUser;
                 setUser({
                   ...storedUser,
@@ -295,16 +329,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
           }
         }
-        // Fall back to a locally-stored session even when the API is
-        // configured, in case the stored-token verification above didn't
-        // already return (e.g. mock-mode sessions, which never mint a
-        // real backend token to begin with).
-        const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          setUser(JSON.parse(raw) as CurrentUser);
-          setStatus("authenticated");
-          return;
-        }
+        // Deliberately NO localStorage fallback when the API is configured.
+        //
+        // This fallback used to run unconditionally, so a stale
+        // mednova.pv.session blob was enough to mark the app
+        // "authenticated" with no Supabase session behind it. Every read
+        // then went out as anon and Postgres answered "permission denied
+        // for table pv_psur_documents" — a real user was shown a signed-in
+        // dashboard that could not load anything. The blob is a UI
+        // convenience; Supabase holds the authorisation, and only it can
+        // answer whether this person may read data.
+        //
+        // It remains correct for mock mode, which is handled in the branch
+        // above and never mints a Supabase session to begin with.
       } catch (error) {
         console.error("Failed to restore session:", error);
         // Clear invalid token
