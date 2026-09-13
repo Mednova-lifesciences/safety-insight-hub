@@ -298,7 +298,11 @@ describe("buildComplianceDirectiveModel — narrower, action-oriented, MAH-facin
       }),
       [],
     );
-    expect(mahFacing.regulatoryContext?.mahFacingActions).toEqual(["SUBMIT_UPDATE_RMP"]);
+    // Human wording now, not the stored constant — this letter goes to a
+    // Marketing Authorisation Holder.
+    expect(mahFacing.regulatoryContext?.mahFacingActions).toEqual([
+      "Submit or update Risk Management Plan (RMP)",
+    ]);
   });
 
   it("never presents an AI recommendation as the regulatory context — only the assessor's own decision", () => {
@@ -648,7 +652,11 @@ describe("Executive Summary and Compliance Directive stay consistent", () => {
     expect(exec.findings.mahActionCount).toBe(1);
     expect(dir.deficiencies).toHaveLength(1);
     // The same regulatory decision drives both.
-    expect(exec.regulatoryDecision?.overallOutcome).toBe(dir.regulatoryContext?.overallOutcome);
+    // The two documents must agree on the DECISION, but they render it for
+    // different readers: the internal summary keeps the stored value, the
+    // MAH-facing directive spells it out.
+    expect(exec.regulatoryDecision?.overallOutcome).toBe("UNCERTAIN_REQUIRES_FOLLOWUP");
+    expect(dir.regulatoryContext?.overallOutcome).toBe("Uncertain — requires follow-up");
     // The evaluator named in Section 13 is the one who signs the directive.
     expect(dir.signatory.evaluatorName).toBe(doc.signOff?.evaluatorName);
     // …but the directive never carries the internal confidence rating.
@@ -672,5 +680,80 @@ describe("Executive Summary and Compliance Directive stay consistent", () => {
     expect(exec.findings.accepted).toBe(1);
     expect(exec.findings.resolvedCount).toBe(1);
     expect(exec.findings.outstandingCount).toBe(0);
+  });
+});
+
+describe("the directive carries the assessor's reasoning, not just a verdict", () => {
+  const decided = (over: Record<string, unknown> = {}) =>
+    baseDoc({
+      regulatoryDecision: {
+        actions: ["REQUEST_ADDITIONAL_INFO_FROM_MAH"],
+        overallOutcome: "UNCERTAIN_REQUIRES_FOLLOWUP",
+        basis: "Two mandatory sections are absent.",
+        decidedBy: "A. Okafor",
+        decidedAt: "2026-09-12T09:00:00Z",
+      },
+      ...over,
+    } as never);
+
+  it("spells the outcome out instead of printing the stored constant", () => {
+    const m = buildComplianceDirectiveModel(decided(), []);
+    expect(m.regulatoryContext?.overallOutcome).toBe("Uncertain — requires follow-up");
+    expect(m.regulatoryContext?.overallOutcome).not.toMatch(/_/);
+  });
+
+  it("spells the requested actions out too", () => {
+    const m = buildComplianceDirectiveModel(decided(), []);
+    expect(m.regulatoryContext?.mahFacingActions).toEqual([
+      "Request additional information from MAH",
+    ]);
+  });
+
+  it("includes the Section 13 conclusion so the MAH can engage with the reasoning", () => {
+    // A bare outcome gives the MAH nothing to confirm or refute.
+    const m = buildComplianceDirectiveModel(
+      decided({
+        signOff: {
+          conclusion: "Benefit-risk cannot be confirmed for the Nigerian population this interval.",
+          reviewerConfidence: "LOW",
+          references: "r",
+        },
+      }),
+      [],
+    );
+    expect(m.regulatoryContext?.assessorConclusion).toContain("cannot be confirmed");
+  });
+
+  it("never synthesises a conclusion the assessor did not write", () => {
+    const m = buildComplianceDirectiveModel(decided(), []);
+    expect(m.regulatoryContext?.assessorConclusion).toBeNull();
+  });
+
+  it("still withholds the assessor's internal confidence rating", () => {
+    const m = buildComplianceDirectiveModel(
+      decided({
+        signOff: { conclusion: "c", reviewerConfidence: "LOW", references: "r" },
+      }),
+      [],
+    );
+    // Asserted on the field, not by scanning text: /LOW/i also matches the
+    // "low" inside "follow-up", which is legitimately in the outcome label.
+    expect(m.regulatoryContext).not.toHaveProperty("reviewerConfidence");
+    expect(Object.keys(m.regulatoryContext!)).not.toContain("reviewerConfidence");
+  });
+
+  it("attaches a clickable source to a deficiency whose category has one", () => {
+    const f = mahFinding({
+      humanAssessment: "ACCEPTED",
+      suggestedSource: { type: "PUBLISHED_LITERATURE", note: "Screen the literature." },
+    });
+    const m = buildComplianceDirectiveModel(baseDoc({ product: "Amlodipine" }), [f]);
+    expect(m.deficiencies[0]!.suggestedSource?.link?.url).toContain("pubmed.ncbi.nlm.nih.gov");
+  });
+
+  it("leaves the link null where no public endpoint applies", () => {
+    const f = mahFinding({ humanAssessment: "ACCEPTED" }); // REQUEST_FROM_MAH
+    const m = buildComplianceDirectiveModel(baseDoc(), [f]);
+    expect(m.deficiencies[0]!.suggestedSource?.link).toBeNull();
   });
 });

@@ -15,7 +15,9 @@ import {
   type PsurV4SectionId,
 } from "@/types/pv";
 import { isActionOwnerOverridden, requiresMahAction } from "./finding-ownership";
+import { label, OVERALL_OUTCOME_LABEL, RISK_MINIMISATION_ACTION_LABEL } from "./labels";
 import { buildAuthoritativeSectionCoverage } from "./section-consistency";
+import { buildSourceLink, type SourceLink } from "./source-links";
 
 /**
  * THE single, pure model both the Executive Summary and the Compliance
@@ -209,7 +211,11 @@ export interface ComplianceDeficiencyRow {
   whyMaterial: string;
   requiredAction: string;
   assessorObservation: string | null;
-  suggestedSource: { label: string; note: string } | null;
+  /** Where to look, plus a link that actually runs the search where a real
+   *  public endpoint exists for that category — see source-links.ts. Null
+   *  link for categories no external site can answer (asking the MAH,
+   *  reading the product's own RSI, patient/HCP feedback). */
+  suggestedSource: { label: string; note: string; link: SourceLink | null } | null;
   /** Present only when an assessor deliberately reassigned this finding to
    *  the MAH against the derivation — recorded so the directive shows a
    *  human made that call, never presenting it as a system classification. */
@@ -329,6 +335,12 @@ export interface ComplianceDirectiveModel {
     overallOutcome: string;
     mahFacingActions: string[];
     basis: string;
+    /** The assessor's own Section 13 conclusion. Without it the MAH is told
+     *  a verdict with no reasoning to engage with, which defeats the point
+     *  of a document whose purpose is to provoke a considered response —
+     *  they cannot confirm or refute a bare outcome. Null when the assessor
+     *  has not written one; never synthesised from the outcome. */
+    assessorConclusion: string | null;
     decidedBy: string;
     decidedAtLabel: string;
   } | null;
@@ -418,7 +430,11 @@ export function buildComplianceDirectiveModel(
       requiredAction: externalise(buildRequiredAction(f), f),
       assessorObservation: f.rationale?.trim() || null,
       suggestedSource: f.suggestedSource
-        ? { label: SUGGESTED_SOURCE_LABEL[f.suggestedSource.type], note: f.suggestedSource.note }
+        ? {
+            label: SUGGESTED_SOURCE_LABEL[f.suggestedSource.type],
+            note: f.suggestedSource.note,
+            link: buildSourceLink(f, doc.product),
+          }
         : null,
       ownershipOverride:
         isActionOwnerOverridden(f) && f.actionOwnerOverride
@@ -451,9 +467,14 @@ export function buildComplianceDirectiveModel(
     regulatoryContext:
       doc.regulatoryDecision && mahFacingActions.length > 0
         ? {
-            overallOutcome: doc.regulatoryDecision.overallOutcome ?? "Not yet determined",
-            mahFacingActions,
+            // Words, not the stored constant: this letter previously told a
+            // Marketing Authorisation Holder "UNCERTAIN_REQUIRES_FOLLOWUP".
+            overallOutcome: doc.regulatoryDecision.overallOutcome
+              ? label(OVERALL_OUTCOME_LABEL, doc.regulatoryDecision.overallOutcome)
+              : "Not yet determined",
+            mahFacingActions: mahFacingActions.map((a) => label(RISK_MINIMISATION_ACTION_LABEL, a)),
             basis: doc.regulatoryDecision.basis,
+            assessorConclusion: doc.signOff?.conclusion?.trim() || null,
             decidedBy: doc.regulatoryDecision.decidedBy,
             decidedAtLabel: fmtDate(doc.regulatoryDecision.decidedAt),
           }

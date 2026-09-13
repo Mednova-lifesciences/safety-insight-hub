@@ -55,6 +55,7 @@ import {
   buildAuthoritativeSectionCoverage,
   RECONCILIATION_EXCLUDED_SECTIONS,
 } from "@/services/psur/section-consistency";
+import { buildSourceLink } from "@/services/psur/source-links";
 import {
   deriveScreeningRecommendation,
   explainScreeningRecommendation,
@@ -608,6 +609,24 @@ function PsurPage() {
                               </span>
                               {" — "}
                               {f.suggestedSource.note}
+                              {(() => {
+                                // A link that actually runs the search, where a
+                                // real public endpoint exists for this category.
+                                const link = buildSourceLink(f, activeDoc.product);
+                                return link ? (
+                                  <>
+                                    {" "}
+                                    <a
+                                      href={link.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="font-medium underline underline-offset-2"
+                                    >
+                                      Search {link.site} for {link.what} →
+                                    </a>
+                                  </>
+                                ) : null;
+                              })()}
                             </p>
                           ) : null}
                           {f.humanAssessment === "ACCEPTED" ? (

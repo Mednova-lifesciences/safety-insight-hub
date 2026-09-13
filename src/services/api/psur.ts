@@ -61,6 +61,14 @@ import {
 } from "@/services/psur/document-model";
 import { derivedRequiresMahAction, requiresMahAction } from "@/services/psur/finding-ownership";
 import {
+  EVIDENCE_QUALITY_LABEL,
+  label,
+  OVERALL_OUTCOME_LABEL,
+  RISK_MINIMISATION_ACTION_LABEL,
+  UNCERTAINTY_CATEGORY_LABEL,
+} from "@/services/psur/labels";
+import { buildSourceLink } from "@/services/psur/source-links";
+import {
   buildNigerianRequirementFindings,
   nigerianExposureRequired,
 } from "@/services/psur/nigeria-requirements";
@@ -650,13 +658,66 @@ function renderExecutiveSummaryText(m: ExecutiveSummaryModel): string {
     lines.push(
       `Status: ${m.benefitRisk.assessorOwned ? "reviewed/edited by assessor" : "AI draft, not yet reviewed by assessor"}`,
     );
-    lines.push(`Key benefits recorded: ${b.keyBenefits.length}`);
+    // The assessor's actual Section 10 content, not a row count. This
+    // section IS the benefit-risk assessment; summarising it as four
+    // numbers discarded every judgement the assessor recorded.
+    lines.push("");
+    lines.push(`10.1 Key benefits (${b.keyBenefits.length})`);
+    if (b.keyBenefits.length === 0) lines.push("  None recorded.");
+    for (const k of b.keyBenefits) {
+      lines.push(`  - ${k.benefit || "(not stated)"}`);
+      lines.push(`      Evidence source: ${k.evidenceSource || "not stated"}`);
+      lines.push(`      Magnitude: ${k.magnitude || "not stated"}`);
+      lines.push(`      Evidence quality: ${label(EVIDENCE_QUALITY_LABEL, k.evidenceQuality)}`);
+    }
+
+    for (const kind of ["IDENTIFIED", "POTENTIAL"] as const) {
+      const rows = b.keyRisks.filter((k) => k.kind === kind);
+      const heading =
+        kind === "IDENTIFIED" ? "Important identified risks" : "Important potential risks";
+      lines.push("");
+      lines.push(`10.2 ${heading} (${rows.length})`);
+      if (rows.length === 0) lines.push("  None recorded.");
+      for (const k of rows) {
+        lines.push(`  - ${k.risk || "(not stated)"}`);
+        lines.push(`      Severity: ${k.severity || "not stated"}`);
+        lines.push(
+          `      Frequency: ${k.frequency || "not stated"}${k.frequencyDataSource ? ` (source: ${k.frequencyDataSource})` : " (data source not stated)"}`,
+        );
+        lines.push(`      Reversibility: ${k.reversibility || "not stated"}`);
+        lines.push(`      Duration: ${k.duration || "not stated"}`);
+        lines.push(
+          `      Preventability / risk management: ${k.preventabilityRiskManagement || "not stated"}`,
+        );
+        if (k.comment) lines.push(`      Comment: ${k.comment}`);
+      }
+    }
+
+    lines.push("");
+    lines.push(`10.2 Missing information (${b.missingInformation.length})`);
+    if (b.missingInformation.length === 0) lines.push("  None recorded.");
+    for (const mi of b.missingInformation) {
+      lines.push(`  - ${mi.missingInformation || "(not stated)"}`);
+      lines.push(
+        `      Risk-minimisation implication: ${mi.riskMinimisationImplication || "not stated"}`,
+      );
+    }
+
+    lines.push("");
+    lines.push(`10.3 Integrated benefit-risk effects table (${b.integratedEffectsTable.length})`);
+    if (b.integratedEffectsTable.length === 0) lines.push("  Not completed.");
+    for (const r of b.integratedEffectsTable) {
+      lines.push(`  ${r.dimension.replaceAll("_", " ")}`);
+      lines.push(`      Evidence and uncertainty: ${r.evidenceAndUncertainty || "not stated"}`);
+      lines.push(`      Reviewer conclusion: ${r.reviewerConclusion || "not stated"}`);
+    }
+
+    lines.push("");
     lines.push(
-      `Key risks recorded: ${b.keyRisks.length} (${b.keyRisks.filter((k) => k.kind === "IDENTIFIED").length} identified / ${b.keyRisks.filter((k) => k.kind === "POTENTIAL").length} potential)`,
+      `10.4 Patient/HCP perspective: ${b.patientHcpPerspective.available ? b.patientHcpPerspective.summary || "marked available but no summary recorded" : "not available for this interval"}`,
     );
-    lines.push(`Missing-information items: ${b.missingInformation.length}`);
     lines.push(
-      `Risk minimisation effectiveness: ${b.riskMinimisationEffectiveness.outcome}${b.riskMinimisationEffectiveness.comment ? ` — ${b.riskMinimisationEffectiveness.comment}` : ""}`,
+      `10.5 Risk minimisation effectiveness: ${b.riskMinimisationEffectiveness.outcome.replaceAll("_", " ").toLowerCase()}${b.riskMinimisationEffectiveness.comment ? ` — ${b.riskMinimisationEffectiveness.comment}` : ""}`,
     );
   } else {
     lines.push("Not yet recorded.");
@@ -672,9 +733,12 @@ function renderExecutiveSummaryText(m: ExecutiveSummaryModel): string {
   } else if (m.uncertainties.status === "RECORDED") {
     for (const u of m.uncertainties.items) {
       lines.push(
-        `  ${u.category.replaceAll("_", " ")} — impact: ${u.impactOnConclusion}, addressed by MAH: ${u.addressedByMah}`,
+        `  ${label(UNCERTAINTY_CATEGORY_LABEL, u.category)} — impact on conclusion: ${u.impactOnConclusion.toLowerCase()}, addressed by MAH: ${u.addressedByMah.toLowerCase()}`,
       );
       lines.push(`    ${u.description}`);
+      // The V4 template makes this rationale mandatory; dropping it left
+      // the summary asserting a judgement with its reasoning removed.
+      lines.push(`    Rationale: ${u.rationale?.trim() || "not recorded"}`);
     }
   } else {
     lines.push("Not yet recorded — Section 11 is still outstanding.");
@@ -690,8 +754,12 @@ function renderExecutiveSummaryText(m: ExecutiveSummaryModel): string {
   lines.push(rule);
   if (m.regulatoryDecision) {
     lines.push("Assessor's own decision (never AI-decided):");
-    lines.push(`  Overall outcome: ${m.regulatoryDecision.overallOutcome ?? "not set"}`);
-    lines.push(`  Actions: ${m.regulatoryDecision.actions.join(", ") || "none recorded"}`);
+    lines.push(
+      `  Overall outcome: ${label(OVERALL_OUTCOME_LABEL, m.regulatoryDecision.overallOutcome)}`,
+    );
+    lines.push(
+      `  Actions: ${m.regulatoryDecision.actions.map((a) => label(RISK_MINIMISATION_ACTION_LABEL, a)).join("; ") || "none recorded"}`,
+    );
     lines.push(`  Basis: ${m.regulatoryDecision.basis}`);
     lines.push(
       `  Specific safety/benefit-risk finding supporting the recommendation: ${
@@ -765,8 +833,14 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
     lines.push(`  Why this matters: ${d.whyMaterial}`);
     lines.push(`  Required action: ${d.requiredAction}`);
     if (d.assessorObservation) lines.push(`  Assessor observation: ${d.assessorObservation}`);
-    if (d.suggestedSource)
+    if (d.suggestedSource) {
       lines.push(`  Suggested source: ${d.suggestedSource.label} — ${d.suggestedSource.note}`);
+      if (d.suggestedSource.link) {
+        lines.push(
+          `    ${d.suggestedSource.link.site} — ${d.suggestedSource.link.what}: ${d.suggestedSource.link.url}`,
+        );
+      }
+    }
     if (d.ownershipOverride)
       lines.push(
         `  Referred to the MAH by assessor decision: ${d.ownershipOverride.by} on ${d.ownershipOverride.atLabel} — ${d.ownershipOverride.rationale}`,
@@ -780,6 +854,16 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
     lines.push(`Overall benefit-risk outcome: ${m.regulatoryContext.overallOutcome}`);
     lines.push(`Actions requested of the MAH: ${m.regulatoryContext.mahFacingActions.join(", ")}`);
     lines.push(`Basis: ${m.regulatoryContext.basis}`);
+    if (m.regulatoryContext.assessorConclusion) {
+      lines.push("");
+      lines.push("Assessor's conclusion:");
+      lines.push(m.regulatoryContext.assessorConclusion);
+      lines.push("");
+      lines.push(
+        "If the Marketing Authorisation Holder disagrees with any part of this assessment, " +
+          "the response should address the specific deficiencies above and the reasoning here.",
+      );
+    }
     lines.push(
       `Decided by: ${m.regulatoryContext.decidedBy} on ${m.regulatoryContext.decidedAtLabel}`,
     );
@@ -1049,7 +1133,10 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
                     cell(
                       d.requiredAction +
                         (d.suggestedSource
-                          ? `\n\nSuggested source: ${d.suggestedSource.label} — ${d.suggestedSource.note}`
+                          ? `\n\nSuggested source: ${d.suggestedSource.label} — ${d.suggestedSource.note}` +
+                            (d.suggestedSource.link
+                              ? `\n${d.suggestedSource.link.site} — ${d.suggestedSource.link.what}: ${d.suggestedSource.link.url}`
+                              : "")
                           : "") +
                         (d.assessorObservation
                           ? `\n\nAssessor observation: ${d.assessorObservation}`
@@ -1094,6 +1181,20 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
         text: `Actions requested of the MAH: ${m.regulatoryContext.mahFacingActions.join(", ")}`,
       }),
       new Paragraph({ text: `Basis: ${m.regulatoryContext.basis}` }),
+      ...(m.regulatoryContext.assessorConclusion
+        ? [
+            new Paragraph({
+              children: [new TextRun({ text: "Assessor's conclusion:", bold: true })],
+            }),
+            new Paragraph({ text: m.regulatoryContext.assessorConclusion }),
+            new Paragraph({
+              text:
+                "If the Marketing Authorisation Holder disagrees with any part of this " +
+                "assessment, the response should address the specific deficiencies above and " +
+                "the reasoning here.",
+            }),
+          ]
+        : []),
       new Paragraph({
         text: `Decided by: ${m.regulatoryContext.decidedBy} on ${m.regulatoryContext.decidedAtLabel}`,
       }),
