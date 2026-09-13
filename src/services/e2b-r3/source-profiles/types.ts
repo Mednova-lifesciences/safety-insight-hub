@@ -106,7 +106,33 @@ export interface SourceProfile {
   country: string;
   timezone: string;
   columnMap: ColumnMap;
+  /**
+   * How this source WRITES its reaction field — a property of the form,
+   * declared here, never inferred from the data.
+   *
+   *  - "CODED"    : the column holds local codes that mean nothing without
+   *                 this profile's codebook ("19", "28pains"). An entry
+   *                 that is not in the codebook must quarantine: guessing
+   *                 what a code means is how a wrong reaction reaches a
+   *                 regulator.
+   *  - "VERBATIM" : the column already holds the reaction as words
+   *                 ("Abscess", "Myalgia"). There is nothing to decode, so
+   *                 demanding a codebook lookup rejects every row of a
+   *                 perfectly good file.
+   *
+   * Defaults to "CODED" when a profile omits it, which preserves the
+   * existing behaviour of every profile written before this existed.
+   *
+   * Deliberately NOT auto-detected. "Is this a code or a word?" looks
+   * decidable until a source uses alphanumeric codes like "R19" or "AE-03",
+   * at which point sniffing would pass a raw code to a regulator as if it
+   * were the reaction itself. Only the person configuring the source knows,
+   * so only they may say.
+   */
+  reactionEncoding?: "CODED" | "VERBATIM" | undefined;
   reactionDelimiter: DelimiterConfig;
+  /** Only consulted when reactionEncoding is "CODED". A VERBATIM source
+   *  legitimately has no codebook at all. */
   reactionCodebook: ReactionCodebook;
   /** C.2.r.4 — free-text reporter designation (as it appears in the
    *  source, e.g. "CHEW") -> one of the five Appendix I(F) qualification

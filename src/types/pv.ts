@@ -287,6 +287,12 @@ export interface LineListJob {
   validCases: number;
   invalidCases: number;
   warnings: number;
+  /** Which SourceProfile decodes this job — see
+   *  services/e2b-r3/source-profiles/registry.ts. Absent on every job
+   *  uploaded before a profile could be chosen, which resolves to
+   *  "ondo-aefi": the only profile those jobs were ever processed against,
+   *  so reading them back keeps producing exactly what it always did. */
+  sourceProfileId?: string | undefined;
   /** Set once AI-assisted "Fix Issues" has actually applied at least one
    *  correction to this job's data. Absent until then — gates whether a
    *  "Download Fixed CSV" download has anything genuinely fixed to offer. */

@@ -27,12 +27,26 @@ import type { LineListIssue, LineListIssueType, LineListJob } from "@/types/pv";
  * does — this is not a new Ondo-specific branch, just reusing that
  * existing convention so the two paths stop disagreeing.
  */
+/** The profile every job used before one could be chosen. Jobs stored
+ *  without a sourceProfileId were only ever processed against this, so
+ *  defaulting to it keeps them decoding exactly as they always have. */
+export const DEFAULT_SOURCE_PROFILE_ID = "ondo-aefi";
+
 function resolveJobRuntimeProfile(job: {
   discardedRows?: { row: number; text: string }[];
   filename: string;
   sheetName?: string;
+  sourceProfileId?: string | undefined;
 }): SourceProfile {
-  const baseProfile = getSourceProfile("ondo-aefi");
+  // An unregistered id would throw from getSourceProfile and take the whole
+  // job down; a job is not worth losing over a stale profile reference, so
+  // fall back to the historical default and carry on.
+  let baseProfile: SourceProfile;
+  try {
+    baseProfile = getSourceProfile(job.sourceProfileId || DEFAULT_SOURCE_PROFILE_ID);
+  } catch {
+    baseProfile = getSourceProfile(DEFAULT_SOURCE_PROFILE_ID);
+  }
   const { runtimeProfile } = discoverAndApplyCodebook(baseProfile, job.discardedRows, {
     file: job.filename,
     sheet: job.sheetName,
@@ -1319,7 +1333,11 @@ export const linelist = {
       .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
   },
 
-  upload: async (file: File): Promise<LineListJob> => {
+  /** `sourceProfileId` names which SourceProfile decodes this file — most
+   *  importantly whether its reaction column holds local codes or plain
+   *  words. Defaults to the historical profile so an existing caller that
+   *  passes nothing behaves exactly as before. */
+  upload: async (file: File, sourceProfileId?: string): Promise<LineListJob> => {
     const actor = currentActor();
     let job: LineListJobRow;
 
@@ -1343,6 +1361,7 @@ export const linelist = {
         uploadedBy: actor.name,
         rows: parsedRows.length,
         stage: "UPLOADED",
+        sourceProfileId: sourceProfileId || DEFAULT_SOURCE_PROFILE_ID,
         validCases: 0,
         invalidCases: 0,
         warnings: 0,
