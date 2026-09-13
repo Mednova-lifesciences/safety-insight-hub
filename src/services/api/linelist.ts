@@ -234,7 +234,21 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["reactionevent", 85],
     ["adverseevent", 80],
     ["reactionterm", 80],
+    // The MedDRA/safety-database vocabulary for the same column. A CRO-style
+    // export headed "Reported Term" scored 0 of 3 rows valid on a live test:
+    // every row failed MISSING_REACTION while carrying Myalgia, Pyrexia and
+    // Urticaria, because none of the keywords above match "reportedterm".
+    // "Reported term" (verbatim, as the reporter wrote it) and "preferred
+    // term" (the coded MedDRA PT) are both standard names for this field.
+    ["reportedterm", 85],
+    ["verbatimterm", 85],
+    ["preferredterm", 80],
+    ["lowestlevelterm", 80],
+    ["eventterm", 80],
+    ["adversereaction", 80],
     ["aeterm", 70],
+    ["eventdescription", 60],
+    ["signsymptom", 60],
     ["reaction", 15],
     ["event", 10],
   ],
