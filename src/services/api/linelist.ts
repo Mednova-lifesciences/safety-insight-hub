@@ -1612,15 +1612,23 @@ export const linelist = {
         reason: string;
       }[] = [];
       let aiMappingUsed = false;
-      try {
-        const proposed = await ai.linelist.mapColumns({ headers, rows: rawRows });
-        proposals = proposed.proposals;
-        aiMappingUsed = proposed.ai_used;
-      } catch {
-        // Never fails an upload. The endpoint already answers 200 with
-        // ai_used:false for its own failures; this catches the layer below
-        // it (backend unreachable, request aborted) with the same outcome.
-        aiMappingUsed = false;
+      // One retry, because the observed failure is transient: a live upload
+      // hit a single 401 when the request went out against a session token
+      // that was mid-refresh, and silently fell back to keyword mapping.
+      // Two attempts is the whole budget — this sits in the upload path.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const proposed = await ai.linelist.mapColumns({ headers, rows: rawRows });
+          proposals = proposed.proposals;
+          aiMappingUsed = proposed.ai_used;
+          break;
+        } catch {
+          // Never fails an upload. The endpoint already answers 200 with
+          // ai_used:false for its own failures; this catches the layer
+          // below it (backend unreachable, token refresh, request aborted)
+          // with the same outcome.
+          aiMappingUsed = false;
+        }
       }
       const decision = mergeColumnMapping(keywordMapping, proposals, aiMappingUsed);
       const mapping = decision.mapping;

@@ -512,6 +512,9 @@ function ColumnMappingPanel({ job }: { job: LineListJob }) {
   const source = (job as { mappingSource?: Record<string, string> }).mappingSource ?? {};
   const notes = (job as { mappingNotes?: Record<string, string> }).mappingNotes ?? {};
   const columns = (job as { columns?: string[] }).columns ?? [];
+  // Absent (rather than false) on jobs uploaded before the AI pass existed
+  // — those are not claimed to have degraded, they simply predate it.
+  const aiUsed = (job as { mappingAiUsed?: boolean }).mappingAiUsed;
   if (!mapping || columns.length === 0) return null;
 
   const unmapped = columns.filter((c) => !mapping[c]);
@@ -551,6 +554,14 @@ function ColumnMappingPanel({ job }: { job: LineListJob }) {
           </tbody>
         </table>
       </div>
+      {aiUsed === false ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          The AI reading of these headers was unavailable for this upload, so the columns were
+          matched by keyword only. Keyword matching recognises the header spellings it has been
+          taught and no others, so a column may be unmapped here that would otherwise have been
+          understood — re-upload the file to try again.
+        </p>
+      ) : null}
       {unmapped.length > 0 ? (
         <p className="mt-3 text-xs text-muted-foreground">
           {unmapped.length} column{unmapped.length === 1 ? "" : "s"} could not be matched to a
