@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AI_OUTCOME_CONFIDENCE_FLOOR,
   acceptOutcomeProposals,
+  decideOutcomeTerm,
   normaliseOutcomeKey,
   withOutcomeVocabulary,
   type OutcomeVocabulary,
@@ -118,5 +119,44 @@ describe("withOutcomeVocabulary", () => {
   it("an empty vocabulary returns the profile untouched", () => {
     expect(withOutcomeVocabulary(base, {})).toBe(base);
     expect(withOutcomeVocabulary(base, undefined)).toBe(base);
+  });
+});
+
+describe("decideOutcomeTerm — a person answers what the model may not", () => {
+  const key = normaliseOutcomeKey("Passed away at home");
+  const base: OutcomeVocabulary = {
+    [key]: {
+      term: "Passed away at home",
+      outcome: "FATAL",
+      confidence: 0.99,
+      reason: "The term explicitly states that the patient died.",
+      requiresConfirmation: true,
+    },
+  };
+
+  it("confirming is what actually lets the outcome through", () => {
+    const after = decideOutcomeTerm(base, key, { accept: true, actor: "A. Coordinator" });
+    expect(after[key]!.requiresConfirmation).toBeUndefined();
+    expect(after[key]!.confirmedBy).toBe("A. Coordinator");
+    expect(after[key]!.confirmedAt).toBeTruthy();
+    const profile = withOutcomeVocabulary(getSourceProfile("ondo-aefi"), after);
+    expect(mapConceptToOutcome("Passed away at home", profile)).toBe("FATAL");
+  });
+
+  it("rejecting keeps the term on record, unapplied and never re-proposed", () => {
+    const after = decideOutcomeTerm(base, key, { accept: false, actor: "A. Coordinator" });
+    expect(after[key]!.rejected).toBe(true);
+    expect(after[key]!.requiresConfirmation).toBeUndefined();
+    const profile = withOutcomeVocabulary(getSourceProfile("ondo-aefi"), after);
+    expect(mapConceptToOutcome("Passed away at home", profile)).toBeUndefined();
+  });
+
+  it("does not mutate the vocabulary it was given", () => {
+    decideOutcomeTerm(base, key, { accept: true, actor: "A" });
+    expect(base[key]!.requiresConfirmation).toBe(true);
+  });
+
+  it("a term that is no longer there is a no-op, not a crash", () => {
+    expect(decideOutcomeTerm(base, "NOSUCHTERM", { accept: true, actor: "A" })).toBe(base);
   });
 });
