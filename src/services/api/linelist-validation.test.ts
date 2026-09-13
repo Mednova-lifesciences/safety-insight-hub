@@ -865,3 +865,44 @@ describe("the onset-date derivation is source-agnostic, not Ondo-specific", () =
     }
   });
 });
+
+describe("standard MedDRA/safety-database reaction vocabulary maps", () => {
+  // A CRO-style export headed "Reported Term" scored 0 of 3 rows valid on a
+  // live test: every row failed MISSING_REACTION while carrying Myalgia,
+  // Pyrexia and Urticaria, because no keyword matched "reportedterm".
+  it.each([
+    ["Reported Term", "the verbatim term as the reporter wrote it"],
+    ["Verbatim Term", "the same field under another common name"],
+    ["Preferred Term", "the coded MedDRA PT"],
+    ["Lowest Level Term", "the MedDRA LLT"],
+    ["Event Term", "a plain-language variant"],
+    ["Adverse Reaction", "the regulatory phrasing"],
+    ["Reaction/Event (MedDRA)", "the E2B element name"],
+    ["AE Term", "the trial-listing abbreviation"],
+  ])("maps %s (%s)", (header) => {
+    const mapping = mapColumnsByKeywords([header, "Case ID"], FIELD_KEYWORDS);
+    expect(mapping[header]).toBe("reaction");
+  });
+
+  it("a reaction column no longer leaves every row failing MISSING_REACTION", () => {
+    const headers = ["Subject ID", "Reported Term", "Study Product"];
+    const mapping = mapColumnsByKeywords(headers, FIELD_KEYWORDS);
+    const issues = runValidation(
+      headers,
+      mapping,
+      [{ case_id: "T1", reaction: "Myalgia", product: "Vax-1" }],
+      undefined,
+    );
+    expect(issues.some((i) => i.code === "MISSING_REACTION")).toBe(false);
+  });
+
+  it("does not steal a column that belongs to another field", () => {
+    // "Preferred Term" must not out-compete a real product column, and a
+    // reaction CODE column stays with reaction_code.
+    const headers = ["Drug name (WHODrug)", "Preferred Term", "Reaction Code"];
+    const mapping = mapColumnsByKeywords(headers, FIELD_KEYWORDS);
+    expect(mapping["Drug name (WHODrug)"]).toBe("product");
+    expect(mapping["Preferred Term"]).toBe("reaction");
+    expect(mapping["Reaction Code"]).toBe("reaction_code");
+  });
+});
