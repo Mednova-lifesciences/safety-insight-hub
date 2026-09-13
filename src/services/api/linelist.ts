@@ -216,6 +216,9 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["reportid", 80],
     ["reportno", 80],
     ["reportnumber", 80],
+    // "Case Ref" is a common spelling that "reference" does not match, so
+    // the column went unmapped and every row generated a fallback case id.
+    ["caseref", 85],
     ["reference", 40],
     // Deliberately no bare "case" fallback: real AEFI forms routinely use
     // "case" inside unrelated headers ("If serious case select...", "Type
@@ -269,6 +272,13 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
   onset_date: [
     ["onsetdatetime", 90],
     ["onsetdate", 85],
+    // "Date of Onset" / "Date of Symptom Onset" — as common as "Onset Date"
+    // and matched by none of the keywords, which put MISSING_ONSET_DATE on
+    // every row of files that plainly stated one. Both need their own
+    // literal substring, so neither can catch the "Onset Time interval"
+    // duration column the note below is about.
+    ["dateofonset", 90],
+    ["dateofsymptomonset", 90],
     ["eventdate", 60],
     ["datestarted", 60],
     ["startdate", 30],
@@ -379,6 +389,13 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["reporterphone", 90],
     ["telephonenumber", 65],
     ["phonenumber", 70],
+    ["contactnumber", 70],
+    ["mobilenumber", 70],
+    // "Reporter Contact" is genuinely ambiguous — some forms put a name
+    // there — so it scores below every explicit phone keyword and only wins
+    // when nothing better exists. A name landing here is a MEDIUM advisory
+    // (INVALID_REPORTER_PHONE), never a blocked case.
+    ["reportercontact", 60],
     ["telephone", 60],
     ["phone", 30],
   ],

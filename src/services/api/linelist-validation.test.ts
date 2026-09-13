@@ -1047,6 +1047,38 @@ describe("a coded source with no codebook is caught during line-list processing"
     expect(issues.some((i) => i.code === "REACTION_CODEBOOK_MISSING")).toBe(false);
   });
 
+  it("ordinary header spellings on a non-Ondo file all find their field", () => {
+    // Every one of these appeared on a real generic line list and mapped to
+    // nothing, so the file reported a missing case id, a missing onset date
+    // and a missing reporter phone that were all present in the file.
+    const expected: Record<string, TargetField> = {
+      "Case Ref": "case_id",
+      "Case Reference": "case_id",
+      "Date of Onset": "onset_date",
+      "Date of Symptom Onset": "onset_date",
+      "Reporter Contact": "reporter_phone",
+      "Contact Number": "reporter_phone",
+    };
+    for (const [header, field] of Object.entries(expected)) {
+      expect(mapColumnsByKeywords([header], FIELD_KEYWORDS)[header]).toBe(field);
+    }
+  });
+
+  it('"Onset Time interval (hours, days, weeks)" is still a duration, not a date', () => {
+    // The guard the onset_date keyword list exists for: a duration column
+    // mapped into onset_date tripped INVALID_DATE_FORMAT on every row.
+    const header = "Onset Time interval (hours, days, weeks)";
+    expect(mapColumnsByKeywords([header], FIELD_KEYWORDS)[header]).toBe("onset_interval");
+  });
+
+  it('"Severity" is deliberately NOT read as seriousness', () => {
+    // Severity (mild/moderate/severe) is intensity; seriousness is the
+    // regulatory criterion. Mapping one to the other would let "Severe" be
+    // recorded as a serious case, which is a reporting error, not a
+    // convenience. The column is left unmapped on purpose.
+    expect(mapColumnsByKeywords(["Severity"], FIELD_KEYWORDS)["Severity"]).toBeUndefined();
+  });
+
   it("a genuinely absent reaction still reports as missing", () => {
     const issues = runValidation(
       ["Case ID", "Reaction"],
