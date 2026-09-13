@@ -771,6 +771,11 @@ export function runValidation(
     const rowNum = idx + 1;
 
     (["patient_identifier", "product", "reaction"] as const).forEach((field) => {
+      // A row that supplies its reaction as a CODE has supplied it. Saying
+      // "reaction is required" there is simply wrong, and it masks the real
+      // problem — that the code cannot be decoded without a codebook, which
+      // the dedicated check below reports properly.
+      if (field === "reaction" && !row.reaction && row.reaction_code) return;
       if (!row[field]) {
         issues.push({
           row: rowNum,
@@ -1071,7 +1076,11 @@ export function runValidation(
       }
     }
 
-    if (mappedFields.has("reaction_code") && row.reaction_code) {
+    // A VERBATIM source writes its reactions as words, so it has no codes to
+    // decode and no codebook to be missing. Demanding one would block every
+    // row of exactly the files the verbatim path exists to support.
+    const sourceIsCoded = runtimeProfile.reactionEncoding !== "VERBATIM";
+    if (sourceIsCoded && mappedFields.has("reaction_code") && row.reaction_code) {
       const codes = row.reaction_code
         .split(/[,&]|\bAND\b/i)
         .map((c) => c.trim())
@@ -1082,12 +1091,42 @@ export function runValidation(
       // (it happened to match Ondo's real 28-item legend, but a
       // differently-sized codebook, or none at all, would make it wrong
       // in both directions). When no codebook has been discovered at all,
-      // fall back to a generic "looks like a numeric code" shape check.
+      // the code cannot be judged at all — see the block immediately below.
       const codebookEntries = runtimeProfile.reactionCodebook.entries;
       const hasCodebook = Object.keys(codebookEntries).length > 0;
-      const invalid =
-        codes.length === 0 ||
-        codes.some((c) => (hasCodebook ? !codebookEntries[c.toUpperCase()] : !/^\d{1,3}$/.test(c)));
+
+      // No codebook at all is a different, worse problem than an
+      // unrecognised code, and it used to pass silently: the fallback only
+      // checked that the value LOOKED like a number, so "19" sailed through
+      // line-list validation and the file was not blocked until E2B
+      // preflight, long after the assessor had moved on. A code with nothing
+      // to decode it against carries no meaning this system can act on, so
+      // it is reported here, in the place the work is being done, and says
+      // what would actually resolve it.
+      if (!hasCodebook) {
+        issues.push({
+          row: rowNum,
+          column: col("reaction_code"),
+          severity: "CRITICAL",
+          confidence: "HIGH",
+          code: "REACTION_CODEBOOK_MISSING",
+          message:
+            `Reaction is recorded as the code "${row.reaction_code}", but no reaction codebook ` +
+            `is available for the selected source form ("${runtimeProfile.name}"), so the code ` +
+            `cannot be decoded. Supply this form's official code legend, or — if this file ` +
+            `actually writes its reactions as words — re-upload it choosing a source form that ` +
+            `reads reactions as text. The code is never guessed at.`,
+          value: row.reaction_code,
+          source: "rule",
+          sources: ["rule"],
+          issueType: "FIELD_VALUE_INVALID",
+          affectedFields: ["reaction_code"],
+          fixable: false,
+        });
+        return;
+      }
+
+      const invalid = codes.length === 0 || codes.some((c) => !codebookEntries[c.toUpperCase()]);
       if (invalid) {
         issues.push({
           row: rowNum,
@@ -1095,9 +1134,7 @@ export function runValidation(
           severity: "HIGH",
           confidence: "HIGH",
           code: "INVALID_REACTION_CODE",
-          message: hasCodebook
-            ? `"${row.reaction_code}" is not recognised by the active source profile's reaction codebook.`
-            : `"${row.reaction_code}" does not look like a valid coded reaction value.`,
+          message: `"${row.reaction_code}" is not recognised by the active source profile's reaction codebook.`,
           value: row.reaction_code,
           source: "rule",
           sources: ["rule"],
