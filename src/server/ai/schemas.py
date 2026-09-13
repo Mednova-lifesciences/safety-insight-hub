@@ -132,6 +132,34 @@ class AiLineListAdversarialReview(BaseModel):
     findings: list[AiLineListFinding]
 
 
+class AiColumnMappingProposal(BaseModel):
+    """One column of an uploaded line list, and the canonical field the
+    model believes it holds. `field` is deliberately Optional: "I do not
+    know what this column is" is a correct and useful answer, and far
+    better than a plausible-looking wrong field. The frontend rejects any
+    field name outside its own canonical list, so a hallucinated field
+    name degrades to "unmapped" rather than corrupting the mapping."""
+
+    column: str
+    field: Optional[str] = None
+    # 0..1. The frontend applies its own floor before accepting a proposal
+    # and falls back to the deterministic keyword match below that.
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Shown to the reviewer in the Map columns step and recorded on the
+    # job, so an AI-chosen mapping can be understood and overruled rather
+    # than merely trusted.
+    reason: str = ""
+
+
+class AiColumnMapping(BaseModel):
+    """Required, not defaulted, for the same reason as
+    AiLineListAnalysis.findings — a response missing the key entirely means
+    the model ignored the schema, which must fall back to the keyword
+    mapping rather than read as "no column matched anything"."""
+
+    proposals: list[AiColumnMappingProposal]
+
+
 class AiLineListCorrection(BaseModel):
     row: int
     column: str

@@ -4,6 +4,7 @@ import { mapColumnsByKeywords } from "./tabular-parse";
 import { parseTabularFile } from "./tabular-parse";
 import {
   FIELD_KEYWORDS,
+  mergeColumnMapping,
   mergeFindings,
   runValidation,
   deriveOnsetDate,
@@ -1047,6 +1048,38 @@ describe("a coded source with no codebook is caught during line-list processing"
     expect(issues.some((i) => i.code === "REACTION_CODEBOOK_MISSING")).toBe(false);
   });
 
+  it("ordinary header spellings on a non-Ondo file all find their field", () => {
+    // Every one of these appeared on a real generic line list and mapped to
+    // nothing, so the file reported a missing case id, a missing onset date
+    // and a missing reporter phone that were all present in the file.
+    const expected: Record<string, TargetField> = {
+      "Case Ref": "case_id",
+      "Case Reference": "case_id",
+      "Date of Onset": "onset_date",
+      "Date of Symptom Onset": "onset_date",
+      "Reporter Contact": "reporter_phone",
+      "Contact Number": "reporter_phone",
+    };
+    for (const [header, field] of Object.entries(expected)) {
+      expect(mapColumnsByKeywords([header], FIELD_KEYWORDS)[header]).toBe(field);
+    }
+  });
+
+  it('"Onset Time interval (hours, days, weeks)" is still a duration, not a date', () => {
+    // The guard the onset_date keyword list exists for: a duration column
+    // mapped into onset_date tripped INVALID_DATE_FORMAT on every row.
+    const header = "Onset Time interval (hours, days, weeks)";
+    expect(mapColumnsByKeywords([header], FIELD_KEYWORDS)[header]).toBe("onset_interval");
+  });
+
+  it('"Severity" is deliberately NOT read as seriousness', () => {
+    // Severity (mild/moderate/severe) is intensity; seriousness is the
+    // regulatory criterion. Mapping one to the other would let "Severe" be
+    // recorded as a serious case, which is a reporting error, not a
+    // convenience. The column is left unmapped on purpose.
+    expect(mapColumnsByKeywords(["Severity"], FIELD_KEYWORDS)["Severity"]).toBeUndefined();
+  });
+
   it("a genuinely absent reaction still reports as missing", () => {
     const issues = runValidation(
       ["Case ID", "Reaction"],
@@ -1055,5 +1088,79 @@ describe("a coded source with no codebook is caught during line-list processing"
       VERBATIM,
     );
     expect(issues.some((i) => i.code === "MISSING_REACTION")).toBe(true);
+  });
+});
+
+
+describe("mergeColumnMapping — AI reads the headers, guards keep it honest", () => {
+  const p = (column: string, field: string | null, confidence = 0.9, reason = "because") => ({
+    column,
+    field,
+    confidence,
+    reason,
+  });
+
+  it("an AI proposal beats the keyword match on the same column", () => {
+    // The real failure this exists for: "Adverse Drug Reaction" contains
+    // "drug", so the keyword table mapped the REACTION column to product.
+    const keyword: Record<string, TargetField> = { "Adverse Drug Reaction": "product" };
+    const out = mergeColumnMapping(keyword, [p("Adverse Drug Reaction", "reaction")], true);
+    expect(out.mapping["Adverse Drug Reaction"]).toBe("reaction");
+    expect(out.source["Adverse Drug Reaction"]).toBe("ai");
+    expect(out.notes["Adverse Drug Reaction"]).toBe("because");
+  });
+
+  it("maps the wordings no substring table will ever hold", () => {
+    const out = mergeColumnMapping(
+      {},
+      [p("What happened", "reaction"), p("Presenting Complaint", "reaction", 0.7)],
+      true,
+    );
+    // Both claim `reaction`; the surer one takes it, the other is left for
+    // a human rather than forced somewhere.
+    expect(out.mapping["What happened"]).toBe("reaction");
+    expect(out.mapping["Presenting Complaint"]).toBeUndefined();
+  });
+
+  it("NEVER lets a severity column become seriousness, whatever the model says", () => {
+    const out = mergeColumnMapping({}, [p("Severity", "seriousness", 0.99)], true);
+    expect(out.mapping["Severity"]).toBeUndefined();
+  });
+
+  it("rejects a field name this app does not have", () => {
+    const out = mergeColumnMapping({}, [p("Ward", "hospital_ward", 0.99)], true);
+    expect(out.mapping["Ward"]).toBeUndefined();
+  });
+
+  it("disregards a low-confidence guess and keeps the keyword match", () => {
+    const keyword: Record<string, TargetField> = { Outcome: "outcome" };
+    const out = mergeColumnMapping(keyword, [p("Outcome", "seriousness", 0.4)], true);
+    expect(out.mapping["Outcome"]).toBe("outcome");
+    expect(out.source["Outcome"]).toBe("rule");
+  });
+
+  it("a column the model declines keeps its keyword field", () => {
+    const keyword: Record<string, TargetField> = { "Onset Date": "onset_date" };
+    const out = mergeColumnMapping(keyword, [p("Onset Date", null)], true);
+    expect(out.mapping["Onset Date"]).toBe("onset_date");
+    expect(out.source["Onset Date"]).toBe("rule");
+  });
+
+  it("with AI unavailable the mapping is exactly the keyword mapping", () => {
+    const keyword: Record<string, TargetField> = { Reaction: "reaction", Sex: "sex" };
+    const out = mergeColumnMapping(keyword, [], false);
+    expect(out.mapping).toEqual(keyword);
+    expect(out.aiUsed).toBe(false);
+    expect(Object.values(out.source).every((v) => v === "rule")).toBe(true);
+  });
+
+  it("never lets two columns claim one field", () => {
+    const out = mergeColumnMapping(
+      { "Vaccine Given": "product" },
+      [p("Suspect Product", "product", 0.95)],
+      true,
+    );
+    expect(out.mapping["Suspect Product"]).toBe("product");
+    expect(out.mapping["Vaccine Given"]).toBeUndefined();
   });
 });

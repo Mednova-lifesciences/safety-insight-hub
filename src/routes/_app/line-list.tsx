@@ -27,6 +27,7 @@ import {
   StatusPill,
 } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
+import type { LineListJob } from "@/types/pv";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/line-list")({
@@ -290,6 +291,8 @@ function LineListPage() {
           </QueryBoundary>
         </Section>
 
+        {activeJob ? <ColumnMappingPanel job={activeJob} /> : null}
+
         {activeJob ? (
           <Section
             title={`Validation issues — ${activeJob.filename}`}
@@ -491,5 +494,71 @@ function LineListPage() {
         ) : null}
       </div>
     </>
+  );
+}
+
+/** How each of this file's columns was understood, and by what.
+ *
+ * The deterministic keyword matcher only knows the header spellings it has
+ * been taught — measured against 33 plausible names for a reaction column
+ * it matched 9 — so a model reads the headers too and wins where it is
+ * confident. That makes "which column is the reaction?" an answer someone
+ * should be able to see and disagree with, rather than an invisible
+ * decision, so every AI-decided column is labelled as such and carries the
+ * model's reason.
+ */
+function ColumnMappingPanel({ job }: { job: LineListJob }) {
+  const mapping = (job as { mapping?: Record<string, string> }).mapping;
+  const source = (job as { mappingSource?: Record<string, string> }).mappingSource ?? {};
+  const notes = (job as { mappingNotes?: Record<string, string> }).mappingNotes ?? {};
+  const columns = (job as { columns?: string[] }).columns ?? [];
+  if (!mapping || columns.length === 0) return null;
+
+  const unmapped = columns.filter((c) => !mapping[c]);
+
+  return (
+    <Section
+      title="Column mapping"
+      description="Which field each column of the uploaded file was read as. Columns decided by the AI pass are marked; everything else was matched by keyword."
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase text-muted-foreground">
+              <th className="py-2 pr-4">Column in file</th>
+              <th className="py-2 pr-4">Read as</th>
+              <th className="py-2 pr-4">Decided by</th>
+              <th className="py-2">Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            {columns.map((column) => (
+              <tr key={column} className="border-t border-border/60 align-top">
+                <td className="py-2 pr-4 font-medium">{column}</td>
+                <td className="py-2 pr-4">
+                  {mapping[column] ? (
+                    <code className="mono-num">{mapping[column]}</code>
+                  ) : (
+                    <span className="text-muted-foreground">not mapped</span>
+                  )}
+                </td>
+                <td className="py-2 pr-4">
+                  {mapping[column] ? (source[column] === "ai" ? "AI" : "Keyword") : "—"}
+                </td>
+                <td className="py-2 text-muted-foreground">{notes[column] ?? ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {unmapped.length > 0 ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {unmapped.length} column{unmapped.length === 1 ? "" : "s"} could not be matched to a
+          field, so nothing in {unmapped.length === 1 ? "it" : "them"} is validated or exported. An
+          unmapped column is reported rather than guessed at — tell us what it holds and it can be
+          added.
+        </p>
+      ) : null}
+    </Section>
   );
 }

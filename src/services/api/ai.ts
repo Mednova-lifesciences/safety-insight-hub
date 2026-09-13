@@ -42,6 +42,23 @@ export interface AiAnalyzeResponse {
   error?: string | null;
 }
 
+export interface AiColumnMappingProposal {
+  column: string;
+  /** null/absent is a legitimate answer — "I don't know what this column
+   *  is" beats a plausible-looking wrong field. */
+  field?: string | null;
+  confidence: number;
+  reason: string;
+}
+
+export interface AiMapColumnsResponse {
+  proposals: AiColumnMappingProposal[];
+  ai_used: boolean;
+  prompt_version: string;
+  model?: string | null;
+  error?: string | null;
+}
+
 export interface AiCorrection {
   row: number;
   column: string;
@@ -375,6 +392,11 @@ export const ai = {
       rows: Record<string, string>[];
       issues: unknown[];
     }) => apiRequest<AiFixResponse>("/api/ai/linelist/fix", { method: "POST", body }),
+    mapColumns: (body: { headers: string[]; rows: Record<string, string>[] }) =>
+      apiRequest<AiMapColumnsResponse>("/api/ai/linelist/map-columns", {
+        method: "POST",
+        body,
+      }),
   },
 
   psur: {

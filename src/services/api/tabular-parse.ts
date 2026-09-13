@@ -417,7 +417,14 @@ export function mapColumnsByKeywords<TField extends string>(
   const fields = Object.keys(fieldKeywords) as TField[];
   const candidates: { header: string; field: TField; score: number }[] = [];
   for (const header of headers) {
-    const h = header.toLowerCase().replace(/[^a-z0-9]/g, "");
+    // Fold diacritics before stripping, or "Réaction" becomes "raction"
+    // and matches nothing — the accented spellings are ordinary on
+    // francophone WHO/AFRO forms.
+    const h = header
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9]/g, "");
     for (const field of fields) {
       let best = 0;
       for (const [keyword, weight] of fieldKeywords[field]) {

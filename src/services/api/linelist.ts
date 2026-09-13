@@ -129,6 +129,16 @@ export type ParsedRow = Partial<Record<TargetField, string>>;
 interface LineListJobRow extends LineListJob {
   columns?: string[];
   mapping?: Record<string, TargetField>;
+  /** Which decided each column's field — the model or the keyword matcher.
+   *  Recorded per column so the Map columns step and the audit trail can
+   *  show an AI-chosen mapping as AI-chosen, the same rule/ai distinction
+   *  findings already carry. Absent on jobs uploaded before this existed,
+   *  which is read as entirely rule-mapped. */
+  mappingSource?: Record<string, "ai" | "rule">;
+  /** The model's one-line reason for each column it decided, so a reviewer
+   *  can judge the mapping rather than only accept it. */
+  mappingNotes?: Record<string, string>;
+  mappingAiUsed?: boolean;
   parsedRows?: ParsedRow[];
   /** Every original column, keyed by its real header text, for every row
    *  — unlike parsedRows, nothing outside the canonical fields is dropped.
@@ -216,6 +226,9 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["reportid", 80],
     ["reportno", 80],
     ["reportnumber", 80],
+    // "Case Ref" is a common spelling that "reference" does not match, so
+    // the column went unmapped and every row generated a fallback case id.
+    ["caseref", 85],
     ["reference", 40],
     // Deliberately no bare "case" fallback: real AEFI forms routinely use
     // "case" inside unrelated headers ("If serious case select...", "Type
@@ -261,14 +274,44 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["eventterm", 80],
     ["adversereaction", 80],
     ["aeterm", 70],
+    // "Adverse Drug Reaction" previously mapped to PRODUCT, because it
+    // contains "drug" — the reaction column read as the medicine, and the
+    // reaction field left empty. That is the dangerous class of mistake (a
+    // wrong field, not an absent one), so it outranks everything.
+    ["adversedrugreaction", 95],
+    ["adr", 50],
+    ["sideeffect", 85],
+    ["adverseeffect", 85],
+    ["untowardeffect", 85],
+    ["manifestation", 70],
     ["eventdescription", 60],
     ["signsymptom", 60],
+    // Broader than "signsymptom", which missed the bare "Symptoms" and
+    // "Signs and Symptoms" spellings. Stays below onset_date's
+    // "dateofsymptomonset" (90), so a symptom-onset DATE column is still a
+    // date.
+    ["symptom", 60],
+    ["complaint", 60],
+    ["complication", 60],
     ["reaction", 15],
+    // Bottom tier, alongside the bare "reaction"/"event" fallbacks. Written
+    // first as a bare "effect", which promptly mapped "Effective Date" to
+    // the reaction column — the exact class of mistake a substring table
+    // keeps making. Anchored to the two real spellings instead.
+    ["effects", 15],
+    ["sideeffect", 15],
     ["event", 10],
   ],
   onset_date: [
     ["onsetdatetime", 90],
     ["onsetdate", 85],
+    // "Date of Onset" / "Date of Symptom Onset" — as common as "Onset Date"
+    // and matched by none of the keywords, which put MISSING_ONSET_DATE on
+    // every row of files that plainly stated one. Both need their own
+    // literal substring, so neither can catch the "Onset Time interval"
+    // duration column the note below is about.
+    ["dateofonset", 90],
+    ["dateofsymptomonset", 90],
     ["eventdate", 60],
     ["datestarted", 60],
     ["startdate", 30],
@@ -379,6 +422,13 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["reporterphone", 90],
     ["telephonenumber", 65],
     ["phonenumber", 70],
+    ["contactnumber", 70],
+    ["mobilenumber", 70],
+    // "Reporter Contact" is genuinely ambiguous — some forms put a name
+    // there — so it scores below every explicit phone keyword and only wins
+    // when nothing better exists. A name landing here is a MEDIUM advisory
+    // (INVALID_REPORTER_PHONE), never a blocked case.
+    ["reportercontact", 60],
     ["telephone", 60],
     ["phone", 30],
   ],
@@ -386,6 +436,111 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
 
 function mapColumns(headers: string[]): Record<string, TargetField> {
   return mapColumnsByKeywords(headers, FIELD_KEYWORDS);
+}
+
+/** Below this, an AI proposal is disregarded and the keyword match stands.
+ *  A low-confidence proposal is a guess, and a guess that silently
+ *  mislabels a column is worse than a column nobody mapped. */
+export const AI_MAPPING_CONFIDENCE_FLOOR = 0.6;
+
+/** Where each column's field came from, so the Map columns step and the
+ *  audit trail can show an AI-chosen mapping as AI-chosen — the same
+ *  rule/ai distinction findings already carry — instead of presenting it
+ *  as if the deterministic matcher had decided it. */
+export interface ColumnMappingDecision {
+  mapping: Record<string, TargetField>;
+  source: Record<string, "ai" | "rule">;
+  /** The model's one-line reason, per column it decided. */
+  notes: Record<string, string>;
+  aiUsed: boolean;
+}
+
+const TARGET_FIELD_SET = new Set<string>(TARGET_FIELDS);
+
+/**
+ * Combines the deterministic keyword mapping with the model's proposals.
+ *
+ * The keyword matcher works on header substrings, so it only knows the
+ * spellings it has been taught: measured against 33 plausible names for a
+ * reaction column it matched 9, and mapped "Adverse Drug Reaction" to
+ * PRODUCT because the header contains "drug". Reading a header is a
+ * language problem, and that is what the model is for.
+ *
+ * So a proposal WINS over the keyword match — including on columns the
+ * keywords did map — subject to guards that no model output can override:
+ *
+ *  - the field must be one this app actually has (a hallucinated field
+ *    name degrades to unmapped, never to a wrong column);
+ *  - it must clear AI_MAPPING_CONFIDENCE_FLOOR;
+ *  - a "severity" column may never be read as `seriousness`. Severity is
+ *    intensity, seriousness is the regulatory criterion, and a severe
+ *    reaction is frequently not a serious one. It is the single most
+ *    inviting mistake in this whole mapping and the prompt warns about it
+ *    too, but a prompt is guidance and this is a rule;
+ *  - two columns may not claim the same field — the higher-confidence one
+ *    takes it.
+ *
+ * Anything the model declines or the guards reject falls back to the
+ * keyword mapping, and if the model is unavailable entirely the mapping is
+ * exactly what it is today. That is deliberate: this call sits in the
+ * upload path, and an OpenAI outage must degrade the mapping's reach, not
+ * stop people uploading files.
+ */
+export function mergeColumnMapping(
+  keywordMapping: Record<string, TargetField>,
+  proposals: {
+    column: string;
+    field?: string | null;
+    confidence: number;
+    reason: string;
+  }[],
+  aiUsed: boolean,
+): ColumnMappingDecision {
+  if (!aiUsed || proposals.length === 0) {
+    return {
+      mapping: { ...keywordMapping },
+      source: Object.fromEntries(Object.keys(keywordMapping).map((c) => [c, "rule" as const])),
+      notes: {},
+      aiUsed: false,
+    };
+  }
+
+  const accepted = proposals
+    .filter((p) => {
+      if (!p.field || !TARGET_FIELD_SET.has(p.field)) return false;
+      if (p.confidence < AI_MAPPING_CONFIDENCE_FLOOR) return false;
+      const header = p.column.toLowerCase().replace(/[^a-z]/g, "");
+      if (p.field === "seriousness" && header.includes("severity")) return false;
+      return true;
+    })
+    // Highest confidence first, so the contested field goes to the column
+    // the model was surest about.
+    .sort((a, b) => b.confidence - a.confidence);
+
+  const mapping: Record<string, TargetField> = {};
+  const source: Record<string, "ai" | "rule"> = {};
+  const notes: Record<string, string> = {};
+  const usedFields = new Set<TargetField>();
+
+  for (const p of accepted) {
+    const field = p.field as TargetField;
+    if (usedFields.has(field) || mapping[p.column]) continue;
+    mapping[p.column] = field;
+    source[p.column] = "ai";
+    if (p.reason) notes[p.column] = p.reason;
+    usedFields.add(field);
+  }
+
+  // Keyword results fill every column the model left alone, so its silence
+  // on a column can only lose reach, never unmap something already known.
+  for (const [column, field] of Object.entries(keywordMapping)) {
+    if (mapping[column] || usedFields.has(field)) continue;
+    mapping[column] = field;
+    source[column] = "rule";
+    usedFields.add(field);
+  }
+
+  return { mapping, source, notes, aiUsed: true };
 }
 
 /**
@@ -1446,9 +1601,30 @@ export const linelist = {
         discardedRowsText,
         discardedRows,
       } = await parseTabularFile(file);
-      const mapping = mapColumns(headers);
-      const parsedRows = toParsedRows(headers, rows, mapping);
       const rawRows = toRawRows(headers, rows);
+      // Keyword mapping first, always — it is the floor the AI pass is
+      // merged onto and the whole mapping if that pass is unavailable.
+      const keywordMapping = mapColumns(headers);
+      let proposals: {
+        column: string;
+        field?: string | null;
+        confidence: number;
+        reason: string;
+      }[] = [];
+      let aiMappingUsed = false;
+      try {
+        const proposed = await ai.linelist.mapColumns({ headers, rows: rawRows });
+        proposals = proposed.proposals;
+        aiMappingUsed = proposed.ai_used;
+      } catch {
+        // Never fails an upload. The endpoint already answers 200 with
+        // ai_used:false for its own failures; this catches the layer below
+        // it (backend unreachable, request aborted) with the same outcome.
+        aiMappingUsed = false;
+      }
+      const decision = mergeColumnMapping(keywordMapping, proposals, aiMappingUsed);
+      const mapping = decision.mapping;
+      const parsedRows = toParsedRows(headers, rows, mapping);
       job = {
         id: newId("ll"),
         filename: file.name,
@@ -1462,6 +1638,9 @@ export const linelist = {
         warnings: 0,
         columns: headers,
         mapping,
+        mappingSource: decision.source,
+        mappingNotes: decision.notes,
+        mappingAiUsed: decision.aiUsed,
         parsedRows,
         rawRows,
         parseWarnings,
