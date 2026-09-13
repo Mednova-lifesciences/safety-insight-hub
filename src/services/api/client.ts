@@ -103,6 +103,32 @@ export class ApiError extends Error {
  */
 const SUPABASE_NOT_CONFIGURED = /Missing Supabase environment variable/i;
 
+/**
+ * Postgres' answer when a query arrives without a usable session.
+ *
+ * The `authenticated` role holds full grants on the application tables;
+ * `anon` holds none. So a request made with no live Supabase session is
+ * refused at the GRANT level and surfaces as, verbatim,
+ * "permission denied for table pv_psur_documents". A real user hit exactly
+ * that: the app had restored a session from localStorage and showed him a
+ * signed-in dashboard, while every read went out as anon.
+ *
+ * This is never a permissions *configuration* problem to report to the
+ * user — it means the session lapsed. See isSessionLapsed.
+ */
+const PERMISSION_DENIED = /permission denied for (table|schema|relation)/i;
+
+/** True when a failure means "your session is no longer valid", as opposed
+ *  to a genuine backend fault. Callers should prompt a fresh sign-in rather
+ *  than showing the raw database error. */
+export const isSessionLapsed = (e: unknown): boolean =>
+  e instanceof Error && PERMISSION_DENIED.test(e.message);
+
+/** What to show a person when their session has lapsed. Deliberately does
+ *  not mention tables, roles or grants — none of that is actionable, and
+ *  all of it reads as a broken product. */
+export const SESSION_LAPSED_MESSAGE = "Your session has expired. Please sign in again to continue.";
+
 export const isNotConfigured = (e: unknown): e is ApiNotConfiguredError =>
   e instanceof ApiNotConfiguredError ||
   (e instanceof Error && SUPABASE_NOT_CONFIGURED.test(e.message));

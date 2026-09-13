@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import type { Priority, Seriousness, WorkflowStep, WorkflowStepState } from "@/types/pv";
 import { WORKFLOW_LABELS, WORKFLOW_STEPS } from "@/types/pv";
-import { isNotConfigured } from "@/services/api/client";
+import { isNotConfigured, isSessionLapsed, SESSION_LAPSED_MESSAGE } from "@/services/api/client";
 import { Button } from "@/components/ui/button";
 
 /* ------------------------------------------------------------------ layout */
@@ -250,15 +250,33 @@ export function EmptyState({
 
 export function BackendUnavailable({ error }: { error: Error }) {
   const notConfigured = isNotConfigured(error);
+  // A lapsed session is refused at the database GRANT level and arrives as
+  // "permission denied for table pv_psur_documents". That is not something
+  // to put in front of a person: it names internal tables, reads as a
+  // broken product, and hides the one action that actually fixes it.
+  const sessionLapsed = !notConfigured && isSessionLapsed(error);
   return (
     <div className="rounded-md border border-warning/30 bg-warning-soft px-4 py-4">
       <div className="flex items-start gap-3">
         <PlugZap className="mt-0.5 size-4 text-warning" />
         <div className="space-y-1">
           <p className="text-sm font-semibold text-foreground">
-            {notConfigured ? "Backend not connected" : "Backend request failed"}
+            {notConfigured
+              ? "Backend not connected"
+              : sessionLapsed
+                ? "Session expired"
+                : "Backend request failed"}
           </p>
-          <p className="text-sm text-muted-foreground">{error.message}</p>
+          <p className="text-sm text-muted-foreground">
+            {sessionLapsed ? SESSION_LAPSED_MESSAGE : error.message}
+          </p>
+          {sessionLapsed ? (
+            <p className="pt-1">
+              <a href="/auth" className="text-sm font-medium underline underline-offset-2">
+                Sign in again →
+              </a>
+            </p>
+          ) : null}
           {notConfigured ? (
             <p className="text-xs text-muted-foreground">
               Clone this project locally, run the FastAPI service that exposes the{" "}
