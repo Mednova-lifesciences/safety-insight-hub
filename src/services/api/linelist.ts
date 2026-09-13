@@ -315,6 +315,17 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
   reaction_code: [
     ["reactioncode", 95],
     ["aefireactioncode", 95],
+    // "AEFI Code" / "AE Code" / "Adverse Event Code" are ordinary spellings
+    // on real coded forms, and none of them matched anything at all: a live
+    // upload headed "AEFI Code" mapped to no field, so the codes were
+    // invisible and every row reported MISSING_REACTION while the codes sat
+    // right there in the file. Each keyword below still requires its own
+    // literal substring, so a single word-shaped column like Ondo's
+    // "Reaction type (Codes - see 1 below)" is untouched by them and keeps
+    // going to `reaction` (see the note below).
+    ["aeficode", 90],
+    ["adverseeventcode", 90],
+    ["aecode", 70],
     ["eventcode", 70],
     // Deliberately excludes a generic "reactiontype"-style keyword: tried
     // it at weight 60 and verified against the real Ondo file that many
@@ -1080,6 +1091,53 @@ export function runValidation(
     // decode and no codebook to be missing. Demanding one would block every
     // row of exactly the files the verbatim path exists to support.
     const sourceIsCoded = runtimeProfile.reactionEncoding !== "VERBATIM";
+    const codebookIsEmpty = Object.keys(runtimeProfile.reactionCodebook.entries).length === 0;
+
+    // Single-reaction-column forms (Ondo's "Reaction type (Codes - see 1
+    // below)") put the code in `reaction`, not in a separate reaction_code
+    // column, and only the latter was ever checked — so an undecoded number
+    // passed validation standing in as the reaction term.
+    //
+    // Scope is deliberately narrow: the value must contain no letter at all.
+    // A purely numeric "19" is not a reaction in any language, so calling it
+    // undecodable states a fact rather than guessing at shape. Word
+    // reactions are left alone even under a coded form — they are common
+    // when someone leaves the source form at its default, they are still
+    // quarantined at E2B export if they cannot be coded, and flagging every
+    // such row CRITICAL here would bury the real finding. The known limit is
+    // an alphanumeric local code ("R19", "AE-03"), which is indistinguishable
+    // from a term by inspection and is caught by mapping such a file's code
+    // column to reaction_code instead.
+    if (
+      sourceIsCoded &&
+      codebookIsEmpty &&
+      !row.reaction_code &&
+      row.reaction &&
+      !/[A-Za-z]/.test(row.reaction)
+    ) {
+      issues.push({
+        row: rowNum,
+        column: col("reaction"),
+        severity: "CRITICAL",
+        confidence: "HIGH",
+        code: "REACTION_CODEBOOK_MISSING",
+        message:
+          `The reaction is recorded as "${row.reaction}", which the selected source form ` +
+          `("${runtimeProfile.name}") reads as a local code — but no reaction codebook is ` +
+          `available for that form, so it cannot be decoded. Supply this form's official code ` +
+          `legend, or — if this file belongs to a different form — re-upload it choosing that ` +
+          `form. The code is never guessed at.`,
+        value: row.reaction,
+        source: "rule",
+        sources: ["rule"],
+        issueType: "FIELD_VALUE_INVALID",
+        affectedFields: ["reaction"],
+        fixable: false,
+      });
+      // No early return: the rest of the row's fields are still worth
+      // checking, and the assessor should see every problem at once.
+    }
+
     if (sourceIsCoded && mappedFields.has("reaction_code") && row.reaction_code) {
       const codes = row.reaction_code
         .split(/[,&]|\bAND\b/i)
@@ -1093,7 +1151,7 @@ export function runValidation(
       // in both directions). When no codebook has been discovered at all,
       // the code cannot be judged at all — see the block immediately below.
       const codebookEntries = runtimeProfile.reactionCodebook.entries;
-      const hasCodebook = Object.keys(codebookEntries).length > 0;
+      const hasCodebook = !codebookIsEmpty;
 
       // No codebook at all is a different, worse problem than an
       // unrecognised code, and it used to pass silently: the fallback only
