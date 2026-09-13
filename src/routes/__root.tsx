@@ -131,6 +131,26 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
+/** Styles for the pre-hydration fallback above. Inline and self-contained:
+ *  the app stylesheet is a separate request that can itself stall, and a
+ *  fallback that depends on it would be invisible in exactly the situation
+ *  it exists for. Hidden for the first 600ms so a fast load never flashes. */
+const BOOT_FALLBACK_CSS = `
+#app-boot-fallback{position:fixed;inset:0;display:flex;align-items:center;
+justify-content:center;background:#fff;z-index:9999;opacity:0;
+animation:boot-in .3s ease-out .6s forwards;
+font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif}
+#app-boot-fallback .boot-inner{text-align:center}
+#app-boot-fallback img{margin:0 auto 12px;display:block}
+#app-boot-fallback .boot-title{margin:0;font-size:15px;font-weight:600;color:#0f172a}
+#app-boot-fallback .boot-sub{margin:6px 0 0;font-size:13px;color:#64748b}
+@keyframes boot-in{to{opacity:1}}
+@media (prefers-color-scheme:dark){
+#app-boot-fallback{background:#0b1120}
+#app-boot-fallback .boot-title{color:#e2e8f0}
+#app-boot-fallback .boot-sub{color:#94a3b8}}
+`;
+
 function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
@@ -138,6 +158,34 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body>
+        {/*
+          First-paint floor.
+
+          Every route in this app sets ssr:false, so the server sends a body
+          with zero visible content and nothing appears until the JS bundle
+          has downloaded, parsed and executed. On a warm cache that gap is
+          imperceptible; on a cold one the site is indistinguishable from
+          broken — a real user on mobile Chrome saw pure white, waited, came
+          back several minutes later and found it working.
+
+          This markup ships inside the same ~5 KB HTML document that already
+          has to arrive, so if the browser receives anything at all, it shows
+          branding instead of a white screen. It is deliberately inline (no
+          extra request to stall on) and is removed by RootComponent the
+          moment React mounts.
+
+          The 600ms delay before it becomes visible means a normal fast load
+          never flashes it — it only appears when there is genuinely a wait
+          worth explaining.
+        */}
+        <div id="app-boot-fallback" aria-hidden="true">
+          <style>{BOOT_FALLBACK_CSS}</style>
+          <div className="boot-inner">
+            <img src={mednovaLogo} alt="" width="40" height="40" />
+            <p className="boot-title">MedNova PV Assist</p>
+            <p className="boot-sub">Loading…</p>
+          </div>
+        </div>
         {children}
         <Scripts />
       </body>
@@ -147,6 +195,13 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  // React is mounted, so the fallback has served its purpose. Removed from
+  // the DOM rather than hidden, so it can never intercept a click or be
+  // read out by a screen reader once the real UI is up.
+  useEffect(() => {
+    document.getElementById("app-boot-fallback")?.remove();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
