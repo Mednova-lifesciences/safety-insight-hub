@@ -56,7 +56,9 @@ interface NavGroup {
   items: NavItem[];
 }
 
-const NAV: NavGroup[] = [
+/** Exported for app-shell.test.tsx, which pins the rule that nobody
+ *  holding a page's permission is ever hidden from that page. */
+export const NAV: NavGroup[] = [
   {
     label: "Operations",
     items: [
@@ -106,13 +108,21 @@ const NAV: NavGroup[] = [
     ],
   },
   {
-    // Every item here hides ADMIN, matching every other operational group
-    // in this file: an administrator manages access and the audit surface
-    // rather than running processing workflows. It previously hid
-    // PV_MANAGER and PV_COORDINATOR instead — the two roles that actually
-    // own this work and hold these permissions — so the whole Processing
-    // group was invisible to them and /psur was reachable only by typing
-    // the URL.
+    // Deliberately NO hiddenForRoles: the permission alone governs here.
+    //
+    // This group has now been wrong in both directions. It first hid
+    // PV_MANAGER and PV_COORDINATOR — two roles that hold these
+    // permissions — leaving the pages reachable only by typing the URL.
+    // Hiding ADMIN instead, to match the case-handling groups below, was
+    // equally wrong: administrators really do run these workflows here
+    // (every line-list job in the live database was uploaded by an admin),
+    // and it took the pages away from them.
+    //
+    // Unlike the case-handling groups, processing is not a role-shaped
+    // activity — anyone granted linelist.process / e2b.generate /
+    // psur.review is expected to use it. So the permission check is the
+    // whole rule, and nothing here can hide a page from someone entitled
+    // to it. See app-shell.test.tsx.
     label: "Processing",
     items: [
       {
@@ -120,21 +130,18 @@ const NAV: NavGroup[] = [
         label: "Line-list processing",
         icon: FileSpreadsheet,
         permission: "linelist.process",
-        hiddenForRoles: ["ADMIN"],
       },
       {
         to: "/e2b",
         label: "E2B(R3) preparation",
         icon: FileStack,
         permission: "e2b.generate",
-        hiddenForRoles: ["ADMIN"],
       },
       {
         to: "/psur",
         label: "PSUR / PBRER review",
         icon: FileText,
         permission: "psur.review",
-        hiddenForRoles: ["ADMIN"],
       },
     ],
   },
