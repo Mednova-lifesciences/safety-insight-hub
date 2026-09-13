@@ -21,10 +21,16 @@ from ..ai.client import AiNotConfiguredError, AiRequestError, VALIDATION_MODEL, 
 from ..ai.prompts import (
     LINELIST_ADVERSARIAL_REVIEW_PROMPT,
     LINELIST_ANALYSIS_PROMPT,
+    LINELIST_COLUMN_MAPPING_PROMPT,
     LINELIST_FIX_PROMPT,
     PROMPT_VERSION,
 )
-from ..ai.schemas import AiLineListAdversarialReview, AiLineListAnalysis, AiLineListFix
+from ..ai.schemas import (
+    AiColumnMapping,
+    AiLineListAdversarialReview,
+    AiLineListAnalysis,
+    AiLineListFix,
+)
 from ..dependencies import AuthenticatedUser, require_permission
 
 logger = logging.getLogger(__name__)
@@ -308,6 +314,103 @@ class FixResponse(BaseModel):
     ai_used: bool
     prompt_version: str
     error: Optional[str] = None
+
+
+# Header reading needs a handful of example values per column, not the
+# file. Ten rows is enough to tell "Fever" from "19" and a date from a
+# duration, and keeps this call cheap enough to sit in the upload path.
+MAX_MAPPING_SAMPLE_ROWS = 10
+
+
+class MapColumnsRequest(BaseModel):
+    headers: list[str]
+    rows: list[dict]
+
+
+class ColumnMappingProposalOut(BaseModel):
+    column: str
+    field: Optional[str] = None
+    confidence: float = 0.0
+    reason: str = ""
+
+
+class MapColumnsResponse(BaseModel):
+    proposals: list[ColumnMappingProposalOut]
+    ai_used: bool
+    prompt_version: str
+    model: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/map-columns", response_model=MapColumnsResponse)
+async def map_columns(
+    request: MapColumnsRequest,
+    user: AuthenticatedUser = Depends(require_permission("linelist.process")),
+):
+    """Proposes a column -> canonical field mapping by reading the headers
+    and a sample of values.
+
+    The deterministic keyword matcher in linelist.ts runs first and remains
+    the fallback: this endpoint returning ai_used=False (not configured,
+    timed out, malformed response) must never be an error the user sees,
+    only a mapping that stays as the keyword matcher left it. That is why
+    every failure below returns a 200 with an empty proposal list.
+    """
+    if not request.headers:
+        return MapColumnsResponse(proposals=[], ai_used=False, prompt_version=PROMPT_VERSION)
+
+    # Values only — the model is reading column SHAPE, and sending fewer
+    # rows of real patient data than the analysis pass already sends is the
+    # right default for a call that only needs examples.
+    sample = request.rows[:MAX_MAPPING_SAMPLE_ROWS]
+    payload = {
+        "columns": request.headers,
+        "sample_values": {
+            header: [
+                str(row.get(header))
+                for row in sample
+                if row.get(header) not in (None, "")
+            ][:5]
+            for header in request.headers
+        },
+    }
+
+    try:
+        completion = await structured_completion(
+            system_prompt=LINELIST_COLUMN_MAPPING_PROMPT,
+            user_content=json.dumps(payload),
+            model=VALIDATION_MODEL,
+        )
+        parsed = AiColumnMapping.model_validate(completion.data)
+        return MapColumnsResponse(
+            proposals=[
+                ColumnMappingProposalOut(
+                    column=p.column,
+                    field=p.field,
+                    confidence=p.confidence,
+                    reason=p.reason,
+                )
+                for p in parsed.proposals
+            ],
+            ai_used=True,
+            prompt_version=PROMPT_VERSION,
+            model=completion.model,
+        )
+    except AiNotConfiguredError:
+        return MapColumnsResponse(
+            proposals=[],
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="AI is not configured; columns were matched by keyword only.",
+        )
+    except Exception as exc:
+        logger.warning("AI column mapping failed, keeping keyword mapping: %s", exc)
+        return MapColumnsResponse(
+            proposals=[],
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="AI column mapping was unavailable; columns were matched by keyword only.",
+        )
 
 
 @router.post("/fix", response_model=FixResponse)
