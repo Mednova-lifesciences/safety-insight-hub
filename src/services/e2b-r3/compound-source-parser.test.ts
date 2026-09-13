@@ -201,7 +201,10 @@ describe("parseCompoundSourceValue — codebook-aware compound tokenization", ()
   });
 
   it("TEST N — same numeric value under a DIFFERENT field's codebook resolves independently", () => {
-    const reactionCodebook = { "1": { sourceTerm: "Reaction term for 1" }, "5": { sourceTerm: "Reaction term for 5" } };
+    const reactionCodebook = {
+      "1": { sourceTerm: "Reaction term for 1" },
+      "5": { sourceTerm: "Reaction term for 5" },
+    };
     const outcomeCodebook = { "1": { sourceTerm: "Outcome term for 1" } };
     const reactionResult = parseCompoundSourceValue("1, 5", reactionCodebook);
     const outcomeResult = parseCompoundSourceValue("1", outcomeCodebook);

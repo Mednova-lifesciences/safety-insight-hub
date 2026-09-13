@@ -50,9 +50,21 @@ export const syntheticFacilityBProfile: SourceProfile = {
     field: "event_category",
     version: "test-1.0",
     entries: {
-      C01: { localCode: "C01", sourceTerm: "Fever (synthetic test codebook entry)", effectiveFrom: "2026-01-01" },
-      C02: { localCode: "C02", sourceTerm: "Injection site swelling (synthetic test codebook entry)", effectiveFrom: "2026-01-01" },
-      C03: { localCode: "C03", sourceTerm: "Rash (synthetic test codebook entry)", effectiveFrom: "2026-01-01" },
+      C01: {
+        localCode: "C01",
+        sourceTerm: "Fever (synthetic test codebook entry)",
+        effectiveFrom: "2026-01-01",
+      },
+      C02: {
+        localCode: "C02",
+        sourceTerm: "Injection site swelling (synthetic test codebook entry)",
+        effectiveFrom: "2026-01-01",
+      },
+      C03: {
+        localCode: "C03",
+        sourceTerm: "Rash (synthetic test codebook entry)",
+        effectiveFrom: "2026-01-01",
+      },
     },
   },
   reporterQualificationMap: {

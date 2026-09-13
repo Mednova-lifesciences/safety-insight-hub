@@ -58,7 +58,9 @@ function splitUnconditional(
   raw: string,
   extraDelimiters: string[],
 ): { segments: string[]; malformed: boolean } {
-  const all = [...UNCONDITIONAL_DELIMITER_CHARS, ...extraDelimiters].map(escapeRegExp).filter(Boolean);
+  const all = [...UNCONDITIONAL_DELIMITER_CHARS, ...extraDelimiters]
+    .map(escapeRegExp)
+    .filter(Boolean);
   if (all.length === 0) return { segments: [raw], malformed: false };
   const pattern = new RegExp(`(?:${all.join("|")})`, "i");
   if (!pattern.test(raw)) return { segments: [raw], malformed: false };
@@ -84,12 +86,17 @@ function looksCodeShaped(segment: string): boolean {
  *  unsplit, since the delimiter may just be part of ordinary verbatim
  *  text ("headache and dizziness") or attachment punctuation
  *  ("28/pains") rather than a genuine list separator. */
-function splitConditional(segment: string, pattern: RegExp, validCodes: Set<string>): { parts: string[]; malformed: boolean } {
+function splitConditional(
+  segment: string,
+  pattern: RegExp,
+  validCodes: Set<string>,
+): { parts: string[]; malformed: boolean } {
   if (!pattern.test(segment)) return { parts: [segment], malformed: false };
   const rawParts = segment.split(pattern);
   const trimmedParts = rawParts.map((p) => p.trim()).filter(Boolean);
   const hadEmptyPart = trimmedParts.length !== rawParts.length;
-  const allValid = trimmedParts.length > 1 && trimmedParts.every((p) => validCodes.has(normalizeCode(p)));
+  const allValid =
+    trimmedParts.length > 1 && trimmedParts.every((p) => validCodes.has(normalizeCode(p)));
   if (allValid) return { parts: trimmedParts, malformed: hadEmptyPart };
   // Not every part is a real code — but if the split produced an empty
   // part (e.g. "28 and", "and 15"), that's still a structural warning
@@ -114,14 +121,22 @@ function resolveSegment(segment: string, validCodes: Map<string, string>): Sourc
   const trimmed = segment.trim();
   const exact = validCodes.get(normalizeCode(trimmed));
   if (exact !== undefined) {
-    return { rawToken: segment, status: "VALID_SOURCE_CODE", sourceCode: normalizeCode(trimmed), decodedTerm: exact };
+    return {
+      rawToken: segment,
+      status: "VALID_SOURCE_CODE",
+      sourceCode: normalizeCode(trimmed),
+      decodedTerm: exact,
+    };
   }
 
   // Longest-valid-code-as-prefix search — e.g. prefer "280" over "28"
   // when both are real codes and the segment is "280pains".
   let bestMatch: { code: string; term: string } | null = null;
   for (const [code, term] of validCodes) {
-    if (trimmed.toUpperCase().startsWith(code) && (!bestMatch || code.length > bestMatch.code.length)) {
+    if (
+      trimmed.toUpperCase().startsWith(code) &&
+      (!bestMatch || code.length > bestMatch.code.length)
+    ) {
       bestMatch = { code, term };
     }
   }
@@ -141,7 +156,12 @@ function resolveSegment(segment: string, validCodes: Map<string, string>): Sourc
 
   const remainder = afterPrefix.replace(/^[\s\-:/.,]+/, "");
   if (remainder === "") {
-    return { rawToken: segment, status: "VALID_SOURCE_CODE", sourceCode: bestMatch.code, decodedTerm: bestMatch.term };
+    return {
+      rawToken: segment,
+      status: "VALID_SOURCE_CODE",
+      sourceCode: bestMatch.code,
+      decodedTerm: bestMatch.term,
+    };
   }
   if (/[A-Za-z]/.test(remainder)) {
     // Genuine descriptive text attached to a real code — preserved, never

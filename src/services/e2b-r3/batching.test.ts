@@ -20,7 +20,12 @@ function fakeCase(id: string): PVCase {
     reporter: { name: { present: false, nullFlavor: "NASK" } },
     reactions: [],
     products: [],
-    sourceInformation: { sourceFile: "test.xlsx", sourceRow: 1, jobId: "job-1", sourceProfileId: "test-profile" },
+    sourceInformation: {
+      sourceFile: "test.xlsx",
+      sourceRow: 1,
+      jobId: "job-1",
+      sourceProfileId: "test-profile",
+    },
   };
 }
 

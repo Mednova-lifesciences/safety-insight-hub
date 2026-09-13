@@ -135,12 +135,28 @@ function toSourceRecord(row: ParsedRow): Record<string, string | undefined> {
   return { ...row } as Record<string, string | undefined>;
 }
 
+/** The SourceProfile a stored job should be decoded with. Falls back to
+ *  the historical default for jobs uploaded before a profile could be
+ *  chosen, and for an id no longer in the registry — a stale reference
+ *  should not make an existing job unreadable. */
+function resolveProfileForJob(job: { sourceProfileId?: string | undefined }): SourceProfile {
+  try {
+    return getSourceProfile(job.sourceProfileId || "ondo-aefi");
+  } catch {
+    return getSourceProfile("ondo-aefi");
+  }
+}
+
 export async function runValidatedPreflightForJob(
   jobId: string,
   regulatoryConfig: OrgRegulatoryConfig,
-  sourceProfile: SourceProfile = getSourceProfile("ondo-aefi"),
+  /** Omit to use the profile the job was uploaded with. Hardcoding one
+   *  profile here judged every source against Ondo's numeric reaction
+   *  codebook, so a file whose reactions are words quarantined every case. */
+  explicitProfile?: SourceProfile,
 ): Promise<ValidatedExportResult> {
   const job = await readJob(jobId);
+  const sourceProfile = explicitProfile ?? resolveProfileForJob(job);
   const rows: ParsedRow[] = job.parsedRows ?? [];
   const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
   const processedAt = new Date().toISOString();
@@ -278,8 +294,11 @@ export interface ValidatedBatchArtifact {
 export async function generateValidatedExportForJob(
   jobId: string,
   regulatoryConfig: OrgRegulatoryConfig,
-  sourceProfile: SourceProfile = getSourceProfile("ondo-aefi"),
+  /** Omit to use the profile the job was uploaded with — see above. */
+  explicitProfile?: SourceProfile,
 ): Promise<ValidatedBatchArtifact[]> {
+  const job = await readJob(jobId);
+  const sourceProfile = explicitProfile ?? resolveProfileForJob(job);
   const result = await runValidatedPreflightForJob(jobId, regulatoryConfig, sourceProfile);
 
   if (!result.transmissionConfigConfirmed) {

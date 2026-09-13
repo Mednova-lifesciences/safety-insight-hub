@@ -129,7 +129,8 @@ export function parseDiscoveredLegend(input: ParseDiscoveredLegendInput): Discov
     if (!fieldHint) continue; // a mapping-shaped line with no recognisable field heading is not attributed to anything — never guessed
 
     anyLineHadMappings = true;
-    if (firstRow === undefined || (line.row !== undefined && line.row < firstRow)) firstRow = line.row;
+    if (firstRow === undefined || (line.row !== undefined && line.row < firstRow))
+      firstRow = line.row;
     if (lastRow === undefined || (line.row !== undefined && line.row > lastRow)) lastRow = line.row;
 
     for (const { code, meaning } of mappings) {
@@ -137,7 +138,12 @@ export function parseDiscoveredLegend(input: ParseDiscoveredLegendInput): Discov
         field: fieldHint,
         sourceCode: code,
         meaning,
-        sourceEvidence: { sheet: input.evidence?.sheet, file: input.evidence?.file, row: line.row, rawText: line.text },
+        sourceEvidence: {
+          sheet: input.evidence?.sheet,
+          file: input.evidence?.file,
+          row: line.row,
+          rawText: line.text,
+        },
       });
     }
   }
@@ -156,15 +162,14 @@ export function parseDiscoveredLegend(input: ParseDiscoveredLegendInput): Discov
     entries,
     rejectedEntries: [],
     discoveryStatus,
-    evidence:
-      anyLineHadMappings
-        ? {
-            file: input.evidence?.file,
-            sheet: input.evidence?.sheet,
-            startRow: firstRow,
-            endRow: lastRow,
-          }
-        : undefined,
+    evidence: anyLineHadMappings
+      ? {
+          file: input.evidence?.file,
+          sheet: input.evidence?.sheet,
+          startRow: firstRow,
+          endRow: lastRow,
+        }
+      : undefined,
   };
 }
 
@@ -179,7 +184,9 @@ export function parseDiscoveredLegend(input: ParseDiscoveredLegendInput): Discov
  * meaning (e.g. the same section accidentally listed twice) is harmless
  * and simply de-duplicated.
  */
-export function validateDiscoveredCodebook(codebook: DiscoveredSourceCodebook): DiscoveredSourceCodebook {
+export function validateDiscoveredCodebook(
+  codebook: DiscoveredSourceCodebook,
+): DiscoveredSourceCodebook {
   const byKey = new Map<string, SourceCodebookEntry[]>();
   const rejected: RejectedCodebookEntry[] = [...codebook.rejectedEntries];
 

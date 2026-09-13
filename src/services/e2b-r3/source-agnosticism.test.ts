@@ -21,9 +21,14 @@ import { UNCONFIRMED_DEFAULT_CONFIG } from "./transmission-config";
  */
 describe("source profile agnosticism", () => {
   const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
-  const context = { jobId: "test-job", sourceFile: "facility-b.csv", sourceRow: 1, processedAt: "2026-09-09T00:00:00Z" };
+  const context = {
+    jobId: "test-job",
+    sourceFile: "facility-b.csv",
+    sourceRow: 1,
+    processedAt: "2026-09-09T00:00:00Z",
+  };
 
-  it("no engine file (mapping/validation/serializer/batching, plus the codebook-discovery pipeline) contains an actual conditional/branch on a specific source — doc-comment prose mentioning \"Ondo\" as an example is fine, a hardcoded condition is not", () => {
+  it('no engine file (mapping/validation/serializer/batching, plus the codebook-discovery pipeline) contains an actual conditional/branch on a specific source — doc-comment prose mentioning "Ondo" as an example is fine, a hardcoded condition is not', () => {
     const engineFiles = [
       "mapping.ts",
       "validation.ts",
@@ -81,7 +86,10 @@ describe("source profile agnosticism", () => {
     );
 
     // Column mapping worked despite totally different source column names.
-    expect(pvCase.patient.identity).toEqual({ present: true, value: { kind: "INITIALS", initials: "J.D." } });
+    expect(pvCase.patient.identity).toEqual({
+      present: true,
+      value: { kind: "INITIALS", initials: "J.D." },
+    });
     expect(pvCase.patient.sex).toBe("FEMALE");
     expect(pvCase.sendersCaseId).toBe("FB-0001");
 
@@ -89,8 +97,12 @@ describe("source profile agnosticism", () => {
     // own populated codebook (proves the DECODED path, not just quarantine).
     expect(pvCase.reactions).toHaveLength(2);
     expect(pvCase.reactions[0]!.sourceDecoding.status).toBe("DECODED");
-    expect(pvCase.reactions[0]!.sourceDecoding.sourceTerm).toBe("Fever (synthetic test codebook entry)");
-    expect(pvCase.reactions[1]!.sourceDecoding.sourceTerm).toBe("Injection site swelling (synthetic test codebook entry)");
+    expect(pvCase.reactions[0]!.sourceDecoding.sourceTerm).toBe(
+      "Fever (synthetic test codebook entry)",
+    );
+    expect(pvCase.reactions[1]!.sourceDecoding.sourceTerm).toBe(
+      "Injection site swelling (synthetic test codebook entry)",
+    );
 
     // Product verbatim carried through untouched (Option A).
     expect(pvCase.products).toHaveLength(1);
@@ -107,7 +119,12 @@ describe("source profile agnosticism", () => {
 
   it("an unrecognised local code under Facility B's codebook quarantines exactly like an Ondo one would — same engine logic, different data", async () => {
     const { pvCase } = await mapSourceRecordToPVCase(
-      { record_id: "FB-0002", event_category: "C99", suspect_product: "TestVax B", subject_name: "X Y" },
+      {
+        record_id: "FB-0002",
+        event_category: "C99",
+        suspect_product: "TestVax B",
+        subject_name: "X Y",
+      },
       syntheticFacilityBProfile,
       UNCONFIRMED_DEFAULT_CONFIG,
       context,
@@ -123,7 +140,12 @@ describe("source profile agnosticism", () => {
     // (["|"]) — but the compound tokenizer treats comma as a universally
     // supported delimiter for every profile, same as it does for Ondo.
     const { pvCase } = await mapSourceRecordToPVCase(
-      { record_id: "FB-0003", event_category: "C01,C02", suspect_product: "TestVax C", subject_name: "X Y" },
+      {
+        record_id: "FB-0003",
+        event_category: "C01,C02",
+        suspect_product: "TestVax C",
+        subject_name: "X Y",
+      },
       syntheticFacilityBProfile,
       UNCONFIRMED_DEFAULT_CONFIG,
       context,
@@ -151,14 +173,26 @@ describe("source profile agnosticism", () => {
 
   it("the SAME batching + serializer functions handle a mixed batch of Ondo-profile and Facility-B-profile cases together, producing real XSD-shaped output", async () => {
     const { pvCase: ondoCase } = await mapSourceRecordToPVCase(
-      { case_id: "MIXED-ONDO-1", reaction: "19", product: "PENTA", patient_identifier: "A B", reporter_designation: "CHEW" },
+      {
+        case_id: "MIXED-ONDO-1",
+        reaction: "19",
+        product: "PENTA",
+        patient_identifier: "A B",
+        reporter_designation: "CHEW",
+      },
       ondoAefiProfile,
       UNCONFIRMED_DEFAULT_CONFIG,
       { ...context, jobId: "mixed-test" },
       providers,
     );
     const { pvCase: facilityBCase } = await mapSourceRecordToPVCase(
-      { record_id: "MIXED-FB-1", event_category: "C01", suspect_product: "TestVax A", subject_name: "C D", reporter_profession: "CLINICIAN" },
+      {
+        record_id: "MIXED-FB-1",
+        event_category: "C01",
+        suspect_product: "TestVax A",
+        subject_name: "C D",
+        reporter_profession: "CLINICIAN",
+      },
       syntheticFacilityBProfile,
       UNCONFIRMED_DEFAULT_CONFIG,
       { ...context, jobId: "mixed-test" },
@@ -185,7 +219,9 @@ describe("source profile agnosticism", () => {
   });
 
   it("VigiFlow preflight, batching, and the serializer never branch on sourceProfileId — grep proof", () => {
-    const files = ["validation.ts", "batching.ts", "serializer.ts"].map((f) => readFileSync(join(__dirname, f), "utf-8"));
+    const files = ["validation.ts", "batching.ts", "serializer.ts"].map((f) =>
+      readFileSync(join(__dirname, f), "utf-8"),
+    );
     for (const content of files) {
       expect(content).not.toMatch(/sourceProfileId\s*===/);
       expect(content).not.toMatch(/profile\.id\s*===/);

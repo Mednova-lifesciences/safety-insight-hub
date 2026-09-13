@@ -24,20 +24,38 @@ function baseCase(overrides: Partial<PVCase> = {}): PVCase {
     otherCaseIdentifiersInPreviousTransmissions: { present: false, nullFlavor: "NI" },
     followUp: { isFollowUp: false },
     patient: { identity: { present: true, value: { kind: "INITIALS", initials: "A.B." } } },
-    reporter: { name: { present: false, nullFlavor: "NASK" }, country: "NG", qualificationVerbatim: "CHEW" },
+    reporter: {
+      name: { present: false, nullFlavor: "NASK" },
+      country: "NG",
+      qualificationVerbatim: "CHEW",
+    },
     senderOrganisation: "MEDNOVA",
     reactions: [
       {
         id: "r1",
-        sourceDecoding: { status: "DECODED", localCode: "19", sourceTerm: "19", sourceProfileId: "test-profile" },
+        sourceDecoding: {
+          status: "DECODED",
+          localCode: "19",
+          sourceTerm: "19",
+          sourceProfileId: "test-profile",
+        },
         reaction: { sourceValue: "19", status: "UNMAPPED", mappingMethod: "NONE" },
         seriousnessCriteria: {},
       },
     ],
     products: [
-      { id: "p1", characterization: "SUSPECT", product: { sourceValue: "PENTA", status: "UNMAPPED", mappingMethod: "NONE" } },
+      {
+        id: "p1",
+        characterization: "SUSPECT",
+        product: { sourceValue: "PENTA", status: "UNMAPPED", mappingMethod: "NONE" },
+      },
     ],
-    sourceInformation: { sourceFile: "test.xlsx", sourceRow: 1, jobId: "job-followup", sourceProfileId: "test-profile" },
+    sourceInformation: {
+      sourceFile: "test.xlsx",
+      sourceRow: 1,
+      jobId: "job-followup",
+      sourceProfileId: "test-profile",
+    },
     ...overrides,
   };
 }
@@ -45,8 +63,15 @@ function baseCase(overrides: Partial<PVCase> = {}): PVCase {
 describe("C.1.10 follow-up — end to end (mapping -> validation -> serializer -> XML)", () => {
   it("A. initial report: no linked-report block anywhere in the XML", () => {
     const c = baseCase({ followUp: { isFollowUp: false } });
-    expect(validateBusinessRules(c).some((e) => e.code === "E2B-C1.10-FOLLOWUP-REF-MISSING")).toBe(false);
-    const xml = serializeBatchToXml([c], { batchId: "B", senderId: "S", receiverId: "R", transmissionTimestamp: new Date("2026-09-09T00:00:00Z") });
+    expect(validateBusinessRules(c).some((e) => e.code === "E2B-C1.10-FOLLOWUP-REF-MISSING")).toBe(
+      false,
+    );
+    const xml = serializeBatchToXml([c], {
+      batchId: "B",
+      senderId: "S",
+      receiverId: "R",
+      transmissionTimestamp: new Date("2026-09-09T00:00:00Z"),
+    });
     // The only C.1.8.1-OID id elements should be the case's own two (case id + worldwide id) — no third linked-report id.
     const linkedIds = (xml.match(/root="2\.16\.840\.1\.113883\.3\.989\.2\.1\.3\.2"/g) ?? []).length;
     expect(linkedIds).toBe(1); // just the case's own worldwideUniqueId <id>
@@ -56,10 +81,19 @@ describe("C.1.10 follow-up — end to end (mapping -> validation -> serializer -
     const c = baseCase({
       followUp: { isFollowUp: true, previousTransmissionRef: "NG-MEDNOVA-000010-MSG1" },
     });
-    expect(validateBusinessRules(c).some((e) => e.code === "E2B-C1.10-FOLLOWUP-REF-MISSING")).toBe(false);
-    const xml = serializeBatchToXml([c], { batchId: "B", senderId: "S", receiverId: "R", transmissionTimestamp: new Date("2026-09-09T00:00:00Z") });
+    expect(validateBusinessRules(c).some((e) => e.code === "E2B-C1.10-FOLLOWUP-REF-MISSING")).toBe(
+      false,
+    );
+    const xml = serializeBatchToXml([c], {
+      batchId: "B",
+      senderId: "S",
+      receiverId: "R",
+      transmissionTimestamp: new Date("2026-09-09T00:00:00Z"),
+    });
     expect(xml).toContain('<code nullFlavor="NA"/>');
-    expect(xml).toContain('<id extension="NG-MEDNOVA-000010-MSG1" root="2.16.840.1.113883.3.989.2.1.3.2"/>');
+    expect(xml).toContain(
+      '<id extension="NG-MEDNOVA-000010-MSG1" root="2.16.840.1.113883.3.989.2.1.3.2"/>',
+    );
   });
 
   it("C. follow-up with a missing original case identifier: BLOCKED by business rules, serializer emits no broken/empty link", () => {
@@ -71,12 +105,20 @@ describe("C.1.10 follow-up — end to end (mapping -> validation -> serializer -
     // Even though the case is invalid, the serializer must never emit a
     // dangling/empty relatedInvestigation block for it — fail closed, not
     // "close enough."
-    const xml = serializeBatchToXml([c], { batchId: "B", senderId: "S", receiverId: "R", transmissionTimestamp: new Date("2026-09-09T00:00:00Z") });
+    const xml = serializeBatchToXml([c], {
+      batchId: "B",
+      senderId: "S",
+      receiverId: "R",
+      transmissionTimestamp: new Date("2026-09-09T00:00:00Z"),
+    });
     expect(xml).not.toContain('<code nullFlavor="NA"/>');
   });
 
   it("B. a batch containing both an initial report and a follow-up report serializes both correctly, independently", () => {
-    const initial = baseCase({ sendersCaseId: "NG-MEDNOVA-000011", worldwideUniqueId: "NG-MEDNOVA-000011" });
+    const initial = baseCase({
+      sendersCaseId: "NG-MEDNOVA-000011",
+      worldwideUniqueId: "NG-MEDNOVA-000011",
+    });
     const followUp = baseCase({
       sendersCaseId: "NG-MEDNOVA-000012",
       worldwideUniqueId: "NG-MEDNOVA-000012",
@@ -102,8 +144,18 @@ describe("C.1.10 follow-up — end to end (mapping -> validation -> serializer -
       dateOfCreation: "2026-09-09T08:19:00Z",
       followUp: { isFollowUp: true, previousTransmissionRef: "NG-MEDNOVA-000010-MSG1" },
     });
-    const xmlInitial = serializeBatchToXml([initial], { batchId: "B1", senderId: "S", receiverId: "R", transmissionTimestamp: new Date("2026-09-03T00:00:00Z") });
-    const xmlFollowUp = serializeBatchToXml([followUp], { batchId: "B2", senderId: "S", receiverId: "R", transmissionTimestamp: new Date("2026-09-09T08:19:00Z") });
+    const xmlInitial = serializeBatchToXml([initial], {
+      batchId: "B1",
+      senderId: "S",
+      receiverId: "R",
+      transmissionTimestamp: new Date("2026-09-03T00:00:00Z"),
+    });
+    const xmlFollowUp = serializeBatchToXml([followUp], {
+      batchId: "B2",
+      senderId: "S",
+      receiverId: "R",
+      transmissionTimestamp: new Date("2026-09-09T08:19:00Z"),
+    });
     expect(xmlInitial).toContain('effectiveTime value="20260903000000"');
     expect(xmlFollowUp).toContain('effectiveTime value="20260909081900"');
     expect(xmlInitial).not.toBe(xmlFollowUp);

@@ -30,7 +30,8 @@ export type NullFlavor =
 /** A required E2B(R3) value that may legitimately be unknown — forces
  *  every call site to handle the nullFlavor case explicitly rather than
  *  falling back to an empty string or a guessed default. */
-export type RequiredValue<T> = { present: true; value: T } | { present: false; nullFlavor: NullFlavor };
+export type RequiredValue<T> =
+  { present: true; value: T } | { present: false; nullFlavor: NullFlavor };
 
 /** Where a coded value actually came from, and how confident that coding
  *  is. Four distinct states, deliberately not collapsed into one another —
@@ -112,7 +113,10 @@ export interface PVPatient {
    *  nullFlavor is used is decision D1 — not a developer default. Until
    *  D1 is recorded, this stays a RequiredValue so the gap is explicit
    *  rather than silently defaulted to option (a). */
-  identity: RequiredValue<{ kind: "INITIALS"; initials: string } | { kind: "MEDICAL_RECORD_NUMBER"; number: string; sourceOid: string }>;
+  identity: RequiredValue<
+    | { kind: "INITIALS"; initials: string }
+    | { kind: "MEDICAL_RECORD_NUMBER"; number: string; sourceOid: string }
+  >;
   sex?: SexCode | undefined;
   /** Raw age value as captured — see ageUnit for why this isn't coded
    *  further without a confirmed unit. */
@@ -163,12 +167,7 @@ export interface SeriousnessCriteria {
 }
 
 export type ReactionOutcome =
-  | "RECOVERED"
-  | "RECOVERING"
-  | "NOT_RECOVERED"
-  | "RECOVERED_WITH_SEQUELAE"
-  | "FATAL"
-  | "UNKNOWN";
+  "RECOVERED" | "RECOVERING" | "NOT_RECOVERED" | "RECOVERED_WITH_SEQUELAE" | "FATAL" | "UNKNOWN";
 
 /** Where a local source-specific reaction code stands in the SOURCE
  *  CODEBOOK decoding step — deliberately a step BEFORE and SEPARATE FROM

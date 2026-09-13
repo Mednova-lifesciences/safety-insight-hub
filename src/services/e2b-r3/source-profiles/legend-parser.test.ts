@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { extractRawMappings, parseDiscoveredLegend, validateDiscoveredCodebook } from "./legend-parser";
+import {
+  extractRawMappings,
+  parseDiscoveredLegend,
+  validateDiscoveredCodebook,
+} from "./legend-parser";
 
 /**
  * The exact, verbatim text of rows 249-253 of the real source document
@@ -15,7 +19,8 @@ const REAL_REACTION_LINE =
   "1) REACTION TYPE : 1=Anaphylaxis, 2=Anaphylactic Shock, 3=Dizziness, 4= Headache, 5= Fainting/Syncope, 6=Seizures/convulsion,7=Loss of vision, 8= Local reaction, 9 Site induration, 10=Abscess at injection site, 11=Rash/Urticaria, 12= Lymph node enlargement, 13= Abd cramps, 14=Vomiting, 15=Diarrhoea, 16= Bleeding, 17=muscle pain, 18=Joint pain 19=Fever (<38oC), 20=Fever (>=38oC), 21=Persistent cries (more than 3 hours), 22=Acute Flaccid Paralysis (AFP), 23=Unconsciousness, 24=Sepsis, 25=Encephalopathy, 26=Neck Stiffness, 27=Facial Paralysis, 28=Others (specify) (insert appropriate number in column)";
 const REAL_SERIOUS_LINE =
   "2) SERIUOS CASE: 1. Life treathening; 2. Disability; 3. Hospitalizaton; 4. Congenital anomaly; 5. Death (insert appropriate number in column)";
-const REAL_OUTCOME_LINE = "3) OUTCOME: 1= Recovered, 2=Hospitalized, 3=Disability, 4=Died (insert appropriate number in column)";
+const REAL_OUTCOME_LINE =
+  "3) OUTCOME: 1= Recovered, 2=Hospitalized, 3=Disability, 4=Died (insert appropriate number in column)";
 
 describe("extractRawMappings — real Ondo legend text, verbatim", () => {
   it("extracts all 28 reaction mappings from the real (messy) reaction line", () => {
@@ -168,7 +173,9 @@ describe("validateDiscoveredCodebook — conflicts and malformed entries", () =>
       ],
     };
     const validated = validateDiscoveredCodebook(codebook);
-    expect(validated.entries.some((e) => e.field === "reaction" && e.sourceCode === "1")).toBe(false);
+    expect(validated.entries.some((e) => e.field === "reaction" && e.sourceCode === "1")).toBe(
+      false,
+    );
     expect(validated.entries.some((e) => e.field === "outcome" && e.sourceCode === "1")).toBe(true);
     expect(validated.rejectedEntries.filter((r) => r.entry.field === "reaction")).toHaveLength(2);
   });

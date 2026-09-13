@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { mapSourceRecordToPVCase } from "./mapping";
-import { validateBusinessRules, validateSourceDecoding, validateVigiFlowPreflight } from "./validation";
+import {
+  validateBusinessRules,
+  validateSourceDecoding,
+  validateVigiFlowPreflight,
+} from "./validation";
 import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
 import { ondoAefiProfile } from "./source-profiles/ondo-aefi";
 import { syntheticFacilityBProfile } from "./source-profiles/synthetic-facility-b";
@@ -18,12 +22,21 @@ const REAL_LEGEND = JSON.parse(
 
 function ondoRuntimeProfile() {
   const discovered = validateDiscoveredCodebook(
-    parseDiscoveredLegend({ sourceId: "ondo-aefi", lines: REAL_LEGEND, evidence: { file: "test", sheet: "Sheet1" } }),
+    parseDiscoveredLegend({
+      sourceId: "ondo-aefi",
+      lines: REAL_LEGEND,
+      evidence: { file: "test", sheet: "Sheet1" },
+    }),
   );
   return resolveRuntimeSourceProfile(ondoAefiProfile, discovered);
 }
 
-const context = { jobId: "test-job", sourceFile: "test.xlsx", sourceRow: 1, processedAt: "2026-09-09T00:00:00Z" };
+const context = {
+  jobId: "test-job",
+  sourceFile: "test.xlsx",
+  sourceRow: 1,
+  processedAt: "2026-09-09T00:00:00Z",
+};
 const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
 
 describe("codebook discovery -> resolution — real Ondo legend, explicit per-value traces", () => {
@@ -59,7 +72,9 @@ describe("codebook discovery -> resolution — real Ondo legend, explicit per-va
       status: "HUMAN_REVIEW_REQUIRED",
     });
     const errors = validateBusinessRules(pvCase);
-    expect(errors.some((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE" && e.severity === "BLOCKING")).toBe(true);
+    expect(
+      errors.some((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE" && e.severity === "BLOCKING"),
+    ).toBe(true);
     // Never the "unknown code" error — the concept IS understood.
     expect(errors.some((e) => e.code === "E2B-OUTCOME-UNMAPPED")).toBe(false);
   });
@@ -174,7 +189,12 @@ describe("architecture: runtime profiles never leak between sources or mutate th
     // still only know its own small synthetic codebook (C01/C02/C03),
     // never Ondo's real 28-code legend.
     const { pvCase } = await mapSourceRecordToPVCase(
-      { record_id: "FB-LEAK-TEST", event_category: "19", suspect_product: "TestVax A", subject_name: "A B" },
+      {
+        record_id: "FB-LEAK-TEST",
+        event_category: "19",
+        suspect_product: "TestVax A",
+        subject_name: "A B",
+      },
       syntheticFacilityBProfile,
       UNCONFIRMED_DEFAULT_CONFIG,
       context,
@@ -193,10 +213,18 @@ describe("architecture: runtime profiles never leak between sources or mutate th
       sourceId: "ondo-aefi",
       discoveryStatus: "DISCOVERED",
       rejectedEntries: [],
-      entries: [{ field: "reaction", sourceCode: "1", meaning: "A different, deliberately synthetic meaning for this second profile only" }],
+      entries: [
+        {
+          field: "reaction",
+          sourceCode: "1",
+          meaning: "A different, deliberately synthetic meaning for this second profile only",
+        },
+      ],
     });
     expect(runtime1.reactionCodebook.entries["1"]?.sourceTerm).toBe("Anaphylaxis");
-    expect(runtime2.reactionCodebook.entries["1"]?.sourceTerm).toBe("A different, deliberately synthetic meaning for this second profile only");
+    expect(runtime2.reactionCodebook.entries["1"]?.sourceTerm).toBe(
+      "A different, deliberately synthetic meaning for this second profile only",
+    );
     // Neither mutated the shared base or each other.
     expect(ondoAefiProfile.reactionCodebook.entries).toEqual({});
   });
