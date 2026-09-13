@@ -31,11 +31,17 @@ import type { PVCase } from "./types";
 describe("real Ondo dataset — codebook DISCOVERED from the real document and applied through the production pipeline", () => {
   it("produces the exact before/after diagnostic requested by the audit", async () => {
     const fixturePath = join(__dirname, "__fixtures__", "ondo-real-rows.json");
-    const raw = JSON.parse(readFileSync(fixturePath, "utf-8")) as Record<string, string | undefined>[];
+    const raw = JSON.parse(readFileSync(fixturePath, "utf-8")) as Record<
+      string,
+      string | undefined
+    >[];
     expect(raw.length).toBe(231);
 
     const legendPath = join(__dirname, "__fixtures__", "ondo-real-legend.json");
-    const legendLines = JSON.parse(readFileSync(legendPath, "utf-8")) as { row: number; text: string }[];
+    const legendLines = JSON.parse(readFileSync(legendPath, "utf-8")) as {
+      row: number;
+      text: string;
+    }[];
 
     // --- Step 1: discover + validate the REAL codebook from the REAL legend text ---
     const discovered = validateDiscoveredCodebook(
@@ -48,14 +54,24 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
     const runtimeProfile = resolveRuntimeSourceProfile(ondoAefiProfile, discovered);
 
     const transmissionConfig: E2bTransmissionConfig = UNCONFIRMED_DEFAULT_CONFIG;
-    const context = { jobId: "ll-4896f674-e6a9-4734-b27f-4ab8e3ed144d", sourceFile: "ondo_aefi_linelist.xlsx", processedAt: "2026-09-09T00:00:00Z" };
+    const context = {
+      jobId: "ll-4896f674-e6a9-4734-b27f-4ab8e3ed144d",
+      sourceFile: "ondo_aefi_linelist.xlsx",
+      processedAt: "2026-09-09T00:00:00Z",
+    };
     const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
 
     // --- Step 2: run all 231 real rows through BOTH the base (undiscovered) and runtime (discovered) profile, for a genuine before/after ---
     async function runAll(profile: typeof ondoAefiProfile) {
       const cases: PVCase[] = [];
       for (let i = 0; i < raw.length; i++) {
-        const { pvCase } = await mapSourceRecordToPVCase(raw[i]!, profile, transmissionConfig, { ...context, sourceRow: i + 2 }, providers);
+        const { pvCase } = await mapSourceRecordToPVCase(
+          raw[i]!,
+          profile,
+          transmissionConfig,
+          { ...context, sourceRow: i + 2 },
+          providers,
+        );
         cases.push(pvCase);
       }
       return cases;
@@ -64,25 +80,38 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
     const afterCases = await runAll(runtimeProfile);
 
     function summarize(cases: PVCase[]) {
-      const businessErrors = cases.map((c) => [...validateSourceDecoding(c), ...validateBusinessRules(c)]);
+      const businessErrors = cases.map((c) => [
+        ...validateSourceDecoding(c),
+        ...validateBusinessRules(c),
+      ]);
       const preflight = runPreflight(cases);
       const codeCounts: Record<string, number> = {};
-      for (const errs of businessErrors) for (const e of errs) codeCounts[e.code] = (codeCounts[e.code] ?? 0) + 1;
+      for (const errs of businessErrors)
+        for (const e of errs) codeCounts[e.code] = (codeCounts[e.code] ?? 0) + 1;
       const unknownReactionCodes = new Set<string>();
       let decodedReactions = 0;
       for (const c of cases) {
         for (const r of c.reactions) {
           if (r.sourceDecoding.status === "DECODED") decodedReactions++;
-          if (r.sourceDecoding.status === "UNKNOWN_CODE") unknownReactionCodes.add(r.sourceDecoding.localCode);
+          if (r.sourceDecoding.status === "UNKNOWN_CODE")
+            unknownReactionCodes.add(r.sourceDecoding.localCode);
         }
       }
-      const outcomeResolved = cases.filter((c) => c.reactions.some((r) => r.outcome !== undefined)).length;
-      const seriousnessCriteriaApplied = cases.filter((c) => c.reactions.some((r) => Object.keys(r.seriousnessCriteria).length > 0)).length;
+      const outcomeResolved = cases.filter((c) =>
+        c.reactions.some((r) => r.outcome !== undefined),
+      ).length;
+      const seriousnessCriteriaApplied = cases.filter((c) =>
+        c.reactions.some((r) => Object.keys(r.seriousnessCriteria).length > 0),
+      ).length;
 
       // Outcome resolution-status breakdown, with affected case IDs for
       // the human-review bucket specifically (section 17's explicit ask).
       const outcomeByStatus = { MAPPED: 0, HUMAN_REVIEW_REQUIRED: 0, UNKNOWN_SOURCE_CODE: 0 };
-      const humanReviewOutcomeCases: { caseId: string; rawSourceValue: string; decodedSourceValue: string | undefined }[] = [];
+      const humanReviewOutcomeCases: {
+        caseId: string;
+        rawSourceValue: string;
+        decodedSourceValue: string | undefined;
+      }[] = [];
       for (const c of cases) {
         for (const r of c.reactions) {
           if (!r.outcomeResolution) continue;
@@ -122,7 +151,8 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
         acceptedMappingCount: discovered.entries.length,
         rejectedMappingCount: discovered.rejectedEntries.length,
         reactionMappingsDiscovered: discovered.entries.filter((e) => e.field === "reaction").length,
-        seriousnessMappingsDiscovered: discovered.entries.filter((e) => e.field === "seriousness").length,
+        seriousnessMappingsDiscovered: discovered.entries.filter((e) => e.field === "seriousness")
+          .length,
         outcomeMappingsDiscovered: discovered.entries.filter((e) => e.field === "outcome").length,
       },
       before,
@@ -133,7 +163,11 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
 
     const dir = join(__dirname, "..", "..", "..", "artifacts", "e2b-r3");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "ondo-real-dataset-report.json"), JSON.stringify(report, null, 2), "utf-8");
+    writeFileSync(
+      join(dir, "ondo-real-dataset-report.json"),
+      JSON.stringify(report, null, 2),
+      "utf-8",
+    );
 
     // --- Assertions proving the codebook genuinely reached and changed resolution ---
     expect(discovered.discoveryStatus).toBe("DISCOVERED");
@@ -143,9 +177,13 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
     expect(discovered.rejectedEntries).toHaveLength(0);
 
     // Reaction 19 must now decode to the real source term, not stay UNKNOWN_CODE.
-    const caseWithReaction19 = afterCases.find((c) => c.reactions.some((r) => r.sourceDecoding.localCode === "19"));
+    const caseWithReaction19 = afterCases.find((c) =>
+      c.reactions.some((r) => r.sourceDecoding.localCode === "19"),
+    );
     expect(caseWithReaction19).toBeDefined();
-    const decoded19 = caseWithReaction19!.reactions.find((r) => r.sourceDecoding.localCode === "19")!;
+    const decoded19 = caseWithReaction19!.reactions.find(
+      (r) => r.sourceDecoding.localCode === "19",
+    )!;
     expect(decoded19.sourceDecoding.status).toBe("DECODED");
     expect(decoded19.sourceDecoding.sourceTerm).toBe("Fever (<38oC)");
 
@@ -153,7 +191,9 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
     // legend (verified directly against the document) — must decode, not
     // stay unknown. (An earlier report incorrectly assumed 23 was absent;
     // this assertion exists specifically to keep that error from recurring.)
-    const caseWithReaction23 = afterCases.find((c) => c.reactions.some((r) => r.sourceDecoding.localCode === "23"));
+    const caseWithReaction23 = afterCases.find((c) =>
+      c.reactions.some((r) => r.sourceDecoding.localCode === "23"),
+    );
     if (caseWithReaction23) {
       const r23 = caseWithReaction23.reactions.find((r) => r.sourceDecoding.localCode === "23")!;
       expect(r23.sourceDecoding.status).toBe("DECODED");
@@ -168,11 +208,15 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
     // proven independently with a deliberately out-of-range synthetic
     // code — see mapping.test.ts and legend-parser.test.ts — since this
     // specific real dataset doesn't happen to contain one.
-    const stillUnknownAfter = afterCases.flatMap((c) => c.reactions.filter((r) => r.sourceDecoding.status === "UNKNOWN_CODE"));
+    const stillUnknownAfter = afterCases.flatMap((c) =>
+      c.reactions.filter((r) => r.sourceDecoding.status === "UNKNOWN_CODE"),
+    );
     expect(stillUnknownAfter).toHaveLength(0);
 
     // Outcome "1" resolves to RECOVERED and stops being an unmapped-outcome finding.
-    expect(after.blockingReasons["E2B-OUTCOME-UNMAPPED"] ?? 0).toBeLessThan(before.blockingReasons["E2B-OUTCOME-UNMAPPED"] ?? 0);
+    expect(after.blockingReasons["E2B-OUTCOME-UNMAPPED"] ?? 0).toBeLessThan(
+      before.blockingReasons["E2B-OUTCOME-UNMAPPED"] ?? 0,
+    );
 
     // --- Human-review-required outcome mechanism, proven generically (not hardcoded to "Hospitalized") ---
     // Every reaction's outcomeResolution status must be one of the three
@@ -190,7 +234,9 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
     // assumption baked into the resolver.
     expect(after.outcomeResolutionBreakdown.UNKNOWN_SOURCE_CODE).toBe(0);
     expect(after.outcomeResolutionBreakdown.HUMAN_REVIEW_REQUIRED).toBeGreaterThan(0);
-    expect(after.casesNeedingHumanReviewForOutcome.length).toBe(after.outcomeResolutionBreakdown.HUMAN_REVIEW_REQUIRED);
+    expect(after.casesNeedingHumanReviewForOutcome.length).toBe(
+      after.outcomeResolutionBreakdown.HUMAN_REVIEW_REQUIRED,
+    );
 
     // The human-review bucket is driven entirely by WHAT THE DECODED
     // CONCEPT IS, not by which numeric code produced it — every entry
@@ -201,22 +247,48 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
     // "Hospitalized" or that there are exactly 9 — only that whatever
     // concept(s) land here are unmapped ones, proving the mechanism reacts
     // to real, arbitrary decoded content rather than one hardcoded string.
-    const mappableConcepts = new Set(["RECOVERED", "RESOLVED", "RECOVERING", "RESOLVING", "NOTRECOVERED", "NOTRESOLVED", "ONGOING", "RECOVEREDWITHSEQUELAE", "RESOLVEDWITHSEQUELAE", "FATAL", "DIED", "DEATH", "DECEASED", "UNKNOWN"]);
+    const mappableConcepts = new Set([
+      "RECOVERED",
+      "RESOLVED",
+      "RECOVERING",
+      "RESOLVING",
+      "NOTRECOVERED",
+      "NOTRESOLVED",
+      "ONGOING",
+      "RECOVEREDWITHSEQUELAE",
+      "RESOLVEDWITHSEQUELAE",
+      "FATAL",
+      "DIED",
+      "DEATH",
+      "DECEASED",
+      "UNKNOWN",
+    ]);
     for (const entry of after.casesNeedingHumanReviewForOutcome) {
       expect(entry.decodedSourceValue).toBeTruthy();
-      const normalized = entry.decodedSourceValue!.trim().toUpperCase().replace(/[\s_-]+/g, "");
+      const normalized = entry
+        .decodedSourceValue!.trim()
+        .toUpperCase()
+        .replace(/[\s_-]+/g, "");
       expect(mappableConcepts.has(normalized)).toBe(false);
     }
 
     // Every human-review case must actually be blocked by the distinct
     // E2B-OUTCOME-NOT-MAPPABLE code (never the generic UNKNOWN one), and
     // every affected case must appear in the case-level blocking reasons.
-    expect(after.blockingReasons["E2B-OUTCOME-NOT-MAPPABLE"]).toBe(after.outcomeResolutionBreakdown.HUMAN_REVIEW_REQUIRED);
+    expect(after.blockingReasons["E2B-OUTCOME-NOT-MAPPABLE"]).toBe(
+      after.outcomeResolutionBreakdown.HUMAN_REVIEW_REQUIRED,
+    );
     for (const entry of after.casesNeedingHumanReviewForOutcome) {
       const c = afterCases.find((cc) => cc.sendersCaseId === entry.caseId)!;
       const caseErrors = [...validateSourceDecoding(c), ...validateBusinessRules(c)];
-      expect(caseErrors.some((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE" && e.severity === "BLOCKING"), entry.caseId).toBe(true);
-      expect(caseErrors.some((e) => e.code === "E2B-OUTCOME-UNMAPPED"), entry.caseId).toBe(false);
+      expect(
+        caseErrors.some((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE" && e.severity === "BLOCKING"),
+        entry.caseId,
+      ).toBe(true);
+      expect(
+        caseErrors.some((e) => e.code === "E2B-OUTCOME-UNMAPPED"),
+        entry.caseId,
+      ).toBe(false);
     }
 
     // A resolved case (adding an explicit outcomeMap entry for this exact
@@ -224,12 +296,27 @@ describe("real Ondo dataset — codebook DISCOVERED from the real document and a
     // proving this is a real, fixable state, not a permanent dead end.
     if (after.casesNeedingHumanReviewForOutcome.length > 0) {
       const sampleConcept = after.casesNeedingHumanReviewForOutcome[0]!.decodedSourceValue!;
-      const normalizedKey = sampleConcept.trim().toUpperCase().replace(/[\s_-]+/g, "");
-      const resolvedProfile = { ...runtimeProfile, outcomeMap: { ...runtimeProfile.outcomeMap, [normalizedKey]: "RECOVERING" as const } };
+      const normalizedKey = sampleConcept
+        .trim()
+        .toUpperCase()
+        .replace(/[\s_-]+/g, "");
+      const resolvedProfile = {
+        ...runtimeProfile,
+        outcomeMap: { ...runtimeProfile.outcomeMap, [normalizedKey]: "RECOVERING" as const },
+      };
       const sampleCaseId = after.casesNeedingHumanReviewForOutcome[0]!.caseId;
       const rowIndex = afterCases.findIndex((c) => c.sendersCaseId === sampleCaseId);
-      const { pvCase: resolvedCase } = await mapSourceRecordToPVCase(raw[rowIndex]!, resolvedProfile, transmissionConfig, { ...context, sourceRow: rowIndex + 2 }, providers);
-      const resolvedErrors = [...validateSourceDecoding(resolvedCase), ...validateBusinessRules(resolvedCase)];
+      const { pvCase: resolvedCase } = await mapSourceRecordToPVCase(
+        raw[rowIndex]!,
+        resolvedProfile,
+        transmissionConfig,
+        { ...context, sourceRow: rowIndex + 2 },
+        providers,
+      );
+      const resolvedErrors = [
+        ...validateSourceDecoding(resolvedCase),
+        ...validateBusinessRules(resolvedCase),
+      ];
       expect(resolvedErrors.some((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE")).toBe(false);
       expect(resolvedCase.reactions.some((r) => r.outcome === "RECOVERING")).toBe(true);
     }

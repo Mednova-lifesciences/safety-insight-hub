@@ -1,10 +1,12 @@
 import type { SourceProfile } from "./types";
 import { ondoAefiProfile } from "./ondo-aefi";
 import { syntheticFacilityBProfile } from "./synthetic-facility-b";
+import { genericVerbatimProfile } from "./generic-verbatim";
 
 const PROFILES: Record<string, SourceProfile> = {
   [ondoAefiProfile.id]: ondoAefiProfile,
   [syntheticFacilityBProfile.id]: syntheticFacilityBProfile,
+  [genericVerbatimProfile.id]: genericVerbatimProfile,
 };
 
 /** Adding a new real line-list source means writing a new SourceProfile
@@ -13,7 +15,9 @@ const PROFILES: Record<string, SourceProfile> = {
 export function getSourceProfile(id: string): SourceProfile {
   const profile = PROFILES[id];
   if (!profile) {
-    throw new Error(`Unknown source profile "${id}". Registered profiles: ${Object.keys(PROFILES).join(", ")}`);
+    throw new Error(
+      `Unknown source profile "${id}". Registered profiles: ${Object.keys(PROFILES).join(", ")}`,
+    );
   }
   return profile;
 }

@@ -362,11 +362,54 @@ export function splitBySourceProfile(raw: string | undefined, profile: SourcePro
  * This function's only job is translating that generic result into this
  * module's SourceReactionDecoding shape.
  */
+/** Recorded as the codebook version for a VERBATIM source, so provenance
+ *  stays honest: no codebook was consulted, because none applies. Never an
+ *  empty string, which would read as "version unknown". */
+export const VERBATIM_NO_CODEBOOK = "N/A-VERBATIM-SOURCE";
+
+/** Splits a verbatim reaction cell on the profile's own declared
+ *  separators. Uses the same separator list as the coded path so a source
+ *  gets one consistent answer about what a delimiter is — and, as there,
+ *  a separator the profile has not declared is never guessed at: the cell
+ *  stays whole rather than being split on a character that might belong to
+ *  the term itself. */
+function splitVerbatimReactions(raw: string, profile: SourceProfile): string[] {
+  const seps = profile.reactionDelimiter.separators;
+  let parts = [raw];
+  for (const sep of seps) {
+    parts = parts.flatMap((p) => p.split(sep));
+  }
+  const cleaned = parts.map((p) => p.trim()).filter((p) => p.length > 0);
+  return cleaned.length > 0 ? cleaned : [raw.trim()];
+}
+
 export function decodeReactionField(
   raw: string | undefined,
   profile: SourceProfile,
 ): SourceReactionDecoding[] {
   if (!raw || !raw.trim()) return [];
+
+  // A source that writes reactions as words has nothing to decode. Running
+  // it through the codebook rejects every row of a valid file: a plain-text
+  // "Abscess" is not in any numeric codebook, so it quarantines as
+  // UNKNOWN_CODE and the case never exports. Measured on a real upload —
+  // 0 of 3 cases exportable, purely because the source spells its reactions
+  // out.
+  //
+  // The value still goes on to MedDRA coding exactly as a decoded term
+  // would, and if no MedDRA provider is configured the serializer already
+  // emits nullFlavor="UNK" with the text preserved in <originalText>. So
+  // this never presents an uncoded term as if it were a dictionary code —
+  // it just stops pretending a word is a code that needs looking up.
+  if (profile.reactionEncoding === "VERBATIM") {
+    return splitVerbatimReactions(raw, profile).map((term): SourceReactionDecoding => ({
+      status: "DECODED",
+      localCode: term,
+      sourceTerm: term,
+      sourceProfileId: profile.id,
+      codebookVersion: VERBATIM_NO_CODEBOOK,
+    }));
+  }
 
   const parsed = parseCompoundSourceValue(
     raw,

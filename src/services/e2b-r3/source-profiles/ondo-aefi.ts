@@ -65,7 +65,12 @@ export const ondoAefiProfile: SourceProfile = {
   // purpose: every real Ondo reaction code correctly quarantines as
   // UNKNOWN_CODE until a real codebook document is provided and its
   // entries added here (or loaded from a supplied file at that time).
-  reactionCodebook: { sourceId: "ondo-aefi", field: "reaction", version: "UNSUPPLIED", entries: {} },
+  reactionCodebook: {
+    sourceId: "ondo-aefi",
+    field: "reaction",
+    version: "UNSUPPLIED",
+    entries: {},
+  },
   // Supplied by MedNova (not invented by this codebase) as example
   // category mappings against the ICH Appendix I(F) qualification
   // codelist (1=Physician, 2=Pharmacist, 3=Other health professional,

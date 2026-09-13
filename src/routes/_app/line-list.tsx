@@ -3,7 +3,15 @@ import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
 import { ArrowRight, Download, FileText, Sparkles, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
-import { linelist as linelistApi } from "@/services/api/linelist";
+import { linelist as linelistApi, DEFAULT_SOURCE_PROFILE_ID } from "@/services/api/linelist";
+import { listSourceProfiles } from "@/services/e2b-r3/source-profiles/registry";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { demoLineListIssues, demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { isNotConfigured } from "@/services/api/client";
@@ -68,6 +76,13 @@ function LineListPage() {
     () => linelistApi.issues(activeJob!.id),
     () => demoLineListIssues,
   );
+  // Which SourceProfile decodes the next upload. This is a property of the
+  // FORM the file came from — above all, whether its reaction column holds
+  // local codes needing a codebook, or the reaction written out as words —
+  // and only the person uploading knows. Deliberately not sniffed from the
+  // data: "19" and "R19" are both plausible codes, and guessing wrong sends
+  // a raw code to a regulator as if it were the reaction itself.
+  const [sourceProfileId, setSourceProfileId] = useState(DEFAULT_SOURCE_PROFILE_ID);
   const [uploading, setUploading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [fixing, setFixing] = useState(false);
@@ -77,7 +92,7 @@ function LineListPage() {
   async function onFile(file: File) {
     setUploading(true);
     try {
-      await linelistApi.upload(file);
+      await linelistApi.upload(file, sourceProfileId);
       toast.success("File uploaded.");
       setJobsPage(1);
       jobs.refetch();
@@ -154,6 +169,26 @@ function LineListPage() {
           title="Upload a line-list"
           description="CSV or XLSX. Files are parsed in the browser and analysed by the backend."
         >
+          <div className="mb-3">
+            <p className="label-caps mb-1">Source form</p>
+            <Select value={sourceProfileId} onValueChange={setSourceProfileId}>
+              <SelectTrigger className="w-full sm:w-96">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {listSourceProfiles().map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Determines how this file's reaction column is read — as local codes needing that
+              form's codebook, or as reactions already written out in words. Choosing wrongly blocks
+              E2B(R3) export rather than producing a wrong answer.
+            </p>
+          </div>
           <label className="flex cursor-pointer flex-col items-center gap-2 rounded-md border border-dashed border-border px-6 py-8 text-center hover:bg-muted/50">
             <Upload className="size-5 text-muted-foreground" />
             <span className="text-sm font-medium">

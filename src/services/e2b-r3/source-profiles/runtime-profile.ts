@@ -23,7 +23,10 @@ import type { FieldCodebook, SourceProfile } from "./types";
  * correctly," and conflating the two would make failures harder to
  * localize.
  */
-export function resolveRuntimeSourceProfile(base: SourceProfile, discovered: DiscoveredSourceCodebook): SourceProfile {
+export function resolveRuntimeSourceProfile(
+  base: SourceProfile,
+  discovered: DiscoveredSourceCodebook,
+): SourceProfile {
   let reactionCodebook = base.reactionCodebook;
   const fieldCodebooks: Record<string, FieldCodebook> = { ...(base.fieldCodebooks ?? {}) };
 
@@ -41,7 +44,9 @@ export function resolveRuntimeSourceProfile(base: SourceProfile, discovered: Dis
         mergedEntries[e.sourceCode.trim().toUpperCase()] = {
           localCode: e.sourceCode,
           sourceTerm: e.meaning,
-          effectiveFrom: reactionCodebook.entries[e.sourceCode]?.effectiveFrom ?? new Date().toISOString().slice(0, 10),
+          effectiveFrom:
+            reactionCodebook.entries[e.sourceCode]?.effectiveFrom ??
+            new Date().toISOString().slice(0, 10),
         };
       }
       reactionCodebook = {
@@ -55,11 +60,16 @@ export function resolveRuntimeSourceProfile(base: SourceProfile, discovered: Dis
     const existing = fieldCodebooks[field];
     const mergedEntries = { ...(existing?.entries ?? {}) };
     for (const e of entries) {
-      mergedEntries[e.sourceCode.trim().toUpperCase()] = { sourceCode: e.sourceCode, meaning: e.meaning };
+      mergedEntries[e.sourceCode.trim().toUpperCase()] = {
+        sourceCode: e.sourceCode,
+        meaning: e.meaning,
+      };
     }
     fieldCodebooks[field] = {
       field,
-      version: existing ? `${existing.version}+discovered:${discovered.sourceId}` : `discovered:${discovered.sourceId}`,
+      version: existing
+        ? `${existing.version}+discovered:${discovered.sourceId}`
+        : `discovered:${discovered.sourceId}`,
       entries: mergedEntries,
     };
   }

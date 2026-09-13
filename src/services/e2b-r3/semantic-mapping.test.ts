@@ -23,7 +23,9 @@ function profileWithOutcomeCodebook(entries: Record<string, string>): SourceProf
       outcome: {
         field: "outcome",
         version: "test",
-        entries: Object.fromEntries(Object.entries(entries).map(([code, meaning]) => [code, { sourceCode: code, meaning }])),
+        entries: Object.fromEntries(
+          Object.entries(entries).map(([code, meaning]) => [code, { sourceCode: code, meaning }]),
+        ),
       },
     },
   };
@@ -65,7 +67,10 @@ describe("Test 3 — unknown source code: the codebook itself has no entry", () 
 describe("Test 4 — explicit mapping added later: the SAME decoded concept becomes VALID once configured", () => {
   it("source '2' -> 'Hospitalized', now WITH an explicit (synthetic, test-only) mapping", () => {
     const profile = profileWithOutcomeCodebook({ "2": "Hospitalized" });
-    const profileWithMapping: SourceProfile = { ...profile, outcomeMap: { HOSPITALIZED: "RECOVERING" } };
+    const profileWithMapping: SourceProfile = {
+      ...profile,
+      outcomeMap: { HOSPITALIZED: "RECOVERING" },
+    };
     const before = resolveFieldConcept("2", profile, "outcome", mapConceptToOutcome);
     const after = resolveFieldConcept("2", profileWithMapping, "outcome", mapConceptToOutcome);
     expect(before).toBeDefined();
@@ -95,8 +100,16 @@ describe("Test 5 — numeric collision: source code 2 is never treated as E2B ou
     const profile = profileWithOutcomeCodebook({ "2": "Discharged well" });
     // mapConceptToOutcome normalizes by stripping whitespace/underscores/
     // hyphens before lookup — the map key must match that normalized form.
-    const withExplicitMapping: SourceProfile = { ...profile, outcomeMap: { DISCHARGEDWELL: "RECOVERED" } };
-    const resolution = resolveFieldConcept("2", withExplicitMapping, "outcome", mapConceptToOutcome);
+    const withExplicitMapping: SourceProfile = {
+      ...profile,
+      outcomeMap: { DISCHARGEDWELL: "RECOVERED" },
+    };
+    const resolution = resolveFieldConcept(
+      "2",
+      withExplicitMapping,
+      "outcome",
+      mapConceptToOutcome,
+    );
     expect(resolution).toBeDefined();
     // Source code "2" ends up mapping to E2B "RECOVERED" (code 1), NOT
     // E2B code 2 ("RECOVERING") — proving the numbers never collided.
@@ -131,7 +144,8 @@ describe("Test 6 — future arbitrary concept: a wholly fictional source, unrela
 
   it("validateBusinessRules produces E2B-OUTCOME-NOT-MAPPABLE for this fictional concept, mentioning ITS OWN decoded text — not a hardcoded string", async () => {
     const { mapSourceRecordToPVCase } = await import("./mapping");
-    const { unavailableMedDraProvider, unavailableWhoDrugProvider } = await import("./coding-provider");
+    const { unavailableMedDraProvider, unavailableWhoDrugProvider } =
+      await import("./coding-provider");
     const { UNCONFIRMED_DEFAULT_CONFIG } = await import("./transmission-config");
     const profile = profileWithOutcomeCodebook({ "77": "Observed overnight" });
     const { pvCase } = await mapSourceRecordToPVCase(
@@ -170,7 +184,8 @@ describe("the SAME mechanism applies to seriousness-criterion codes, not just ou
     expect(mapConceptToSeriousnessCriteria("Death")).toEqual({ resultsInDeath: true });
   });
   it("a decoded criterion with no ICH match and no profile override is HUMAN_REVIEW_REQUIRED, not guessed", async () => {
-    const { mapConceptToSeriousnessCriteria, resolveFieldConcept: resolve } = await import("./mapping");
+    const { mapConceptToSeriousnessCriteria, resolveFieldConcept: resolve } =
+      await import("./mapping");
     const profile: SourceProfile = {
       ...ondoAefiProfile,
       fieldCodebooks: {
@@ -189,7 +204,8 @@ describe("the SAME mechanism applies to seriousness-criterion codes, not just ou
     });
   });
   it("a profile's explicit seriousnessCriterionMap resolves the same previously-unmappable concept", async () => {
-    const { mapConceptToSeriousnessCriteria, resolveFieldConcept: resolve } = await import("./mapping");
+    const { mapConceptToSeriousnessCriteria, resolveFieldConcept: resolve } =
+      await import("./mapping");
     const profile: SourceProfile = {
       ...ondoAefiProfile,
       fieldCodebooks: {
@@ -199,7 +215,9 @@ describe("the SAME mechanism applies to seriousness-criterion codes, not just ou
           entries: { "9": { sourceCode: "9", meaning: "Significant harm requiring intervention" } },
         },
       },
-      seriousnessCriterionMap: { "SIGNIFICANT HARM REQUIRING INTERVENTION": { otherMedicallyImportant: true } },
+      seriousnessCriterionMap: {
+        "SIGNIFICANT HARM REQUIRING INTERVENTION": { otherMedicallyImportant: true },
+      },
     };
     const resolution = resolve("9", profile, "seriousness", mapConceptToSeriousnessCriteria);
     expect(resolution).toBeDefined();
@@ -212,20 +230,41 @@ describe("HUMAN_REVIEW_REQUIRED genuinely blocks export via the same preflight g
   it("a case whose only real problem is an unmappable outcome is BLOCKED by runPreflight, and stops being blocked FOR THAT REASON once the profile gains an explicit mapping", async () => {
     const { mapSourceRecordToPVCase } = await import("./mapping");
     const { runPreflight, validateBusinessRules: validateBR } = await import("./validation");
-    const { unavailableMedDraProvider, unavailableWhoDrugProvider } = await import("./coding-provider");
+    const { unavailableMedDraProvider, unavailableWhoDrugProvider } =
+      await import("./coding-provider");
     const { UNCONFIRMED_DEFAULT_CONFIG } = await import("./transmission-config");
     const profile = profileWithOutcomeCodebook({ "2": "Hospitalized" });
     const record = { reaction: "19", product: "MR", outcome: "2", patient_identifier: "A B" };
-    const ctx = { jobId: "test", sourceFile: "test.xlsx", sourceRow: 1, processedAt: "2026-01-01T00:00:00Z" };
+    const ctx = {
+      jobId: "test",
+      sourceFile: "test.xlsx",
+      sourceRow: 1,
+      processedAt: "2026-01-01T00:00:00Z",
+    };
     const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
 
-    const { pvCase: blockedCase } = await mapSourceRecordToPVCase(record, profile, UNCONFIRMED_DEFAULT_CONFIG, ctx, providers);
+    const { pvCase: blockedCase } = await mapSourceRecordToPVCase(
+      record,
+      profile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      ctx,
+      providers,
+    );
     const before = runPreflight([blockedCase]);
     expect(before.status).toBe("BLOCKED");
     expect(before.counts.outcomeNeedsHumanReview).toBeGreaterThan(0);
 
-    const resolvedProfile: SourceProfile = { ...profile, outcomeMap: { HOSPITALIZED: "RECOVERING" } };
-    const { pvCase: resolvedCase } = await mapSourceRecordToPVCase(record, resolvedProfile, UNCONFIRMED_DEFAULT_CONFIG, ctx, providers);
+    const resolvedProfile: SourceProfile = {
+      ...profile,
+      outcomeMap: { HOSPITALIZED: "RECOVERING" },
+    };
+    const { pvCase: resolvedCase } = await mapSourceRecordToPVCase(
+      record,
+      resolvedProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      ctx,
+      providers,
+    );
     const after = runPreflight([resolvedCase]);
     // The outcome-specific finding is gone...
     expect(after.counts.outcomeNeedsHumanReview).toBe(0);
@@ -249,9 +288,12 @@ describe("Test 8 — no AI/LLM fallback is ever invoked to resolve a missing sem
   });
 
   it("neither mapping.ts, validation.ts, nor any source-profiles file imports anything AI/OpenAI-related", () => {
-    const files = ["mapping.ts", "validation.ts", "source-profiles/legend-parser.ts", "source-profiles/runtime-profile.ts"].map(
-      (f) => readFileSync(join(__dirname, f), "utf-8"),
-    );
+    const files = [
+      "mapping.ts",
+      "validation.ts",
+      "source-profiles/legend-parser.ts",
+      "source-profiles/runtime-profile.ts",
+    ].map((f) => readFileSync(join(__dirname, f), "utf-8"));
     for (const content of files) {
       expect(content).not.toMatch(/openai/i);
       expect(content).not.toMatch(/structured_completion/);

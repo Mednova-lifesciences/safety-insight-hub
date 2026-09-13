@@ -25,21 +25,37 @@ function fakeCase(id: string): PVCase {
     reactions: [
       {
         id: `${id}-r1`,
-        sourceDecoding: { status: "DECODED", localCode: "19", sourceTerm: "19", sourceProfileId: "test-profile" },
+        sourceDecoding: {
+          status: "DECODED",
+          localCode: "19",
+          sourceTerm: "19",
+          sourceProfileId: "test-profile",
+        },
         reaction: { sourceValue: "19", status: "UNMAPPED", mappingMethod: "NONE" },
         seriousnessCriteria: {},
       },
     ],
     products: [
-      { id: `${id}-p1`, characterization: "SUSPECT", product: { sourceValue: "PENTA", status: "UNMAPPED", mappingMethod: "NONE" } },
+      {
+        id: `${id}-p1`,
+        characterization: "SUSPECT",
+        product: { sourceValue: "PENTA", status: "UNMAPPED", mappingMethod: "NONE" },
+      },
     ],
-    sourceInformation: { sourceFile: "test.xlsx", sourceRow: 1, jobId: "job-1", sourceProfileId: "test-profile" },
+    sourceInformation: {
+      sourceFile: "test.xlsx",
+      sourceRow: 1,
+      jobId: "job-1",
+      sourceProfileId: "test-profile",
+    },
   };
 }
 
 describe("100-ICSR batching -> each batch independently serializes to well-formed XML", () => {
   it("splits 231 cases into 100/100/31 and every resulting batch parses as XML", () => {
-    const cases = Array.from({ length: 231 }, (_, i) => fakeCase(`NG-MEDNOVA-${String(i + 1).padStart(6, "0")}`));
+    const cases = Array.from({ length: 231 }, (_, i) =>
+      fakeCase(`NG-MEDNOVA-${String(i + 1).padStart(6, "0")}`),
+    );
     const batches = splitIntoBatches(cases, "TXN");
     expect(batches).toHaveLength(3);
     expect(batches[0]!.cases).toHaveLength(100);

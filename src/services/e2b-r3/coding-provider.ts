@@ -127,7 +127,9 @@ export class AuthorizedMappingTableMedDraProvider implements MedDraCodingProvide
     };
   }
 
-  async resolvePreferredTerm(lltCode: string): Promise<{ preferredTerm: string; code: string } | null> {
+  async resolvePreferredTerm(
+    lltCode: string,
+  ): Promise<{ preferredTerm: string; code: string } | null> {
     for (const entry of Object.values(this.table)) {
       if (entry.code === lltCode) return { preferredTerm: entry.preferredTerm, code: entry.code };
     }
