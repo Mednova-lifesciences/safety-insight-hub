@@ -59,6 +59,21 @@ export interface AiMapColumnsResponse {
   error?: string | null;
 }
 
+export interface AiOutcomeProposal {
+  term: string;
+  outcome?: string | null;
+  confidence: number;
+  reason: string;
+}
+
+export interface AiMapOutcomesResponse {
+  proposals: AiOutcomeProposal[];
+  ai_used: boolean;
+  prompt_version: string;
+  model?: string | null;
+  error?: string | null;
+}
+
 export interface AiCorrection {
   row: number;
   column: string;
@@ -394,6 +409,11 @@ export const ai = {
     }) => apiRequest<AiFixResponse>("/api/ai/linelist/fix", { method: "POST", body }),
     mapColumns: (body: { headers: string[]; rows: Record<string, string>[] }) =>
       apiRequest<AiMapColumnsResponse>("/api/ai/linelist/map-columns", {
+        method: "POST",
+        body,
+      }),
+    mapOutcomes: (body: { terms: string[] }) =>
+      apiRequest<AiMapOutcomesResponse>("/api/ai/linelist/map-outcomes", {
         method: "POST",
         body,
       }),

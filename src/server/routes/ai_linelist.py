@@ -23,10 +23,12 @@ from ..ai.prompts import (
     LINELIST_ANALYSIS_PROMPT,
     LINELIST_COLUMN_MAPPING_PROMPT,
     LINELIST_FIX_PROMPT,
+    LINELIST_OUTCOME_VOCABULARY_PROMPT,
     PROMPT_VERSION,
 )
 from ..ai.schemas import (
     AiColumnMapping,
+    AiOutcomeVocabulary,
     AiLineListAdversarialReview,
     AiLineListAnalysis,
     AiLineListFix,
@@ -410,6 +412,89 @@ async def map_columns(
             ai_used=False,
             prompt_version=PROMPT_VERSION,
             error="AI column mapping was unavailable; columns were matched by keyword only.",
+        )
+
+
+# A file has a handful of distinct outcome words however many rows it
+# has, so this is one small call per upload rather than one per row. The
+# cap exists only to bound a pathological file whose outcome column is
+# really free text.
+MAX_OUTCOME_TERMS = 60
+
+
+class MapOutcomesRequest(BaseModel):
+    """`terms` are the DISTINCT outcome values the deterministic dictionary
+    could not resolve — not one entry per row."""
+
+    terms: list[str]
+
+
+class OutcomeProposalOut(BaseModel):
+    term: str
+    outcome: Optional[str] = None
+    confidence: float = 0.0
+    reason: str = ""
+
+
+class MapOutcomesResponse(BaseModel):
+    proposals: list[OutcomeProposalOut]
+    ai_used: bool
+    prompt_version: str
+    model: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/map-outcomes", response_model=MapOutcomesResponse)
+async def map_outcomes(
+    request: MapOutcomesRequest,
+    user: AuthenticatedUser = Depends(require_permission("linelist.process")),
+):
+    """Resolves a source's own outcome words to the ICH E2B(R3) E.i.7
+    codelist.
+
+    Like /map-columns, every failure answers 200 with ai_used=False: an
+    unresolved outcome is the state the file was already in, and must never
+    surface as an error that stops the job.
+    """
+    terms = [t for t in dict.fromkeys(request.terms) if t and t.strip()][:MAX_OUTCOME_TERMS]
+    if not terms:
+        return MapOutcomesResponse(proposals=[], ai_used=False, prompt_version=PROMPT_VERSION)
+
+    try:
+        completion = await structured_completion(
+            system_prompt=LINELIST_OUTCOME_VOCABULARY_PROMPT,
+            user_content=json.dumps({"terms": terms}),
+            model=VALIDATION_MODEL,
+        )
+        parsed = AiOutcomeVocabulary.model_validate(completion.data)
+        return MapOutcomesResponse(
+            proposals=[
+                OutcomeProposalOut(
+                    term=p.term,
+                    outcome=p.outcome,
+                    confidence=p.confidence,
+                    reason=p.reason,
+                )
+                for p in parsed.proposals
+            ],
+            ai_used=True,
+            prompt_version=PROMPT_VERSION,
+            model=completion.model,
+        )
+    except AiNotConfiguredError:
+        return MapOutcomesResponse(
+            proposals=[],
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="AI is not configured; outcome values were left for human review.",
+        )
+    except Exception as exc:
+        logger.warning("AI outcome resolution failed, leaving terms unresolved: %s", exc)
+        return MapOutcomesResponse(
+            proposals=[],
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="AI outcome resolution was unavailable; values were left for human review.",
         )
 
 

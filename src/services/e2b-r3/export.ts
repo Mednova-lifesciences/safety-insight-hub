@@ -17,6 +17,10 @@ import {
   isTransmissionConfigConfirmed,
   describeUnconfirmedTransmissionConfig,
 } from "./transmission-config";
+import {
+  withOutcomeVocabulary,
+  type OutcomeVocabulary,
+} from "./source-profiles/outcome-vocabulary";
 import { getSourceProfile } from "./source-profiles/registry";
 import type { SourceProfile } from "./source-profiles/types";
 import { parseDiscoveredLegend, validateDiscoveredCodebook } from "./source-profiles/legend-parser";
@@ -139,12 +143,21 @@ function toSourceRecord(row: ParsedRow): Record<string, string | undefined> {
  *  the historical default for jobs uploaded before a profile could be
  *  chosen, and for an id no longer in the registry — a stale reference
  *  should not make an existing job unreadable. */
-function resolveProfileForJob(job: { sourceProfileId?: string | undefined }): SourceProfile {
+function resolveProfileForJob(job: {
+  sourceProfileId?: string | undefined;
+  outcomeVocabulary?: OutcomeVocabulary | undefined;
+}): SourceProfile {
+  let profile: SourceProfile;
   try {
-    return getSourceProfile(job.sourceProfileId || "ondo-aefi");
+    profile = getSourceProfile(job.sourceProfileId || "ondo-aefi");
   } catch {
-    return getSourceProfile("ondo-aefi");
+    profile = getSourceProfile("ondo-aefi");
   }
+  // The same resolved outcome words the line-list pass validated against.
+  // Without this the two disagree: a term accepted there would still
+  // quarantine here, which is the exact split the runtime-profile work
+  // existed to remove.
+  return withOutcomeVocabulary(profile, job.outcomeVocabulary);
 }
 
 export async function runValidatedPreflightForJob(
