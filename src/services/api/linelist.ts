@@ -72,6 +72,11 @@ export const TARGET_FIELDS = [
   "dose",
   "reporter_designation",
   "reporter_phone",
+  /** Time from vaccination to symptom onset, as AEFI forms actually record
+   *  it ("30 mins", "2 days", "1 week") — NOT a calendar date. Captured so
+   *  onset_date can be DERIVED from it rather than demanded separately;
+   *  see deriveOnsetDate. */
+  "onset_interval",
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
@@ -243,6 +248,15 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     // an "Onset Time interval (hours, days, weeks)" column — a *duration*
     // since vaccination, not a date — which the generic keyword mapped
     // straight into onset_date, tripping INVALID_DATE_FORMAT on every row.
+    // That column is now mapped to onset_interval below instead, and
+    // onset_date is derived from it (see deriveOnsetDate).
+  ],
+  onset_interval: [
+    ["onsettimeinterval", 95],
+    ["onsetinterval", 90],
+    ["timetoonset", 90],
+    ["intervalfromvaccination", 85],
+    ["onsettime", 60],
   ],
   seriousness: [
     ["seriousness", 95],
@@ -335,7 +349,80 @@ function mapColumns(headers: string[]): Record<string, TargetField> {
   return mapColumnsByKeywords(headers, FIELD_KEYWORDS);
 }
 
-function toParsedRows(
+/**
+ * Strips the artefacts a spreadsheet leaves on a value that was stored as
+ * text — most commonly Excel's leading/trailing apostrophe, which is its
+ * "treat this as text" marker and not part of the data. Observed on a real
+ * Ondo AEFI upload as `02/02/2026'`, which failed INVALID_DATE_FORMAT on 13
+ * rows for a character the user never typed and cannot see in Excel.
+ *
+ * Deliberately narrow: only the apostrophes and surrounding whitespace. It
+ * never repairs the date itself — a genuinely malformed date must still
+ * fail, because silently "correcting" a date in a safety report is far
+ * worse than rejecting it.
+ */
+export function stripSpreadsheetTextMarkers(value: string): string {
+  return value.trim().replace(/^'+/, "").replace(/'+$/, "").trim();
+}
+
+/** Converts an AEFI onset INTERVAL ("30 mins", "2 days", "1 week", "10HRS")
+ *  into milliseconds. Returns null for anything it cannot read confidently —
+ *  a guess here would move a reaction's start date, so an unparseable
+ *  interval must leave onset_date underived rather than approximated. */
+export function parseOnsetIntervalMs(raw: string): number | null {
+  const v = raw.trim().toLowerCase();
+  if (!v) return null;
+  const m = /^(\d+(?:\.\d+)?)\s*([a-z]+)\.?$/.exec(v);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 0) return null;
+  const unit = m[2]!;
+  const MIN = 60_000,
+    HOUR = 60 * MIN,
+    DAY = 24 * HOUR;
+  if (/^(min|mins|minute|minutes|m)$/.test(unit)) return n * MIN;
+  if (/^(h|hr|hrs|hour|hours)$/.test(unit)) return n * HOUR;
+  if (/^(d|day|days)$/.test(unit)) return n * DAY;
+  if (/^(w|wk|wks|week|weeks)$/.test(unit)) return n * 7 * DAY;
+  return null;
+}
+
+/**
+ * Derives the reaction onset DATE from the vaccination date plus the onset
+ * interval — the two things AEFI forms actually record.
+ *
+ * The NAFDAC/Ondo AEFI form has no onset-date column by design: it captures
+ * "Date of Last immunisation" and "Onset Time interval (hours, days,
+ * weeks)". The validator nonetheless demanded onset_date, so
+ * MISSING_ONSET_DATE fired on 231 of 231 rows of a real upload — a warning
+ * on every row, which is the same as no warning at all, and it buried the
+ * genuine findings underneath it. E2B(R3) does need a reaction start date
+ * (E.i.4), so the right answer is to compute the value the form implies
+ * rather than to demand a column that was never going to exist or to drop
+ * the check.
+ *
+ * Derives only when both inputs parse. Returns ISO yyyy-mm-dd so the result
+ * is indistinguishable in shape from a directly-supplied onset date.
+ */
+export function deriveOnsetDate(
+  vaccinationDate: string | undefined,
+  onsetInterval: string | undefined,
+): string | null {
+  if (!vaccinationDate || !onsetInterval) return null;
+  const base = parseDateLoose(stripSpreadsheetTextMarkers(vaccinationDate));
+  if (!base) return null;
+  const offsetMs = parseOnsetIntervalMs(onsetInterval);
+  if (offsetMs === null) return null;
+  const d = new Date(base.getTime() + offsetMs);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Exported for tests: proves the onset-date derivation and the
+ *  text-marker stripping behave the same for any source's headers, not
+ *  just the form that exposed the bug. */
+export function toParsedRows(
   headers: string[],
   rows: string[][],
   mapping: Record<string, TargetField>,
@@ -344,8 +431,17 @@ function toParsedRows(
     const parsed: ParsedRow = {};
     headers.forEach((header, i) => {
       const field = mapping[header];
-      if (field && row[i]) parsed[field] = row[i];
+      // Spreadsheet text markers are stripped at the boundary, once, so
+      // every downstream rule sees the value the user actually entered.
+      if (field && row[i]) parsed[field] = stripSpreadsheetTextMarkers(row[i]!);
     });
+    // An onset date the form implies but never states — computed here so
+    // every consumer (validation, E2B mapping, the fix pass) sees one
+    // consistent value rather than each re-deriving its own.
+    if (!parsed.onset_date) {
+      const derived = deriveOnsetDate(parsed.vaccination_date, parsed.onset_interval);
+      if (derived) parsed.onset_date = derived;
+    }
     return parsed;
   });
 }
@@ -684,13 +780,28 @@ export function runValidation(
 
     let onset: Date | null = null;
     if (!row.onset_date) {
+      // Reached only when the onset date could not be DERIVED either (see
+      // deriveOnsetDate) — so say which input was actually missing rather
+      // than naming a column the form may not have. Previously this fired
+      // on every row of a form that records onset as an interval, making
+      // it noise instead of a finding.
+      const hasVaccinationDate = !!row.vaccination_date;
+      const hasInterval = !!row.onset_interval;
+      const why =
+        !hasVaccinationDate && !hasInterval
+          ? "Neither an onset date nor a vaccination date and onset interval to derive it from were provided."
+          : !hasVaccinationDate
+            ? "An onset interval was provided but no vaccination date to measure it from, so the onset date cannot be derived."
+            : !hasInterval
+              ? "A vaccination date was provided but no onset interval, so the onset date cannot be derived."
+              : `The onset interval "${row.onset_interval}" could not be read as a duration, so the onset date cannot be derived.`;
       issues.push({
         row: rowNum,
-        column: col("onset_date"),
+        column: col("onset_date") || col("onset_interval"),
         severity: "MEDIUM",
         confidence: "HIGH",
         code: "MISSING_ONSET_DATE",
-        message: "Onset date was not provided.",
+        message: why,
         value: null,
         source: "rule",
         sources: ["rule"],
@@ -829,7 +940,12 @@ export function runValidation(
         // UNKNOWN_SOURCE_CODE), understood but not yet given an approved
         // E2B mapping (HUMAN_REVIEW_REQUIRED), or fully resolved (MAPPED,
         // no issue at all).
-        const outcomeResolution = resolveFieldConcept(row.outcome, runtimeProfile, "outcome", mapConceptToOutcome);
+        const outcomeResolution = resolveFieldConcept(
+          row.outcome,
+          runtimeProfile,
+          "outcome",
+          mapConceptToOutcome,
+        );
         if (outcomeResolution?.status === "UNKNOWN_SOURCE_CODE") {
           issues.push({
             row: rowNum,
@@ -1037,7 +1153,15 @@ export function runValidation(
         issues.push({
           row: rowNum,
           column: col("reporter_phone"),
-          severity: "CRITICAL",
+          // MEDIUM, matching MISSING_REPORTER_PHONE directly above.
+          // CRITICAL here produced a rule where a blank phone passed and a
+          // phone recorded as "1" blocked the case — a malformed optional
+          // field treated as more serious than an absent one. Reporter
+          // phone is not an E2B(R3) mandatory element and no downstream
+          // export depends on it, so a bad value is a data-quality note for
+          // the assessor, not grounds to stop the case being processed. On
+          // one real upload this alone blocked 18 of 231 rows.
+          severity: "MEDIUM",
           confidence: "HIGH",
           code: "INVALID_REPORTER_PHONE",
           message: `"${row.reporter_phone}" does not look like a valid phone number (expected 10-14 digits).`,
@@ -1343,7 +1467,12 @@ export const linelist = {
       // flag in feature-flags.ts to bring it back, rest of validate() is
       // unaffected either way.
       const ruleIssues = RULE_BASED_DETECTION_ENABLED
-        ? runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows, resolveJobRuntimeProfile(job))
+        ? runValidation(
+            job.columns ?? [],
+            job.mapping ?? {},
+            job.parsedRows,
+            resolveJobRuntimeProfile(job),
+          )
         : [];
 
       const analysisRows = (job.rawRows ?? job.parsedRows) as Record<string, string>[];
@@ -1564,7 +1693,12 @@ export const linelist = {
       (i) => i.source === "ai" && !correctedKeys.has(`${i.row}:${i.column}`),
     );
     const ruleIssues = RULE_BASED_DETECTION_ENABLED
-      ? runValidation(updatedJob.columns ?? [], updatedJob.mapping ?? {}, updatedJob.parsedRows!, resolveJobRuntimeProfile(updatedJob))
+      ? runValidation(
+          updatedJob.columns ?? [],
+          updatedJob.mapping ?? {},
+          updatedJob.parsedRows!,
+          resolveJobRuntimeProfile(updatedJob),
+        )
       : [];
     const finalIssues = mergeFindings(ruleIssues, remainingPriorAiIssues);
 
@@ -1692,8 +1826,7 @@ export const linelist = {
       if (!rowIssues || rowIssues.length === 0) return "";
       return [...new Set(rowIssues.map((i) => i.column))].join("; ");
     };
-    const needsReviewFor = (rowNumber: number): string =>
-      issuesByRow.has(rowNumber) ? "YES" : "";
+    const needsReviewFor = (rowNumber: number): string => (issuesByRow.has(rowNumber) ? "YES" : "");
     const escapeCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
     const headerRow = [...columns, "Needs review", "Unresolved column(s)"];
     const lines = job.rawRows
