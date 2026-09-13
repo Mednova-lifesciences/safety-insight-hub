@@ -102,13 +102,21 @@ async function resolveOutcomeVocabulary<T extends LineListJobRow>(job: T): Promi
     confidence: number;
     reason: string;
   }[] = [];
-  try {
-    const response = await ai.linelist.mapOutcomes({ terms: [...unresolved] });
-    if (response.ai_used) proposals = response.proposals;
-  } catch {
-    // Unresolved is the state the file was already in. Never an error.
-    return job;
+  // Same two-attempt budget as the column-mapping call, and for the same
+  // observed reason: a live run hit a 401 against a session token that was
+  // mid-refresh, and every outcome in the file silently stayed unresolved.
+  let attempted = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await ai.linelist.mapOutcomes({ terms: [...unresolved] });
+      if (response.ai_used) proposals = response.proposals;
+      attempted = true;
+      break;
+    } catch {
+      // Unresolved is the state the file was already in. Never an error.
+    }
   }
+  if (!attempted && proposals.length === 0) return job;
 
   const { accepted, pending } = acceptOutcomeProposals(proposals, (term) => {
     const r = resolveFieldConcept(term, profile, "outcome", mapConceptToOutcome);
