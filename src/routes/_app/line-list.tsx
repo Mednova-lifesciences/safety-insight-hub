@@ -51,8 +51,8 @@ const STAGES = [
   "Normalise",
   "Validate",
   "Review issues",
-  "Generate E2B(R3)",
-  "Download XML",
+  "VigiFlow preflight",
+  "Download validated E2B(R3) XML",
 ];
 
 function LineListPage() {

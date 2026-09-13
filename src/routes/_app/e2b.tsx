@@ -70,8 +70,6 @@ function E2bPage() {
     () => linelistApi.jobs(),
     () => demoLineListJobs,
   );
-  const [busy, setBusy] = useState<string | null>(null);
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [preflightBusy, setPreflightBusy] = useState<string | null>(null);
   const [preflightResults, setPreflightResults] = useState<Record<string, ValidatedExportResult>>(
     {},
@@ -181,29 +179,11 @@ function E2bPage() {
     }
   }
 
-  async function dismissErrors(jobId: string) {
-    setBusy(jobId);
-    try {
-      await e2bApi.dismissErrors(jobId);
-      toast.success("Outstanding errors dismissed. This job can now be exported.");
-      jobs.refetch();
-    } catch (err) {
-      toast.error(
-        isNotConfigured(err)
-          ? "Backend not connected — the override was not saved."
-          : "Could not dismiss errors.",
-      );
-    } finally {
-      setBusy(null);
-      setConfirmingId(null);
-    }
-  }
-
   return (
     <>
       <PageHeader
         title="E2B(R3) preparation"
-        description="Prepares E2B(R3)-shaped XML from validated cases."
+        description="Prepares real ICH E2B(R3) HL7 v3 XML for the VigiFlow/NAFDAC pipeline. Nothing is transmitted from here."
         meta={jobs.data ? <SourceTag source={jobs.data.source} /> : null}
       />
 
@@ -280,98 +260,23 @@ function E2bPage() {
                           ))}
                         </dl>
 
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            disabled={busy === j.id || !exportable}
-                            onClick={async () => {
-                              setBusy(j.id);
-                              try {
-                                const artifact = await e2bApi.generate(j.id);
-                                toast.success(
-                                  `Generated ${artifact.filename} (${artifact.caseCount} cases). Not transmitted.`,
-                                );
-                                jobs.refetch();
-                              } catch (err) {
-                                toast.error(
-                                  isNotConfigured(err)
-                                    ? "Backend not connected — no E2B output was generated."
-                                    : "Generation failed.",
-                                );
-                              } finally {
-                                setBusy(null);
-                              }
-                            }}
-                          >
-                            Generate E2B(R3)
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={j.stage !== "E2B_GENERATED"}
-                            onClick={async () => {
-                              try {
-                                await e2bApi.download(j.id);
-                              } catch (err) {
-                                toast.error(
-                                  isNotConfigured(err)
-                                    ? "Backend not connected — no artifact is available to download."
-                                    : "Download unavailable.",
-                                );
-                              }
-                            }}
-                          >
-                            <Download className="size-4" /> Download XML
-                          </Button>
-                          {j.invalidCases > 0 && !j.e2bOverride ? (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={busy === j.id}
-                                onClick={() => setConfirmingId(j.id)}
-                              >
-                                <ShieldOff className="size-4" /> Dismiss Errors
-                              </Button>
-                              <AlertDialog
-                                open={confirmingId === j.id}
-                                onOpenChange={(open) => {
-                                  if (!open) setConfirmingId(null);
-                                }}
-                              >
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                      Override outstanding errors?
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      This job has {j.invalidCases} outstanding line-listing
-                                      issue(s). Dismissing them unlocks{" "}
-                                      <strong>Generate E2B(R3)</strong> for this job without
-                                      resolving them — use this only when those findings are
-                                      intentional or incorrect for this dataset. The issues are not
-                                      removed or resolved; they'll still show in full on the
-                                      line-list page, and this override is recorded in the audit
-                                      trail under your name.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => dismissErrors(j.id)}>
-                                      Dismiss errors
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </>
-                          ) : null}
-                          {!exportable ? (
-                            <span className="self-center text-xs text-muted-foreground">
-                              {j.invalidCases} invalid case(s) must be resolved in line-list
-                              processing first.
-                            </span>
-                          ) : null}
-                        </div>
+                        {/* The legacy "Generate E2B(R3)" / "Download XML" /
+                            "Dismiss Errors" trio was removed here. Its generator
+                            (buildE2bXml in services/api/e2b.ts) emits a flat
+                            E2B(R2)-shaped <ichicsr> preparation draft whose own
+                            header states it "must never be presented to NAFDAC,
+                            loaded into VigiFlow, or described as
+                            E2B(R3)-compliant" — while the button calling it was
+                            labelled exactly that. Two adjacent downloads, one
+                            conformant and one explicitly not, distinguishable
+                            only by reading the XML comment, is not a safe thing
+                            to put in a regulatory tool. The validated pipeline
+                            below is the only export path. */}
+                        {!exportable ? (
+                          <p className="mt-3 text-xs text-muted-foreground">
+                            {j.invalidCases} invalid case(s) outstanding in line-list processing.
+                          </p>
+                        ) : null}
 
                         <div className="mt-4 rounded-md border border-border bg-muted/30 p-3">
                           <p className="text-xs font-medium text-foreground">
