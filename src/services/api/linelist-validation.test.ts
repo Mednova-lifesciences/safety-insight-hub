@@ -967,6 +967,86 @@ describe("a coded source with no codebook is caught during line-list processing"
     expect(issues.some((i) => i.code === "REACTION_CODEBOOK_MISSING")).toBe(false);
   });
 
+  it('an "AEFI Code" column is recognised as a reaction code, not left unmapped', () => {
+    // A live upload headed "AEFI Code" matched no keyword at all, so the
+    // codes were invisible to every check and each row reported
+    // MISSING_REACTION while the codes sat right there in the file.
+    for (const header of ["AEFI Code", "AE Code", "Adverse Event Code", "AEFI Code (see legend)"]) {
+      const mapped = mapColumnsByKeywords([header], FIELD_KEYWORDS);
+      expect(mapped[header]).toBe("reaction_code");
+    }
+  });
+
+  it("a single word-shaped reaction column is still not claimed by reaction_code", () => {
+    // The regression the reaction_code keyword list has always guarded
+    // against: forms with exactly ONE reaction-ish column must keep sending
+    // it to `reaction`, or that required field maps to nothing.
+    const header = "Reaction type (Codes - see 1 below)";
+    const mapped = mapColumnsByKeywords([header], FIELD_KEYWORDS);
+    expect(mapped[header]).toBe("reaction");
+  });
+
+  it("codes arriving in the reaction column itself are caught too", () => {
+    // Single-reaction-column forms put the code in `reaction`, not
+    // `reaction_code`. Only the latter was checked, so an undecoded number
+    // passed validation standing in as the reaction term.
+    const issues = runValidation(
+      ["Case ID", "Reaction type (Codes - see 1 below)"],
+      { "Case ID": "case_id", "Reaction type (Codes - see 1 below)": "reaction" },
+      [{ case_id: "C1", reaction: "19" }],
+      noCodebook(CODED),
+    );
+    const found = issues.find((i) => i.code === "REACTION_CODEBOOK_MISSING");
+    expect(found).toBeTruthy();
+    expect(found!.severity).toBe("CRITICAL");
+    expect(found!.value).toBe("19");
+  });
+
+  it("leaves WORD reactions alone even under a coded form", () => {
+    // Someone who never touched the source-form dropdown gets the coded
+    // default. Flagging "Abscess" CRITICAL there would fire on most files
+    // and bury the real findings; an uncodable term is still quarantined at
+    // E2B export, as it was before.
+    const issues = runValidation(
+      ["Case ID", "Reaction"],
+      { "Case ID": "case_id", Reaction: "reaction" },
+      [{ case_id: "C1", reaction: "Abscess" }],
+      noCodebook(CODED),
+    );
+    expect(issues.some((i) => i.code === "REACTION_CODEBOOK_MISSING")).toBe(false);
+  });
+
+  it("does not stop the row's other checks — every problem shows at once", () => {
+    const issues = runValidation(
+      ["Case ID", "Reaction", "Phone"],
+      { "Case ID": "case_id", Reaction: "reaction", Phone: "reporter_phone" },
+      [{ case_id: "C1", reaction: "19", reporter_phone: "1" }],
+      noCodebook(CODED),
+    );
+    expect(issues.some((i) => i.code === "REACTION_CODEBOOK_MISSING")).toBe(true);
+    expect(issues.some((i) => i.code === "INVALID_REPORTER_PHONE")).toBe(true);
+  });
+
+  it("word reactions under a VERBATIM form remain completely clean", () => {
+    const issues = runValidation(
+      ["Case ID", "Reaction"],
+      { "Case ID": "case_id", Reaction: "reaction" },
+      [{ case_id: "C1", reaction: "Abscess" }],
+      VERBATIM,
+    );
+    expect(issues.some((i) => i.code === "REACTION_CODEBOOK_MISSING")).toBe(false);
+  });
+
+  it("a coded form WITH a codebook does not flag its reaction column", () => {
+    const issues = runValidation(
+      ["Case ID", "Reaction"],
+      { "Case ID": "case_id", Reaction: "reaction" },
+      [{ case_id: "C1", reaction: "19" }],
+      profileWithCodebooks({ reaction: { "19": "Fever" } }),
+    );
+    expect(issues.some((i) => i.code === "REACTION_CODEBOOK_MISSING")).toBe(false);
+  });
+
   it("a genuinely absent reaction still reports as missing", () => {
     const issues = runValidation(
       ["Case ID", "Reaction"],
