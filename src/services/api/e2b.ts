@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { currentActor, recordAudit, toJson } from "./db";
 import type { LineListJob } from "@/types/pv";
+import type { OutcomeVocabulary } from "@/services/e2b-r3/source-profiles/outcome-vocabulary";
 
 export interface E2bReadiness {
   jobId: string;
@@ -57,6 +58,11 @@ export interface LineListJobRow extends LineListJob {
    *  Absent on jobs uploaded before this was tracked. */
   discardedRows?: { row: number; text: string }[];
   sheetName?: string;
+  /** This file's own outcome words, resolved to the E.i.7 codelist during
+   *  line-list validation. Read here so the export path decodes outcomes
+   *  the same way the validation the user already saw did — see
+   *  e2b-r3/source-profiles/outcome-vocabulary.ts. */
+  outcomeVocabulary?: OutcomeVocabulary;
 }
 
 /** Exported for src/services/e2b-r3/export.ts — the validated E2B(R3)

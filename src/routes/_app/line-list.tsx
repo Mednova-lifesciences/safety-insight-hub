@@ -292,6 +292,7 @@ function LineListPage() {
         </Section>
 
         {activeJob ? <ColumnMappingPanel job={activeJob} /> : null}
+        {activeJob ? <OutcomeVocabularyPanel job={activeJob} /> : null}
 
         {activeJob ? (
           <Section
@@ -569,6 +570,84 @@ function ColumnMappingPanel({ job }: { job: LineListJob }) {
           unmapped column is reported rather than guessed at — tell us what it holds and it can be
           added.
         </p>
+      ) : null}
+    </Section>
+  );
+}
+
+/** How this file's own outcome words were resolved to the six values of
+ *  the ICH E2B(R3) E.i.7 codelist.
+ *
+ *  Shown because the resolution changes what is exported to a regulator.
+ *  A term read as fatal is listed separately and is NOT applied: both ways
+ *  of getting a death wrong — inventing one, or recording one as something
+ *  milder — are the worst errors this system can make, so a person enters
+ *  that one.
+ */
+function OutcomeVocabularyPanel({ job }: { job: LineListJob }) {
+  const vocabulary =
+    (
+      job as {
+        outcomeVocabulary?: Record<
+          string,
+          {
+            term: string;
+            outcome: string;
+            confidence: number;
+            reason: string;
+            requiresConfirmation?: boolean;
+          }
+        >;
+      }
+    ).outcomeVocabulary ?? {};
+  const terms = Object.values(vocabulary);
+  if (terms.length === 0) return null;
+  const applied = terms.filter((t) => !t.requiresConfirmation);
+  const awaiting = terms.filter((t) => t.requiresConfirmation);
+
+  return (
+    <Section
+      title="Outcome vocabulary"
+      description="This file's own words for how each reaction ended, resolved to the six values of the ICH E2B(R3) E.i.7 codelist. Terms the standard dictionary already knows are not listed — these are the ones it could not."
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase text-muted-foreground">
+              <th className="py-2 pr-4">Term in file</th>
+              <th className="py-2 pr-4">E.i.7 outcome</th>
+              <th className="py-2">Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            {applied.map((t) => (
+              <tr key={t.term} className="border-t border-border/60 align-top">
+                <td className="py-2 pr-4 font-medium">{t.term}</td>
+                <td className="py-2 pr-4">
+                  <code className="mono-num">{t.outcome}</code>
+                </td>
+                <td className="py-2 text-muted-foreground">{t.reason}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {awaiting.length > 0 ? (
+        <div className="mt-4 rounded-md border border-border bg-muted/50 p-3">
+          <p className="text-sm font-medium">Read as a death — not applied</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {awaiting.map((t) => (
+              <li key={t.term}>
+                <span className="font-medium">{t.term}</span>
+                <span className="text-muted-foreground"> — {t.reason}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">
+            A fatal outcome is never entered automatically. These rows stay unresolved until
+            someone confirms what the term means, under Settings → Regulatory Profiles.
+          </p>
+        </div>
       ) : null}
     </Section>
   );

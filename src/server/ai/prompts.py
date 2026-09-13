@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-09-13.1"
+PROMPT_VERSION = "2026-09-13.2"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -35,6 +35,36 @@ prompt — no prose, no markdown, no explanation outside the JSON.
 assert regulatory requirements that were not given to you.
 """
 
+
+LINELIST_OUTCOME_VOCABULARY_PROMPT = (
+    SAFETY_PREAMBLE
+    + """
+
+TASK: you are given the distinct words a line list uses to say how a reaction ended. Resolve each to one of the six outcomes of the ICH E2B(R3) E.i.7 codelist, or to null.
+
+A fixed synonym dictionary has already resolved everything it recognises ("Recovered", "Resolving", "Fatal", "Ongoing" and similar). What reaches you is what it could not: real files write "Fully better", "Still recovering", "Rétabli", "Went home well".
+
+THE SIX VALUES (use these exact names, or null):
+  RECOVERED                the reaction has fully resolved
+  RECOVERING               resolving, improving, not yet fully better
+  NOT_RECOVERED            ongoing, persisting, unresolved at the time of reporting
+  RECOVERED_WITH_SEQUELAE  resolved but left lasting damage or disability
+  FATAL                    the patient died as a result of the reaction
+  UNKNOWN                  the outcome is explicitly unknown, lost to follow-up, or not stated
+
+RULES:
+- Return one proposal per term you were given.
+- `outcome` MUST be one of the six exact names above, or null. Never invent a value.
+- null is a correct answer, and often the right one. A term can describe an ACTION rather than an   outcome ("Referred to hospital", "Admitted", "Treated with paracetamol", "Case closed"): what   was done is not how the reaction ended, and those must be null. So must anything ambiguous.
+- Do not read severity as outcome. "Severe" and "Mild" say how bad the reaction was, not whether   it ended.
+- RECOVERED_WITH_SEQUELAE requires the text to actually indicate lasting damage. "Recovered with   scarring" is sequelae; a bare "Recovered" is not.
+- FATAL requires the text to state a death. Do not infer one from severity, from hospitalisation,   or from a serious criterion. A proposal of FATAL is never applied automatically — a person   confirms it — so say it when the term means it and never when it merely might.
+- `confidence` is your real confidence, 0..1. Below 0.8 the application disregards the proposal,   which is the correct outcome for a term you are unsure of.
+- `reason` is one short sentence a pharmacovigilance reviewer will read beside the mapping.
+
+Return JSON: {"proposals": [{"term": ..., "outcome": ...|null, "confidence": 0.0-1.0, "reason": ...}]}
+"""
+)
 
 LINELIST_COLUMN_MAPPING_PROMPT = (
     SAFETY_PREAMBLE

@@ -160,6 +160,29 @@ class AiColumnMapping(BaseModel):
     proposals: list[AiColumnMappingProposal]
 
 
+class AiOutcomeProposal(BaseModel):
+    """One of a source's own outcome words, resolved to E.i.7's six values.
+
+    `outcome` is Optional because "this term does not state an outcome" is
+    a real answer — a column can contain "Referred to hospital", which says
+    what was done, not how the reaction ended. The frontend discards any
+    value outside the six anyway, so a hallucinated one degrades to
+    unresolved rather than to a wrong clinical claim."""
+
+    term: str
+    outcome: Optional[str] = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason: str = ""
+
+
+class AiOutcomeVocabulary(BaseModel):
+    """Required, not defaulted — a response missing the key means the model
+    ignored the schema, which must leave every term unresolved rather than
+    read as "none of them could be resolved"."""
+
+    proposals: list[AiOutcomeProposal]
+
+
 class AiLineListCorrection(BaseModel):
     row: int
     column: str

@@ -6,6 +6,12 @@ import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import { discoverAndApplyCodebook } from "@/services/e2b-r3/export";
 import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
 import { resolveFieldConcept, mapConceptToOutcome } from "@/services/e2b-r3/mapping";
+import {
+  acceptOutcomeProposals,
+  normaliseOutcomeKey,
+  withOutcomeVocabulary,
+  type OutcomeVocabulary,
+} from "@/services/e2b-r3/source-profiles/outcome-vocabulary";
 import type { SourceProfile } from "@/services/e2b-r3/source-profiles/types";
 import type { LineListIssue, LineListIssueType, LineListJob } from "@/types/pv";
 
@@ -37,6 +43,7 @@ function resolveJobRuntimeProfile(job: {
   filename: string;
   sheetName?: string;
   sourceProfileId?: string | undefined;
+  outcomeVocabulary?: OutcomeVocabulary | undefined;
 }): SourceProfile {
   // An unregistered id would throw from getSourceProfile and take the whole
   // job down; a job is not worth losing over a stale profile reference, so
@@ -51,7 +58,78 @@ function resolveJobRuntimeProfile(job: {
     file: job.filename,
     sheet: job.sheetName,
   });
-  return runtimeProfile;
+  // Layered last so it can only fill outcome words nothing else resolved —
+  // the profile's own configured outcomeMap still wins inside
+  // withOutcomeVocabulary.
+  return withOutcomeVocabulary(runtimeProfile, job.outcomeVocabulary);
+}
+
+/**
+ * Resolves the outcome words this file uses that nothing else can.
+ *
+ * Runs before validation so the findings the user reads already account
+ * for it, and persists the result on the job so the same resolution is
+ * what E2B export later decodes with — the two must never disagree about
+ * what "Fully better" means.
+ *
+ * Only ever ADDS terms. A term already in the job's vocabulary is not
+ * re-asked (the answer is a record, not a cache to be refreshed), and a
+ * term the deterministic dictionary resolves is never sent at all.
+ */
+async function resolveOutcomeVocabulary<T extends LineListJobRow>(job: T): Promise<T> {
+  const rows = job.parsedRows ?? [];
+  if (rows.length === 0) return job;
+
+  const profile = resolveJobRuntimeProfile(job);
+  const existing = job.outcomeVocabulary ?? {};
+  const unresolved = new Set<string>();
+
+  for (const row of rows) {
+    const raw = row.outcome;
+    if (!raw) continue;
+    if (existing[normaliseOutcomeKey(raw)]) continue;
+    const resolution = resolveFieldConcept(raw, profile, "outcome", mapConceptToOutcome);
+    // MAPPED needs nothing. UNKNOWN_SOURCE_CODE means a coded value with no
+    // codebook entry — a legend problem, not a vocabulary one, and inventing
+    // a meaning for a bare code is precisely what must not happen here.
+    if (resolution?.status === "HUMAN_REVIEW_REQUIRED") unresolved.add(raw);
+  }
+  if (unresolved.size === 0) return job;
+
+  let proposals: {
+    term: string;
+    outcome?: string | null;
+    confidence: number;
+    reason: string;
+  }[] = [];
+  try {
+    const response = await ai.linelist.mapOutcomes({ terms: [...unresolved] });
+    if (response.ai_used) proposals = response.proposals;
+  } catch {
+    // Unresolved is the state the file was already in. Never an error.
+    return job;
+  }
+
+  const { accepted, pending } = acceptOutcomeProposals(proposals, (term) => {
+    const r = resolveFieldConcept(term, profile, "outcome", mapConceptToOutcome);
+    return r?.status === "MAPPED";
+  });
+  if (Object.keys(accepted).length === 0 && Object.keys(pending).length === 0) return job;
+
+  const outcomeVocabulary: OutcomeVocabulary = { ...existing, ...accepted, ...pending };
+  const next = { ...job, outcomeVocabulary };
+  await saveJob(next);
+  await recordAudit({
+    action: "LINELIST_OUTCOME_VOCABULARY_RESOLVED",
+    entity: "LineListJob",
+    entityId: job.id,
+    reason:
+      `AI resolved ${Object.keys(accepted).length} outcome term(s) to the E.i.7 codelist` +
+      (Object.keys(pending).length
+        ? `; ${Object.keys(pending).length} read as fatal and left for human confirmation`
+        : ""),
+  });
+  return next;
 }
 
 export interface ColumnInspection {
@@ -139,6 +217,12 @@ interface LineListJobRow extends LineListJob {
    *  can judge the mapping rather than only accept it. */
   mappingNotes?: Record<string, string>;
   mappingAiUsed?: boolean;
+  /** This file's own outcome words ("Fully better", "Rétabli"), resolved
+   *  to the E.i.7 codelist. Persisted on the job so validation and E2B
+   *  export decode outcomes identically, and so the resolution is a
+   *  reviewable record rather than something recomputed invisibly on each
+   *  run. Entries marked requiresConfirmation are NOT applied. */
+  outcomeVocabulary?: OutcomeVocabulary;
   parsedRows?: ParsedRow[];
   /** Every original column, keyed by its real header text, for every row
    *  — unlike parsedRows, nothing outside the canonical fields is dropped.
@@ -1769,6 +1853,7 @@ export const linelist = {
   }> => {
     const job = await readJob(jobId);
     let issues: LineListIssue[];
+    let outcomeVocabulary: OutcomeVocabulary | undefined = job.outcomeVocabulary;
     let aiUsed = false;
     let aiError: string | undefined;
     let promptVersion: string | undefined = job.promptVersion;
@@ -1777,6 +1862,16 @@ export const linelist = {
       // Real upload — re-run validation against the actual parsed content
       // every time, so the result always reflects the current data.
       await supabase.from("pv_linelist_issues").delete().eq("job_id", jobId);
+      // Resolve this file's own outcome words BEFORE validating, so the
+      // run the user sees already reflects them. Terms the deterministic
+      // dictionary handles never reach the model.
+      const resolved = await resolveOutcomeVocabulary(job);
+      // The save at the end of this function rebuilds the job from `job`,
+      // which is the pre-resolution copy — without carrying the vocabulary
+      // across, that write would erase the resolution this run just
+      // persisted, and the next run would ask the model all over again.
+      outcomeVocabulary = resolved.outcomeVocabulary;
+      const parsedRows = job.parsedRows;
       // RULE_BASED_DETECTION_ENABLED gates the entire deterministic rule
       // engine (including its NO_COLUMNS_MAPPED short-circuit) — flip the
       // flag in feature-flags.ts to bring it back, rest of validate() is
@@ -1785,12 +1880,12 @@ export const linelist = {
         ? runValidation(
             job.columns ?? [],
             job.mapping ?? {},
-            job.parsedRows,
-            resolveJobRuntimeProfile(job),
+            parsedRows,
+            resolveJobRuntimeProfile(resolved),
           )
         : [];
 
-      const analysisRows = (job.rawRows ?? job.parsedRows) as Record<string, string>[];
+      const analysisRows = (job.rawRows ?? parsedRows) as Record<string, string>[];
       let aiIssues: LineListIssue[] = [];
       try {
         const analysis = await ai.linelist.analyze({
@@ -1852,6 +1947,7 @@ export const linelist = {
     const invalidCases = new Set(blocking.map((i) => i.row)).size;
     const next: LineListJobRow = {
       ...job,
+      ...(outcomeVocabulary ? { outcomeVocabulary } : {}),
       stage: "VALIDATED",
       invalidCases,
       warnings: advisory.length,
