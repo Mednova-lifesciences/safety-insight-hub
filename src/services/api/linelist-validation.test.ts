@@ -356,18 +356,23 @@ describe("runValidation — reaction_code recognition uses the runtime profile's
     expect(issues.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(false);
   });
 
-  it("with no reaction codebook discovered at all, falls back to a generic numeric-shape check (no assumed range)", () => {
+  it("with no reaction codebook discovered at all, reports the missing codebook rather than judging the code's shape", () => {
+    // This test previously pinned a fallback "does it look numeric?" shape
+    // check, which was written to avoid the worse bug of a hardcoded 1-28
+    // range. But shape is not meaning: with no legend, "42" passed and "ABC"
+    // failed purely on appearance, and neither answer said anything true
+    // about the reaction. A numeric-looking code then reached E2B preflight
+    // before anything blocked it. The missing codebook is now reported at
+    // line-list processing time, for codes of either shape.
     const profile = profileWithCodebooks({});
     const mapping: Record<string, TargetField> = { "Reaction Code": "reaction_code" };
-    const issues = runValidation(["Reaction Code"], mapping, [{ reaction_code: "42" }], profile);
-    expect(issues.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(false);
-    const nonNumeric = runValidation(
-      ["Reaction Code"],
-      mapping,
-      [{ reaction_code: "ABC" }],
-      profile,
-    );
-    expect(nonNumeric.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(true);
+    for (const code of ["42", "ABC"]) {
+      const issues = runValidation(["Reaction Code"], mapping, [{ reaction_code: code }], profile);
+      expect(issues.some((i) => i.code === "REACTION_CODEBOOK_MISSING")).toBe(true);
+      // Not reported as an unrecognised code: nothing was consulted to
+      // recognise it against.
+      expect(issues.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(false);
+    }
   });
 });
 
@@ -904,5 +909,71 @@ describe("standard MedDRA/safety-database reaction vocabulary maps", () => {
     expect(mapping["Drug name (WHODrug)"]).toBe("product");
     expect(mapping["Preferred Term"]).toBe("reaction");
     expect(mapping["Reaction Code"]).toBe("reaction_code");
+  });
+});
+
+describe("a coded source with no codebook is caught during line-list processing", () => {
+  const CODED = getSourceProfile("ondo-aefi");
+  const VERBATIM = getSourceProfile("generic-verbatim");
+
+  function noCodebook(profile: SourceProfile): SourceProfile {
+    return {
+      ...profile,
+      reactionCodebook: { ...profile.reactionCodebook, entries: {} },
+    };
+  }
+
+  const headers = ["Case ID", "Reaction Code"];
+  const mapping: Record<string, TargetField> = {
+    "Case ID": "case_id",
+    "Reaction Code": "reaction_code",
+  };
+
+  it("reports the missing codebook instead of letting a numeric code through", () => {
+    // The old fallback only checked the value LOOKED numeric, so "19" passed
+    // line-list validation and the file was not blocked until E2B preflight,
+    // long after the assessor had moved on.
+    const issues = runValidation(headers, mapping, [{ reaction_code: "19" }], noCodebook(CODED));
+    const found = issues.find((i) => i.code === "REACTION_CODEBOOK_MISSING");
+    expect(found).toBeTruthy();
+    expect(found!.severity).toBe("CRITICAL");
+  });
+
+  it("says what would actually resolve it, and never guesses the code", () => {
+    const issues = runValidation(headers, mapping, [{ reaction_code: "19" }], noCodebook(CODED));
+    const m = issues.find((i) => i.code === "REACTION_CODEBOOK_MISSING")!.message;
+    expect(m).toContain("code legend");
+    expect(m).toMatch(/reads reactions as text/i);
+    expect(m).toMatch(/never guessed/i);
+  });
+
+  it("does not also claim the reaction is missing — it was supplied, as a code", () => {
+    const issues = runValidation(headers, mapping, [{ reaction_code: "19" }], noCodebook(CODED));
+    expect(issues.some((i) => i.code === "MISSING_REACTION")).toBe(false);
+  });
+
+  it("a coded source WITH a codebook is unaffected", () => {
+    // ondo-aefi ships with an EMPTY codebook by design — its entries come
+    // from runtime discovery of the uploaded file's own legend — so the
+    // codebook has to be supplied here the way discovery would supply it.
+    const withLegend = profileWithCodebooks({ reaction: { "19": "Fever" } });
+    const issues = runValidation(headers, mapping, [{ reaction_code: "19" }], withLegend);
+    expect(issues.some((i) => i.code === "REACTION_CODEBOOK_MISSING")).toBe(false);
+    expect(issues.some((i) => i.code === "INVALID_REACTION_CODE")).toBe(false);
+  });
+
+  it("a verbatim source is never asked for a codebook it cannot have", () => {
+    const issues = runValidation(headers, mapping, [{ reaction_code: "19" }], VERBATIM);
+    expect(issues.some((i) => i.code === "REACTION_CODEBOOK_MISSING")).toBe(false);
+  });
+
+  it("a genuinely absent reaction still reports as missing", () => {
+    const issues = runValidation(
+      ["Case ID", "Reaction"],
+      { "Case ID": "case_id", Reaction: "reaction" },
+      [{ case_id: "C1" }],
+      VERBATIM,
+    );
+    expect(issues.some((i) => i.code === "MISSING_REACTION")).toBe(true);
   });
 });
