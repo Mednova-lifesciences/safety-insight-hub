@@ -61,7 +61,7 @@ export type Permission =
   | "catalog.manage"
   | "regulatory.manage";
 
-const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   FIELD_ASSOCIATE: [
     "case.create",
     "case.edit",
