@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ClipboardPlus, ShieldCheck, UserCog, UserRound } from "lucide-react";
+import { ADMIN_SIGN_IN_PATH } from "@/lib/auth-portal";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/")({
@@ -15,7 +16,8 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "MedNova PV Assist" },
       {
         property: "og:description",
-        content: "ICSR intake, triage, coding assistance and signal review — organized per company.",
+        content:
+          "ICSR intake, triage, coding assistance and signal review — organized per company.",
       },
       // Overrides the root's default `noindex` — this is the one page
       // meant to be publicly discoverable. Every authenticated page
@@ -65,6 +67,16 @@ function HomePage() {
             <p className="text-[11px] tracking-wide text-muted-foreground">PV ASSIST</p>
           </div>
         </div>
+
+        {/* Administrators sign in on their own page, so the landing page
+            has to say where it is — otherwise the only route to it is
+            knowing the URL. */}
+        <Button asChild variant="ghost" size="sm" className="ms-auto">
+          <Link to={ADMIN_SIGN_IN_PATH}>
+            <ShieldCheck className="size-4" />
+            Are you an administrator? Sign in here
+          </Link>
+        </Button>
       </header>
 
       <main className="mx-auto flex max-w-lg flex-1 flex-col items-center justify-center px-6 py-16 text-center">
