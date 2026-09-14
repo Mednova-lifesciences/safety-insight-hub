@@ -10,7 +10,19 @@ import { LoadingState } from "@/components/pv/primitives";
 export const Route = createFileRoute("/r/$orgSlug/")({
   ssr: false,
   head: () => ({
-    meta: [{ title: "Report a case — MedNova PV Assist" }],
+    meta: [
+      { title: "Report a case — MedNova PV Assist" },
+      {
+        name: "description",
+        content:
+          "Choose the medicine or vaccine involved, then describe what happened. No account needed.",
+      },
+      { property: "og:title", content: "Report a side effect" },
+      {
+        property: "og:description",
+        content: "Choose the medicine or vaccine involved and tell us what happened.",
+      },
+    ],
   }),
   component: DrugPickerPage,
 });

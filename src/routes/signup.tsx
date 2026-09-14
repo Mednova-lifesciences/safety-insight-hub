@@ -6,7 +6,13 @@ import { ROLE_LABELS, useAuth, useCurrentUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/signup")({
@@ -16,7 +22,13 @@ export const Route = createFileRoute("/signup")({
       { title: "Sign up — MedNova PV Assist" },
       {
         name: "description",
-        content: "Set up your organization on MedNova PV Assist, or join an existing one with an invite code.",
+        content:
+          "Set up your organization on MedNova PV Assist, or join an existing one with an invite code.",
+      },
+      { property: "og:title", content: "Sign up — MedNova PV Assist" },
+      {
+        property: "og:description",
+        content: "Set up your organization, or join an existing one with an invite code.",
       },
       { name: "robots", content: "index, follow" },
     ],

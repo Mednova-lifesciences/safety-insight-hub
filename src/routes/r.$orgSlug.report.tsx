@@ -18,7 +18,20 @@ export const Route = createFileRoute("/r/$orgSlug/report")({
     productId: typeof search["productId"] === "string" ? search["productId"] : "",
   }),
   head: () => ({
-    meta: [{ title: "Report an ICSR — MedNova PV Assist" }],
+    meta: [
+      { title: "Report an ICSR — MedNova PV Assist" },
+      {
+        name: "description",
+        content:
+          "Report a side effect or adverse reaction to a medicine or vaccine. No account needed — the form takes a few minutes.",
+      },
+      { property: "og:title", content: "Report a side effect" },
+      {
+        property: "og:description",
+        content:
+          "Tell us about a reaction to a medicine or vaccine. No account needed, and it takes a few minutes.",
+      },
+    ],
   }),
   component: PublicReportPage,
 });
