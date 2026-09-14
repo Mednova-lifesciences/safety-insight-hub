@@ -593,6 +593,16 @@ function RegulatoryProfileSection() {
   const [reportTypeConfirmed, setReportTypeConfirmed] = useState(false);
   const [environment, setEnvironment] = useState<"uat" | "production">("uat");
 
+  // Outcome codes are held as a draft here rather than left uncontrolled.
+  // They were previously defaultValue + onBlur, which meant the field kept
+  // whatever had been typed even when the save failed and the reload
+  // returned the old code — the row's pill and its input could disagree
+  // about what was actually stored.
+  const [outcomeDrafts, setOutcomeDrafts] = useState<Partial<Record<ReactionOutcome, string>>>({});
+  const [savingOutcome, setSavingOutcome] = useState<ReactionOutcome | null>(null);
+  const [editingDesignation, setEditingDesignation] = useState<string | null>(null);
+  const [designationDraft, setDesignationDraft] = useState("");
+
   const [newDesignation, setNewDesignation] = useState("");
   const [newDesignationCode, setNewDesignationCode] = useState<"1" | "2" | "3" | "4" | "5" | "">(
     "",
@@ -623,6 +633,9 @@ function RegulatoryProfileSection() {
       setReportType(c.transmission.reportType);
       setReportTypeConfirmed(c.transmission.reportTypeConfirmed === true);
       setEnvironment(c.transmission.environment);
+      // Drafts always come back to what is actually stored, so the form
+      // can never show a value the server did not accept.
+      setOutcomeDrafts({ ...c.outcomeCodes });
     } catch (err) {
       // Never fail silently: a section that just vanishes when its fetch
       // errors (e.g. the underlying table/migration isn't live yet, or a
@@ -695,14 +708,36 @@ function RegulatoryProfileSection() {
     }
   }
 
+  /** Saves a code, or clears it when the field is emptied. Emptying used
+   *  to do nothing at all, so a code entered by mistake could only be
+   *  replaced by another one, never taken back. */
   async function saveOutcomeCode(outcome: ReactionOutcome, code: string) {
-    if (!code.trim()) return;
+    const trimmed = code.trim();
+    setSavingOutcome(outcome);
     try {
-      await regulatoryConfig.saveOutcomeCode(outcome, code.trim());
-      toast.success(`Outcome code for "${OUTCOME_LABELS[outcome]}" saved.`);
+      if (trimmed) {
+        await regulatoryConfig.saveOutcomeCode(outcome, trimmed);
+        toast.success(`Outcome code for "${OUTCOME_LABELS[outcome]}" saved.`);
+      } else {
+        await regulatoryConfig.clearOutcomeCode(outcome);
+        toast.success(`Outcome code for "${OUTCOME_LABELS[outcome]}" cleared.`);
+      }
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save outcome code.");
+    } finally {
+      setSavingOutcome(null);
+    }
+  }
+
+  async function renameMapping(mapping: OrgQualificationMapping, designation: string) {
+    try {
+      await regulatoryConfig.renameReporterQualificationMapping(mapping.id, designation);
+      toast.success(`Renamed to "${designation.trim()}".`);
+      setEditingDesignation(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not rename that designation.");
     }
   }
 
@@ -875,12 +910,14 @@ function RegulatoryProfileSection() {
           <div className="space-y-2">
             {ALL_REACTION_OUTCOMES.map((outcome) => {
               const current = config.outcomeCodes[outcome];
+              const draft = outcomeDrafts[outcome] ?? "";
+              const dirty = draft.trim() !== (current ?? "");
               return (
                 <div
                   key={outcome}
-                  className="flex items-center gap-2 rounded-md border border-border px-3 py-2"
+                  className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2"
                 >
-                  <span className="flex-1 text-sm">{OUTCOME_LABELS[outcome]}</span>
+                  <span className="min-w-40 flex-1 text-sm">{OUTCOME_LABELS[outcome]}</span>
                   {current ? (
                     <StatusPill tone="success">Code {current}</StatusPill>
                   ) : (
@@ -889,13 +926,33 @@ function RegulatoryProfileSection() {
                   <Input
                     className="w-20"
                     placeholder="code"
-                    defaultValue={current ?? ""}
-                    onBlur={(e) => {
-                      if (e.target.value.trim() && e.target.value.trim() !== current) {
-                        saveOutcomeCode(outcome, e.target.value);
-                      }
-                    }}
+                    aria-label={`Outcome code for ${OUTCOME_LABELS[outcome]}`}
+                    value={draft}
+                    onChange={(e) => setOutcomeDrafts((d) => ({ ...d, [outcome]: e.target.value }))}
                   />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!dirty || savingOutcome === outcome}
+                    onClick={() => saveOutcomeCode(outcome, draft)}
+                  >
+                    {savingOutcome === outcome
+                      ? "Saving…"
+                      : draft.trim()
+                        ? current
+                          ? "Update"
+                          : "Save"
+                        : "Clear"}
+                  </Button>
+                  {dirty ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setOutcomeDrafts((d) => ({ ...d, [outcome]: current ?? "" }))}
+                    >
+                      Cancel
+                    </Button>
+                  ) : null}
                 </div>
               );
             })}
@@ -921,9 +978,50 @@ function RegulatoryProfileSection() {
               config.reporterQualificationMappings.map((m) => (
                 <div
                   key={m.id}
-                  className="flex items-center gap-2 rounded-md border border-border px-3 py-2"
+                  className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2"
                 >
-                  <span className="flex-1 text-sm">{m.designation}</span>
+                  {editingDesignation === m.id ? (
+                    <>
+                      <Input
+                        className="min-w-40 flex-1"
+                        aria-label={`Rename ${m.designation}`}
+                        value={designationDraft}
+                        onChange={(e) => setDesignationDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") renameMapping(m, designationDraft);
+                          if (e.key === "Escape") setEditingDesignation(null);
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          !designationDraft.trim() || designationDraft.trim() === m.designation
+                        }
+                        onClick={() => renameMapping(m, designationDraft)}
+                      >
+                        Save name
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingDesignation(null)}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="min-w-40 flex-1 text-sm">{m.designation}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Rename ${m.designation}`}
+                        onClick={() => {
+                          setEditingDesignation(m.id);
+                          setDesignationDraft(m.designation);
+                        }}
+                      >
+                        Rename
+                      </Button>
+                    </>
+                  )}
                   {m.code ? (
                     <StatusPill tone="success">Configured</StatusPill>
                   ) : (
@@ -989,9 +1087,17 @@ function RegulatoryProfileSection() {
 
 function SettingsPage() {
   const user = useCurrentUser();
-  const isManager = user?.role === "PV_MANAGER" || user?.role === "ADMIN";
+  const isAdmin = user?.role === "ADMIN";
+  const isManager = user?.role === "PV_MANAGER" || isAdmin;
+  // WhatsApp intake and Organization are deliberately NOT shown to
+  // administrators: their settings page was asked to be the regulatory and
+  // account console, not the operational one. Both sections stay exactly as
+  // they were for the roles that run them day to day — a PV Manager still
+  // has Organization, and a Manager or Coordinator still configures
+  // WhatsApp intake — so this hides them from one role rather than
+  // removing working features from everyone.
   const canConfigureIntake =
-    user?.role === "PV_MANAGER" || user?.role === "PV_COORDINATOR" || user?.role === "ADMIN";
+    !isAdmin && (user?.role === "PV_MANAGER" || user?.role === "PV_COORDINATOR");
 
   return (
     <>
@@ -1001,7 +1107,7 @@ function SettingsPage() {
         <ChangePasswordSection />
         {canConfigureIntake ? <WhatsAppIntakeSection /> : null}
         {isManager ? <RegulatoryProfileSection /> : null}
-        {isManager ? <OrganizationSection /> : null}
+        {isManager && !isAdmin ? <OrganizationSection /> : null}
         {isManager ? <DangerZone /> : null}
       </div>
     </>

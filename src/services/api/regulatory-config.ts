@@ -218,6 +218,88 @@ export const regulatoryConfig = {
     });
   },
 
+  /** Unsets one outcome's code, returning it to "not configured".
+   *
+   *  Saving a code was possible from the start; unsetting one was not, so
+   *  a code entered by mistake could only ever be replaced by another
+   *  wrong one. Removing the key entirely — rather than storing "" — keeps
+   *  the stored shape identical to a code that was never entered, which is
+   *  what every reader of outcomeCodes already understands. */
+  clearOutcomeCode: async (outcome: ReactionOutcome): Promise<void> => {
+    const before = await fetchConfigRow();
+    const previousCodes =
+      before?.outcome_codes && typeof before.outcome_codes === "object"
+        ? (before.outcome_codes as Partial<Record<ReactionOutcome, string>>)
+        : {};
+    if (previousCodes[outcome] === undefined) return;
+    const nextCodes = { ...previousCodes };
+    delete nextCodes[outcome];
+    const { error } = await supabase.from("pv_regulatory_config").upsert(
+      {
+        environment: before?.environment ?? "uat",
+        sender_organization: before?.sender_organization ?? null,
+        sender_identifier: before?.sender_identifier ?? null,
+        sender_type: before?.sender_type ?? null,
+        sender_person_responsible: before?.sender_person_responsible ?? null,
+        receiver_organization: before?.receiver_organization ?? null,
+        receiver_identifier: before?.receiver_identifier ?? null,
+        report_type: before?.report_type ?? null,
+        report_type_confirmed: before?.report_type_confirmed ?? false,
+        case_id_prefix: before?.case_id_prefix ?? null,
+        outcome_codes: toJson(nextCodes),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "organization_id" },
+    );
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      action: "REGULATORY_CONFIG_OUTCOME_CODE_CLEARED",
+      entity: "RegulatoryConfig",
+      entityId: `outcome:${outcome}`,
+      previousValue: previousCodes[outcome] ?? null,
+      newValue: "not configured",
+    });
+  },
+
+  /** Corrects the spelling of a designation already on file.
+   *
+   *  Not the same as upsert: that keys on designation_key, so "Midwifee"
+   *  -> "Midwife" through it would leave the misspelling behind as a
+   *  second row and quietly split the mapping in two. This edits the row
+   *  in place, by id, keeping its code.
+   *
+   *  Refuses a rename that collides with a different existing row, because
+   *  the (organization_id, designation_key) constraint would reject the
+   *  write anyway and a raw constraint error tells the admin nothing. */
+  renameReporterQualificationMapping: async (id: string, designation: string): Promise<void> => {
+    const trimmed = designation.trim();
+    if (!trimmed) throw new Error("A designation cannot be blank.");
+    const rows = await fetchMappingRows();
+    const current = rows.find((m) => m.id === id);
+    if (!current) throw new Error("That designation is no longer on file.");
+    const designationKey = normalizeDesignationKey(trimmed);
+    const clash = rows.find((m) => m.designation_key === designationKey && m.id !== id);
+    if (clash) {
+      throw new Error(`"${clash.designation}" is already on file — edit that one instead.`);
+    }
+    const { error } = await supabase
+      .from("pv_reporter_qualification_mappings")
+      .update({
+        designation: trimmed,
+        designation_key: designationKey,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      action: "REGULATORY_CONFIG_QUALIFICATION_DESIGNATION_RENAMED",
+      entity: "ReporterQualificationMapping",
+      entityId: designationKey,
+      previousValue: current.designation,
+      newValue: trimmed,
+    });
+  },
+
   listReporterQualificationMappings: async (): Promise<OrgQualificationMapping[]> => {
     return (await fetchMappingRows()).map(mappingFromRow);
   },

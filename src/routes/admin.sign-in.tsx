@@ -49,17 +49,17 @@ function AdminSignInPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-sidebar px-6 py-12">
-      <div className="w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-sm">
+      <div className="w-full max-w-xl rounded-xl border border-border bg-background p-8 shadow-sm sm:p-10">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="size-5 text-primary" />
+          <ShieldCheck className="size-6 text-primary" />
           <div className="leading-tight">
-            <p className="text-sm font-semibold">MedNova</p>
+            <p className="text-base font-semibold">MedNova</p>
             <p className="text-[0.65rem] tracking-[0.18em] text-muted-foreground">PV ASSIST</p>
           </div>
         </div>
 
-        <h1 className="mt-6 text-lg font-semibold">Administrator sign-in</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h1 className="mt-8 text-2xl font-semibold">Administrator sign-in</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
           For organisation, access and regulatory configuration. Staff sign in on the{" "}
           <Link to={STAFF_SIGN_IN_PATH} className="underline">
             main sign-in page
@@ -68,7 +68,7 @@ function AdminSignInPage() {
         </p>
 
         <form
-          className="mt-6 space-y-5"
+          className="mt-8 space-y-5"
           onSubmit={async (e) => {
             e.preventDefault();
             setError(null);
@@ -138,7 +138,7 @@ function AdminSignInPage() {
           </Button>
         </form>
 
-        <div className="mt-4 rounded-md border border-dashed border-border p-3">
+        <div className="mt-6 rounded-md border border-dashed border-border p-4">
           <p className="label-caps">Demo administrator</p>
           <p className="mt-1 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{DEMO_CREDENTIALS.ADMIN.email}</span> /{" "}
