@@ -8,17 +8,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { isApiConfigured } from "@/services/api/client";
+import {
+  ADMIN_SIGN_IN_PATH,
+  DEMO_CREDENTIALS,
+  STAFF_ROLES,
+  isRoleAllowedOnPortal,
+  landingPathForRole,
+  wrongPortalMessage,
+} from "@/lib/auth-portal";
 
 type AuthSearch = { role?: Role };
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
   validateSearch: (search: Record<string, unknown>): AuthSearch => {
+    // "ADMIN" is deliberately not accepted: an ?role=ADMIN link used to
+    // preselect an administrator card that no longer exists here.
     const role = search["role"];
-    return role === "FIELD_ASSOCIATE" ||
-      role === "PV_COORDINATOR" ||
-      role === "PV_MANAGER" ||
-      role === "ADMIN"
+    return role === "FIELD_ASSOCIATE" || role === "PV_COORDINATOR" || role === "PV_MANAGER"
       ? { role }
       : {};
   },
@@ -50,19 +57,12 @@ const ROLE_DESCRIPTIONS: Record<Role, string> = {
   ADMIN: "Manage access, operations and the complete audit surface.",
 };
 
-const SIGN_IN_ROLES: Role[] = ["FIELD_ASSOCIATE", "PV_COORDINATOR", "PV_MANAGER", "ADMIN"];
-
-const DEMO_PASSWORD = "demo123";
-const DEMO_CREDENTIALS: Record<Role, { email: string; password: string }> = {
-  FIELD_ASSOCIATE: { email: "field@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
-  PV_COORDINATOR: { email: "coordinator@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
-  PV_MANAGER: { email: "manager@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
-  ADMIN: { email: "admin@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
-};
+/** Staff only. Administrators have their own page — see auth-portal.ts. */
+const SIGN_IN_ROLES: Role[] = STAFF_ROLES;
 
 function AuthPage() {
   const { role: requestedRole } = Route.useSearch();
-  const { signIn, signInWithGoogle, sendPasswordResetEmail } = useAuth();
+  const { signIn, signOut, signInWithGoogle, sendPasswordResetEmail } = useAuth();
   const [sendingReset, setSendingReset] = useState(false);
   const navigate = useNavigate();
   const initialRole: Role =
@@ -128,8 +128,8 @@ function AuthPage() {
 
           <h2 className="text-lg font-semibold">Sign in</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Every role signs in with a real account. New to an organization? Get an invite code
-            from your PV manager and sign up below.
+            Every role signs in with a real account. New to an organization? Get an invite code from
+            your PV manager and sign up below.
           </p>
 
           <form
@@ -139,9 +139,10 @@ function AuthPage() {
               setError(null);
               setSubmitting(true);
               try {
+                let signedIn;
                 if (isApiConfigured()) {
                   // Real authentication with backend
-                  await signIn(email.trim(), password);
+                  signedIn = await signIn(email.trim(), password);
                 } else {
                   // Mock authentication (dev mode)
                   // In mock mode, still require a non-empty password field
@@ -151,9 +152,20 @@ function AuthPage() {
                     return;
                   }
                   // Use the selected role in mock mode
-                  await signIn(email.trim(), password, role);
+                  signedIn = await signIn(email.trim(), password, role);
                 }
-                navigate({ to: "/dashboard", replace: true });
+                // An administrator account reaching the staff page is sent
+                // to its own door rather than half-admitted here. The
+                // session is dropped first: leaving someone authenticated
+                // on a page telling them they are on the wrong one is the
+                // confusing state this split exists to remove.
+                if (!isRoleAllowedOnPortal(signedIn.role, "staff")) {
+                  await signOut();
+                  setError(wrongPortalMessage(signedIn.role));
+                  setSubmitting(false);
+                  return;
+                }
+                navigate({ to: landingPathForRole(signedIn.role), replace: true });
               } catch (err) {
                 setError(err instanceof Error ? err.message : "Sign in failed");
                 setSubmitting(false);
@@ -226,15 +238,19 @@ function AuthPage() {
                 className="text-xs text-primary underline disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={async () => {
                   if (!email.trim()) {
-                    setError("Enter your email above first, then click \"Forgot password?\"");
+                    setError('Enter your email above first, then click "Forgot password?"');
                     return;
                   }
                   setSendingReset(true);
                   try {
                     await sendPasswordResetEmail(email.trim());
-                    toast.success("If an account exists for that email, a reset link has been sent.");
+                    toast.success(
+                      "If an account exists for that email, a reset link has been sent.",
+                    );
                   } catch (err) {
-                    toast.error(err instanceof Error ? err.message : "Could not send the reset email.");
+                    toast.error(
+                      err instanceof Error ? err.message : "Could not send the reset email.",
+                    );
                   } finally {
                     setSendingReset(false);
                   }
@@ -278,7 +294,9 @@ function AuthPage() {
               try {
                 await signInWithGoogle();
               } catch (err) {
-                toast.error(err instanceof Error ? err.message : "Google sign-in isn't set up yet.");
+                toast.error(
+                  err instanceof Error ? err.message : "Google sign-in isn't set up yet.",
+                );
               }
             }}
           >
@@ -289,6 +307,14 @@ function AuthPage() {
             New organization?{" "}
             <Link to="/signup" className="underline">
               Sign up
+            </Link>
+            .
+          </p>
+
+          <p className="mt-2 text-xs text-muted-foreground">
+            Administrator?{" "}
+            <Link to={ADMIN_SIGN_IN_PATH} className="underline">
+              Sign in here
             </Link>
             .
           </p>

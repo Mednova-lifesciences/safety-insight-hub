@@ -164,7 +164,10 @@ export type SignUpOptions =
 interface AuthState {
   user: CurrentUser | null;
   status: "loading" | "authenticated" | "unauthenticated";
-  signIn: (email: string, password: string, mockRole?: Role) => Promise<void>;
+  /** Resolves with the signed-in user. The caller needs the ROLE to decide
+   *  where to send them, and whether they came in through the right
+   *  door — context state is not readable synchronously here. */
+  signIn: (email: string, password: string, mockRole?: Role) => Promise<CurrentUser>;
   signUp: (email: string, password: string, name: string, opts: SignUpOptions) => Promise<void>;
   signOut: () => void;
   can: (permission: Permission) => boolean;
@@ -362,6 +365,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
       setUser(currentUser);
       setStatus("authenticated");
+      return currentUser;
     } else {
       // Mock authentication (dev mode without backend)
       const name = deriveName(email);
@@ -385,6 +389,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       setUser(next);
       setStatus("authenticated");
+      return next;
     }
   }, []);
 
