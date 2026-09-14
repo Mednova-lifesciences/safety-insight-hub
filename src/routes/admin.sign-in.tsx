@@ -10,7 +10,6 @@ import {
   DEMO_CREDENTIALS,
   STAFF_SIGN_IN_PATH,
   isRoleAllowedOnPortal,
-  landingPathForRole,
   wrongPortalMessage,
 } from "@/lib/auth-portal";
 
@@ -98,7 +97,7 @@ function AdminSignInPage() {
                 setSubmitting(false);
                 return;
               }
-              navigate({ to: landingPathForRole(signedIn.role), replace: true });
+              navigate({ to: "/dashboard", replace: true });
             } catch (err) {
               setError(err instanceof Error ? err.message : "Sign in failed");
               setSubmitting(false);
