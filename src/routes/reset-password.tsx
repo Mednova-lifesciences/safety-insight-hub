@@ -11,7 +11,21 @@ import { LoadingState } from "@/components/pv/primitives";
 export const Route = createFileRoute("/reset-password")({
   ssr: false,
   head: () => ({
-    meta: [{ title: "Reset password — MedNova PV Assist" }],
+    meta: [
+      { title: "Reset password — MedNova PV Assist" },
+      {
+        name: "description",
+        content: "Choose a new password for your MedNova PV Assist account.",
+      },
+      { property: "og:title", content: "Reset password — MedNova PV Assist" },
+      {
+        property: "og:description",
+        content: "Set a new password for your MedNova PV Assist account.",
+      },
+      // Reached only through a one-time emailed recovery link, so there is
+      // nothing here for a search engine to index.
+      { name: "robots", content: "noindex, nofollow" },
+    ],
   }),
   component: ResetPasswordPage,
 });

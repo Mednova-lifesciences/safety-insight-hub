@@ -33,6 +33,11 @@ export const Route = createFileRoute("/admin/sign-in")({
         name: "description",
         content: "Administrator access to organisation, access and regulatory configuration.",
       },
+      { property: "og:title", content: "Administrator sign-in — MedNova PV Assist" },
+      {
+        property: "og:description",
+        content: "Administrator access to organisation, access and regulatory configuration.",
+      },
       { name: "robots", content: "noindex, nofollow" },
     ],
   }),

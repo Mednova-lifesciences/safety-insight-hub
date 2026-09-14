@@ -55,7 +55,19 @@ import {
 
 export const Route = createFileRoute("/_app/settings")({
   head: () => ({
-    meta: [{ title: "Settings — MedNova PV Assist" }],
+    meta: [
+      { title: "Settings — MedNova PV Assist" },
+      {
+        name: "description",
+        content:
+          "Account details, organization configuration and the NAFDAC E2B(R3) regulatory profile used by every export.",
+      },
+      { property: "og:title", content: "Settings — MedNova PV Assist" },
+      {
+        property: "og:description",
+        content: "Account, organization and regulatory configuration.",
+      },
+    ],
   }),
   component: SettingsPage,
 });

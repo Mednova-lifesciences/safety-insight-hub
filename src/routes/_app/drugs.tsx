@@ -20,12 +20,31 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useQueryClient } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/_app/drugs")({
   head: () => ({
-    meta: [{ title: "Drug Catalog — MedNova PV Assist" }],
+    meta: [
+      { title: "Drug Catalog — MedNova PV Assist" },
+      {
+        name: "description",
+        content:
+          "The organization's own catalog of medicines and vaccines, used to name suspect products consistently across cases.",
+      },
+      { property: "og:title", content: "Drug Catalog — MedNova PV Assist" },
+      {
+        property: "og:description",
+        content: "A shared product catalog so every case names the same medicine the same way.",
+      },
+    ],
   }),
   component: DrugsPage,
 });
@@ -70,8 +89,7 @@ function AddDrugDialog({ onAdded }: { onAdded: () => void }) {
         <DialogHeader>
           <DialogTitle>Add a drug to the catalog</DialogTitle>
           <DialogDescription>
-            Field associates will be able to search for and select this drug when reporting an
-            ICSR.
+            Field associates will be able to search for and select this drug when reporting an ICSR.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -179,7 +197,9 @@ function UploadCsvDialog({ onImported }: { onImported: () => void }) {
         preview.rows.map((r) => ({ name: r.name!, ...r })),
         preview.filename,
       );
-      toast.success(`Imported ${created} drug(s)${skipped ? `, skipped ${skipped} duplicate(s)` : ""}.`);
+      toast.success(
+        `Imported ${created} drug(s)${skipped ? `, skipped ${skipped} duplicate(s)` : ""}.`,
+      );
       setPreview(null);
       setOpen(false);
       onImported();
@@ -275,7 +295,11 @@ function DrugsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
 
-  const query = usePvQuery(["products"], () => productsApi.list(), () => demoProducts);
+  const query = usePvQuery(
+    ["products"],
+    () => productsApi.list(),
+    () => demoProducts,
+  );
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["products"] });
 
   const fieldAssociateLink =

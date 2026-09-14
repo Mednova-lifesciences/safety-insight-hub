@@ -19,6 +19,11 @@ export const Route = createFileRoute("/_app/whatsapp-intake")({
         content:
           "Simulated WhatsApp reporting conversation with guided reviewer actions, ending in a real auditable ICSR.",
       },
+      { property: "og:title", content: "WhatsApp intake — MedNova PV Assist" },
+      {
+        property: "og:description",
+        content: "A reporting conversation turned into a real, auditable ICSR.",
+      },
     ],
   }),
   component: WhatsAppIntakePage,
@@ -373,16 +378,12 @@ const CRITERIA: { key: string; label: string }[] = [
 function WhatsAppIntakePage() {
   const [nonce, setNonce] = useState(0);
   const scenario = useMemo(() => pickScenario(), [nonce]);
-  return <WhatsAppIntakeDemo key={nonce} scenario={scenario} onReset={() => setNonce((n) => n + 1)} />;
+  return (
+    <WhatsAppIntakeDemo key={nonce} scenario={scenario} onReset={() => setNonce((n) => n + 1)} />
+  );
 }
 
-function WhatsAppIntakeDemo({
-  scenario,
-  onReset,
-}: {
-  scenario: Scenario;
-  onReset: () => void;
-}) {
+function WhatsAppIntakeDemo({ scenario, onReset }: { scenario: Scenario; onReset: () => void }) {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [typing, setTyping] = useState(false);
@@ -714,7 +715,10 @@ function WhatsAppIntakeDemo({
               </StatusPill>
             </div>
 
-            <div ref={scrollRef} className="max-h-[420px] min-h-[280px] space-y-2.5 overflow-y-auto px-4 py-4">
+            <div
+              ref={scrollRef}
+              className="max-h-[420px] min-h-[280px] space-y-2.5 overflow-y-auto px-4 py-4"
+            >
               {messages.map((m) =>
                 m.from === "system" ? (
                   <div
@@ -726,10 +730,7 @@ function WhatsAppIntakeDemo({
                 ) : (
                   <div
                     key={m.id}
-                    className={cn(
-                      "flex",
-                      m.from === "staff" ? "justify-end" : "justify-start",
-                    )}
+                    className={cn("flex", m.from === "staff" ? "justify-end" : "justify-start")}
                   >
                     <div
                       className={cn(
@@ -743,7 +744,9 @@ function WhatsAppIntakeDemo({
                       <p
                         className={cn(
                           "mono-num mt-1 text-[10px]",
-                          m.from === "staff" ? "text-primary-foreground/70" : "text-muted-foreground",
+                          m.from === "staff"
+                            ? "text-primary-foreground/70"
+                            : "text-muted-foreground",
                         )}
                       >
                         {m.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -762,7 +765,9 @@ function WhatsAppIntakeDemo({
             </div>
 
             <div className="border-t border-border px-4 py-3">
-              <p className="label-caps mb-2">Extracted for PV review — confirm before creating case</p>
+              <p className="label-caps mb-2">
+                Extracted for PV review — confirm before creating case
+              </p>
               <div className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                 <p>
                   <span className="text-muted-foreground">Product: </span>
@@ -780,7 +785,11 @@ function WhatsAppIntakeDemo({
               <p className="mt-1 text-sm">
                 <span className="text-muted-foreground">Reviewer seriousness decision: </span>
                 <span className="font-medium">
-                  {seriousness ? (seriousness === "SERIOUS" ? "Serious" : "Non-serious") : "Not yet decided"}
+                  {seriousness
+                    ? seriousness === "SERIOUS"
+                      ? "Serious"
+                      : "Non-serious"
+                    : "Not yet decided"}
                 </span>
               </p>
             </div>
@@ -829,12 +838,7 @@ function WhatsAppIntakeDemo({
               <Button size="sm" variant="ghost" disabled={busy || closed} onClick={notReportable}>
                 Not reportable
               </Button>
-              <Button
-                size="sm"
-                className="ml-auto"
-                disabled={!canCreate}
-                onClick={createCase}
-              >
+              <Button size="sm" className="ml-auto" disabled={!canCreate} onClick={createCase}>
                 {creating ? "Creating…" : "Create minimum-information ICSR"}
               </Button>
             </div>
