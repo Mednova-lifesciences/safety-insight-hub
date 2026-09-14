@@ -29,6 +29,13 @@ export interface ResolvedOutcomeTerm {
   /** True when the model proposed this but it was NOT applied and a person
    *  must decide — see OUTCOMES_NEVER_AUTO_APPLIED. */
   requiresConfirmation?: boolean;
+  /** Set when a person rejected the proposal. The term stays in the record
+   *  so it is never silently re-proposed, and is never applied. */
+  rejected?: boolean;
+  /** Who resolved a term that needed a person, and when. A death entered
+   *  into a regulatory submission must be attributable. */
+  confirmedBy?: string;
+  confirmedAt?: string;
 }
 
 /** Keyed by normaliseOutcomeKey(term). */
@@ -137,8 +144,44 @@ export function withOutcomeVocabulary(
   if (entries.length === 0) return profile;
   const fromAi: Record<string, ReactionOutcome> = {};
   for (const [key, term] of entries) {
-    if (term.requiresConfirmation) continue;
+    if (term.requiresConfirmation || term.rejected) continue;
     fromAi[key] = term.outcome;
   }
   return { ...profile, outcomeMap: { ...fromAi, ...(profile.outcomeMap ?? {}) } };
+}
+
+/**
+ * Records a person's decision on a term the model was not allowed to apply
+ * on its own — today, one it read as fatal.
+ *
+ * Confirming clears requiresConfirmation, which is what actually lets the
+ * outcome through withOutcomeVocabulary and unblocks the rows using it.
+ * Rejecting keeps the term in the record marked `rejected`, so it is
+ * neither applied nor asked about again: a person has already answered,
+ * and re-proposing it every run would be pestering them with a decision
+ * they made.
+ *
+ * Either way the actor and time are recorded. A death reaching a
+ * regulatory submission has to be attributable to whoever entered it.
+ */
+export function decideOutcomeTerm(
+  vocabulary: OutcomeVocabulary,
+  key: string,
+  decision: { accept: boolean; actor: string; at?: string },
+): OutcomeVocabulary {
+  const existing = vocabulary[key];
+  if (!existing) return vocabulary;
+  const decided: ResolvedOutcomeTerm = {
+    ...existing,
+    confirmedBy: decision.actor,
+    confirmedAt: decision.at ?? new Date().toISOString(),
+  };
+  if (decision.accept) {
+    delete decided.requiresConfirmation;
+    delete decided.rejected;
+  } else {
+    delete decided.requiresConfirmation;
+    decided.rejected = true;
+  }
+  return { ...vocabulary, [key]: decided };
 }

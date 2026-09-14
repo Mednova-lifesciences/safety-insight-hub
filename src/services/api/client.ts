@@ -129,6 +129,17 @@ export const isSessionLapsed = (e: unknown): boolean =>
  *  all of it reads as a broken product. */
 export const SESSION_LAPSED_MESSAGE = "Your session has expired. Please sign in again to continue.";
 
+/** True when the backend could not verify the session because the hop to
+ *  Supabase failed, not because anything is wrong with the caller. The
+ *  backend answers 503 for this (see dependencies.py) precisely so it is
+ *  not mistaken for a lapsed session: telling someone with a perfectly
+ *  valid session to sign in again is worse than telling them to retry. */
+export const isVerificationUnavailable = (e: unknown): boolean =>
+  e instanceof ApiError && e.status === 503;
+
+export const VERIFICATION_UNAVAILABLE_MESSAGE =
+  "Could not reach the sign-in service just now. Nothing was lost — please try again.";
+
 export const isNotConfigured = (e: unknown): e is ApiNotConfiguredError =>
   e instanceof ApiNotConfiguredError ||
   (e instanceof Error && SUPABASE_NOT_CONFIGURED.test(e.message));

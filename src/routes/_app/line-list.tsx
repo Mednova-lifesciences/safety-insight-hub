@@ -14,7 +14,11 @@ import {
 } from "@/components/ui/select";
 import { demoLineListIssues, demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
-import { isNotConfigured } from "@/services/api/client";
+import {
+  isNotConfigured,
+  isVerificationUnavailable,
+  VERIFICATION_UNAVAILABLE_MESSAGE,
+} from "@/services/api/client";
 import { AUTO_FIX_ENABLED, RULE_BASED_DETECTION_ENABLED } from "@/services/api/feature-flags";
 import {
   EmptyState,
@@ -292,7 +296,15 @@ function LineListPage() {
         </Section>
 
         {activeJob ? <ColumnMappingPanel job={activeJob} /> : null}
-        {activeJob ? <OutcomeVocabularyPanel job={activeJob} /> : null}
+        {activeJob ? (
+          <OutcomeVocabularyPanel
+            job={activeJob}
+            onDecided={() => {
+              jobs.refetch();
+              issues.refetch();
+            }}
+          />
+        ) : null}
 
         {activeJob ? (
           <Section
@@ -584,7 +596,32 @@ function ColumnMappingPanel({ job }: { job: LineListJob }) {
  *  milder — are the worst errors this system can make, so a person enters
  *  that one.
  */
-function OutcomeVocabularyPanel({ job }: { job: LineListJob }) {
+function OutcomeVocabularyPanel({ job, onDecided }: { job: LineListJob; onDecided: () => void }) {
+  const [deciding, setDeciding] = useState<string | null>(null);
+
+  async function decide(termKey: string, accept: boolean, term: string) {
+    setDeciding(termKey);
+    try {
+      await linelistApi.decideOutcomeTerm(job.id, termKey, accept);
+      toast.success(
+        accept
+          ? `"${term}" recorded as a fatal outcome. Rows using it have been revalidated.`
+          : `"${term}" will not be treated as fatal. It stays unresolved and will not be proposed again.`,
+      );
+      onDecided();
+    } catch (err) {
+      toast.error(
+        isVerificationUnavailable(err)
+          ? VERIFICATION_UNAVAILABLE_MESSAGE
+          : isNotConfigured(err)
+            ? "Backend not connected — nothing was recorded."
+            : "Could not record that decision.",
+      );
+    } finally {
+      setDeciding(null);
+    }
+  }
+
   const vocabulary =
     (
       job as {
@@ -596,14 +633,18 @@ function OutcomeVocabularyPanel({ job }: { job: LineListJob }) {
             confidence: number;
             reason: string;
             requiresConfirmation?: boolean;
+            rejected?: boolean;
+            confirmedBy?: string;
+            confirmedAt?: string;
           }
         >;
       }
     ).outcomeVocabulary ?? {};
-  const terms = Object.values(vocabulary);
-  if (terms.length === 0) return null;
-  const applied = terms.filter((t) => !t.requiresConfirmation);
-  const awaiting = terms.filter((t) => t.requiresConfirmation);
+  const entries = Object.entries(vocabulary);
+  if (entries.length === 0) return null;
+  const applied = entries.filter(([, t]) => !t.requiresConfirmation && !t.rejected);
+  const awaiting = entries.filter(([, t]) => t.requiresConfirmation);
+  const rejected = entries.filter(([, t]) => t.rejected);
 
   return (
     <Section
@@ -620,13 +661,18 @@ function OutcomeVocabularyPanel({ job }: { job: LineListJob }) {
             </tr>
           </thead>
           <tbody>
-            {applied.map((t) => (
-              <tr key={t.term} className="border-t border-border/60 align-top">
+            {applied.map(([key, t]) => (
+              <tr key={key} className="border-t border-border/60 align-top">
                 <td className="py-2 pr-4 font-medium">{t.term}</td>
                 <td className="py-2 pr-4">
                   <code className="mono-num">{t.outcome}</code>
                 </td>
-                <td className="py-2 text-muted-foreground">{t.reason}</td>
+                <td className="py-2 text-muted-foreground">
+                  {t.reason}
+                  {t.confirmedBy ? (
+                    <span className="block text-xs">Confirmed by {t.confirmedBy}.</span>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -634,20 +680,49 @@ function OutcomeVocabularyPanel({ job }: { job: LineListJob }) {
       </div>
       {awaiting.length > 0 ? (
         <div className="mt-4 rounded-md border border-border bg-muted/50 p-3">
-          <p className="text-sm font-medium">Read as a death — not applied</p>
-          <ul className="mt-2 space-y-1 text-sm">
-            {awaiting.map((t) => (
-              <li key={t.term}>
-                <span className="font-medium">{t.term}</span>
-                <span className="text-muted-foreground"> — {t.reason}</span>
+          <p className="text-sm font-medium">Read as a death — awaiting your decision</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            A fatal outcome is never entered automatically. Rows using these terms stay unresolved
+            until you decide, and your name is recorded against the decision.
+          </p>
+          <ul className="mt-3 space-y-3">
+            {awaiting.map(([key, t]) => (
+              <li key={key} className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="text-sm font-medium">{t.term}</span>
+                  <span className="block text-xs text-muted-foreground">{t.reason}</span>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={deciding !== null}
+                    onClick={() => decide(key, true, t.term)}
+                  >
+                    {deciding === key ? "Recording…" : "Confirm as fatal"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={deciding !== null}
+                    onClick={() => decide(key, false, t.term)}
+                  >
+                    Not fatal
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-xs text-muted-foreground">
-            A fatal outcome is never entered automatically. These rows stay unresolved until
-            someone confirms what the term means, under Settings → Regulatory Profiles.
-          </p>
         </div>
+      ) : null}
+      {rejected.length > 0 ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Not treated as fatal, by decision:{" "}
+          {rejected
+            .map(([, t]) => `"${t.term}"${t.confirmedBy ? ` (${t.confirmedBy})` : ""}`)
+            .join(", ")}
+          . These stay unresolved and are not proposed again.
+        </p>
       ) : null}
     </Section>
   );

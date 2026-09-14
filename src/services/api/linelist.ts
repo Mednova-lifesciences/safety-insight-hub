@@ -8,6 +8,7 @@ import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
 import { resolveFieldConcept, mapConceptToOutcome } from "@/services/e2b-r3/mapping";
 import {
   acceptOutcomeProposals,
+  decideOutcomeTerm,
   normaliseOutcomeKey,
   withOutcomeVocabulary,
   type OutcomeVocabulary,
@@ -1851,6 +1852,46 @@ export const linelist = {
    * just the ones the deterministic matcher recognised — a column outside
    * the app's canonical field list is never invisible to the AI pass.
    */
+  /**
+   * Records a person's decision on an outcome term the model was not
+   * allowed to apply by itself — today, one it read as a death.
+   *
+   * Confirming is what actually unblocks the rows using that term, so this
+   * revalidates immediately rather than leaving the job in a state where
+   * the decision has been made but the findings still say otherwise.
+   */
+  decideOutcomeTerm: async (
+    jobId: string,
+    termKey: string,
+    accept: boolean,
+  ): Promise<LineListJob> => {
+    const actor = currentActor();
+    const job = await readJob(jobId);
+    const vocabulary = job.outcomeVocabulary;
+    const existing = vocabulary?.[termKey];
+    if (!vocabulary || !existing) throw new Error("That outcome term is no longer on this job.");
+
+    const next: LineListJobRow = {
+      ...job,
+      outcomeVocabulary: decideOutcomeTerm(vocabulary, termKey, {
+        accept,
+        actor: actor.name,
+      }),
+    };
+    await saveJob(next);
+    await recordAudit({
+      action: accept ? "LINELIST_OUTCOME_TERM_CONFIRMED" : "LINELIST_OUTCOME_TERM_REJECTED",
+      entity: "LineListJob",
+      entityId: jobId,
+      newValue: accept
+        ? `"${existing.term}" confirmed as ${existing.outcome}`
+        : `"${existing.term}" rejected — not ${existing.outcome}`,
+      reason: existing.reason,
+    });
+    await linelist.validate(jobId);
+    return next;
+  },
+
   validate: async (
     jobId: string,
   ): Promise<{
