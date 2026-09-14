@@ -1000,7 +1000,7 @@ function RegulatoryProfileSection() {
                         }
                         onClick={() => renameMapping(m, designationDraft)}
                       >
-                        Save name
+                        Save designation
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setEditingDesignation(null)}>
                         Cancel
