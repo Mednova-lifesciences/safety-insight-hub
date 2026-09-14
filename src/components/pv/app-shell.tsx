@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { ROLE_LABELS, useAuth, type Permission, type Role } from "@/lib/auth";
+import { signInPathForRole } from "@/lib/auth-portal";
 import { useDataSource } from "@/lib/data-source";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -319,11 +320,15 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={async () => {
+                    // Read the door BEFORE signing out — afterwards there
+                    // is no role to ask. An administrator belongs back at
+                    // the administrator page, not the staff one.
+                    const back = signInPathForRole(user.role);
                     // Await the full local sign-out before navigating —
                     // /auth bounces authenticated users back to the
                     // dashboard, so navigating mid-signout used to undo it.
                     await signOut();
-                    navigate({ to: "/auth", replace: true });
+                    navigate({ to: back, replace: true });
                   }}
                 >
                   <LogOut className="size-4" /> Sign out
