@@ -5,7 +5,6 @@ import {
   STAFF_ROLES,
   STAFF_SIGN_IN_PATH,
   isRoleAllowedOnPortal,
-  landingPathForRole,
   portalForRole,
   signInPathForRole,
   wrongPortalMessage,
@@ -36,11 +35,6 @@ describe("auth-portal — administrators come in by their own door", () => {
   it("sends each role back to the page it signed in on", () => {
     expect(signInPathForRole("ADMIN")).toBe(ADMIN_SIGN_IN_PATH);
     for (const role of STAFF_ROLES) expect(signInPathForRole(role)).toBe(STAFF_SIGN_IN_PATH);
-  });
-
-  it("administrators land on settings, staff on the dashboard", () => {
-    expect(landingPathForRole("ADMIN")).toBe("/settings");
-    for (const role of STAFF_ROLES) expect(landingPathForRole(role)).toBe("/dashboard");
   });
 
   it("tells someone at the wrong door which one they want", () => {

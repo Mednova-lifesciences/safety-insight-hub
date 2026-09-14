@@ -39,18 +39,12 @@ export function isRoleAllowedOnPortal(role: Role, portal: Portal): boolean {
 }
 
 /**
- * Where a role lands after signing in.
- *
- * Administrators go to Settings, not the operations dashboard: access,
- * organisation and regulatory configuration are what the separate console
- * was asked for. Their navigation is unchanged — an administrator still
- * runs line-list and PSUR work, and every line-list job in the live
- * database was in fact uploaded by one — so this changes where they START,
- * never what they may reach.
+ * There is deliberately no per-role landing path. Signing in through a
+ * different door does not mean arriving somewhere different: every role,
+ * administrators included, starts on the dashboard. An earlier version of
+ * this sent administrators to Settings, which was not what was wanted —
+ * the separation asked for is of the sign-in, not of where the day starts.
  */
-export function landingPathForRole(role: Role): string {
-  return portalForRole(role) === "admin" ? "/settings" : "/dashboard";
-}
 
 /** What to tell someone who signed in at the wrong door. Names the page
  *  they want rather than only refusing, because "wrong page" with no
