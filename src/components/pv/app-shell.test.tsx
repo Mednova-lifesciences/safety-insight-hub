@@ -14,10 +14,11 @@ import { ROLE_PERMISSIONS, type Role } from "@/lib/auth";
  *     line-list job in the live database had been uploaded by an admin.
  *
  * Note what is NOT asserted here: "every entitled role can see every item".
- * Operations and Oversight deliberately hide ADMIN even though ADMIN holds
- * their permissions — an administrator has a different workspace, and that
- * is a product decision, not a bug. The invariant below is the weaker,
- * genuinely universal one that both mistakes broke.
+ * Operations and Oversight deliberately hide the administrator roles from
+ * items whose permissions they do not hold anyway — an administrator has a
+ * different workspace, and that is a product decision, not a bug. The
+ * invariant below is the weaker, genuinely universal one that both
+ * mistakes broke.
  */
 
 const ROLES = Object.keys(ROLE_PERMISSIONS) as Role[];
@@ -76,9 +77,14 @@ describe("no page is left unreachable from the sidebar", () => {
 describe("the Processing pages", () => {
   const processing = NAV.find((g) => g.label === "Processing");
 
-  it("still carries all three workflows", () => {
+  it("still carries every workflow", () => {
     expect(processing).toBeDefined();
-    expect(processing!.items.map((i) => i.to).sort()).toEqual(["/e2b", "/line-list", "/psur"]);
+    expect(processing!.items.map((i) => i.to).sort()).toEqual([
+      "/e2b",
+      "/line-list",
+      "/psur",
+      "/screening",
+    ]);
   });
 
   it("hides nobody — the permission alone governs", () => {
@@ -103,9 +109,21 @@ describe("the Processing pages", () => {
     }
   });
 
-  it("is visible to an administrator, who demonstrably runs these workflows", () => {
-    for (const item of processing!.items) {
-      expect(canSee("ADMIN", item), `${item.label} hidden from ADMIN`).toBe(true);
-    }
+  it("reaches each assessor role for the step that role actually performs", () => {
+    // The single ADMIN role this replaced held every processing permission,
+    // so the old version of this test could assert that every Processing
+    // item was visible to it. That is deliberately no longer true: the
+    // three roles that replaced it each do one step and hold one subset.
+    // Pinning who sees what is the point — an evaluator reaching the
+    // officer's screening queue would be the bug.
+    const seen = (role: Role) =>
+      processing!.items
+        .filter((i) => canSee(role, i))
+        .map((i) => i.to)
+        .sort();
+
+    expect(seen("REVIEW_OFFICER")).toEqual(["/psur", "/screening"]);
+    expect(seen("EVALUATOR")).toEqual(["/psur"]);
+    expect(seen("PEER_REVIEWER")).toEqual(["/psur"]);
   });
 });

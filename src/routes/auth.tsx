@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Chrome, Lock, ShieldCheck } from "lucide-react";
-import { ROLE_LABELS, useAuth, type Role } from "@/lib/auth";
+import { ROLE_DESCRIPTIONS, ROLE_LABELS, useAuth, type Role } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,8 +21,11 @@ type AuthSearch = { role?: Role };
 export const Route = createFileRoute("/auth")({
   ssr: false,
   validateSearch: (search: Record<string, unknown>): AuthSearch => {
-    // "ADMIN" is deliberately not accepted: an ?role=ADMIN link used to
-    // preselect an administrator card that no longer exists here.
+    // A whitelist, not a blocklist: only the three staff roles are
+    // accepted, so the assessor roles (REVIEW_OFFICER / EVALUATOR /
+    // PEER_REVIEWER) are refused here without having to be named. A
+    // ?role=ADMIN link used to preselect an administrator card that no
+    // longer exists on this page.
     const role = search["role"];
     return role === "FIELD_ASSOCIATE" || role === "PV_COORDINATOR" || role === "PV_MANAGER"
       ? { role }
@@ -47,14 +50,6 @@ export const Route = createFileRoute("/auth")({
   }),
   component: AuthPage,
 });
-
-const ROLE_DESCRIPTIONS: Record<Role, string> = {
-  FIELD_ASSOCIATE: "Capture and prepare incoming safety information.",
-  PV_COORDINATOR: "Process, code and validate cases; run line-list and PSUR workflows.",
-  PV_MANAGER:
-    "Full access — cases, processing workflows, signal decisions and complete audit oversight.",
-  ADMIN: "Manage access, operations and the complete audit surface.",
-};
 
 /** Staff only. Administrators have their own page — see auth-portal.ts. */
 const SIGN_IN_ROLES: Role[] = STAFF_ROLES;

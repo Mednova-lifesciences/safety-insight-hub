@@ -12,8 +12,10 @@ export interface SignupRequest {
   mode: "CREATE_ORG" | "JOIN_ORG";
   organization_name?: string;
   org_code?: string;
-  /** JOIN_ORG only — which role the invite code grants this signup. */
-  role?: "PV_COORDINATOR" | "FIELD_ASSOCIATE";
+  /** JOIN_ORG only — which role the invite code grants this signup.
+   *  Mirrors JoinableRole in lib/auth.tsx; the server re-validates it
+   *  against its own list and never trusts this value. */
+  role?: "PV_COORDINATOR" | "FIELD_ASSOCIATE" | "REVIEW_OFFICER" | "EVALUATOR" | "PEER_REVIEWER";
 }
 
 export interface SigninRequest {
@@ -36,7 +38,15 @@ export interface AuthResponse {
     user_id: string;
     email: string;
     organization_id: string;
-    role: "ADMIN" | "PV_MANAGER" | "PV_COORDINATOR" | "MANAGER" | "COORDINATOR" | "FIELD_ASSOCIATE";
+    role:
+      | "REVIEW_OFFICER"
+      | "EVALUATOR"
+      | "PEER_REVIEWER"
+      | "PV_MANAGER"
+      | "PV_COORDINATOR"
+      | "MANAGER"
+      | "COORDINATOR"
+      | "FIELD_ASSOCIATE";
     created_at: string;
   };
   organization: {
@@ -52,7 +62,7 @@ export interface AuthResponse {
 export const auth = {
   /**
    * Sign up with email and password
-   * Creates a new organization for the first user (ADMIN role)
+   * Creates a new organization for the first user (PV_MANAGER role)
    */
   async signup(request: SignupRequest): Promise<AuthResponse> {
     const response = await apiRequest<AuthResponse>("/api/auth/signup", {

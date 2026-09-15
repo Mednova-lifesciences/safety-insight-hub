@@ -24,11 +24,13 @@ import { Route as AppLiteratureRouteImport } from './routes/_app/literature'
 import { Route as AppNotificationsRouteImport } from './routes/_app/notifications'
 import { Route as AppOversightRouteImport } from './routes/_app/oversight'
 import { Route as AppPsurRouteImport } from './routes/_app/psur'
+import { Route as AppScreeningRouteImport } from './routes/_app/screening'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSignalsRouteImport } from './routes/_app/signals'
 import { Route as AppWhatsappIntakeRouteImport } from './routes/_app/whatsapp-intake'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminSignInRouteImport } from './routes/admin.sign-in'
+import { Route as AdminSignUpRouteImport } from './routes/admin.sign-up'
 import { Route as AppCasesIndexRouteImport } from './routes/_app/cases.index'
 import { Route as AppCasesCaseIdRouteImport } from './routes/_app/cases.$caseId'
 import { Route as AppIcsrNewRouteImport } from './routes/_app/icsr.new'
@@ -111,6 +113,11 @@ const AppPsurRoute = AppPsurRouteImport.update({
   path: '/psur',
   getParentRoute: () => AppRoute,
 } as any)
+const AppScreeningRoute = AppScreeningRouteImport.update({
+  id: '/screening',
+  path: '/screening',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -134,6 +141,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
 const AdminSignInRoute = AdminSignInRouteImport.update({
   id: '/admin/sign-in',
   path: '/admin/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSignUpRoute = AdminSignUpRouteImport.update({
+  id: '/admin/sign-up',
+  path: '/admin/sign-up',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppCasesIndexRoute = AppCasesIndexRouteImport.update({
@@ -187,10 +199,12 @@ export interface FileRoutesByFullPath {
   '/notifications': typeof AppNotificationsRoute
   '/oversight': typeof AppOversightRoute
   '/psur': typeof AppPsurRoute
+  '/screening': typeof AppScreeningRoute
   '/settings': typeof AppSettingsRoute
   '/signals': typeof AppSignalsRoute
   '/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/admin/sign-in': typeof AdminSignInRoute
+  '/admin/sign-up': typeof AdminSignUpRoute
   '/admin/': typeof AdminIndexRoute
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
@@ -215,10 +229,12 @@ export interface FileRoutesByTo {
   '/notifications': typeof AppNotificationsRoute
   '/oversight': typeof AppOversightRoute
   '/psur': typeof AppPsurRoute
+  '/screening': typeof AppScreeningRoute
   '/settings': typeof AppSettingsRoute
   '/signals': typeof AppSignalsRoute
   '/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/admin/sign-in': typeof AdminSignInRoute
+  '/admin/sign-up': typeof AdminSignUpRoute
   '/admin': typeof AdminIndexRoute
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
@@ -245,10 +261,12 @@ export interface FileRoutesById {
   '/_app/notifications': typeof AppNotificationsRoute
   '/_app/oversight': typeof AppOversightRoute
   '/_app/psur': typeof AppPsurRoute
+  '/_app/screening': typeof AppScreeningRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/signals': typeof AppSignalsRoute
   '/_app/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/admin/sign-in': typeof AdminSignInRoute
+  '/admin/sign-up': typeof AdminSignUpRoute
   '/admin/': typeof AdminIndexRoute
   '/_app/cases/$caseId': typeof AppCasesCaseIdRoute
   '/_app/icsr/new': typeof AppIcsrNewRoute
@@ -275,10 +293,12 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/oversight'
     | '/psur'
+    | '/screening'
     | '/settings'
     | '/signals'
     | '/whatsapp-intake'
     | '/admin/sign-in'
+    | '/admin/sign-up'
     | '/admin/'
     | '/cases/$caseId'
     | '/icsr/new'
@@ -303,10 +323,12 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/oversight'
     | '/psur'
+    | '/screening'
     | '/settings'
     | '/signals'
     | '/whatsapp-intake'
     | '/admin/sign-in'
+    | '/admin/sign-up'
     | '/admin'
     | '/cases/$caseId'
     | '/icsr/new'
@@ -332,10 +354,12 @@ export interface FileRouteTypes {
     | '/_app/notifications'
     | '/_app/oversight'
     | '/_app/psur'
+    | '/_app/screening'
     | '/_app/settings'
     | '/_app/signals'
     | '/_app/whatsapp-intake'
     | '/admin/sign-in'
+    | '/admin/sign-up'
     | '/admin/'
     | '/_app/cases/$caseId'
     | '/_app/icsr/new'
@@ -353,6 +377,7 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   SignupRoute: typeof SignupRoute
   AdminSignInRoute: typeof AdminSignInRoute
+  AdminSignUpRoute: typeof AdminSignUpRoute
   AdminIndexRoute: typeof AdminIndexRoute
   ROrgSlugReportRoute: typeof ROrgSlugReportRoute
   ROrgSlugIndexRoute: typeof ROrgSlugIndexRoute
@@ -465,6 +490,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPsurRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/screening': {
+      id: '/_app/screening'
+      path: '/screening'
+      fullPath: '/screening'
+      preLoaderRoute: typeof AppScreeningRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
@@ -498,6 +530,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/sign-in'
       fullPath: '/admin/sign-in'
       preLoaderRoute: typeof AdminSignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/sign-up': {
+      id: '/admin/sign-up'
+      path: '/admin/sign-up'
+      fullPath: '/admin/sign-up'
+      preLoaderRoute: typeof AdminSignUpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/cases/': {
@@ -563,6 +602,7 @@ interface AppRouteChildren {
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppOversightRoute: typeof AppOversightRoute
   AppPsurRoute: typeof AppPsurRoute
+  AppScreeningRoute: typeof AppScreeningRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppSignalsRoute: typeof AppSignalsRoute
   AppWhatsappIntakeRoute: typeof AppWhatsappIntakeRoute
@@ -584,6 +624,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppNotificationsRoute: AppNotificationsRoute,
   AppOversightRoute: AppOversightRoute,
   AppPsurRoute: AppPsurRoute,
+  AppScreeningRoute: AppScreeningRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppSignalsRoute: AppSignalsRoute,
   AppWhatsappIntakeRoute: AppWhatsappIntakeRoute,
@@ -603,6 +644,7 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   SignupRoute: SignupRoute,
   AdminSignInRoute: AdminSignInRoute,
+  AdminSignUpRoute: AdminSignUpRoute,
   AdminIndexRoute: AdminIndexRoute,
   ROrgSlugReportRoute: ROrgSlugReportRoute,
   ROrgSlugIndexRoute: ROrgSlugIndexRoute,

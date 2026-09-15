@@ -829,6 +829,102 @@ export const demoPsurDocuments: PsurDocument[] = [
       basis:
         "Benefit remains established, but the missing literature review and absent Nigerian exposure denominator prevent a firm local benefit-risk conclusion this interval.",
     },
+    // Screened, pushed forward, and now sitting with the evaluators. Set
+    // explicitly: this report has been reviewed but never formally signed
+    // off, so deriveWorkflowStage would otherwise read it as untriaged and
+    // put a finished-looking report back on the officer's desk.
+    workflowStage: "AWAITING_EVALUATION",
+  },
+
+  // The remaining demo reports exist so that each of the three assessor
+  // dashboards shows a non-zero number without a backend. They are
+  // deliberately thin — filename, product, period and a stage — because
+  // their whole job is to populate queues and counts; the report above is
+  // the one that carries a full worked example.
+  {
+    id: "psur-2026-005",
+    filename: "PSUR_metformin_2025-2026.pdf",
+    product: "Metformin hydrochloride 500 mg tablets",
+    mah: "Ibadan Pharmaceuticals PLC",
+    reportingPeriod: "01 Aug 2025 – 31 Jul 2026",
+    uploadedAt: "2026-09-02T09:15:00Z",
+    uploadedBy: "A. Okafor",
+    stage: "UPLOADED",
+    pages: 96,
+    sourceType: "PDF",
+    workflowStage: "SCREENING",
+  },
+  {
+    id: "psur-2026-006",
+    filename: "PBRER_losartan_2025-2026.pdf",
+    product: "Losartan potassium 50 mg tablets",
+    mah: "Kano Life Sciences Ltd",
+    reportingPeriod: "01 Jun 2025 – 31 May 2026",
+    uploadedAt: "2026-09-04T14:30:00Z",
+    uploadedBy: "A. Okafor",
+    stage: "UPLOADED",
+    pages: 71,
+    sourceType: "PDF",
+    workflowStage: "SCREENING",
+  },
+  {
+    id: "psur-2026-007",
+    filename: "PSUR_artemether_lumefantrine_2025-2026.pdf",
+    product: "Artemether/Lumefantrine 20/120 mg tablets",
+    mah: "Abuja Antimalarials Ltd",
+    reportingPeriod: "01 Apr 2025 – 31 Mar 2026",
+    uploadedAt: "2026-08-20T10:00:00Z",
+    uploadedBy: "A. Okafor",
+    stage: "REVIEWED",
+    pages: 132,
+    sourceType: "PDF",
+    // Evaluated; waiting on a peer reviewer to countersign.
+    workflowStage: "AWAITING_PEER_REVIEW",
+    signOff: {
+      conclusion: "Benefit-risk remains favourable for the approved indication over this interval.",
+      reviewerConfidence: "MEDIUM",
+      references: "Interval line listings; cumulative summary tabulations.",
+      evaluatorName: "Dr O. Adeyemi",
+      evaluatorSignedAt: "2026-09-08T11:20:00Z",
+    },
+  },
+  {
+    id: "psur-2026-008",
+    filename: "PBRER_paracetamol_2025-2026.pdf",
+    product: "Paracetamol 500 mg tablets",
+    mah: "Enugu Consumer Health Ltd",
+    reportingPeriod: "01 Mar 2025 – 28 Feb 2026",
+    uploadedAt: "2026-08-01T08:45:00Z",
+    uploadedBy: "A. Okafor",
+    stage: "REVIEWED",
+    pages: 58,
+    sourceType: "PDF",
+    // Through all three steps — this is the one whose Compliance Directive
+    // the Review Officer can download.
+    workflowStage: "PEER_REVIEWED",
+    signOff: {
+      conclusion: "Benefit-risk favourable; no regulatory action required this interval.",
+      reviewerConfidence: "HIGH",
+      references: "Interval line listings; published literature review.",
+      evaluatorName: "Dr O. Adeyemi",
+      evaluatorSignedAt: "2026-08-22T09:00:00Z",
+      peerReviewerName: "Dr N. Balogun",
+      peerReviewedAt: "2026-08-26T15:40:00Z",
+    },
+  },
+  {
+    id: "psur-2026-009",
+    filename: "PSUR_ciprofloxacin_2025-2026.pdf",
+    product: "Ciprofloxacin 500 mg tablets",
+    mah: "Port Harcourt Pharma Ltd",
+    reportingPeriod: "01 May 2025 – 30 Apr 2026",
+    uploadedAt: "2026-08-28T13:10:00Z",
+    uploadedBy: "A. Okafor",
+    stage: "UPLOADED",
+    pages: 44,
+    sourceType: "PDF",
+    // Screened out: never reached scientific review.
+    workflowStage: "RETURNED_TO_MAH",
   },
 ];
 

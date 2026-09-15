@@ -37,8 +37,10 @@ import type {
   PsurUncertainty,
   PsurUncertaintyCategory,
   PsurV4SectionId,
+  PsurWorkflowStage,
 } from "@/types/pv";
 import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
+import { deriveWorkflowStage } from "@/services/psur/workflow";
 import type {
   AiPsurBenefitRiskOut,
   AiPsurFindingOut,
@@ -1302,6 +1304,7 @@ export const psur = {
           uploadedAt: new Date().toISOString(),
           uploadedBy: actor.name,
           stage: "UPLOADED",
+          workflowStage: "SCREENING",
           pages: parsedRows.length,
           sourceType: "SPREADSHEET",
           columns: headers,
@@ -1318,6 +1321,9 @@ export const psur = {
           uploadedAt: new Date().toISOString(),
           uploadedBy: actor.name,
           stage: "FAILED",
+          // Stays with the officer: a file that could not be parsed is
+          // theirs to chase, not an evaluator's to review.
+          workflowStage: "SCREENING",
           pages: 0,
           sourceType: "SPREADSHEET",
         };
@@ -1357,6 +1363,9 @@ export const psur = {
       uploadedAt: new Date().toISOString(),
       uploadedBy: actor.name,
       stage: "UPLOADED",
+      // Every new report starts on the Review Officer's desk — they decide
+      // whether it goes on for scientific review or back to the MAH.
+      workflowStage: "SCREENING",
       // Nothing has opened the PDF at this point, so this is a size-based
       // guess, not a page count — flagged as such so the UI never renders
       // it as a fact. Replaced with the real count below the moment the
@@ -1646,10 +1655,17 @@ export const psur = {
     return next;
   },
 
-  /** The assessor's own decision on whether to proceed to scientific
+  /** The Review Officer's own decision on whether to proceed to scientific
    *  review or return the submission to the MAH first — the AI's
    *  `screening.recommendation` is only ever a suggestion; this is what
-   *  actually governs the workflow going forward. */
+   *  actually governs the workflow going forward.
+   *
+   *  This is also the handoff: it is the point at which a report leaves the
+   *  officer's queue, either to the evaluators or out of the process
+   *  altogether, so it sets `workflowStage` in the same write. Recording
+   *  the decision and moving the document are one action, not two — a
+   *  decision that did not move it would leave the report sitting on the
+   *  officer's desk with a decision already made against it. */
   recordScreeningOverride: async (
     documentId: string,
     decision: "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST",
@@ -1658,8 +1674,11 @@ export const psur = {
     const document = await readDocument(documentId);
     if (!document.screening) throw new Error("No screening result to override yet");
     const actor = currentActor();
+    const workflowStage: PsurWorkflowStage =
+      decision === "PROCEED_TO_SCIENTIFIC_REVIEW" ? "AWAITING_EVALUATION" : "RETURNED_TO_MAH";
     const next: PsurDocumentRow = {
       ...document,
+      workflowStage,
       screening: {
         ...document.screening,
         humanOverride: { decision, by: actor.name, at: new Date().toISOString(), rationale },
@@ -1672,6 +1691,14 @@ export const psur = {
       entityId: documentId,
       previousValue: document.screening.recommendation,
       newValue: decision,
+      reason: rationale,
+    });
+    await recordAudit({
+      action: "PSUR_WORKFLOW_STAGE_CHANGED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      previousValue: deriveWorkflowStage(document),
+      newValue: workflowStage,
       reason: rationale,
     });
     return next;
@@ -1809,14 +1836,30 @@ export const psur = {
   updateSignOff: async (documentId: string, signOff: PsurSignOff): Promise<PsurDocument> => {
     const document = await readDocument(documentId);
     const now = new Date().toISOString();
-    const next: PsurDocumentRow = {
-      ...document,
-      signOff: {
-        ...signOff,
-        ...(signOff.evaluatorName ? { evaluatorSignedAt: signOff.evaluatorSignedAt ?? now } : {}),
-        ...(signOff.peerReviewerName ? { peerReviewedAt: signOff.peerReviewedAt ?? now } : {}),
-      },
+    const nextSignOff: PsurSignOff = {
+      ...signOff,
+      ...(signOff.evaluatorName ? { evaluatorSignedAt: signOff.evaluatorSignedAt ?? now } : {}),
+      ...(signOff.peerReviewerName ? { peerReviewedAt: signOff.peerReviewedAt ?? now } : {}),
     };
+
+    // Section 13 carries both signatures, and which of them just arrived is
+    // what moves the report on: the evaluator's hands it to the peer
+    // reviewers, the peer reviewer's ends the review. Derived from the
+    // signatures themselves rather than from who is calling, so the stage
+    // can never disagree with the document it describes.
+    //
+    // Deliberately only ever moves FORWARD. An evaluator editing their
+    // conclusion after a peer reviewer has already signed must not drag the
+    // report back into the peer-review queue.
+    const previousStage = deriveWorkflowStage(document);
+    let workflowStage = previousStage;
+    if (nextSignOff.peerReviewedAt) {
+      workflowStage = "PEER_REVIEWED";
+    } else if (nextSignOff.evaluatorSignedAt && previousStage === "AWAITING_EVALUATION") {
+      workflowStage = "AWAITING_PEER_REVIEW";
+    }
+
+    const next: PsurDocumentRow = { ...document, workflowStage, signOff: nextSignOff };
     await saveDocument(next);
     await recordAudit({
       action: "PSUR_SIGNED_OFF",
@@ -1824,6 +1867,15 @@ export const psur = {
       entityId: documentId,
       newValue: `Conclusion recorded, reviewer confidence: ${signOff.reviewerConfidence ?? "not set"}`,
     });
+    if (workflowStage !== previousStage) {
+      await recordAudit({
+        action: "PSUR_WORKFLOW_STAGE_CHANGED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        previousValue: previousStage,
+        newValue: workflowStage,
+      });
+    }
     return next;
   },
 
