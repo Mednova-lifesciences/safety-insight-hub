@@ -204,29 +204,28 @@ export interface CurrentUser {
 }
 
 /**
- * Roles a person may sign themselves up as, given a valid invite code.
+ * Roles a person may sign THEMSELVES up as, given a valid invite code.
  *
- * The three assessor roles are here so NAFDAC's officers, evaluators and
- * peer reviewers can register themselves instead of being provisioned by
- * hand. They are still gated on the organisation's private invite code,
- * exactly as the staff roles are — signing up as a Peer Reviewer grants the
- * authority to countersign a regulatory assessment, so it must not be open
- * to anyone who merely finds the page. CREATE_ORG is deliberately NOT a
- * route to any of them: it always mints a PV_MANAGER.
+ * The three NAFDAC assessor roles are deliberately absent, and there is no
+ * registration page for them. Their accounts are provisioned by an
+ * administrator who hands over initial credentials, which the person then
+ * changes from Settings.
+ *
+ * That is a stronger boundary than a sign-up form behind an invite code. A
+ * Peer Reviewer can countersign a regulatory assessment, so who holds that
+ * role is a decision the organisation makes deliberately — not something a
+ * person asserts about themselves by filling in a form. An invite code
+ * would not be enough: it is a shared secret, and shared secrets spread.
+ *
+ * CREATE_ORG is likewise not a route to any of them: it always mints a
+ * PV_MANAGER.
  */
-export type JoinableRole =
-  "PV_COORDINATOR" | "FIELD_ASSOCIATE" | "REVIEW_OFFICER" | "EVALUATOR" | "PEER_REVIEWER";
+export type JoinableRole = "PV_COORDINATOR" | "FIELD_ASSOCIATE";
 
-/** Runtime mirror of JoinableRole, for the sign-up pages and for the tests
+/** Runtime mirror of JoinableRole, for the sign-up page and for the tests
  *  that pin which roles are self-service. Must match JOINABLE_ROLES in
  *  src/server/roles.py — the server holds the enforcing copy. */
-export const JOINABLE_ROLES: JoinableRole[] = [
-  "PV_COORDINATOR",
-  "FIELD_ASSOCIATE",
-  "REVIEW_OFFICER",
-  "EVALUATOR",
-  "PEER_REVIEWER",
-];
+export const JOINABLE_ROLES: JoinableRole[] = ["PV_COORDINATOR", "FIELD_ASSOCIATE"];
 
 export type SignUpOptions =
   | { mode: "CREATE_ORG"; orgName: string }

@@ -32,23 +32,11 @@ class SignUpRequest(BaseModel):
     org_code: Optional[str] = None
     # JOIN_ORG only: which role the invite code grants.
     #
-    # Never trust a role value outside this list. CREATE_ORG always mints
-    # PV_MANAGER and is not a route to any of these.
-    #
-    # The three assessor roles are self-service, but ONLY behind the
-    # organisation's private invite code — the same gate the staff roles
-    # sit behind. Signing up as a PEER_REVIEWER confers the authority to
-    # countersign a regulatory assessment, so an open registration page
-    # would be a straightforward privilege-escalation route.
-    role: Optional[
-        Literal[
-            "PV_COORDINATOR",
-            "FIELD_ASSOCIATE",
-            "REVIEW_OFFICER",
-            "EVALUATOR",
-            "PEER_REVIEWER",
-        ]
-    ] = None
+    # Never trust a role value outside this pair. CREATE_ORG always mints
+    # PV_MANAGER, and the three NAFDAC assessor roles are not reachable
+    # through signup at all — they are provisioned by an administrator who
+    # hands over initial credentials. See JOINABLE_ROLES in ..roles.
+    role: Optional[Literal["PV_COORDINATOR", "FIELD_ASSOCIATE"]] = None
 
 class SignInRequest(BaseModel):
     email: str
@@ -153,11 +141,14 @@ async def sign_up(request: SignUpRequest):
     CREATE_ORG mints a brand-new organization (a new public slug and a
     private invite code) and makes the signing-up user its PV_MANAGER.
     JOIN_ORG requires an existing organization's exact invite_code and
-    attaches the user as one of JOINABLE_ROLES (the joiner's own choice —
-    the same invite code works for all of them, the role is picked on the
-    sign-up form) — organizations are never resolved by matching name text,
-    which used to let anyone claim ADMIN on an existing company by typing
-    its name.
+    attaches the user as either a PV_COORDINATOR or a FIELD_ASSOCIATE (the
+    joiner's own choice — the same invite code works for both, the role is
+    picked on the sign-up form) — organizations are never resolved by
+    matching name text, which used to let anyone claim ADMIN on an existing
+    company by typing its name.
+
+    NAFDAC's assessor roles are deliberately unreachable here; see
+    JOINABLE_ROLES in ..roles for why.
     """
     try:
         db = get_supabase_client()

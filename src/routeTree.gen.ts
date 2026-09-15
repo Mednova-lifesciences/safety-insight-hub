@@ -30,7 +30,6 @@ import { Route as AppSignalsRouteImport } from './routes/_app/signals'
 import { Route as AppWhatsappIntakeRouteImport } from './routes/_app/whatsapp-intake'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminSignInRouteImport } from './routes/admin.sign-in'
-import { Route as AdminSignUpRouteImport } from './routes/admin.sign-up'
 import { Route as AppCasesIndexRouteImport } from './routes/_app/cases.index'
 import { Route as AppCasesCaseIdRouteImport } from './routes/_app/cases.$caseId'
 import { Route as AppIcsrNewRouteImport } from './routes/_app/icsr.new'
@@ -143,11 +142,6 @@ const AdminSignInRoute = AdminSignInRouteImport.update({
   path: '/admin/sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminSignUpRoute = AdminSignUpRouteImport.update({
-  id: '/admin/sign-up',
-  path: '/admin/sign-up',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AppCasesIndexRoute = AppCasesIndexRouteImport.update({
   id: '/cases/',
   path: '/cases/',
@@ -204,7 +198,6 @@ export interface FileRoutesByFullPath {
   '/signals': typeof AppSignalsRoute
   '/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/admin/sign-in': typeof AdminSignInRoute
-  '/admin/sign-up': typeof AdminSignUpRoute
   '/admin/': typeof AdminIndexRoute
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
@@ -234,7 +227,6 @@ export interface FileRoutesByTo {
   '/signals': typeof AppSignalsRoute
   '/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/admin/sign-in': typeof AdminSignInRoute
-  '/admin/sign-up': typeof AdminSignUpRoute
   '/admin': typeof AdminIndexRoute
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
@@ -266,7 +258,6 @@ export interface FileRoutesById {
   '/_app/signals': typeof AppSignalsRoute
   '/_app/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/admin/sign-in': typeof AdminSignInRoute
-  '/admin/sign-up': typeof AdminSignUpRoute
   '/admin/': typeof AdminIndexRoute
   '/_app/cases/$caseId': typeof AppCasesCaseIdRoute
   '/_app/icsr/new': typeof AppIcsrNewRoute
@@ -298,7 +289,6 @@ export interface FileRouteTypes {
     | '/signals'
     | '/whatsapp-intake'
     | '/admin/sign-in'
-    | '/admin/sign-up'
     | '/admin/'
     | '/cases/$caseId'
     | '/icsr/new'
@@ -328,7 +318,6 @@ export interface FileRouteTypes {
     | '/signals'
     | '/whatsapp-intake'
     | '/admin/sign-in'
-    | '/admin/sign-up'
     | '/admin'
     | '/cases/$caseId'
     | '/icsr/new'
@@ -359,7 +348,6 @@ export interface FileRouteTypes {
     | '/_app/signals'
     | '/_app/whatsapp-intake'
     | '/admin/sign-in'
-    | '/admin/sign-up'
     | '/admin/'
     | '/_app/cases/$caseId'
     | '/_app/icsr/new'
@@ -377,7 +365,6 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   SignupRoute: typeof SignupRoute
   AdminSignInRoute: typeof AdminSignInRoute
-  AdminSignUpRoute: typeof AdminSignUpRoute
   AdminIndexRoute: typeof AdminIndexRoute
   ROrgSlugReportRoute: typeof ROrgSlugReportRoute
   ROrgSlugIndexRoute: typeof ROrgSlugIndexRoute
@@ -532,13 +519,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSignInRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/sign-up': {
-      id: '/admin/sign-up'
-      path: '/admin/sign-up'
-      fullPath: '/admin/sign-up'
-      preLoaderRoute: typeof AdminSignUpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_app/cases/': {
       id: '/_app/cases/'
       path: '/cases'
@@ -644,7 +624,6 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   SignupRoute: SignupRoute,
   AdminSignInRoute: AdminSignInRoute,
-  AdminSignUpRoute: AdminSignUpRoute,
   AdminIndexRoute: AdminIndexRoute,
   ROrgSlugReportRoute: ROrgSlugReportRoute,
   ROrgSlugIndexRoute: ROrgSlugIndexRoute,
