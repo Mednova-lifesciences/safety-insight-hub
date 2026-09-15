@@ -5,7 +5,6 @@ import { IcsrIntakeForm } from "@/components/pv/icsr-intake-form";
 import { products as productsApi, type CatalogDrug } from "@/services/api/products";
 import { demoProducts } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
-import { useRole } from "@/lib/auth";
 import { EmptyState, PageHeader, QueryBoundary } from "@/components/pv/primitives";
 import { Input } from "@/components/ui/input";
 
@@ -29,14 +28,16 @@ export const Route = createFileRoute("/_app/icsr/new")({
 });
 
 function NewIcsrPage() {
-  const role = useRole();
-  // Administrators keep the original free-text form — every other role
-  // (field associate, coordinator, manager) must pick the suspect drug
-  // from the organization's own catalog first, so what lands on the
-  // report is always a product the org actually deals in, not whatever
-  // was typed. Locking the product also keeps this consistent with the
-  // public field-associate flow (/r/:orgSlug), which works the same way.
-  if (role === "ADMIN") return <IcsrIntakeForm />;
+  // Every role that can reach this page must pick the suspect drug from the
+  // organization's own catalog first, so what lands on the report is always
+  // a product the org actually deals in, not whatever was typed. Locking the
+  // product also keeps this consistent with the public field-associate flow
+  // (/r/:orgSlug), which works the same way.
+  //
+  // The old ADMIN role was exempted from that and kept a free-text form.
+  // The three roles that replaced it are NAFDAC assessors who hold no
+  // case.create permission and do not file reports at all, so the exemption
+  // had nobody left to apply to and is gone rather than reassigned.
   return <DrugPickerThenForm />;
 }
 
@@ -50,7 +51,11 @@ function DrugPickerThenForm() {
 
 function DrugPicker({ onPick }: { onPick: (drug: CatalogDrug) => void }) {
   const [search, setSearch] = useState("");
-  const query = usePvQuery(["products"], () => productsApi.list(), () => demoProducts);
+  const query = usePvQuery(
+    ["products"],
+    () => productsApi.list(),
+    () => demoProducts,
+  );
 
   return (
     <>

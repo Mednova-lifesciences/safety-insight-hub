@@ -5,6 +5,10 @@ import type { Role } from "./auth";
  *
  * Administrators were asked to be kept separate from staff, so there are
  * two sign-in pages rather than one page with an "Administrator" option.
+ * All three NAFDAC assessor roles are administrators and share the ONE
+ * administrator page — the separation asked for is between staff and
+ * administrators, not between the three assessors, who work on the same
+ * reports in sequence and have no reason to sign in at different URLs.
  * Everything about which page suits which role lives here, in one place,
  * because the answer is needed by both sign-in pages AND by sign-out (a
  * person signing out belongs back at the door they came in by, not at
@@ -21,10 +25,10 @@ export type Portal = "staff" | "admin";
 export const STAFF_SIGN_IN_PATH = "/auth";
 export const ADMIN_SIGN_IN_PATH = "/admin/sign-in";
 
-/** The roles each sign-in page is for. ADMIN is deliberately absent from
- *  the staff list — that is the whole point of the split. */
+/** The roles each sign-in page is for. The assessor roles are deliberately
+ *  absent from the staff list — that is the whole point of the split. */
 export const STAFF_ROLES: Role[] = ["FIELD_ASSOCIATE", "PV_COORDINATOR", "PV_MANAGER"];
-export const ADMIN_ROLES: Role[] = ["ADMIN"];
+export const ADMIN_ROLES: Role[] = ["REVIEW_OFFICER", "EVALUATOR", "PEER_REVIEWER"];
 
 export function portalForRole(role: Role): Portal {
   return ADMIN_ROLES.includes(role) ? "admin" : "staff";
@@ -55,6 +59,10 @@ export function wrongPortalMessage(role: Role): string {
     : "That is a staff account. Please sign in on the staff sign-in page.";
 }
 
+/** Human-readable list of who the administrator page is for, so the page
+ *  itself never has to hardcode the three role names. */
+export const ADMIN_PORTAL_ROLE_SUMMARY = "Review Officers, Evaluators and Peer Reviewers";
+
 /**
  * Prefilled demo accounts, kept here rather than on either page so the two
  * sign-in screens cannot drift apart. Retained at the customer's request so
@@ -67,5 +75,7 @@ export const DEMO_CREDENTIALS: Record<Role, { email: string; password: string }>
   FIELD_ASSOCIATE: { email: "field@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
   PV_COORDINATOR: { email: "coordinator@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
   PV_MANAGER: { email: "manager@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
-  ADMIN: { email: "admin@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
+  REVIEW_OFFICER: { email: "officer@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
+  EVALUATOR: { email: "evaluator@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
+  PEER_REVIEWER: { email: "peer@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
 };

@@ -171,3 +171,23 @@ def require_permission(permission: str):
         return user
 
     return permission_checker
+
+
+def require_any_permission(*permissions: str):
+    """Admit a caller holding AT LEAST ONE of these permissions.
+
+    Needed where one endpoint legitimately serves two different jobs. The AI
+    review of a periodic report is the case that prompted it: the Review
+    Officer runs it to screen an incoming report, and an Evaluator runs it
+    again during scientific review. They hold different permissions for
+    genuinely different reasons, and collapsing them into a single shared
+    permission would have handed each of them the other's authority.
+    """
+    async def permission_checker(user: AuthenticatedUser = Depends(get_current_user)):
+        if not any(has_permission(user.role, permission) for permission in permissions):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
+            )
+        return user
+
+    return permission_checker
