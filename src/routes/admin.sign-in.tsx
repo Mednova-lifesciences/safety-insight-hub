@@ -202,11 +202,9 @@ function AdminSignInPage() {
         </div>
 
         <p className="mt-6 text-xs text-muted-foreground">
-          No account yet?{" "}
-          <Link to="/admin/sign-up" className="underline">
-            Register as a Review Officer, Evaluator or Peer Reviewer
-          </Link>
-          . You will need your organisation&rsquo;s invite code.
+          No account yet? Administrator accounts are issued by your organisation &mdash; ask them
+          for your initial credentials, then change your password from Settings once you are signed
+          in.
         </p>
 
         <p className="mt-2 text-xs text-muted-foreground">

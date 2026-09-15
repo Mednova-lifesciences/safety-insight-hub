@@ -19,15 +19,22 @@ EVALUATOR: Final = "EVALUATOR"
 PEER_REVIEWER: Final = "PEER_REVIEWER"
 
 # Roles a person may sign THEMSELVES up as, given the organisation's private
-# invite code. PV_MANAGER is absent on purpose: it is minted only by
-# CREATE_ORG, for the person who creates the organisation.
+# invite code.
 #
-# The three assessor roles are here so NAFDAC's staff can register without a
-# DBA, but the invite code stays mandatory — PEER_REVIEWER in particular
-# carries the authority to countersign a regulatory assessment.
-JOINABLE_ROLES: Final = frozenset(
-    {FIELD_ASSOCIATE, PV_COORDINATOR, REVIEW_OFFICER, EVALUATOR, PEER_REVIEWER}
-)
+# PV_MANAGER is absent because it is minted only by CREATE_ORG, for the
+# person who creates the organisation.
+#
+# The three assessor roles are absent because they are PROVISIONED, never
+# self-served: an administrator creates the account and hands over initial
+# credentials, which the person then changes. A Peer Reviewer can
+# countersign a regulatory assessment, so who holds that role is the
+# organisation's decision, not a claim someone can make about themselves.
+# An invite code would not be enough — it is a shared secret that spreads.
+#
+# This is the enforcing copy. Even if a client sent role=PEER_REVIEWER, the
+# signup handler falls back to PV_COORDINATOR because it is not in this set,
+# and the Literal on SignUpRequest rejects it before that.
+JOINABLE_ROLES: Final = frozenset({FIELD_ASSOCIATE, PV_COORDINATOR})
 
 ROLE_ALIASES: Final = {
     "FIELD_ASSOCIATE": FIELD_ASSOCIATE,

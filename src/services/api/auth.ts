@@ -14,8 +14,9 @@ export interface SignupRequest {
   org_code?: string;
   /** JOIN_ORG only — which role the invite code grants this signup.
    *  Mirrors JoinableRole in lib/auth.tsx; the server re-validates it
-   *  against its own list and never trusts this value. */
-  role?: "PV_COORDINATOR" | "FIELD_ASSOCIATE" | "REVIEW_OFFICER" | "EVALUATOR" | "PEER_REVIEWER";
+   *  against its own list and never trusts this value. The three assessor
+   *  roles are absent on purpose: they are provisioned, not self-served. */
+  role?: "PV_COORDINATOR" | "FIELD_ASSOCIATE";
 }
 
 export interface SigninRequest {
