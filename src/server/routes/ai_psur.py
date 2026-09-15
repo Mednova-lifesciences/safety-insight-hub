@@ -30,7 +30,7 @@ from ..ai.prompts import (
     PSUR_REVIEW_SPREADSHEET_PROMPT,
 )
 from ..ai.schemas import AiPsurFix, AiPsurReview
-from ..dependencies import AuthenticatedUser, require_permission
+from ..dependencies import AuthenticatedUser, require_any_permission, require_permission
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -225,7 +225,10 @@ async def review_pdf(
     file: UploadFile = File(...),
     product: str = Form(""),
     reportingPeriod: str = Form(""),
-    user: AuthenticatedUser = Depends(require_permission("psur.review")),
+    # Two different jobs reach this endpoint: the Review Officer runs the AI
+    # check to screen an incoming report, and an Evaluator runs it during
+    # scientific review.
+    user: AuthenticatedUser = Depends(require_any_permission("psur.screen", "psur.evaluate")),
 ):
     raw = await file.read()
     try:
@@ -324,7 +327,8 @@ class ReviewSpreadsheetRequest(BaseModel):
 @router.post("/review-spreadsheet", response_model=ReviewResponse)
 async def review_spreadsheet(
     request: ReviewSpreadsheetRequest,
-    user: AuthenticatedUser = Depends(require_permission("psur.review")),
+    # Same two callers as /review-pdf above.
+    user: AuthenticatedUser = Depends(require_any_permission("psur.screen", "psur.evaluate")),
 ):
     try:
         payload = {
@@ -400,7 +404,9 @@ class FixResponse(BaseModel):
 @router.post("/fix", response_model=FixResponse)
 async def fix_psur(
     request: FixRequest,
-    user: AuthenticatedUser = Depends(require_permission("psur.review")),
+    # Rewrites the report's content, so this is evaluator work: neither the
+    # officer nor the peer reviewer may reach it.
+    user: AuthenticatedUser = Depends(require_permission("psur.evaluate")),
 ):
     if not request.acceptedFindings:
         return FixResponse(resolutions=[], unresolved=[], ai_used=False, prompt_version=PROMPT_VERSION)

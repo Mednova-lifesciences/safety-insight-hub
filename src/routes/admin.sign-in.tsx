@@ -1,12 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Lock, ShieldCheck } from "lucide-react";
-import { useAuth } from "@/lib/auth";
+import { ROLE_DESCRIPTIONS, ROLE_LABELS, useAuth, type Role } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import { isApiConfigured } from "@/services/api/client";
 import {
+  ADMIN_ROLES,
   DEMO_CREDENTIALS,
   STAFF_SIGN_IN_PATH,
   isRoleAllowedOnPortal,
@@ -17,9 +19,15 @@ import {
  * The administrator door.
  *
  * Administrators used to be a fourth radio button on the staff sign-in
- * page. They are kept separate now at the customer's request. This page
- * deliberately has no role picker at all — there is exactly one role it
- * admits, so offering a choice would only invite the wrong one.
+ * page. They are kept separate now at the customer's request.
+ *
+ * This page once had no role picker, because there was exactly one role it
+ * admitted. There are now three — Review Officer, Evaluator and Peer
+ * Reviewer — and they all belong here, so the picker is back. It matters
+ * ONLY in demo mode, where there is no server to say who signed in; with a
+ * backend connected the account's own role decides and the selection is
+ * ignored. That is why it is labelled as demo-only, exactly as the staff
+ * page labels its own.
  *
  * "noindex" because this is an internal console entrance; the staff page
  * stays indexable as before.
@@ -44,11 +52,16 @@ export const Route = createFileRoute("/admin/sign-in")({
   component: AdminSignInPage,
 });
 
+/** Defaults to the first step of the assessment, which is the one a demo
+ *  most often wants to start from. */
+const DEFAULT_ADMIN_ROLE: Role = "REVIEW_OFFICER";
+
 function AdminSignInPage() {
   const { signIn, signOut } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState(DEMO_CREDENTIALS.ADMIN.email);
-  const [password, setPassword] = useState(DEMO_CREDENTIALS.ADMIN.password);
+  const [role, setRole] = useState<Role>(DEFAULT_ADMIN_ROLE);
+  const [email, setEmail] = useState(DEMO_CREDENTIALS[DEFAULT_ADMIN_ROLE].email);
+  const [password, setPassword] = useState(DEMO_CREDENTIALS[DEFAULT_ADMIN_ROLE].password);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,7 +78,7 @@ function AdminSignInPage() {
 
         <h1 className="mt-8 text-2xl font-semibold">Administrator sign-in</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          For organisation, access and regulatory configuration. Staff sign in on the{" "}
+          For Review Officers, Evaluators and Peer Reviewers. Staff sign in on the{" "}
           <Link to={STAFF_SIGN_IN_PATH} className="underline">
             main sign-in page
           </Link>
@@ -84,13 +97,12 @@ function AdminSignInPage() {
                 setSubmitting(false);
                 return;
               }
-              // In demo mode the role comes from the caller, and this page
-              // only ever asks for the administrator one. With a backend
-              // connected the server decides, and the check below is what
-              // actually holds.
+              // In demo mode the role comes from the caller — whichever of
+              // the three was picked above. With a backend connected the
+              // server decides, and the check below is what actually holds.
               const signedIn = isApiConfigured()
                 ? await signIn(email.trim(), password)
-                : await signIn(email.trim(), password, "ADMIN");
+                : await signIn(email.trim(), password, role);
 
               if (!isRoleAllowedOnPortal(signedIn.role, "admin")) {
                 // A staff account is dropped rather than admitted here, for
@@ -109,6 +121,41 @@ function AdminSignInPage() {
             }
           }}
         >
+          <fieldset className="space-y-2">
+            <legend className="label-caps mb-1">Administrator role</legend>
+            <p className="mb-2 text-xs text-muted-foreground">
+              (Only used in demo mode; the server determines the actual role when a backend is
+              connected)
+            </p>
+            {ADMIN_ROLES.map((r) => (
+              <label
+                key={r}
+                className={cn(
+                  "flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition-colors",
+                  role === r ? "border-primary bg-accent" : "border-border hover:bg-muted",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="admin-role"
+                  className="mt-1 accent-[var(--primary)]"
+                  checked={role === r}
+                  onChange={() => {
+                    setRole(r);
+                    setEmail(DEMO_CREDENTIALS[r].email);
+                    setPassword(DEMO_CREDENTIALS[r].password);
+                  }}
+                />
+                <span>
+                  <span className="block text-sm font-medium">{ROLE_LABELS[r]}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {ROLE_DESCRIPTIONS[r]}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+
           <div className="space-y-1.5">
             <Label htmlFor="admin-email">Administrator email</Label>
             <Input
@@ -144,10 +191,10 @@ function AdminSignInPage() {
         </form>
 
         <div className="mt-6 rounded-md border border-dashed border-border p-4">
-          <p className="label-caps">Demo administrator</p>
+          <p className="label-caps">Demo {ROLE_LABELS[role].toLowerCase()}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">{DEMO_CREDENTIALS.ADMIN.email}</span> /{" "}
-            {DEMO_CREDENTIALS.ADMIN.password}
+            <span className="font-medium text-foreground">{DEMO_CREDENTIALS[role].email}</span> /{" "}
+            {DEMO_CREDENTIALS[role].password}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             Prefilled above so nothing has to be typed during a demo.
@@ -155,6 +202,14 @@ function AdminSignInPage() {
         </div>
 
         <p className="mt-6 text-xs text-muted-foreground">
+          No account yet?{" "}
+          <Link to="/admin/sign-up" className="underline">
+            Register as a Review Officer, Evaluator or Peer Reviewer
+          </Link>
+          . You will need your organisation&rsquo;s invite code.
+        </p>
+
+        <p className="mt-2 text-xs text-muted-foreground">
           {isApiConfigured()
             ? "Backend connected."
             : "Backend not connected — screens will show pending-integration states or the seeded demo dataset."}

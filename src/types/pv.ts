@@ -622,7 +622,48 @@ export interface PsurDocument {
   regulatoryDecision?: PsurRegulatoryDecision | undefined;
   /** Section 13 — pure assessor input, never AI-generated. */
   signOff?: PsurSignOff | undefined;
+  /** Which of the three assessors' queues this document is sitting in.
+   *
+   *  Deliberately NOT the same axis as `stage`: that one answers "has the
+   *  AI finished processing this file" (UPLOADED -> EXTRACTED -> REVIEWED),
+   *  which is about the document, whereas this answers "whose desk is it
+   *  on", which is about the people. Collapsing the two would quietly give
+   *  every existing `stage === "REVIEWED"` check a new meaning.
+   *
+   *  Optional because documents created before the three-role split have
+   *  no stored value. Never read this field directly — read it through
+   *  deriveWorkflowStage() in services/psur/workflow.ts, which recovers a
+   *  stage for those older documents from the sign-off and screening data
+   *  they DO carry. */
+  workflowStage?: PsurWorkflowStage | undefined;
 }
+
+/**
+ * Whose queue a periodic report is sitting in.
+ *
+ * NAFDAC assesses a report through three people in sequence — a Review
+ * Officer who screens it, an Evaluator who performs the scientific review
+ * against the V4 template, and a Peer Reviewer who checks that review and
+ * signs off. This field is the single answer to which of them owns the
+ * document right now; each role's dashboard and queue is a filter over it.
+ *
+ *   - SCREENING: with the Review Officer, not yet triaged.
+ *   - RETURNED_TO_MAH: the officer sent it back; it never reached
+ *     scientific review. Terminal.
+ *   - AWAITING_EVALUATION: pushed to scientific review. ANY Evaluator may
+ *     pick it up — queues are shared, not assigned to a named person.
+ *   - AWAITING_PEER_REVIEW: an Evaluator has signed Section 13's evaluator
+ *     half; any Peer Reviewer may pick it up.
+ *   - PEER_REVIEWED: the Peer Reviewer has signed. Terminal FOR NOW — what
+ *     happens after sign-off was left undecided, and is deliberately not
+ *     modelled rather than guessed at.
+ */
+export type PsurWorkflowStage =
+  | "SCREENING"
+  | "RETURNED_TO_MAH"
+  | "AWAITING_EVALUATION"
+  | "AWAITING_PEER_REVIEW"
+  | "PEER_REVIEWED";
 
 /** One item in the Administrative Completeness Check (template section
  *  "Administrative Completeness Check", checked before scientific

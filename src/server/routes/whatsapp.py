@@ -134,7 +134,9 @@ async def _notify_staff_ready(db, organization_id: str, org_name: str, conversat
     )
     staff = await db.query(
         "profiles",
-        filters={"organization_id": organization_id, "role": ["PV_MANAGER", "PV_COORDINATOR", "ADMIN"]},
+        # Staff-side notification: the NAFDAC assessor roles have no part in
+        # WhatsApp intake, so they are deliberately not recipients.
+        filters={"organization_id": organization_id, "role": ["PV_MANAGER", "PV_COORDINATOR"]},
     )
     from_number = None
     settings_row = await _get_intake_settings(db, organization_id)

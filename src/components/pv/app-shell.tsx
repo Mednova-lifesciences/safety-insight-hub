@@ -4,6 +4,7 @@ import {
   Bell,
   BriefcaseMedical,
   ChevronDown,
+  ClipboardCheck,
   ClipboardPlus,
   FileSpreadsheet,
   FileStack,
@@ -46,11 +47,25 @@ interface NavItem {
   icon: typeof Gauge;
   permission?: Permission;
   hiddenForRoles?: Role[];
-  /** Per-role label override — same destination, different framing. Used
-   *  for New ICSR: administrators (who use this to demo capture/extraction
-   *  rather than file operational cases) see "Intelligent Intake" instead. */
+  /** Per-role label override — same destination, different framing. */
   roleLabels?: Partial<Record<Role, string>>;
 }
+
+/**
+ * NAFDAC's three assessor roles, for the `hiddenForRoles` entries below.
+ *
+ * These roles hold none of the staff permissions, so most of those entries
+ * are belt-and-braces — the permission check alone would already hide the
+ * item. They are kept because one item (Notifications) carries no
+ * permission at all, and because a later permission change should not
+ * silently put case-handling pages in an assessor's sidebar.
+ *
+ * Spelled out here rather than imported from auth-portal's ADMIN_ROLES:
+ * that list happens to hold the same three today, but it answers a
+ * different question (which sign-in door) and the two should be free to
+ * diverge.
+ */
+const ASSESSOR_ROLES: Role[] = ["REVIEW_OFFICER", "EVALUATOR", "PEER_REVIEWER"];
 
 interface NavGroup {
   label: string;
@@ -69,42 +84,41 @@ export const NAV: NavGroup[] = [
         label: "New ICSR",
         icon: ClipboardPlus,
         permission: "case.create",
-        roleLabels: { ADMIN: "Intelligent Intake" },
       },
       {
         to: "/cases",
         label: "Cases",
         icon: BriefcaseMedical,
         permission: "case.view",
-        hiddenForRoles: ["ADMIN"],
+        hiddenForRoles: ASSESSOR_ROLES,
       },
       {
         to: "/intake",
         label: "Inbound intake",
         icon: MessageSquare,
         permission: "intake.manage",
-        hiddenForRoles: ["ADMIN"],
+        hiddenForRoles: ASSESSOR_ROLES,
       },
       {
         to: "/whatsapp-intake",
         label: "WhatsApp intake",
         icon: MessageCircle,
         permission: "intake.manage",
-        hiddenForRoles: ["ADMIN"],
+        hiddenForRoles: ASSESSOR_ROLES,
       },
       {
         to: "/follow-ups",
         label: "Follow-ups",
         icon: Timer,
         permission: "case.view",
-        hiddenForRoles: ["ADMIN"],
+        hiddenForRoles: ASSESSOR_ROLES,
       },
       {
         to: "/drugs",
         label: "Drug Catalog",
         icon: Pill,
         permission: "catalog.view",
-        hiddenForRoles: ["ADMIN"],
+        hiddenForRoles: ASSESSOR_ROLES,
       },
     ],
   },
@@ -114,10 +128,10 @@ export const NAV: NavGroup[] = [
     // This group has now been wrong in both directions. It first hid
     // PV_MANAGER and PV_COORDINATOR — two roles that hold these
     // permissions — leaving the pages reachable only by typing the URL.
-    // Hiding ADMIN instead, to match the case-handling groups below, was
-    // equally wrong: administrators really do run these workflows here
-    // (every line-list job in the live database was uploaded by an admin),
-    // and it took the pages away from them.
+    // Hiding the administrator roles instead, to match the case-handling
+    // groups below, was equally wrong: they really do run these workflows
+    // here (every line-list job in the live database was uploaded by an
+    // administrator), and it took the pages away from them.
     //
     // Unlike the case-handling groups, processing is not a role-shaped
     // activity — anyone granted linelist.process / e2b.generate /
@@ -139,6 +153,14 @@ export const NAV: NavGroup[] = [
         permission: "e2b.generate",
       },
       {
+        // The Review Officer's own queue. Gated on psur.screen, which only
+        // that role holds, so it appears for nobody else.
+        to: "/screening",
+        label: "Report screening",
+        icon: ClipboardCheck,
+        permission: "psur.screen",
+      },
+      {
         to: "/psur",
         label: "PSUR / PBRER review",
         icon: FileText,
@@ -154,30 +176,30 @@ export const NAV: NavGroup[] = [
         label: "Operational overview",
         icon: Gauge,
         permission: "team.view",
-        hiddenForRoles: ["ADMIN"],
+        hiddenForRoles: ASSESSOR_ROLES,
       },
       {
         to: "/literature",
         label: "Literature screening",
         icon: Newspaper,
         permission: "signal.view",
-        hiddenForRoles: ["ADMIN"],
+        hiddenForRoles: ASSESSOR_ROLES,
       },
       {
         to: "/signals",
         label: "Signal review",
         icon: Radar,
         permission: "signal.view",
-        hiddenForRoles: ["ADMIN"],
+        hiddenForRoles: ASSESSOR_ROLES,
       },
       {
         to: "/audit",
         label: "Audit trail",
         icon: Activity,
         permission: "audit.view.all",
-        hiddenForRoles: ["ADMIN"],
+        hiddenForRoles: ASSESSOR_ROLES,
       },
-      { to: "/notifications", label: "Notifications", icon: Bell, hiddenForRoles: ["ADMIN"] },
+      { to: "/notifications", label: "Notifications", icon: Bell, hiddenForRoles: ASSESSOR_ROLES },
     ],
   },
 ];

@@ -15,7 +15,7 @@ import {
   User,
   XCircle,
 } from "lucide-react";
-import { ROLE_LABELS, useAuth, useCurrentUser } from "@/lib/auth";
+import { ROLE_LABELS, useAuth, useCurrentUser, type ProfileDetails } from "@/lib/auth";
 import { getMyOrganizationInviteCode, deleteMyOrganization } from "@/services/api/organizations";
 import { whatsapp, type RequiredQuestion } from "@/services/api/whatsapp";
 import { regulatoryConfig } from "@/services/api/regulatory-config";
@@ -74,107 +74,183 @@ export const Route = createFileRoute("/_app/settings")({
 
 const DELETE_CONFIRMATION_PHRASE = "delete my project";
 
+/**
+ * Name, email and personal details, saved together.
+ *
+ * Previously this offered a name field and a phone field with separate save
+ * buttons, and a disabled email box captioned "Email cannot be changed
+ * here." People maintain their own details — particularly the assessors,
+ * whose name and post appear on the assessments they sign — so all of it is
+ * editable and one button saves the lot.
+ *
+ * Email is the awkward one: it is a sign-in credential, so changing it goes
+ * through Supabase Auth, which emails a confirmation link and does not
+ * switch the login address until it is clicked. updateProfile handles that
+ * and reports back whether a confirmation is outstanding, so this can say
+ * "check your inbox" instead of implying the change is already live.
+ */
 function ProfileSection() {
   const user = useCurrentUser();
-  const { updateName } = useAuth();
-  const [name, setName] = useState(user?.name ?? "");
+  const { updateProfile, loadProfileDetails } = useAuth();
+
+  const [details, setDetails] = useState<ProfileDetails>({
+    name: user?.name ?? "",
+    email: user?.email ?? "",
+    phone: "",
+    jobTitle: "",
+  });
+  const [saved, setSaved] = useState<ProfileDetails | null>(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [phone, setPhone] = useState("");
-  const [initialPhone, setInitialPhone] = useState("");
-  const [savingPhone, setSavingPhone] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user || !isApiConfigured()) return;
-    supabase
-      .from("profiles")
-      .select("phone")
-      .eq("id", user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        const value = (data?.phone as string | null) ?? "";
-        setPhone(value);
-        setInitialPhone(value);
+    if (!user) return;
+    let cancelled = false;
+    loadProfileDetails()
+      .then((loaded) => {
+        if (cancelled) return;
+        setDetails(loaded);
+        setSaved(loaded);
+      })
+      .catch(() => {
+        // A profile that will not load is not a reason to show an empty
+        // form the person might then save over their real details.
+        if (!cancelled) toast.error("Could not load your profile details.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
-  }, [user]);
+    return () => {
+      cancelled = true;
+    };
+  }, [user, loadProfileDetails]);
 
   if (!user) return null;
 
+  const dirty =
+    !!saved &&
+    (details.name.trim() !== saved.name.trim() ||
+      details.email.trim() !== saved.email.trim() ||
+      details.phone.trim() !== saved.phone.trim() ||
+      details.jobTitle.trim() !== saved.jobTitle.trim());
+
+  const emailChanging =
+    !!saved && details.email.trim().toLowerCase() !== saved.email.trim().toLowerCase();
+
+  const set = (patch: Partial<ProfileDetails>) => setDetails((d) => ({ ...d, ...patch }));
+
   return (
-    <Section title="Profile" description="Your name and account details.">
+    <Section title="Profile" description="Your name, contact details and post.">
       <div className="max-w-sm space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="settings-name">Full name</Label>
-          <Input id="settings-name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input
+            id="settings-name"
+            disabled={loading}
+            value={details.name}
+            onChange={(e) => set({ name: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            Appears on the assessments and sign-offs you record.
+          </p>
         </div>
-        <div className="space-y-1.5">
-          <Label>Work email</Label>
-          <Input value={user.email} disabled />
-          <p className="text-xs text-muted-foreground">Email cannot be changed here.</p>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Role</Label>
-          <Input value={ROLE_LABELS[user.role]} disabled />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Organization</Label>
-          <Input value={user.organisation} disabled />
-        </div>
-        <Button
-          size="sm"
-          disabled={saving || name.trim() === user.name || name.trim().length === 0}
-          onClick={async () => {
-            setSaving(true);
-            try {
-              await updateName(name);
-              toast.success("Name updated.");
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : "Could not update your name.");
-            } finally {
-              setSaving(false);
-            }
-          }}
-        >
-          <User className="size-4" /> Save name
-        </Button>
 
-        <div className="space-y-1.5 border-t border-border pt-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="settings-email">Work email</Label>
+          <Input
+            id="settings-email"
+            type="email"
+            autoComplete="email"
+            disabled={loading}
+            value={details.email}
+            onChange={(e) => set({ email: e.target.value })}
+          />
+          {emailChanging ? (
+            <p className="text-xs text-warning">
+              This is your sign-in address. You will get a confirmation link at the new address and
+              must click it before you can sign in with it.
+            </p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="settings-job-title">Job title</Label>
+          <Input
+            id="settings-job-title"
+            placeholder="e.g. Senior Regulatory Officer"
+            disabled={loading}
+            value={details.jobTitle}
+            onChange={(e) => set({ jobTitle: e.target.value })}
+          />
+        </div>
+
+        <div className="space-y-1.5">
           <Label htmlFor="settings-phone">Phone number</Label>
           <Input
             id="settings-phone"
             type="tel"
             placeholder="e.g. 2348012345678"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            disabled={loading}
+            value={details.phone}
+            onChange={(e) => set({ phone: e.target.value })}
           />
           <p className="text-xs text-muted-foreground">
             Used to text you when a WhatsApp report is ready for your review.
           </p>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={savingPhone || phone.trim() === initialPhone}
-            onClick={async () => {
-              setSavingPhone(true);
-              try {
-                const { error } = await supabase
-                  .from("profiles")
-                  .update({ phone: phone.trim() || null })
-                  .eq("id", user.id);
-                if (error) throw new Error(error.message);
-                setInitialPhone(phone.trim());
-                toast.success("Phone number updated.");
-              } catch (err) {
-                toast.error(
-                  err instanceof Error ? err.message : "Could not update your phone number.",
-                );
-              } finally {
-                setSavingPhone(false);
-              }
-            }}
-          >
-            <Phone className="size-4" /> Save phone number
-          </Button>
         </div>
+
+        <div className="space-y-1.5">
+          <Label>Role</Label>
+          <Input value={ROLE_LABELS[user.role]} disabled />
+          <p className="text-xs text-muted-foreground">
+            Your role is set by your organisation and cannot be changed here.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Organization</Label>
+          <Input value={user.organisation} disabled />
+        </div>
+
+        {pendingEmail ? (
+          <p className="rounded-md border border-warning/40 bg-warning-soft px-2 py-1.5 text-xs">
+            Confirmation sent to <span className="font-medium">{pendingEmail}</span>. Until you
+            click that link, keep signing in with <span className="font-medium">{user.email}</span>.
+          </p>
+        ) : null}
+
+        <Button
+          size="sm"
+          disabled={loading || saving || !dirty || !details.name.trim() || !details.email.trim()}
+          onClick={async () => {
+            setSaving(true);
+            try {
+              const result = await updateProfile(details);
+              setSaved({
+                ...details,
+                // The saved email only becomes the real one once confirmed;
+                // until then the form should still show the change as
+                // outstanding rather than settled.
+                email: result.emailConfirmationRequired
+                  ? (saved?.email ?? user.email)
+                  : details.email,
+              });
+              setPendingEmail(result.emailConfirmationRequired ? details.email.trim() : null);
+              toast.success(
+                result.emailConfirmationRequired
+                  ? "Profile saved. Check your new email for a confirmation link."
+                  : "Profile updated.",
+              );
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "Could not update your profile.");
+            } finally {
+              setSaving(false);
+            }
+          }}
+        >
+          <User className="size-4" /> {saving ? "Saving…" : "Save profile"}
+        </Button>
       </div>
     </Section>
   );
@@ -1099,17 +1175,26 @@ function RegulatoryProfileSection() {
 
 function SettingsPage() {
   const user = useCurrentUser();
-  const isAdmin = user?.role === "ADMIN";
-  const isManager = user?.role === "PV_MANAGER" || isAdmin;
-  // WhatsApp intake and Organization are deliberately NOT shown to
-  // administrators: their settings page was asked to be the regulatory and
-  // account console, not the operational one. Both sections stay exactly as
-  // they were for the roles that run them day to day — a PV Manager still
-  // has Organization, and a Manager or Coordinator still configures
-  // WhatsApp intake — so this hides them from one role rather than
-  // removing working features from everyone.
-  const canConfigureIntake =
-    !isAdmin && (user?.role === "PV_MANAGER" || user?.role === "PV_COORDINATOR");
+  const role = user?.role;
+
+  // NAFDAC's assessors, as opposed to MAH-side PV staff. Their settings
+  // page was asked to be the regulatory and account console, not the
+  // operational one, so WhatsApp intake and Organization stay hidden from
+  // them. Both sections are untouched for the roles that run them day to
+  // day — a PV Manager still has Organization, a Manager or Coordinator
+  // still configures WhatsApp intake — so this hides sections from some
+  // roles rather than removing working features from everyone.
+  const isAssessor = role === "REVIEW_OFFICER" || role === "EVALUATOR" || role === "PEER_REVIEWER";
+  const isManager = role === "PV_MANAGER";
+
+  const canConfigureIntake = role === "PV_MANAGER" || role === "PV_COORDINATOR";
+
+  // Deliberately NOT offered to assessors, though the old single ADMIN role
+  // did have it. Deleting the organisation is an account-ownership action,
+  // and no step of assessing a periodic report needs it — the old role only
+  // had it because one role did every job at once, which is the exact thing
+  // this split undid.
+  const canDeleteOrganization = isManager;
 
   return (
     <>
@@ -1118,9 +1203,9 @@ function SettingsPage() {
         <ProfileSection />
         <ChangePasswordSection />
         {canConfigureIntake ? <WhatsAppIntakeSection /> : null}
-        {isManager ? <RegulatoryProfileSection /> : null}
-        {isManager && !isAdmin ? <OrganizationSection /> : null}
-        {isManager ? <DangerZone /> : null}
+        {isManager || isAssessor ? <RegulatoryProfileSection /> : null}
+        {isManager ? <OrganizationSection /> : null}
+        {canDeleteOrganization ? <DangerZone /> : null}
       </div>
     </>
   );

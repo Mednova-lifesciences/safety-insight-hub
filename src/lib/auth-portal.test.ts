@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ADMIN_ROLES,
   ADMIN_SIGN_IN_PATH,
   DEMO_CREDENTIALS,
   STAFF_ROLES,
@@ -22,23 +23,29 @@ describe("auth-portal — administrators come in by their own door", () => {
     }
   });
 
-  it("ADMIN is not a staff role — this is the whole point of the split", () => {
-    expect(STAFF_ROLES).not.toContain("ADMIN");
-    expect(portalForRole("ADMIN")).toBe("admin");
+  it("no assessor role is a staff role — this is the whole point of the split", () => {
+    // All three of NAFDAC's assessor roles are administrators and share the
+    // one administrator door. The separation asked for is staff vs
+    // administrator, not one door per assessor.
+    for (const role of ADMIN_ROLES) {
+      expect(STAFF_ROLES).not.toContain(role);
+      expect(portalForRole(role)).toBe("admin");
+    }
+    expect(ADMIN_ROLES).toEqual(["REVIEW_OFFICER", "EVALUATOR", "PEER_REVIEWER"]);
   });
 
-  it("every non-admin role is a staff role, so nobody is left without a door", () => {
-    const covered = new Set<Role>([...STAFF_ROLES, "ADMIN"]);
+  it("every role has a door, so nobody is left without one", () => {
+    const covered = new Set<Role>([...STAFF_ROLES, ...ADMIN_ROLES]);
     for (const role of ALL_ROLES) expect(covered.has(role)).toBe(true);
   });
 
   it("sends each role back to the page it signed in on", () => {
-    expect(signInPathForRole("ADMIN")).toBe(ADMIN_SIGN_IN_PATH);
+    for (const role of ADMIN_ROLES) expect(signInPathForRole(role)).toBe(ADMIN_SIGN_IN_PATH);
     for (const role of STAFF_ROLES) expect(signInPathForRole(role)).toBe(STAFF_SIGN_IN_PATH);
   });
 
   it("tells someone at the wrong door which one they want", () => {
-    expect(wrongPortalMessage("ADMIN")).toMatch(/administrator/i);
+    for (const role of ADMIN_ROLES) expect(wrongPortalMessage(role)).toMatch(/administrator/i);
     expect(wrongPortalMessage("PV_COORDINATOR")).toMatch(/staff/i);
   });
 
@@ -49,12 +56,38 @@ describe("auth-portal — administrators come in by their own door", () => {
     }
   });
 
-  it("the separation is about routing, not privilege — ADMIN keeps its permissions", () => {
+  it("every administrator role can open the review surface", () => {
     // A previous change to admin visibility took working pages away from
     // administrators (see app-shell.tsx's note on the Processing group).
-    // Splitting the sign-in must not repeat that.
-    expect(ROLE_PERMISSIONS.ADMIN).toContain("linelist.process");
-    expect(ROLE_PERMISSIONS.ADMIN).toContain("psur.review");
-    expect(ROLE_PERMISSIONS.ADMIN).toContain("e2b.generate");
+    // Splitting one admin role into three must not repeat that: whatever
+    // else differs between them, all three work on periodic reports and
+    // all three must be able to open that page.
+    for (const role of ADMIN_ROLES) {
+      expect(ROLE_PERMISSIONS[role]).toContain("psur.review");
+    }
+  });
+
+  it("no assessor role can perform another one's step", () => {
+    // The whole reason for the split: one person must not be able to screen
+    // a report, review it, and then countersign their own review.
+    expect(ROLE_PERMISSIONS.REVIEW_OFFICER).toContain("psur.screen");
+    expect(ROLE_PERMISSIONS.REVIEW_OFFICER).not.toContain("psur.evaluate");
+    expect(ROLE_PERMISSIONS.REVIEW_OFFICER).not.toContain("psur.peer_review");
+
+    expect(ROLE_PERMISSIONS.EVALUATOR).toContain("psur.evaluate");
+    expect(ROLE_PERMISSIONS.EVALUATOR).not.toContain("psur.screen");
+    expect(ROLE_PERMISSIONS.EVALUATOR).not.toContain("psur.peer_review");
+
+    expect(ROLE_PERMISSIONS.PEER_REVIEWER).toContain("psur.peer_review");
+    expect(ROLE_PERMISSIONS.PEER_REVIEWER).not.toContain("psur.screen");
+    expect(ROLE_PERMISSIONS.PEER_REVIEWER).not.toContain("psur.evaluate");
+  });
+
+  it("keeps the assessor roles out of MAH-side staff work entirely", () => {
+    for (const role of ADMIN_ROLES) {
+      expect(ROLE_PERMISSIONS[role]).not.toContain("case.create");
+      expect(ROLE_PERMISSIONS[role]).not.toContain("intake.manage");
+      expect(ROLE_PERMISSIONS[role]).not.toContain("linelist.process");
+    }
   });
 });

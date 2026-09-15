@@ -23,20 +23,51 @@ import { supabase } from "@/integrations/supabase/client";
  */
 
 /** Canonical role identifiers shared with public.profiles.role. */
-export type Role = "FIELD_ASSOCIATE" | "PV_COORDINATOR" | "PV_MANAGER" | "ADMIN";
+export type Role =
+  | "FIELD_ASSOCIATE"
+  | "PV_COORDINATOR"
+  | "PV_MANAGER"
+  | "REVIEW_OFFICER"
+  | "EVALUATOR"
+  | "PEER_REVIEWER";
 
 /**
- * Four distinct, visible roles. PV_MANAGER carries every permission
- * FIELD_ASSOCIATE/PV_COORDINATOR/PV_MANAGER previously had between them,
- * on top of manager-level permissions — the same full set ADMIN has (see
- * ROLE_PERMISSIONS below) — but is its own labelled identity, not an
- * alias for Administrator.
+ * Six visible roles in two families.
+ *
+ * The first three are the MAH-side PV staff. PV_MANAGER carries every
+ * permission FIELD_ASSOCIATE and PV_COORDINATOR have between them, on top
+ * of manager-level permissions, but is its own labelled identity.
+ *
+ * The last three are NAFDAC's assessors, and all three are administrators —
+ * they share the administrator sign-in door (see auth-portal.ts) and are
+ * kept apart from staff there. They are not three tiers of seniority but
+ * three consecutive steps of one assessment: the Review Officer screens an
+ * incoming report and decides whether it goes forward or back to the MAH,
+ * the Evaluator performs the scientific review against the NAFDAC V4
+ * template, and the Peer Reviewer checks that review and signs off. They
+ * replaced a single ADMIN role that did all three jobs at once.
  */
 export const ROLE_LABELS: Record<Role, string> = {
   FIELD_ASSOCIATE: "PV Field Associate",
   PV_COORDINATOR: "PV Coordinator",
   PV_MANAGER: "PV Manager",
-  ADMIN: "Administrator",
+  REVIEW_OFFICER: "Review Officer",
+  EVALUATOR: "Evaluator",
+  PEER_REVIEWER: "Peer Reviewer",
+};
+
+/** One line on what each role actually does, shown beside the role pickers
+ *  on both sign-in pages. Lives here rather than on either page so the two
+ *  doors cannot describe the same role differently. */
+export const ROLE_DESCRIPTIONS: Record<Role, string> = {
+  FIELD_ASSOCIATE: "Capture and prepare incoming safety information.",
+  PV_COORDINATOR: "Process, code and validate cases; run line-list and PSUR workflows.",
+  PV_MANAGER:
+    "Full access — cases, processing workflows, signal decisions and complete audit oversight.",
+  REVIEW_OFFICER:
+    "Screen incoming periodic reports, decide whether they go forward for scientific review or back to the MAH, and issue the directive.",
+  EVALUATOR: "Perform the scientific review of a periodic report against the NAFDAC template.",
+  PEER_REVIEWER: "Check a completed scientific review and countersign the final sign-off.",
 };
 
 export type Permission =
@@ -50,7 +81,22 @@ export type Permission =
   | "intake.manage"
   | "linelist.process"
   | "e2b.generate"
+  // Four permissions govern the PSUR surface because three different people
+  // now share it and each must be able to do strictly less than the whole.
+  // The split is view-vs-edit rather than one permission per role, which is
+  // what lets PermissionGate and the sidebar keep taking a single
+  // Permission: everyone who may open the page holds `psur.review`, and
+  // what they may CHANGE once there is governed separately.
+  /** Open the PSUR review surface at all. */
   | "psur.review"
+  /** Screen an incoming report: the proceed/return decision, and the
+   *  directive downloads that go out to the MAH. Review Officer only. */
+  | "psur.screen"
+  /** Perform the scientific review — findings, Sections 9-12, and the
+   *  evaluator half of the Section 13 sign-off. */
+  | "psur.evaluate"
+  /** Countersign Section 13 as peer reviewer. */
+  | "psur.peer_review"
   | "signal.view"
   | "signal.decide"
   | "audit.view.all"
@@ -86,6 +132,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "linelist.process",
     "e2b.generate",
     "psur.review",
+    "psur.evaluate",
     "signal.view",
     "audit.view.all",
     "team.view",
@@ -108,6 +155,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "linelist.process",
     "e2b.generate",
     "psur.review",
+    "psur.evaluate",
     "signal.view",
     "signal.decide",
     "audit.view.all",
@@ -116,27 +164,25 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "catalog.manage",
     "regulatory.manage",
   ],
-  ADMIN: [
-    "case.create",
-    "case.edit",
-    "case.view",
-    "follow_up.view",
-    "follow_up.create",
-    "case.assign",
-    "seriousness.review",
-    "coding.review",
-    "coding.approve",
-    "intake.manage",
-    "linelist.process",
-    "e2b.generate",
+  // The three NAFDAC assessor roles below hold ONLY what their own step of
+  // the assessment needs. They are narrow on purpose: the whole point of
+  // splitting the old ADMIN role was that one person should not be able to
+  // screen a report, review it, and countersign their own review.
+  REVIEW_OFFICER: [
+    // Holds `psur.review` as well as `psur.screen` so the officer can open
+    // the review surface and read what the evaluator found — but without
+    // `psur.evaluate` every panel there is read-only to them.
     "psur.review",
-    "signal.view",
-    "signal.decide",
-    "audit.view.all",
-    "team.view",
-    "catalog.view",
-    "catalog.manage",
-    "regulatory.manage",
+    "psur.screen",
+  ],
+  EVALUATOR: ["psur.review", "psur.evaluate"],
+  PEER_REVIEWER: [
+    // Reads the whole review and signs the peer half of Section 13.
+    // Deliberately WITHOUT `psur.evaluate`: a peer reviewer checks the
+    // evaluator's work, so being able to quietly edit it first would
+    // defeat the check.
+    "psur.review",
+    "psur.peer_review",
   ],
 };
 
@@ -157,9 +203,50 @@ export interface CurrentUser {
   organizationInviteCode?: string | undefined;
 }
 
+/**
+ * Roles a person may sign themselves up as, given a valid invite code.
+ *
+ * The three assessor roles are here so NAFDAC's officers, evaluators and
+ * peer reviewers can register themselves instead of being provisioned by
+ * hand. They are still gated on the organisation's private invite code,
+ * exactly as the staff roles are — signing up as a Peer Reviewer grants the
+ * authority to countersign a regulatory assessment, so it must not be open
+ * to anyone who merely finds the page. CREATE_ORG is deliberately NOT a
+ * route to any of them: it always mints a PV_MANAGER.
+ */
+export type JoinableRole =
+  "PV_COORDINATOR" | "FIELD_ASSOCIATE" | "REVIEW_OFFICER" | "EVALUATOR" | "PEER_REVIEWER";
+
+/** Runtime mirror of JoinableRole, for the sign-up pages and for the tests
+ *  that pin which roles are self-service. Must match JOINABLE_ROLES in
+ *  src/server/roles.py — the server holds the enforcing copy. */
+export const JOINABLE_ROLES: JoinableRole[] = [
+  "PV_COORDINATOR",
+  "FIELD_ASSOCIATE",
+  "REVIEW_OFFICER",
+  "EVALUATOR",
+  "PEER_REVIEWER",
+];
+
 export type SignUpOptions =
   | { mode: "CREATE_ORG"; orgName: string }
-  | { mode: "JOIN_ORG"; orgCode: string; role: "PV_COORDINATOR" | "FIELD_ASSOCIATE" };
+  | { mode: "JOIN_ORG"; orgCode: string; role: JoinableRole };
+
+/** The editable parts of a person's profile. */
+export interface ProfileDetails {
+  name: string;
+  email: string;
+  phone: string;
+  jobTitle: string;
+}
+
+export interface ProfileUpdateResult {
+  /** True when the email was changed AND Supabase is sending a
+   *  confirmation link. Until the person clicks it, their sign-in address
+   *  is still the old one — the UI has to say so rather than implying the
+   *  change already took effect. */
+  emailConfirmationRequired: boolean;
+}
 
 interface AuthState {
   user: CurrentUser | null;
@@ -174,11 +261,32 @@ interface AuthState {
   /** Re-checks the current user's password against the real backend
    *  (Supabase Auth's own sign-in) without ending the current session —
    *  used to gate sensitive actions (revealing the invite code, changing
-   *  the password itself). In mock mode (no FastAPI configured, so there
-   *  is no real backing account to check against) any non-empty password
-   *  is accepted, matching how mock sign-in already behaves. */
+   *  the password itself, and every assessment decision that carries a
+   *  person's name). In mock mode (no FastAPI configured, so there is no
+   *  real backing account to check against) any non-empty password is
+   *  accepted, matching how mock sign-in already behaves.
+   *
+   *  Callers that need the caller to be genuinely re-authenticated — as
+   *  opposed to merely prompted — must ALSO check `isApiConfigured()`, or
+   *  use requirePasswordConfirmation below, which does it for them. */
   verifyPassword: (password: string) => Promise<boolean>;
+  /**
+   * Re-authenticates for a named action, and THROWS rather than returning
+   * false so no caller can accidentally treat a refusal as a pass.
+   *
+   * This is the gate behind the screening decision and both halves of the
+   * Section 13 sign-off: actions that attach a person's name to a
+   * regulatory record and cannot be undone. `action` is only used in the
+   * error message, so a failure says which thing was refused.
+   */
+  requirePasswordConfirmation: (password: string, action: string) => Promise<void>;
   updateName: (name: string) => Promise<void>;
+  /** Name, email and personal details in one save. Email goes through
+   *  Supabase Auth as well as the profile row — it is a login credential,
+   *  not just a display field. */
+  updateProfile: (details: ProfileDetails) => Promise<ProfileUpdateResult>;
+  /** Reads the profile columns that are not carried on the session. */
+  loadProfileDetails: () => Promise<ProfileDetails>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   /** Redirects to Google's OAuth consent screen via Supabase Auth. Requires
    *  the Google provider to be configured in the Supabase project — until
@@ -205,7 +313,9 @@ function deriveName(email: string) {
 
 function mapRoleFromApi(apiRole: string): Role {
   const roleMap: Record<string, Role> = {
-    ADMIN: "ADMIN",
+    REVIEW_OFFICER: "REVIEW_OFFICER",
+    EVALUATOR: "EVALUATOR",
+    PEER_REVIEWER: "PEER_REVIEWER",
     PV_MANAGER: "PV_MANAGER",
     MANAGER: "PV_MANAGER",
     PV_COORDINATOR: "PV_COORDINATOR",
@@ -503,16 +613,119 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  const requirePasswordConfirmation = useCallback(
+    async (password: string, action: string) => {
+      if (!user) throw new Error("Not signed in");
+      if (!password) throw new Error("Enter your password to confirm.");
+      const ok = await verifyPassword(password);
+      if (!ok) throw new Error(`That password is not correct, so ${action} was not recorded.`);
+    },
+    [user, verifyPassword],
+  );
+
   const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
       if (!user) throw new Error("Not signed in");
-      if (!isApiConfigured()) return; // mock mode: nothing real to change
+      // This used to `return` here, so in mock mode the caller's
+      // `toast.success("Password updated.")` fired having changed nothing.
+      // Telling someone their password changed when it did not is worse
+      // than refusing: they will believe the old one no longer works.
+      // Mock mode has no backing account, so the honest answer is that the
+      // operation is unavailable.
+      if (!isApiConfigured()) {
+        throw new Error(
+          "Passwords cannot be changed in demo mode — no backend is connected to change them on.",
+        );
+      }
       const ok = await verifyPassword(currentPassword);
       if (!ok) throw new Error("Current password is incorrect");
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw new Error(error.message);
     },
     [user, verifyPassword],
+  );
+
+  const loadProfileDetails = useCallback(async (): Promise<ProfileDetails> => {
+    if (!user) throw new Error("Not signed in");
+    const fallback: ProfileDetails = {
+      name: user.name,
+      email: user.email,
+      phone: "",
+      jobTitle: "",
+    };
+    if (!isApiConfigured()) return fallback;
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("full_name, email, phone, job_title")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return fallback;
+    return {
+      name: (data.full_name as string | null) ?? user.name,
+      email: (data.email as string | null) ?? user.email,
+      phone: (data.phone as string | null) ?? "",
+      jobTitle: (data.job_title as string | null) ?? "",
+    };
+  }, [user]);
+
+  const updateProfile = useCallback(
+    async (details: ProfileDetails): Promise<ProfileUpdateResult> => {
+      if (!user) throw new Error("Not signed in");
+      const name = details.name.trim();
+      const email = details.email.trim();
+      const phone = details.phone.trim();
+      const jobTitle = details.jobTitle.trim();
+
+      if (!name) throw new Error("Name cannot be empty");
+      if (!email) throw new Error("Email cannot be empty");
+
+      const emailChanged = email.toLowerCase() !== user.email.toLowerCase();
+      let emailConfirmationRequired = false;
+
+      if (isApiConfigured()) {
+        // Email is a sign-in credential, so it changes in Supabase Auth,
+        // not just in the profile row. Supabase emails a confirmation link
+        // and does NOT switch the login address until it is clicked, so
+        // this is done FIRST: if it fails, nothing else has been written
+        // and the profile does not end up claiming an address the person
+        // cannot actually sign in with.
+        if (emailChanged) {
+          const { error } = await supabase.auth.updateUser({ email });
+          if (error) throw new Error(error.message);
+          emailConfirmationRequired = true;
+        }
+
+        const { error } = await supabase
+          .from("profiles")
+          .update({
+            full_name: name,
+            phone: phone || null,
+            job_title: jobTitle || null,
+            // Deliberately NOT writing `email` here when it changed: the
+            // profile row must keep matching the address that actually
+            // signs in until the new one is confirmed.
+            ...(emailChanged ? {} : { email }),
+          })
+          .eq("id", user.id);
+        if (error) throw new Error(error.message);
+      }
+
+      const initials =
+        name
+          .split(" ")
+          .map((p) => p[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase() || "PV";
+      // The session keeps the OLD email while a change is pending, for the
+      // same reason the profile row does.
+      const next: CurrentUser = { ...user, name, initials };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      setUser(next);
+      return { emailConfirmationRequired };
+    },
+    [user],
   );
 
   const signInWithGoogle = useCallback(async () => {
@@ -539,7 +752,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       can,
       verifyPassword,
+      requirePasswordConfirmation,
       updateName,
+      updateProfile,
+      loadProfileDetails,
       changePassword,
       signInWithGoogle,
       sendPasswordResetEmail,
@@ -552,7 +768,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       can,
       verifyPassword,
+      requirePasswordConfirmation,
       updateName,
+      updateProfile,
+      loadProfileDetails,
       changePassword,
       signInWithGoogle,
       sendPasswordResetEmail,

@@ -1,7 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { usePermission } from "@/lib/auth";
+import { ConfirmWithPassword } from "@/components/pv/confirm-with-password";
+import { deriveWorkflowStage } from "@/services/psur/workflow";
 import { PermissionGate } from "@/components/pv/permission-gate";
+import { PsurScreeningDecision } from "@/components/pv/psur-screening-decision";
 import { useState } from "react";
-import { ArrowRight, Download, FileText, Upload, Wrench } from "lucide-react";
+import { ArrowRight, Download, FileText, Stamp, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { psur as psurApi } from "@/services/api/psur";
 import { AUTO_FIX_ENABLED } from "@/services/api/feature-flags";
@@ -203,6 +207,14 @@ function assessmentTone(status: PsurFinding["humanAssessment"]): Tone {
 }
 
 function PsurPage() {
+  // Three different people open this page and may do three different
+  // things on it. `psur.review` got them through the door (see the
+  // PermissionGate on the route); these decide what they can touch.
+  const canEvaluate = usePermission("psur.evaluate");
+  // The Compliance Directive is outbound correspondence to the MAH, and
+  // sending it is the Review Officer's job — not the evaluator's. This is
+  // the gate that takes it off the evaluator's page.
+  const canScreen = usePermission("psur.screen");
   const docs = usePvQuery(
     ["psur", "documents"],
     () => psurApi.documents(),
@@ -266,6 +278,9 @@ function PsurPage() {
           </ol>
         </Section>
 
+        {/* Uploading is how a report ENTERS the process, which makes it the
+            officer's action. Evaluators and peer reviewers work on reports
+            that already reached their queue. */}
         <Section
           title="Upload a periodic report"
           description="PDF narrative report, or an XLSX/CSV cumulative summary tabulation. AI review runs automatically on upload."
@@ -398,7 +413,7 @@ function PsurPage() {
               actions={
                 <div className="flex flex-wrap items-center gap-2">
                   {findings.data ? <SourceTag source={findings.data.source} /> : null}
-                  {AUTO_FIX_ENABLED ? (
+                  {AUTO_FIX_ENABLED && canEvaluate ? (
                     <QueryBoundary query={findings}>
                       {(items) => {
                         const acceptedCount = items.filter(
@@ -498,7 +513,11 @@ function PsurPage() {
                       </Button>
                     </>
                   ) : null}
-                  {activeDoc.stage === "REVIEWED" ? (
+                  {/* Officer-only: the directive is what goes out to the MAH.
+                      Evaluators and peer reviewers do not send correspondence,
+                      so they do not get the button. The officer downloads it
+                      from here or from the screening queue — same document. */}
+                  {activeDoc.stage === "REVIEWED" && canScreen ? (
                     <>
                       <Button
                         size="sm"
@@ -663,7 +682,14 @@ function PsurPage() {
                               {f.actionOwnerOverride.at.slice(0, 16).replace("T", " ")} UTC)
                             </p>
                           ) : null}
-                          <div className="mt-3 flex flex-wrap gap-2">
+                          {/* Accepting, dismissing and reassigning a finding
+                              are the scientific review itself, and reassigning
+                              in particular decides what appears in the
+                              MAH-facing directive. Evaluator-only: a peer
+                              reviewer checks these decisions rather than
+                              making them, and the officer has not reached
+                              this stage of the assessment. */}
+                          <div className="mt-3 flex flex-wrap gap-2" hidden={!canEvaluate}>
                             <Button
                               size="sm"
                               variant={f.humanAssessment === "ACCEPTED" ? "default" : "outline"}
@@ -892,8 +918,6 @@ function AdministrativeScreeningPanel({
   findings: PsurFinding[];
   onChanged: () => void;
 }) {
-  const [rationale, setRationale] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const screening = doc.screening;
 
   if (!screening) return null;
@@ -911,7 +935,6 @@ function AdministrativeScreeningPanel({
     findingsBySection.set(f.v4Section, list);
   }
 
-  const override = screening.humanOverride;
   const effectiveRecommendation = deriveScreeningRecommendation(
     screening.administrativeChecks,
     screening.recommendation,
@@ -921,27 +944,10 @@ function AdministrativeScreeningPanel({
     screening.recommendation,
   );
 
-  async function decide(decision: "PROCEED_TO_SCIENTIFIC_REVIEW" | "RETURN_TO_MAH_FIRST") {
-    setSubmitting(true);
-    try {
-      await psurApi.recordScreeningOverride(
-        doc.id,
-        decision,
-        rationale || "Assessor decision recorded.",
-      );
-      toast.success("Screening decision recorded.");
-      onChanged();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not record the decision.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   return (
     <Section
       title="Administrative Completeness Check"
-      description="Runs before detailed scientific review, per the V4 template. This is a recommendation for the assessor — it never automatically accepts or rejects a submission."
+      description="Runs before detailed scientific review, per the V4 template. This is a recommendation for the Review Officer — it never automatically accepts or rejects a submission. Evaluators and peer reviewers see it as read-only context; the decision itself belongs to the officer."
     >
       <div className="space-y-3">
         <ul className="space-y-1.5">
@@ -1045,41 +1051,7 @@ function AdministrativeScreeningPanel({
           </p>
         ) : null}
 
-        {override ? (
-          <p className="rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs">
-            <span className="font-medium">
-              Assessor decision: {override.decision.replaceAll("_", " ").toLowerCase()}
-            </span>
-            {" — "}
-            {override.rationale} ({override.by}, {override.at.slice(0, 16).replace("T", " ")} UTC)
-          </p>
-        ) : (
-          <div className="space-y-2 rounded-md border border-border p-3">
-            <Textarea
-              placeholder="Rationale for your screening decision (required for an informed record)"
-              value={rationale}
-              onChange={(e) => setRationale(e.target.value)}
-              rows={2}
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                disabled={submitting}
-                onClick={() => decide("PROCEED_TO_SCIENTIFIC_REVIEW")}
-              >
-                Proceed to scientific review
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={submitting}
-                onClick={() => decide("RETURN_TO_MAH_FIRST")}
-              >
-                Return to MAH first
-              </Button>
-            </div>
-          </div>
-        )}
+        <PsurScreeningDecision doc={doc} onChanged={onChanged} />
       </div>
     </Section>
   );
@@ -1103,6 +1075,8 @@ function newSpecialPopulationItems(): PsurSpecialPopulationItem[] {
  *  Administrative Completeness is DERIVED from these 8 items, so editing
  *  here is what actually moves that status. */
 function SpecialPopulationsPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+  // Sections 9-12 are the evaluator's work; see SignOffPanel.
+  const canEvaluate = usePermission("psur.evaluate");
   const [items, setItems] = useState<PsurSpecialPopulationItem[]>(
     doc.specialPopulations && doc.specialPopulations.length > 0
       ? doc.specialPopulations
@@ -1128,9 +1102,11 @@ function SpecialPopulationsPanel({ doc, onChanged }: { doc: PsurDocument; onChan
       title="9. Special Populations, Special Situations & Missing Information"
       description="Every area must be either adequately addressed, present but incomplete, missing, or explicitly marked not applicable with a justification — never left ambiguous."
       actions={
-        <Button size="sm" disabled={saving} onClick={save}>
-          {saving ? "Saving…" : "Save special populations"}
-        </Button>
+        canEvaluate ? (
+          <Button size="sm" disabled={saving} onClick={save}>
+            {saving ? "Saving…" : "Save special populations"}
+          </Button>
+        ) : null
       }
     >
       <div className="space-y-2">
@@ -1208,6 +1184,8 @@ function SpecialPopulationsPanel({ doc, onChanged }: { doc: PsurDocument; onChan
  *  simply absent/NOT_ASSESSABLE) and lets the assessor edit every field
  *  directly; saving marks the record as assessor-owned. */
 function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+  // Sections 9-12 are the evaluator's work; see SignOffPanel.
+  const canEvaluate = usePermission("psur.evaluate");
   const empty: PsurBenefitRiskAssessment = {
     keyBenefits: [],
     keyRisks: [],
@@ -1238,9 +1216,11 @@ function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: ()
       title="10. Benefit-Risk Assessment"
       description="Key benefits and risks, the integrated effects table, patient/HCP perspective, and risk-minimisation effectiveness. Edit anything the AI extraction got wrong or missed."
       actions={
-        <Button size="sm" disabled={saving} onClick={save}>
-          {saving ? "Saving…" : "Save benefit-risk assessment"}
-        </Button>
+        canEvaluate ? (
+          <Button size="sm" disabled={saving} onClick={save}>
+            {saving ? "Saving…" : "Save benefit-risk assessment"}
+          </Button>
+        ) : null
       }
     >
       <div className="space-y-4">
@@ -1716,6 +1696,8 @@ function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: ()
 
 /** Section 11 — Uncertainties Affecting the Benefit-Risk Assessment. */
 function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+  // Sections 9-12 are the evaluator's work; see SignOffPanel.
+  const canEvaluate = usePermission("psur.evaluate");
   const [items, setItems] = useState<PsurUncertainty[]>(doc.uncertainties ?? []);
   const [evaluatorComments, setEvaluatorComments] = useState(doc.evaluatorComments ?? "");
   const [saving, setSaving] = useState(false);
@@ -1743,9 +1725,11 @@ function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: 
       title="11. Uncertainties Affecting the Benefit-Risk Assessment"
       description="This section must not be left blank — if genuinely none apply this interval, say so explicitly rather than leaving it empty."
       actions={
-        <Button size="sm" disabled={saving} onClick={() => save(false)}>
-          {saving ? "Saving…" : "Save uncertainties"}
-        </Button>
+        canEvaluate ? (
+          <Button size="sm" disabled={saving} onClick={() => save(false)}>
+            {saving ? "Saving…" : "Save uncertainties"}
+          </Button>
+        ) : null
       }
     >
       <div className="space-y-2">
@@ -1902,6 +1886,8 @@ function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: 
  *  non-binding starting point; the assessor's own decision is a
  *  structurally separate field the assessor must set explicitly. */
 function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+  // Sections 9-12 are the evaluator's work; see SignOffPanel.
+  const canEvaluate = usePermission("psur.evaluate");
   const [actions, setActions] = useState<PsurRiskMinimisationAction[]>(
     doc.regulatoryDecision?.actions ?? [],
   );
@@ -1945,9 +1931,11 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
       title="12. Regulatory Decision & Recommended Actions"
       description="The assessor's own decision — the AI never makes a binding regulatory recommendation on its own."
       actions={
-        <Button size="sm" disabled={saving} onClick={save}>
-          {saving ? "Saving…" : "Save regulatory decision"}
-        </Button>
+        canEvaluate ? (
+          <Button size="sm" disabled={saving} onClick={save}>
+            {saving ? "Saving…" : "Save regulatory decision"}
+          </Button>
+        ) : null
       }
     >
       <div className="space-y-4">
@@ -2064,17 +2052,57 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
 
 /** Section 13 — Conclusion, Sign-off & Document Control. Pure assessor
  *  input; never AI-generated. */
+/**
+ * Section 13 carries TWO signatures for two different people, and this is
+ * where the report changes hands.
+ *
+ * The evaluator writes the conclusion and signs the evaluator half; the
+ * peer reviewer reads that and countersigns. Each half is editable only by
+ * the person whose half it is — a peer reviewer who could edit the
+ * evaluator's conclusion before countersigning it would not be checking
+ * anything, and an evaluator who could fill in the peer signature would be
+ * approving their own work. That is the exact thing splitting the old
+ * single ADMIN role was meant to prevent, so it is enforced per-field
+ * rather than by hiding the panel from either of them: both need to READ
+ * the whole of it.
+ */
 function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
   const [signOff, setSignOff] = useState<PsurSignOff>(
     doc.signOff ?? { conclusion: "", reviewerConfidence: undefined, references: "" },
   );
   const [saving, setSaving] = useState(false);
+  const canEvaluate = usePermission("psur.evaluate");
+  const canPeerReview = usePermission("psur.peer_review");
 
-  async function save() {
+  // Which signature is being confirmed, if any. Signing is a two-step
+  // action — press, then confirm with a password — because it attaches a
+  // named person to a regulatory conclusion another organisation acts on.
+  const [confirming, setConfirming] = useState<"EVALUATOR" | "PEER" | null>(null);
+
+  const stage = deriveWorkflowStage(doc);
+  const alreadySigned = !!doc.signOff?.evaluatorSignedAt;
+  const alreadyCountersigned = !!doc.signOff?.peerReviewedAt;
+
+  // "Cannot submit without signing off": the signature IS the submission,
+  // so an empty name blocks it rather than silently saving a draft that
+  // looks submitted.
+  const evaluatorNameMissing = !signOff.evaluatorName?.trim();
+  const peerNameMissing = !signOff.peerReviewerName?.trim();
+
+  /** Saves the write-up without signing it. Lets an evaluator work over
+   *  several sittings without a password prompt each time.
+   *
+   *  The name is deliberately blanked before saving. updateSignOff stamps
+   *  evaluatorSignedAt the moment a name is present, so persisting a
+   *  half-typed name here would silently sign the assessment and push it to
+   *  the peer reviewers — a draft must never become a signature by
+   *  accident. The name stays in the form; it is only committed by the
+   *  password-confirmed sign-off below. */
+  async function saveDraft() {
     setSaving(true);
     try {
-      await psurApi.updateSignOff(doc.id, signOff);
-      toast.success("Sign-off recorded.");
+      await psurApi.updateSignOff(doc.id, { ...signOff, evaluatorName: "" });
+      toast.success("Draft saved — not signed off. Your signature is recorded when you sign off.");
       onChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save.");
@@ -2083,14 +2111,26 @@ function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => 
     }
   }
 
+  /** Commits the signature itself, after the password has been checked. */
+  async function commitSignature() {
+    await psurApi.updateSignOff(doc.id, signOff);
+    toast.success(
+      confirming === "EVALUATOR" ? "Signed off and sent for peer review." : "Peer review complete.",
+    );
+    setConfirming(null);
+    onChanged();
+  }
+
   return (
     <Section
       title="13. Conclusion, Sign-off & Document Control"
-      description="Pure assessor input — never generated by the AI."
+      description="Pure assessor input — never generated by the AI. The evaluator writes and signs the conclusion; the peer reviewer countersigns it. Both signatures need the signer's password."
       actions={
-        <Button size="sm" disabled={saving} onClick={save}>
-          {saving ? "Saving…" : "Save sign-off"}
-        </Button>
+        canEvaluate && !alreadySigned ? (
+          <Button size="sm" variant="outline" disabled={saving} onClick={saveDraft}>
+            {saving ? "Saving…" : "Save draft"}
+          </Button>
+        ) : null
       }
     >
       <div className="space-y-3">
@@ -2098,11 +2138,13 @@ function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => 
           placeholder="Overall conclusion, referencing the outcome selected in Section 12 and the key drivers from Section 10"
           value={signOff.conclusion}
           rows={3}
+          disabled={!canEvaluate}
           onChange={(e) => setSignOff((s) => ({ ...s, conclusion: e.target.value }))}
         />
         <div>
           <p className="label-caps mb-2">Reviewer confidence in this conclusion</p>
           <Select
+            disabled={!canEvaluate}
             value={signOff.reviewerConfidence ?? ""}
             onValueChange={(v) =>
               setSignOff((s) => ({
@@ -2129,6 +2171,7 @@ function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => 
           placeholder="References"
           value={signOff.references}
           rows={2}
+          disabled={!canEvaluate}
           onChange={(e) => setSignOff((s) => ({ ...s, references: e.target.value }))}
         />
         <div className="grid gap-3 sm:grid-cols-2">
@@ -2136,6 +2179,7 @@ function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => 
             <p className="label-caps mb-1">Evaluator's name and signature</p>
             <Input
               value={signOff.evaluatorName ?? ""}
+              disabled={!canEvaluate}
               onChange={(e) => setSignOff((s) => ({ ...s, evaluatorName: e.target.value }))}
             />
             {signOff.evaluatorSignedAt ? (
@@ -2148,6 +2192,7 @@ function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => 
             <p className="label-caps mb-1">Peer reviewed by (name and signature)</p>
             <Input
               value={signOff.peerReviewerName ?? ""}
+              disabled={!canPeerReview}
               onChange={(e) => setSignOff((s) => ({ ...s, peerReviewerName: e.target.value }))}
             />
             {signOff.peerReviewedAt ? (
@@ -2157,6 +2202,77 @@ function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => 
             ) : null}
           </div>
         </div>
+
+        {/* The signature step. Rendered last because it is the end of the
+            form, and only for the person whose signature is due next —
+            showing an evaluator a peer-review button they cannot use would
+            imply the report is further along than it is. */}
+        {confirming === "EVALUATOR" ? (
+          <ConfirmWithPassword
+            title="Sign off and submit for peer review?"
+            warning="Your name is recorded against this assessment and the report is handed to the peer reviewers. You will no longer be able to edit the review."
+            confirmLabel="Sign off and submit"
+            actionName="your sign-off"
+            blockedReason={
+              evaluatorNameMissing
+                ? "Enter your name in the evaluator signature field above — a report cannot be submitted without being signed off."
+                : undefined
+            }
+            onConfirmed={commitSignature}
+            onCancel={() => setConfirming(null)}
+          >
+            <div className="rounded-md border border-border bg-background px-2 py-1.5">
+              <p className="label-caps">Signing as</p>
+              <p className="mt-0.5 text-xs">{signOff.evaluatorName?.trim() || "—"}</p>
+            </div>
+          </ConfirmWithPassword>
+        ) : confirming === "PEER" ? (
+          <ConfirmWithPassword
+            title="Countersign this assessment?"
+            warning="Your name is recorded as the peer reviewer and the assessment is complete. This is the final step and cannot be undone."
+            confirmLabel="Countersign and complete"
+            actionName="your peer review"
+            blockedReason={
+              peerNameMissing
+                ? "Enter your name in the peer reviewer signature field above — the assessment cannot be completed without being signed off."
+                : undefined
+            }
+            onConfirmed={commitSignature}
+            onCancel={() => setConfirming(null)}
+          >
+            <div className="rounded-md border border-border bg-background px-2 py-1.5">
+              <p className="label-caps">Countersigning as</p>
+              <p className="mt-0.5 text-xs">{signOff.peerReviewerName?.trim() || "—"}</p>
+            </div>
+          </ConfirmWithPassword>
+        ) : (
+          <>
+            {canEvaluate && !alreadySigned ? (
+              <Button size="sm" onClick={() => setConfirming("EVALUATOR")}>
+                <Stamp className="size-4" /> Sign off and submit for peer review
+              </Button>
+            ) : null}
+            {canPeerReview && !alreadyCountersigned ? (
+              <div className="space-y-2">
+                {stage === "AWAITING_EVALUATION" ? (
+                  <p className="rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground">
+                    The evaluator has not signed off yet. You can read the review, but there is
+                    nothing to countersign until they submit it.
+                  </p>
+                ) : (
+                  <Button size="sm" onClick={() => setConfirming("PEER")}>
+                    <Stamp className="size-4" /> Countersign and complete
+                  </Button>
+                )}
+              </div>
+            ) : null}
+            {alreadyCountersigned ? (
+              <p className="rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground">
+                This assessment is signed off by both the evaluator and the peer reviewer.
+              </p>
+            ) : null}
+          </>
+        )}
       </div>
     </Section>
   );
