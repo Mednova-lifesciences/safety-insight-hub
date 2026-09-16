@@ -84,7 +84,19 @@ _RETRYABLE_ERRORS = (APITimeoutError, APIConnectionError, RateLimitError, Intern
 # rather than hardcode a per-model list, a model is added here the first
 # time it actually rejects one, and every call for that model skips sending
 # temperature at all from then on for the life of this process.
-_MODELS_WITHOUT_CUSTOM_TEMPERATURE: set[str] = set()
+# Models that reject an explicit temperature — the reasoning family does.
+#
+# Learned at runtime from the 400 they answer with, but seeded from an env
+# var as well. Without the seed the very first call after every cold start
+# is spent discovering the same fact again: on a free instance that spins
+# down between uses, that is a wasted round trip on most requests.
+#
+# Comma-separated, e.g. OPENAI_NO_TEMPERATURE_MODELS=gpt-5.6-luna
+_MODELS_WITHOUT_CUSTOM_TEMPERATURE: set[str] = {
+    name.strip()
+    for name in os.getenv("OPENAI_NO_TEMPERATURE_MODELS", "").split(",")
+    if name.strip()
+}
 
 
 def _is_unsupported_temperature_error(exc: APIError) -> bool:
