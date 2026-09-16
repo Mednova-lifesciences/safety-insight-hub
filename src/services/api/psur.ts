@@ -269,7 +269,7 @@ function mapAiFinding(f: AiPsurFindingOut): PsurFinding {
  *    "matches the NAFDAC certificate" is exactly the failure mode that
  *    matters here.
  */
-function mapAiAdministrativeScreening(
+export function mapAiAdministrativeScreening(
   ai: AiPsurScreeningResponse,
   dateReceived: string,
 ): PsurAdministrativeScreening {

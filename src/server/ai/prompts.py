@@ -1216,9 +1216,14 @@ for example, for item 2, which QPPV details are stated and where; for item 7, th
 report covers and whether it declares itself a first submission. That is genuinely useful to the \
 officer doing the manual comparison. Do not state or imply a verdict on the match itself.
 
-The single exception: if the document itself makes the answer plain — for instance item 7 where the \
-report explicitly states it is the first PSUR for the product — you may answer YES and quote that \
-statement in "deficiency".
+There is ONE narrow exception, and only one: item 7, where the report explicitly states that this \
+is the FIRST PSUR for the product. A first submission has no previous interval to abut, so the \
+document really does settle it — answer YES and quote the statement.
+
+Nothing else qualifies. A report describing itself as the second, third or Nth PSUR does NOT \
+settle item 7: knowing that earlier reports exist says nothing about whether this interval \
+abuts the last one without a gap or an overlap, which needs the previous report's interval \
+to judge. Answer NOT_ASSESSABLE and state which interval this report covers.
 
 ITEM 8 — DO NOT ANSWER
 
