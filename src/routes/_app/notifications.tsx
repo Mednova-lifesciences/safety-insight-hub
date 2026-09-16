@@ -20,9 +20,16 @@ export const Route = createFileRoute("/_app/notifications")({
   head: () => ({
     meta: [
       { title: "Notifications — MedNova PV Assist" },
-      { name: "description", content: "Case assignments, seriousness flags, overdue follow-ups, coding and review requests." },
+      {
+        name: "description",
+        content:
+          "Case assignments, seriousness flags, overdue follow-ups, coding and review requests.",
+      },
       { property: "og:title", content: "Notifications — MedNova PV Assist" },
-      { property: "og:description", content: "Operational notification centre for pharmacovigilance teams." },
+      {
+        property: "og:description",
+        content: "Operational notification centre for pharmacovigilance teams.",
+      },
     ],
   }),
   component: NotificationsPage,
@@ -42,7 +49,11 @@ const tone: Record<Notification["type"], Tone> = {
 
 function NotificationsPage() {
   const queryClient = useQueryClient();
-  const query = usePvQuery(["notifications"], () => notificationsApi.list(), () => demoNotifications);
+  const query = usePvQuery(
+    ["notifications"],
+    () => notificationsApi.list(),
+    () => demoNotifications,
+  );
   return (
     <>
       <PageHeader
@@ -60,11 +71,19 @@ function NotificationsPage() {
                 <ul className="divide-y divide-border">
                   {items.map((n) => (
                     <li key={n.id} className="flex flex-wrap items-start gap-3 py-3">
-                      <Bell className={n.read ? "mt-0.5 size-4 text-muted-foreground" : "mt-0.5 size-4 text-primary"} />
+                      <Bell
+                        className={
+                          n.read
+                            ? "mt-0.5 size-4 text-muted-foreground"
+                            : "mt-0.5 size-4 text-primary"
+                        }
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-sm font-medium">{n.title}</p>
-                          <StatusPill tone={tone[n.type]}>{n.type.replaceAll("_", " ").toLowerCase()}</StatusPill>
+                          <StatusPill tone={tone[n.type]}>
+                            {n.type.replaceAll("_", " ").toLowerCase()}
+                          </StatusPill>
                           {!n.read ? <StatusPill tone="info">unread</StatusPill> : null}
                         </div>
                         <p className="mt-0.5 text-sm text-muted-foreground">{n.body}</p>

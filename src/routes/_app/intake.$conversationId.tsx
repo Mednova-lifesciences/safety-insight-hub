@@ -20,9 +20,16 @@ export const Route = createFileRoute("/_app/intake/$conversationId")({
   head: () => ({
     meta: [
       { title: "Conversation — MedNova PV Assist" },
-      { name: "description", content: "Inbound conversation with extracted information, missing fields and ICSR qualification." },
+      {
+        name: "description",
+        content:
+          "Inbound conversation with extracted information, missing fields and ICSR qualification.",
+      },
       { property: "og:title", content: "Conversation — MedNova PV Assist" },
-      { property: "og:description", content: "Qualify an inbound safety report and convert it into an ICSR." },
+      {
+        property: "og:description",
+        content: "Qualify an inbound safety report and convert it into an ICSR.",
+      },
     ],
   }),
   component: ConversationPage,
@@ -52,7 +59,9 @@ function ConversationPage() {
                     Consent {c.consent.toLowerCase()}
                   </StatusPill>
                   <StatusPill tone={complete ? "success" : "warning"}>
-                    {complete ? "Minimum ICSR information available" : "Minimum criteria incomplete"}
+                    {complete
+                      ? "Minimum ICSR information available"
+                      : "Minimum criteria incomplete"}
                   </StatusPill>
                   <SourceTag source={source} />
                 </>
@@ -99,8 +108,13 @@ function ConversationPage() {
                         ["Adverse event", c.criteria.event],
                       ] as [string, boolean][]
                     ).map(([label, ok]) => (
-                      <li key={label} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                        <StatusPill tone={ok ? "success" : "warning"}>{ok ? "Present" : "Missing"}</StatusPill>
+                      <li
+                        key={label}
+                        className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm"
+                      >
+                        <StatusPill tone={ok ? "success" : "warning"}>
+                          {ok ? "Present" : "Missing"}
+                        </StatusPill>
                         {label}
                       </li>
                     ))}
@@ -130,7 +144,11 @@ function ConversationPage() {
                       variant="outline"
                       onClick={async () => {
                         try {
-                          await intakeApi.requestInformation(c.id, c.missing, "Please provide the missing details.");
+                          await intakeApi.requestInformation(
+                            c.id,
+                            c.missing,
+                            "Please provide the missing details.",
+                          );
                           toast.success("Information request sent and recorded.");
                         } catch (err) {
                           toast.error(
@@ -146,7 +164,10 @@ function ConversationPage() {
                   </div>
                 </Section>
 
-                <Section title="Extracted information" description="Values located in the conversation. Confirm each before case creation.">
+                <Section
+                  title="Extracted information"
+                  description="Values located in the conversation. Confirm each before case creation."
+                >
                   <div className="grid gap-3 sm:grid-cols-2">
                     {c.extracted.map((e) => (
                       <Field key={e.field} label={e.field} value={e.value} />
@@ -160,7 +181,9 @@ function ConversationPage() {
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {c.missing.map((m) => (
-                        <StatusPill key={m} tone="warning">{m}</StatusPill>
+                        <StatusPill key={m} tone="warning">
+                          {m}
+                        </StatusPill>
                       ))}
                     </div>
                   )}

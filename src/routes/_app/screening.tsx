@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { FileText, Upload } from "lucide-react";
+import { CheckCircle2, FileText, Upload } from "lucide-react";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import {
   PsurScreeningChecklist,
@@ -27,7 +27,7 @@ import {
   isAwaitingScreening,
   isPeerReviewed,
 } from "@/services/psur/workflow";
-import type { PsurDocument } from "@/types/pv";
+import type { PsurDocument, PsurScreeningOutcomeDecision } from "@/types/pv";
 
 /**
  * The Review Officer's desk — NAFDAC's PSUR Administrative Screening
@@ -75,12 +75,25 @@ function ScreeningPage() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  /** What was just decided, if anything — cleared the moment the officer
+   *  picks up another report. */
+  const [justScreened, setJustScreened] = useState<{
+    filename: string;
+    decision: PsurScreeningOutcomeDecision;
+  } | null>(null);
 
   const all = docs.data?.data ?? [];
-  const awaiting = all.filter(isAwaitingScreening);
-  // Default to the first untriaged report, so the page opens on work rather
-  // than on an empty pane.
-  const active = all.find((d) => d.id === selectedId) ?? awaiting[0];
+
+  // Only ever the report the officer actually chose. There is deliberately
+  // no fall-back to the first in the queue: a sixteen-item form appearing
+  // by itself, already attached to some report nobody picked, is an easy
+  // way to screen the wrong submission.
+  const active = selectedId ? all.find((d) => d.id === selectedId) : undefined;
+
+  function open(id: string) {
+    setJustScreened(null);
+    setSelectedId(id);
+  }
 
   return (
     <>
@@ -96,6 +109,30 @@ function ScreeningPage() {
       />
 
       <div className="space-y-4 p-6">
+        {/* The screening is finished and the report has moved on, so the
+            form it was filled in on is gone with it. Leaving a completed
+            checklist on screen invites an officer to keep working on a
+            report that is no longer theirs. */}
+        {justScreened ? (
+          <div className="flex gap-3 rounded-md border border-success/40 bg-success-soft p-4">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+            <div className="space-y-1 text-sm">
+              <p className="font-medium">
+                {justScreened.decision === "ACCEPTED_FOR_ASSESSMENT"
+                  ? "Sent to the evaluators for scientific review."
+                  : "Returned to the MAH."}
+              </p>
+              <p className="text-muted-foreground">
+                {justScreened.filename} is off your desk.{" "}
+                {justScreened.decision === "ACCEPTED_FOR_ASSESSMENT"
+                  ? "An evaluator will pick it up from their queue."
+                  : "Download the directive from “Already screened” below to send it."}{" "}
+                Upload another report, or choose one from the queue, to screen it.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
         <Section
           title="Receive a report"
           description="Uploading records the submission as received and runs the screening checks. The date of receipt is taken from this moment."
@@ -119,7 +156,7 @@ function ScreeningPage() {
                 setUploading(true);
                 try {
                   const created = await psurApi.upload(file);
-                  setSelectedId(created.id);
+                  open(created.id);
                   toast.success("Received. The screening checklist is ready for your review.");
                   docs.refetch();
                 } catch (err) {
@@ -159,7 +196,7 @@ function ScreeningPage() {
                           key={doc.id}
                           doc={doc}
                           selected={doc.id === active?.id}
-                          onSelect={() => setSelectedId(doc.id)}
+                          onSelect={() => open(doc.id)}
                         />
                       ))}
                     </div>
@@ -175,6 +212,11 @@ function ScreeningPage() {
                       key={active.id}
                       doc={active}
                       onChanged={() => docs.refetch()}
+                      onScreened={(decision) => {
+                        setJustScreened({ filename: active.filename, decision });
+                        setSelectedId(null);
+                        docs.refetch();
+                      }}
                     />
                   </Section>
                 ) : null}
@@ -188,7 +230,7 @@ function ScreeningPage() {
                   ) : (
                     <div className="space-y-2">
                       {triaged.map((doc) => (
-                        <TriagedRow key={doc.id} doc={doc} onOpen={() => setSelectedId(doc.id)} />
+                        <TriagedRow key={doc.id} doc={doc} onOpen={() => open(doc.id)} />
                       ))}
                     </div>
                   )}

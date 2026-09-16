@@ -162,7 +162,7 @@ export const NAV: NavGroup[] = [
       },
       {
         to: "/psur",
-        label: "PSUR / PBRER review",
+        label: "PSUR / PBRER scientific review",
         icon: FileText,
         permission: "psur.review",
       },

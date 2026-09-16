@@ -1042,7 +1042,7 @@ function renderScreeningDirectiveText(m: ScreeningDirectiveModel): string {
     lines.push(`RESPOND BY:           ${m.mahResponseDeadline}`);
   }
   if (m.nextPsurDueDate) {
-    lines.push(`Next PSUR/PBRER due:  ${m.nextPsurDueDate}`);
+    lines.push(`PSUR/PBRER resubmission date: ${m.nextPsurDueDate}`);
   }
   lines.push("");
 
@@ -1162,7 +1162,9 @@ function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
             ? [docxLabelValue("Checklist items cited", m.citedItems.join(", "))]
             : []),
           ...(m.mahResponseDeadline ? [docxLabelValue("Respond by", m.mahResponseDeadline)] : []),
-          ...(m.nextPsurDueDate ? [docxLabelValue("Next PSUR/PBRER due", m.nextPsurDueDate)] : []),
+          ...(m.nextPsurDueDate
+            ? [docxLabelValue("PSUR/PBRER resubmission date", m.nextPsurDueDate)]
+            : []),
           new Paragraph({ text: "" }),
 
           ...(m.conclusions

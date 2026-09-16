@@ -83,7 +83,7 @@ PERMISSION_ROLES: Final = {
     # REVIEW_OFFICER is absent: the scientific review is not their step.
     "psur.review": {PV_COORDINATOR, PV_MANAGER, EVALUATOR, PEER_REVIEWER},
     "psur.screen": {REVIEW_OFFICER},
-    "psur.evaluate": {PV_COORDINATOR, PV_MANAGER, EVALUATOR},
+    "psur.evaluate": {PV_COORDINATOR, PV_MANAGER, EVALUATOR, PEER_REVIEWER},
     "psur.peer_review": {PEER_REVIEWER},
 }
 

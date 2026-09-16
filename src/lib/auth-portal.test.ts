@@ -86,10 +86,14 @@ describe("auth-portal — administrators come in by their own door", () => {
     expect(ROLE_PERMISSIONS.EVALUATOR).toContain("psur.evaluate");
     expect(ROLE_PERMISSIONS.EVALUATOR).not.toContain("psur.screen");
     expect(ROLE_PERMISSIONS.EVALUATOR).not.toContain("psur.peer_review");
+    // Only the peer reviewer countersigns, so an evaluator cannot sign off
+    // on their own review however much else they can edit.
 
     expect(ROLE_PERMISSIONS.PEER_REVIEWER).toContain("psur.peer_review");
     expect(ROLE_PERMISSIONS.PEER_REVIEWER).not.toContain("psur.screen");
-    expect(ROLE_PERMISSIONS.PEER_REVIEWER).not.toContain("psur.evaluate");
+    // The peer reviewer DOES hold psur.evaluate — they amend what they find
+    // before countersigning. What they cannot do is screen a submission.
+    expect(ROLE_PERMISSIONS.PEER_REVIEWER).toContain("psur.evaluate");
   });
 
   it("keeps the assessor roles out of MAH-side CASE work", () => {

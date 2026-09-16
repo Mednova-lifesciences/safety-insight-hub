@@ -110,3 +110,35 @@ export function countByStage(docs: PsurDocument[]): Record<PsurWorkflowStage, nu
   for (const doc of docs) counts[deriveWorkflowStage(doc)] += 1;
   return counts;
 }
+
+/**
+ * Which reports a person should be shown on the scientific-review page.
+ *
+ * The evaluator and the peer reviewer share one page but not one queue.
+ *
+ * A peer reviewer is sent work: a report reaches them only once an
+ * evaluator has finished it and signed Section 13. Showing them everything
+ * the evaluator can see would have them reading reviews still being
+ * written, and reviewing an unfinished review is not a check — it is a
+ * guess about what the evaluator was going to say.
+ *
+ * The evaluator sees everything that got past screening, including reports
+ * they have already sent on, because their own finished work is the thing
+ * a peer reviewer is about to ask them about.
+ *
+ * Neither ever sees a report still with the Review Officer, or one returned
+ * to the MAH: those never reached scientific review at all.
+ */
+export function visibleForScientificReview(
+  doc: PsurDocument,
+  opts: { canEvaluate: boolean; canPeerReview: boolean },
+): boolean {
+  const stage = deriveWorkflowStage(doc);
+  // Checked FIRST, deliberately. A peer reviewer also holds psur.evaluate
+  // so they can amend a review before countersigning it, which means the
+  // shared permission cannot tell the two queues apart — only the one they
+  // do not share can.
+  if (opts.canPeerReview) return stage === "AWAITING_PEER_REVIEW" || stage === "PEER_REVIEWED";
+  if (opts.canEvaluate) return isInScientificReview(doc);
+  return false;
+}

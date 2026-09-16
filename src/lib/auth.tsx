@@ -9,7 +9,7 @@ import {
 } from "react";
 import { auth as apiAuth, type AuthResponse } from "@/services/api/auth";
 import { getStoredToken, setStoredToken, isApiConfigured } from "@/services/api/client";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, verificationClient } from "@/integrations/supabase/client";
 
 /**
  * Session abstraction for MedNova PV Assist.
@@ -184,11 +184,16 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ],
   EVALUATOR: ["psur.review", "psur.evaluate", "linelist.process", "e2b.generate"],
   PEER_REVIEWER: [
-    // Reads the whole review and signs the peer half of Section 13.
-    // Deliberately WITHOUT `psur.evaluate`: a peer reviewer checks the
-    // evaluator's work, so being able to quietly edit it first would
-    // defeat the check.
+    // Holds `psur.evaluate` as well: a peer reviewer is expected to correct
+    // what they find before countersigning, not just accept or bounce it.
+    //
+    // This does weaken the separation — the same person can now change a
+    // review and sign it off. What stands in its place is the record: the
+    // evaluator's signature and timestamp are already stored when the
+    // report reaches them, every edit is audited, and they cannot reach a
+    // report at all until an evaluator has signed and sent it.
     "psur.review",
+    "psur.evaluate",
     "psur.peer_review",
     "linelist.process",
     "e2b.generate",
@@ -409,6 +414,66 @@ function buildCurrentUser(authResponse: AuthResponse): CurrentUser {
   };
 }
 
+/**
+ * Re-checks a password, and says WHY when it cannot.
+ *
+ * This used to be `return !error` on a sign-in call, which reported three
+ * very different situations as the same one: a genuinely wrong password, a
+ * rate limit, and a network failure all came back as "that password is not
+ * correct". The first is the person's mistake; the other two are ours, and
+ * telling someone their password is wrong when it is not sends them off to
+ * reset a password that was never the problem — while the assessment
+ * decision they were trying to sign silently fails.
+ *
+ * Verification also gets its own Supabase client, with persistSession off.
+ * The shared one would have written a fresh session over the live one as a
+ * side effect of checking a password, which is not something a check should
+ * do to the session it is checking.
+ */
+async function checkPassword(
+  user: CurrentUser | null,
+  password: string,
+): Promise<{ outcome: "CORRECT" | "INCORRECT" | "UNAVAILABLE"; detail: string }> {
+  if (!user) return { outcome: "UNAVAILABLE", detail: "You are not signed in." };
+  // Mock mode has no backing account to check against, so any non-empty
+  // password passes — the same rule mock sign-in already follows.
+  if (!isApiConfigured()) {
+    return password.length > 0
+      ? { outcome: "CORRECT", detail: "" }
+      : { outcome: "INCORRECT", detail: "" };
+  }
+
+  try {
+    const { error } = await verificationClient().auth.signInWithPassword({
+      email: user.email,
+      password,
+    });
+    if (!error) return { outcome: "CORRECT", detail: "" };
+
+    // GoTrue answers a bad password with 400 "Invalid login credentials".
+    // Anything else — 429 rate limit, 5xx, a network failure — means the
+    // question went unanswered rather than answered "no".
+    const status = (error as { status?: number }).status;
+    const invalid = status === 400 || /invalid login credentials/i.test(error.message ?? "");
+    if (invalid) return { outcome: "INCORRECT", detail: "" };
+    if (status === 429) {
+      return {
+        outcome: "UNAVAILABLE",
+        detail: "Too many sign-in attempts have been made recently.",
+      };
+    }
+    return {
+      outcome: "UNAVAILABLE",
+      detail: error.message || "The sign-in service did not respond.",
+    };
+  } catch (err) {
+    return {
+      outcome: "UNAVAILABLE",
+      detail: err instanceof Error ? err.message : "The sign-in service could not be reached.",
+    };
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [status, setStatus] = useState<AuthState["status"]>("loading");
@@ -584,13 +649,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const verifyPassword = useCallback(
     async (password: string) => {
-      if (!user) return false;
-      if (!isApiConfigured()) return password.length > 0;
-      const { error } = await supabase.auth.signInWithPassword({
-        email: user.email,
-        password,
-      });
-      return !error;
+      const result = await checkPassword(user, password);
+      return result.outcome === "CORRECT";
     },
     [user],
   );
@@ -625,10 +685,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (password: string, action: string) => {
       if (!user) throw new Error("Not signed in");
       if (!password) throw new Error("Enter your password to confirm.");
-      const ok = await verifyPassword(password);
-      if (!ok) throw new Error(`That password is not correct, so ${action} was not recorded.`);
+      const result = await checkPassword(user, password);
+      if (result.outcome === "CORRECT") return;
+      if (result.outcome === "INCORRECT") {
+        throw new Error(`That password is not correct, so ${action} was not recorded.`);
+      }
+      // Could not check. Saying "wrong password" here would send someone
+      // off to reset a password that was never the problem.
+      throw new Error(
+        `Your password could not be checked just now, so ${action} was not recorded. ${result.detail} Try again in a moment.`,
+      );
     },
-    [user, verifyPassword],
+    [user],
   );
 
   const changePassword = useCallback(
