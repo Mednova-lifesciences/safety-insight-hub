@@ -50,6 +50,19 @@ def _meddra_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
 
 
+def _meddra_candidates(value: str) -> list[str]:
+    key = _meddra_key(value)
+    candidates = [key]
+    # Source systems often append a measurement or qualifier to a clinical
+    # term, e.g. "Fever (<38oC)". Only remove a parenthetical suffix when the
+    # resulting base term is an actual MedDRA LLT; never invent a synonym.
+    base = re.sub(r"\s*\([^()]*\)\s*$", "", value).strip()
+    base_key = _meddra_key(base)
+    if base_key and base_key != key:
+        candidates.append(base_key)
+    return candidates
+
+
 @lru_cache(maxsize=1)
 def _load_meddra() -> tuple[dict[str, MedDraTerm], dict[str, MedDraTerm]]:
     """Load the supplied MedDRA release once per worker.
@@ -120,7 +133,12 @@ async def resolve_meddra(
     if not source:
         return MedDraResolution(source_value=source, status="INVALID", term=None)
     by_code, by_key = _load_meddra()
-    term = by_code.get(source) or by_key.get(_meddra_key(source))
+    term = by_code.get(source)
+    if not term:
+        for candidate in _meddra_candidates(source):
+            term = by_key.get(candidate)
+            if term:
+                break
     if not term:
         return MedDraResolution(source_value=source, status="UNMAPPED", term=None)
     return MedDraResolution(source_value=source, status="MAPPED", term=term)
