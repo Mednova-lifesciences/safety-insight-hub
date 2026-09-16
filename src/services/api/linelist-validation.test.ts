@@ -264,6 +264,19 @@ describe("runValidation — seriousness value spelling variants", () => {
     expect(issues.some((i) => i.code === "UNRECOGNISED_SERIOUSNESS_VALUE")).toBe(false);
   });
 
+  describe("line-list keyword mapping safety", () => {
+    it("does not mistake an address beginning with 'Adr' for the reaction field", () => {
+      const headers = [
+        "ID",
+        "Reaction type (Codes -see 1 below )",
+        "Adress of reporting health facility",
+      ];
+      const mapping = mapColumnsByKeywords(headers, FIELD_KEYWORDS);
+      expect(mapping["Reaction type (Codes -see 1 below )"]).toBe("reaction");
+      expect(mapping["Adress of reporting health facility"]).toBeUndefined();
+    });
+  });
+
   it("still flags a genuinely unrecognised seriousness value", () => {
     const mapping: Record<string, TargetField> = { Seriousness: "seriousness" };
     const rows: ParsedRow[] = [{ seriousness: "MAYBE" }];
