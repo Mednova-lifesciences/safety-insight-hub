@@ -97,6 +97,7 @@ _MODELS_WITHOUT_CUSTOM_TEMPERATURE: set[str] = {
     for name in os.getenv("OPENAI_NO_TEMPERATURE_MODELS", "").split(",")
     if name.strip()
 }
+_MODELS_WITHOUT_SEED: set[str] = set()
 
 
 def _is_unsupported_temperature_error(exc: APIError) -> bool:
@@ -109,6 +110,15 @@ def _is_unsupported_temperature_error(exc: APIError) -> bool:
     # misfire on an unrelated 400.
     text = str(exc)
     return "'param': 'temperature'" in text or '"param": "temperature"' in text
+
+
+def _is_unsupported_seed_error(exc: APIError) -> bool:
+    body = getattr(exc, "body", None)
+    error = body.get("error", body) if isinstance(body, dict) else None
+    if isinstance(error, dict) and error.get("param") == "seed":
+        return True
+    text = str(exc)
+    return "'param': 'seed'" in text or '"param": "seed"' in text
 
 
 class AiNotConfiguredError(Exception):
@@ -189,6 +199,7 @@ async def structured_completion(
     client = get_client()
     last_error: Optional[Exception] = None
     send_temperature = model not in _MODELS_WITHOUT_CUSTOM_TEMPERATURE
+    send_seed = model not in _MODELS_WITHOUT_SEED
 
     for attempt in range(MAX_RETRIES + 1):
         try:
@@ -208,10 +219,11 @@ async def structured_completion(
                 max_completion_tokens=max_output_tokens,
                 # See COMPLETION_SEED — the same document must not screen
                 # differently on a second upload.
-                seed=COMPLETION_SEED,
             )
             if send_temperature:
                 kwargs["temperature"] = 0
+            if send_seed:
+                kwargs["seed"] = COMPLETION_SEED
             response = await client.chat.completions.create(**kwargs)
             raw = response.choices[0].message.content
             if not raw:
@@ -258,6 +270,12 @@ async def structured_completion(
                 logger.warning("Model %s rejects an explicit temperature; retrying without it.", model)
                 _MODELS_WITHOUT_CUSTOM_TEMPERATURE.add(model)
                 send_temperature = False
+                last_error = exc
+                continue
+            if send_seed and _is_unsupported_seed_error(exc):
+                logger.warning("Model %s rejects a seed; retrying without it.", model)
+                _MODELS_WITHOUT_SEED.add(model)
+                send_seed = False
                 last_error = exc
                 continue
             logger.error("OpenAI API error (not retried — not a transient failure): %s", exc)

@@ -308,7 +308,7 @@ function PsurPage() {
         {canScreen ? (
           <Section
             title="Upload a periodic report"
-            description="PDF narrative report, or an XLSX/CSV cumulative summary tabulation. AI review runs automatically on upload."
+            description="PDF narrative report, or an XLSX/CSV cumulative summary tabulation. Administrative screening runs on upload; scientific AI validation runs when the evaluator opens the review."
           >
             <label className="flex cursor-pointer flex-col items-center gap-2 rounded-md border border-dashed border-border px-6 py-8 text-center hover:bg-muted/50">
               <Upload className="size-5 text-muted-foreground" />
@@ -406,7 +406,30 @@ function PsurPage() {
                           size="sm"
                           variant="outline"
                           className="ml-auto"
-                          onClick={() => setSelected(d.id)}
+                          onClick={async () => {
+                            setSelected(d.id);
+                            if (
+                              canEvaluate &&
+                              deriveWorkflowStage(d) === "AWAITING_EVALUATION" &&
+                              d.stage !== "REVIEWED"
+                            ) {
+                              setRunningScientificReview(true);
+                              try {
+                                await psurApi.runScientificReview(d.id);
+                                await allDocs.refetch();
+                                await findings.refetch();
+                                toast.success("AI scientific review completed.");
+                              } catch (err) {
+                                toast.error(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "AI scientific review could not be completed.",
+                                );
+                              } finally {
+                                setRunningScientificReview(false);
+                              }
+                            }
+                          }}
                         >
                           Open review
                         </Button>
@@ -420,7 +443,45 @@ function PsurPage() {
           </QueryBoundary>
         </Section>
 
-        {activeDoc ? (
+        {activeDoc && activeDoc.stage !== "REVIEWED" ? (
+          <Section
+            title="Scientific review pending"
+            description="The document metadata, findings, and Sections 9–13 appear after the evaluator runs AI validation."
+          >
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              {runningScientificReview ? (
+                <span>Running AI validation against the retained PDF text…</span>
+              ) : (
+                <span>Open review starts the evaluator's AI validation. If it fails, use retry below.</span>
+              )}
+              {canEvaluate ? (
+                <Button
+                  size="sm"
+                  disabled={runningScientificReview}
+                  onClick={async () => {
+                    setRunningScientificReview(true);
+                    try {
+                      await psurApi.runScientificReview(activeDoc.id);
+                      await allDocs.refetch();
+                      await findings.refetch();
+                      toast.success("AI scientific review completed.");
+                    } catch (err) {
+                      toast.error(
+                        err instanceof Error
+                          ? err.message
+                          : "AI scientific review could not be completed.",
+                      );
+                    } finally {
+                      setRunningScientificReview(false);
+                    }
+                  }}
+                >
+                  {runningScientificReview ? "Running AI validation…" : "Run AI validation"}
+                </Button>
+              ) : null}
+            </div>
+          </Section>
+        ) : activeDoc ? (
           <>
             <Section title="Document metadata">
               <div className="grid gap-4 sm:grid-cols-4">

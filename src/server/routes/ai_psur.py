@@ -17,6 +17,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -39,7 +40,9 @@ router = APIRouter()
 # Keeps a single review call's token footprint bounded regardless of
 # document length, per-page markers are kept so findings can still cite
 # an approximate location even though the document is truncated.
-MAX_PDF_CHARS = 60_000
+# Keep enough of a long narrative for a complete scientific assessment while
+# bounding the request sent to the model.
+MAX_PDF_CHARS = 120_000
 MAX_SPREADSHEET_ROWS_PER_CALL = 300
 
 
@@ -60,6 +63,11 @@ def _extract_pdf_text(raw: bytes) -> tuple[str, int]:
             parts.append(chunk)
             char_budget -= len(chunk)
     return "".join(parts), total_pages
+
+
+def _count_extracted_pages(text: str) -> Optional[int]:
+    pages = [int(value) for value in re.findall(r"--- page (\d+) ---", text)]
+    return max(pages) if pages else None
 
 
 class PsurSuggestedSourceOut(BaseModel):
@@ -270,7 +278,7 @@ async def review_pdf(
         completion = await structured_completion(
             system_prompt=PSUR_REVIEW_PDF_PROMPT,
             user_content=json.dumps(payload),
-            max_output_tokens=3000,
+            max_output_tokens=10000,
         )
         parsed = AiPsurReview.model_validate(completion.data)
         return ReviewResponse(
@@ -341,25 +349,27 @@ async def review_pdf_text(
         )
 
     truncated = len(text) >= MAX_PDF_CHARS
+    extracted_pages = _count_extracted_pages(text)
     try:
         payload = {
             "filename": request.filename,
             "declaredProduct": request.product or None,
             "declaredReportingPeriod": request.reportingPeriod or None,
-            "totalPages": None,
+            "totalPages": extracted_pages,
             "truncated": truncated,
             "extractedText": text[:MAX_PDF_CHARS],
         }
         completion = await structured_completion(
             system_prompt=PSUR_REVIEW_PDF_PROMPT,
             user_content=json.dumps(payload),
-            max_output_tokens=3000,
+            max_output_tokens=10000,
         )
         parsed = AiPsurReview.model_validate(completion.data)
         return ReviewResponse(
             findings=[PsurFindingOut(**f.model_dump()) for f in parsed.findings],
             ai_used=True,
             prompt_version=PROMPT_VERSION,
+            pages_extracted=extracted_pages,
             truncated=truncated,
             model=completion.model,
             product=parsed.product,
@@ -385,13 +395,13 @@ async def review_pdf_text(
     except AiNotConfiguredError as exc:
         logger.info("Deferred PSUR PDF AI review skipped: %s", exc)
         return ReviewResponse(findings=[], ai_used=False, prompt_version=PROMPT_VERSION, error=str(exc))
-    except AiRequestError:
+    except AiRequestError as exc:
         logger.exception("Deferred PSUR PDF AI review failed")
         return ReviewResponse(
             findings=[],
             ai_used=False,
             prompt_version=PROMPT_VERSION,
-            error="AI review unavailable.",
+            error=f"AI review unavailable: {exc}",
         )
     except Exception:
         logger.exception("Deferred PSUR PDF AI review returned unusable output")
@@ -633,7 +643,7 @@ async def screen_pdf(
             # Fifteen checks that must each cite their evidence need room to
             # do it; at 2000 the model started truncating its reasoning into
             # bare verdicts.
-            max_output_tokens=4000,
+            max_output_tokens=6000,
         )
         parsed = AiPsurAdministrativeScreening.model_validate(completion.data)
 

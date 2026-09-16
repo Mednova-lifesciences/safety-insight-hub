@@ -1919,6 +1919,13 @@ export const psur = {
             pages: screeningResult.pages_extracted ?? 0,
           })
         : blankAdministrativeScreening(doc.uploadedAt, doc.product, doc.reportingPeriod);
+      if (
+        typeof screeningResult.pages_extracted === "number" &&
+        screeningResult.pages_extracted > 0
+      ) {
+        doc.pages = screeningResult.pages_extracted;
+        doc.pagesEstimated = false;
+      }
     } catch {
       administrativeScreening = blankAdministrativeScreening(
         doc.uploadedAt,
@@ -2090,6 +2097,9 @@ export const psur = {
       ...(aiResult.product ? { product: aiResult.product } : {}),
       ...(aiResult.reporting_period ? { reportingPeriod: aiResult.reporting_period } : {}),
       ...(aiResult.mah ? { mah: aiResult.mah } : {}),
+      ...(typeof aiResult.pages_extracted === "number" && aiResult.pages_extracted > 0
+        ? { pages: aiResult.pages_extracted, pagesEstimated: false }
+        : {}),
       ...(screening ? { screening } : {}),
       ...(specialPopulations ? { specialPopulations } : {}),
       ...(benefitRisk ? { benefitRisk } : {}),
