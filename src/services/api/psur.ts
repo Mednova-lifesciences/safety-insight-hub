@@ -62,6 +62,7 @@ import type {
   AiPsurBenefitRiskOut,
   AiPsurFindingOut,
   AiPsurRecommendationOut,
+  AiPsurReviewResponse,
   AiPsurScreeningOut,
   AiPsurScreeningResponse,
   AiPsurSpecialPopulationItemOut,
@@ -1784,12 +1785,8 @@ export const psur = {
   },
 
   /**
-   * A PDF's bytes only ever exist in the browser for the duration of this
-   * call — there is no document storage in this app — so AI review for a
-   * PDF has to happen right here, once, while the file is still in
-   * memory, rather than lazily later. If OpenAI is unavailable or fails,
-   * this falls back to the deterministic metadata-based findings so the
-   * document still ends up reviewed either way.
+   * Upload performs administrative screening only. Scientific review is
+   * deliberately deferred until an evaluator explicitly starts it.
    */
   upload: async (file: File): Promise<PsurDocument> => {
     const actor = currentActor();
@@ -1873,8 +1870,7 @@ export const psur = {
       return doc;
     }
 
-    // PDF path — create the record, then review inline while the file is
-    // still available.
+    // PDF path — create the record, then run administrative screening only.
     const doc: PsurDocumentRow = {
       id: newId("psur"),
       filename: file.name,
@@ -1913,8 +1909,10 @@ export const psur = {
     // that could not run leaves a blank checklist the officer fills in by
     // hand, which is exactly what they did before this existed.
     let administrativeScreening: PsurAdministrativeScreening;
+    let extractedText: string | undefined;
     try {
       const screeningResult = await ai.psur.screenPdf(file, doc.product, doc.reportingPeriod);
+      extractedText = screeningResult.extracted_text ?? undefined;
       administrativeScreening = screeningResult.ai_used
         ? mapAiAdministrativeScreening(screeningResult, doc.uploadedAt, {
             sourceType: "PDF",
@@ -1929,6 +1927,22 @@ export const psur = {
       );
     }
 
+    const prepared: PsurDocumentRow = {
+      ...doc,
+      administrativeScreening,
+      stage: "EXTRACTED",
+      ...(extractedText ? { extractedText } : {}),
+    };
+    await saveDocument(prepared);
+    await recordAudit({
+      action: "PSUR_SCIENTIFIC_REVIEW_PENDING",
+      entity: "PsurDocument",
+      entityId: doc.id,
+      newValue: "Administrative screening complete; scientific review awaits evaluator action",
+    });
+    return prepared;
+
+    /*
     try {
       const aiResult = await ai.psur.reviewPdf(file, doc.product, doc.reportingPeriod);
       const findings: PsurFinding[] = aiResult.ai_used
@@ -2011,6 +2025,88 @@ export const psur = {
       // can only use the metadata-based generator at that point).
       return doc;
     }
+    */
+  },
+
+  runScientificReview: async (documentId: string): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    if (document.stage === "REVIEWED") return document;
+
+    let aiResult: AiPsurReviewResponse;
+    if (document.sourceType === "SPREADSHEET") {
+      const rows = document.rawRows ?? document.parsedRows ?? [];
+      aiResult = await ai.psur.reviewSpreadsheet({
+        filename: document.filename,
+        columns: document.columns ?? [],
+        rows: rows as Record<string, string>[],
+        product: document.product,
+        reportingPeriod: document.reportingPeriod,
+        stats: computeStats(document.parsedRows ?? []),
+      });
+    } else {
+      if (!document.extractedText) {
+        throw new Error(
+          "Scientific review cannot start because no extractable PDF text was retained. Re-upload this document.",
+        );
+      }
+      aiResult = await ai.psur.reviewPdfText({
+        filename: document.filename,
+        extractedText: document.extractedText,
+        product: document.product,
+        reportingPeriod: document.reportingPeriod,
+      });
+    }
+    if (!aiResult.ai_used) {
+      throw new Error(aiResult.error ?? "AI scientific review is unavailable.");
+    }
+
+    const findings = aiResult.findings.map(mapAiFinding);
+    const screening = aiResult.screening ? mapAiScreening(aiResult.screening) : undefined;
+    const specialPopulations = aiResult.special_populations?.length
+      ? mapAiSpecialPopulations(aiResult.special_populations)
+      : undefined;
+    const benefitRisk = aiResult.benefit_risk ? mapAiBenefitRisk(aiResult.benefit_risk) : undefined;
+    const uncertainties = aiResult.uncertainties
+      ? mapAiUncertainties(aiResult.uncertainties)
+      : undefined;
+    const nigerianContext = aiResult.nigerian_context
+      ? mapAiNigerianContext(aiResult.nigerian_context, document.sourceType ?? "PDF")
+      : undefined;
+    const coverage = buildAuthoritativeSectionCoverage({
+      screening,
+      sourceType: document.sourceType ?? "PDF",
+      nigerianContext,
+      specialPopulations,
+      benefitRisk,
+      uncertainties,
+    });
+    findings.push(...buildNigerianRequirementFindings(nigerianContext, findings));
+    findings.push(...reconcileSectionFindings(coverage, findings));
+    await persistFindings(document.id, findings);
+
+    const reviewed: PsurDocumentRow = {
+      ...document,
+      stage: "REVIEWED",
+      ...(aiResult.product ? { product: aiResult.product } : {}),
+      ...(aiResult.reporting_period ? { reportingPeriod: aiResult.reporting_period } : {}),
+      ...(aiResult.mah ? { mah: aiResult.mah } : {}),
+      ...(screening ? { screening } : {}),
+      ...(specialPopulations ? { specialPopulations } : {}),
+      ...(benefitRisk ? { benefitRisk } : {}),
+      ...(uncertainties ? { uncertainties } : {}),
+      ...(nigerianContext ? { nigerianContext } : {}),
+      ...(aiResult.ai_recommendation
+        ? { aiRecommendation: mapAiRecommendation(aiResult.ai_recommendation) }
+        : {}),
+    };
+    await saveDocument(reviewed);
+    await recordAudit({
+      action: "PSUR_REVIEWED",
+      entity: "PsurDocument",
+      entityId: document.id,
+      newValue: `${findings.length} finding(s) generated (AI)`,
+    });
+    return reviewed;
   },
 
   review: async (

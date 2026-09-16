@@ -216,6 +216,13 @@ class ReviewResponse(BaseModel):
     ai_recommendation: Optional[PsurRecommendationOut] = None
 
 
+class ReviewPdfTextRequest(BaseModel):
+    filename: str
+    extractedText: str
+    product: str = ""
+    reportingPeriod: str = ""
+
+
 @router.get("/status")
 async def ai_status():
     return {"configured": is_ai_configured()}
@@ -312,6 +319,86 @@ async def review_pdf(
             ai_used=False,
             prompt_version=PROMPT_VERSION,
             pages_extracted=total_pages,
+            error="AI review returned an unusable response.",
+        )
+
+
+@router.post("/review-pdf-text", response_model=ReviewResponse)
+async def review_pdf_text(
+    request: ReviewPdfTextRequest,
+    user: AuthenticatedUser = Depends(require_permission("psur.evaluate")),
+):
+    """Run the deferred scientific review after screening has handed a PDF
+    to an evaluator. The extracted text is retained by the document record
+    because the original PDF bytes are intentionally not stored."""
+    text = request.extractedText.strip()
+    if not text:
+        return ReviewResponse(
+            findings=[],
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="No extracted text is available for scientific review.",
+        )
+
+    truncated = len(text) >= MAX_PDF_CHARS
+    try:
+        payload = {
+            "filename": request.filename,
+            "declaredProduct": request.product or None,
+            "declaredReportingPeriod": request.reportingPeriod or None,
+            "totalPages": None,
+            "truncated": truncated,
+            "extractedText": text[:MAX_PDF_CHARS],
+        }
+        completion = await structured_completion(
+            system_prompt=PSUR_REVIEW_PDF_PROMPT,
+            user_content=json.dumps(payload),
+            max_output_tokens=3000,
+        )
+        parsed = AiPsurReview.model_validate(completion.data)
+        return ReviewResponse(
+            findings=[PsurFindingOut(**f.model_dump()) for f in parsed.findings],
+            ai_used=True,
+            prompt_version=PROMPT_VERSION,
+            truncated=truncated,
+            model=completion.model,
+            product=parsed.product,
+            reporting_period=parsed.reporting_period,
+            mah=parsed.mah,
+            screening=PsurScreeningOut(**parsed.screening.model_dump()) if parsed.screening else None,
+            benefit_risk=PsurBenefitRiskOut(**parsed.benefit_risk.model_dump()) if parsed.benefit_risk else None,
+            special_populations=[
+                PsurSpecialPopulationItemOut(**p.model_dump()) for p in parsed.special_populations
+            ],
+            uncertainties=[PsurUncertaintyOut(**u.model_dump()) for u in parsed.uncertainties],
+            nigerian_context=(
+                PsurNigerianContextOut(**parsed.nigerian_context.model_dump())
+                if parsed.nigerian_context
+                else None
+            ),
+            ai_recommendation=(
+                PsurRecommendationOut(**parsed.ai_recommendation.model_dump())
+                if parsed.ai_recommendation
+                else None
+            ),
+        )
+    except AiNotConfiguredError as exc:
+        logger.info("Deferred PSUR PDF AI review skipped: %s", exc)
+        return ReviewResponse(findings=[], ai_used=False, prompt_version=PROMPT_VERSION, error=str(exc))
+    except AiRequestError:
+        logger.exception("Deferred PSUR PDF AI review failed")
+        return ReviewResponse(
+            findings=[],
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="AI review unavailable.",
+        )
+    except Exception:
+        logger.exception("Deferred PSUR PDF AI review returned unusable output")
+        return ReviewResponse(
+            findings=[],
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
             error="AI review returned an unusable response.",
         )
 
@@ -483,6 +570,7 @@ class AdministrativeScreeningResponse(BaseModel):
     truncated: bool = False
     model: Optional[str] = None
     error: Optional[str] = None
+    extracted_text: Optional[str] = None
 
 
 @router.post("/screen-pdf", response_model=AdministrativeScreeningResponse)
@@ -515,6 +603,7 @@ async def screen_pdf(
         return AdministrativeScreeningResponse(
             ai_used=False,
             prompt_version=PROMPT_VERSION,
+            extracted_text=None,
             error="Could not extract text from this PDF.",
         )
 
@@ -523,6 +612,7 @@ async def screen_pdf(
             ai_used=False,
             prompt_version=PROMPT_VERSION,
             pages_extracted=total_pages,
+            extracted_text=text,
             error="No extractable text found in this PDF (it may be a scanned image without a text layer).",
         )
 
@@ -570,6 +660,7 @@ async def screen_pdf(
                 pages_extracted=total_pages,
                 truncated=truncated,
                 model=completion.model,
+                extracted_text=text,
                 error=(
                     "The AI returned no usable screening answers, so the checklist below is "
                     "blank and must be completed by hand."
@@ -584,14 +675,23 @@ async def screen_pdf(
             pages_extracted=total_pages,
             truncated=truncated,
             model=completion.model,
+            extracted_text=text,
         )
     except AiNotConfiguredError as exc:
         logger.info("PSUR screening skipped: %s", exc)
         return AdministrativeScreeningResponse(
-            ai_used=False, prompt_version=PROMPT_VERSION, pages_extracted=total_pages, error=str(exc)
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            pages_extracted=total_pages,
+            extracted_text=text,
+            error=str(exc),
         )
     except AiRequestError as exc:
         logger.error("PSUR screening failed: %s", exc)
         return AdministrativeScreeningResponse(
-            ai_used=False, prompt_version=PROMPT_VERSION, pages_extracted=total_pages, error=str(exc)
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            pages_extracted=total_pages,
+            extracted_text=text,
+            error=str(exc),
         )
