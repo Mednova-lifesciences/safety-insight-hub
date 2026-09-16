@@ -1122,3 +1122,125 @@ Respond with JSON exactly in this shape:
 }}
 """
     )
+
+
+# ---------------------------------------------------------------------------
+# NAFDAC PSUR Administrative Screening Checklist
+# ---------------------------------------------------------------------------
+
+PSUR_SCREENING_CHECKLIST = """
+SECTION A — SUBMISSION DETAILS (extract, never infer)
+Read these off the submitted document. Leave a field EMPTY if it is not stated.
+  product_name, active_substance, nafdac_reg_no, mah, qppv, qppv_contact,
+  ibd (International Birth Date), first_nafdac_registration_date,
+  dlp (Data Lock Point), interval_covered (e.g. "01 Jul 2025 - 30 Jun 2026")
+
+SECTION B — THE 16 CHECKS
+
+Submission package (a No here is a validation deficiency):
+ 1 COVER_LETTER_COMPLETE — Cover letter on MAH letterhead, signed by the QPPV, stating product \
+name, strength(s)/dosage form(s), NAFDAC Reg. No., renewal/application no. and the reporting interval.
+ 2 QPPV_DETAILS_STATED — QPPV and Deputy QPPV name, telephone and e-mail stated in the cover \
+letter and title page, AND matching NAFDAC's own record.
+ 3 ONE_PSUR_PER_ACTIVE_SUBSTANCE — One PSUR per active substance covering all registered \
+strengths/dosage forms; product name and strength matching the NAFDAC certificate exactly.
+ 4 PDF_OPENS_AND_FOLLOWS_TEMPLATE — Submitted as a PDF that opens fully and follows the NAFDAC \
+PSUR Full Template (title page, executive summary, Sections 1-21, appendices).
+
+Dates and timeliness (a No here is a validation deficiency):
+ 5 IBD_AND_FIRST_REGISTRATION_STATED — IBD and date of first NAFDAC registration both stated on \
+the title page; the reporting interval is calculated from the IBD, not the NAFDAC registration date.
+ 6 DLP_AND_INTERVAL_CONSISTENT — DLP and interval (from - to) stated, and consistent across the \
+cover letter, title page and executive summary.
+ 7 INTERVAL_CONTIGUOUS — Interval contiguous with the previous PSUR on file (no gap or overlap), \
+or the report states that it is a first submission.
+ 8 RECEIVED_WITHIN_TIMEFRAME — (computed by the application; see below)
+
+Report content present — PRESENCE ONLY, adequacy is the assessor's job, not yours:
+ 9 TITLE_PAGE_COMPLETE_AND_SIGNED — Title page complete and signed/dated by the Nigerian QPPV; \
+MAH name and address and confidentiality statement included.
+10 EXECUTIVE_SUMMARY_COMPLETE — Executive summary addresses every element in the template.
+11 SECTIONS_PRESENT_OR_JUSTIFIED — Sections 1-21 all present and populated, or marked not \
+applicable with a reason; table of contents and list of abbreviations included.
+12 LINE_LISTING_OR_NIL_STATEMENT — Line listing of serious adverse events/ICSRs included even if \
+only 1 or 2 cases, or an explicit nil statement documented.
+13 LITERATURE_IN_OWN_WORDS — Literature section summarised in the company's own words, with a \
+product-specific assessment paragraph.
+14 INTEGRATED_BENEFIT_RISK_ANALYSIS — Integrated benefit-risk analysis drawing on data from \
+across the PSUR; conclusion covering key findings, new risks, overall B-R balance and actions.
+15 APPENDIX_RSI_ATTACHED — Appendix I (RSI/SmPC) attached; RMP version referenced where an RMP exists.
+16 PREVIOUS_QUERIES_ADDRESSED — Queries or commitments from the previous NAFDAC assessment addressed.
+"""
+
+PSUR_SCREENING_PDF_PROMPT = (
+    SAFETY_PREAMBLE
+    + """
+TASK: Complete NAFDAC's PSUR Administrative Screening Checklist for a submitted periodic safety \
+report, from its extracted text. This is the check a Review Officer performs ON RECEIPT, before the \
+report is allocated for scientific assessment. It is NOT a scientific review: you are judging how \
+the submission is packaged, dated and structured, not whether its safety conclusions are sound.
+
+This checklist is generic. It applies to any PSUR, for any product, from any marketing \
+authorisation holder. Never assume anything about the product or the company beyond what the text \
+in front of you actually says.
+
+You will be given the document's declared metadata and its extracted text, which may be truncated \
+for length — judge only what you can see.
+""" + PSUR_SCREENING_CHECKLIST + """
+
+HOW TO ANSWER EACH CHECK
+
+Use exactly one status per check:
+  YES            — the requirement is demonstrably met, and you can point to what shows it.
+  NO             — the requirement is demonstrably NOT met (the thing is absent, or contradicts itself).
+  NOT_APPLICABLE — the requirement genuinely does not apply to this submission. Say why in "deficiency".
+  NOT_ASSESSABLE — you cannot tell from this document.
+
+NOT_ASSESSABLE IS A CORRECT AND EXPECTED ANSWER. It is not a failure to try. Use it whenever the \
+text does not settle the question — including when the document is truncated before the relevant \
+part. An officer who sees "cannot tell" goes and looks; an officer who sees a confident wrong YES \
+does not. Never guess in either direction, and never let the absence of evidence become a NO unless \
+the requirement is one whose absence you can actually observe.
+
+CHECKS YOU MUST ALWAYS RETURN AS NOT_ASSESSABLE
+
+Items 2, 3, 7 and 16 each ask whether the submission MATCHES a record that is not in front of you:
+  2  — whether the QPPV details match NAFDAC's register
+  3  — whether product name and strength match the NAFDAC certificate exactly
+  7  — whether the interval is contiguous with the previous PSUR on file
+ 16  — whether queries from the previous NAFDAC assessment are addressed
+
+You do not hold those records, so you cannot answer these, and the officer will check them \
+manually. Return NOT_ASSESSABLE for all four. In "deficiency", state only what the DOCUMENT shows — \
+for example, for item 2, which QPPV details are stated and where; for item 7, the interval this \
+report covers and whether it declares itself a first submission. That is genuinely useful to the \
+officer doing the manual comparison. Do not state or imply a verdict on the match itself.
+
+The single exception: if the document itself makes the answer plain — for instance item 7 where the \
+report explicitly states it is the first PSUR for the product — you may answer YES and quote that \
+statement in "deficiency".
+
+ITEM 8 — DO NOT ANSWER
+
+Timeliness is calculated by the application from the Data Lock Point and the date of receipt, \
+against NAFDAC's 70-day and 90-day windows. Omit item 8 from your "checks" list entirely. Your job \
+for item 8 is only to extract "dlp" and "interval_covered" accurately in section A — get those \
+right and the calculation is right.
+
+THE "deficiency" FIELD
+
+This is the checklist's "Deficiency noted" column. For a NO, say specifically what is missing or \
+wrong, grounded in the text. For a YES, briefly say what shows it — a section name, a page, a \
+quoted phrase. For NOT_ASSESSABLE, say what you could and could not see. Keep it to one or two \
+sentences, written for a regulator who will paste it into a compliance directive. Never write \
+"see above", and never invent a page number, section title, or quotation that is not in the text.
+
+ITEMS 9-16 ARE PRESENCE CHECKS ONLY
+
+For these, ask only "is this present?" — never "is it any good?". A thin literature section that \
+exists is a YES for item 13. Judging its quality is the assessor's job later, and answering NO \
+because you thought it weak would wrongly turn a content observation into a validation failure.
+
+Return ONLY the JSON object described by the schema.
+"""
+)

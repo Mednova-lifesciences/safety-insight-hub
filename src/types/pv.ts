@@ -585,6 +585,11 @@ export interface PsurDocument {
    *  never collapsed into the findings list. Absent on documents
    *  reviewed before this existed. */
   screening?: PsurScreeningResult | undefined;
+  /** The completed NAFDAC PSUR Administrative Screening Checklist — the
+   *  Review Officer's 16-item check, run on receipt before the report is
+   *  allocated for scientific assessment. Absent on documents uploaded
+   *  before the checklist existed; those carry only `screening` above. */
+  administrativeScreening?: PsurAdministrativeScreening | undefined;
   /** Structured Section 10 (Benefit-Risk Assessment) sub-tables — PDF
    *  narrative reports only (a spreadsheet tabulation has no benefit-risk
    *  narrative to extract from). Every field the AI could not support
@@ -761,6 +766,129 @@ export interface PsurNigerianContext {
   nigerianCaseCountEvidence?: string | undefined;
   vigiflowReconciliationProvided: boolean;
   vigiflowReconciliationEvidence?: string | undefined;
+}
+
+/**
+ * The 16 checks on NAFDAC's PSUR Administrative Screening Checklist, in the
+ * document's own order and grouping.
+ *
+ * Completed on receipt, before a report is allocated for scientific
+ * assessment. The grouping is not cosmetic — it carries the checklist's own
+ * rule: a No in items 1-8 is a VALIDATION DEFICIENCY (compliance directive
+ * or reject), whereas 9-16 are presence checks only, recorded for the
+ * assessor and included in the directive where necessary. See
+ * services/psur/screening-checklist.ts, which holds that rule in one place.
+ */
+export type PsurScreeningCheckId =
+  // A. Submission package — items 1-4
+  | "COVER_LETTER_COMPLETE"
+  | "QPPV_DETAILS_STATED"
+  | "ONE_PSUR_PER_ACTIVE_SUBSTANCE"
+  | "PDF_OPENS_AND_FOLLOWS_TEMPLATE"
+  // B. Dates and timeliness — items 5-8
+  | "IBD_AND_FIRST_REGISTRATION_STATED"
+  | "DLP_AND_INTERVAL_CONSISTENT"
+  | "INTERVAL_CONTIGUOUS"
+  | "RECEIVED_WITHIN_TIMEFRAME"
+  // C. Report content present — items 9-16
+  | "TITLE_PAGE_COMPLETE_AND_SIGNED"
+  | "EXECUTIVE_SUMMARY_COMPLETE"
+  | "SECTIONS_PRESENT_OR_JUSTIFIED"
+  | "LINE_LISTING_OR_NIL_STATEMENT"
+  | "LITERATURE_IN_OWN_WORDS"
+  | "INTEGRATED_BENEFIT_RISK_ANALYSIS"
+  | "APPENDIX_RSI_ATTACHED"
+  | "PREVIOUS_QUERIES_ADDRESSED";
+
+/**
+ * The checklist's own four columns: Yes, No, N/A — plus NOT_ASSESSABLE,
+ * which the paper form does not have and this one needs.
+ *
+ * NOT_ASSESSABLE is not a fourth opinion. It means the question cannot be
+ * answered from the submitted document at all, either because the AI could
+ * not find the evidence or because answering requires a NAFDAC record the
+ * system does not hold (see requiresExternalRecord). Without it, a model
+ * asked "does this match NAFDAC's record?" has no truthful answer available
+ * and will pick Yes or No — which is exactly the failure this whole tool
+ * exists to avoid.
+ */
+export type PsurScreeningCheckStatus = "YES" | "NO" | "NOT_APPLICABLE" | "NOT_ASSESSABLE";
+
+/** One row of section B. */
+export interface PsurScreeningCheckItem {
+  id: PsurScreeningCheckId;
+  status: PsurScreeningCheckStatus;
+  /** The checklist's "Deficiency noted" column. */
+  deficiency: string;
+  /** True while this row is still the AI's proposal. Cleared the moment an
+   *  officer sets the row themselves, so the page can always show which
+   *  answers a human has actually stood behind. */
+  assistGenerated: boolean;
+}
+
+/**
+ * Section A of the checklist — the submission's identifying details.
+ *
+ * Every field is only ever what could be read off the submitted document
+ * (or, for dateReceived, what this system knows because it took the
+ * upload). Empty means "not found", never a guess: an invented NAFDAC
+ * registration number on a screening record would be far worse than a
+ * blank one an officer fills in.
+ *
+ * `daysDlpToReceipt` is deliberately NOT stored — it is derived from dlp
+ * and dateReceived, and a stored copy could disagree with them.
+ */
+export interface PsurSubmissionDetails {
+  productName: string;
+  activeSubstance: string;
+  nafdacRegNo: string;
+  mah: string;
+  qppv: string;
+  qppvContact: string;
+  /** International Birth Date. */
+  ibd: string;
+  firstNafdacRegistrationDate: string;
+  /** Data Lock Point. */
+  dlp: string;
+  intervalCovered: string;
+  dateReceived: string;
+}
+
+/** Section C — the officer's decision. Mirrors the form's three boxes. */
+export type PsurScreeningOutcomeDecision =
+  "ACCEPTED_FOR_ASSESSMENT" | "COMPLIANCE_DIRECTIVE" | "NOT_ACCEPTED_RESUBMIT";
+
+export interface PsurScreeningOutcome {
+  decision: PsurScreeningOutcomeDecision;
+  /** The checklist's "CD — items no.: ____" field, as item NUMBERS (1-16)
+   *  so it reads the way the paper form does. Derived from the failed
+   *  checks rather than typed, so it cannot disagree with section B. */
+  citedItems: number[];
+  /** "Deficiencies / action required". */
+  deficiencies: string;
+  /** Section C's sign-off block. The signature is the officer's password
+   *  confirmation, not a typed name — see ConfirmWithPassword. */
+  by: string;
+  at: string;
+}
+
+/**
+ * A completed PSUR Administrative Screening Checklist.
+ *
+ * Distinct from PsurScreeningResult below, which is the earlier and much
+ * smaller four-item check. That one is kept because eight live documents
+ * already carry it; this is what a newly screened report gets.
+ */
+export interface PsurAdministrativeScreening {
+  performedAt: string;
+  submissionDetails: PsurSubmissionDetails;
+  checks: PsurScreeningCheckItem[];
+  /** True while nothing here has been confirmed by an officer. */
+  assistGenerated: boolean;
+  /** Undefined until the officer actually decides. Never defaulted from
+   *  the derived recommendation — the same separation aiRecommendation and
+   *  regulatoryDecision keep in the scientific review. */
+  outcome?: PsurScreeningOutcome | undefined;
 }
 
 export interface PsurScreeningResult {

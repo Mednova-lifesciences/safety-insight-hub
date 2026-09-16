@@ -278,53 +278,57 @@ function PsurPage() {
           </ol>
         </Section>
 
-        {/* Uploading is how a report ENTERS the process, which makes it the
-            officer's action. Evaluators and peer reviewers work on reports
-            that already reached their queue. */}
-        <Section
-          title="Upload a periodic report"
-          description="PDF narrative report, or an XLSX/CSV cumulative summary tabulation. AI review runs automatically on upload."
-        >
-          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-md border border-dashed border-border px-6 py-8 text-center hover:bg-muted/50">
-            <Upload className="size-5 text-muted-foreground" />
-            <span className="text-sm font-medium">
-              {uploading ? "Uploading and reviewing…" : "Choose a PDF, XLSX or CSV"}
-            </span>
-            <input
-              type="file"
-              accept="application/pdf,.pdf,.xlsx,.xls,.csv"
-              className="sr-only"
-              disabled={uploading}
-              onChange={async (e) => {
-                const f = e.target.files?.[0];
-                // Clear immediately so the element never retains this
-                // File — a stray later event on the same input could
-                // otherwise silently resubmit it as a second upload.
-                e.target.value = "";
-                if (!f) return;
-                setUploading(true);
-                try {
-                  const doc = await psurApi.upload(f);
-                  toast.success(
-                    doc.stage === "REVIEWED"
-                      ? "Document uploaded and reviewed."
-                      : "Document uploaded.",
-                  );
-                  setDocsPage(1);
-                  docs.refetch();
-                } catch (err) {
-                  toast.error(
-                    isNotConfigured(err)
-                      ? "Backend not connected — the document was not uploaded."
-                      : "Upload failed.",
-                  );
-                } finally {
-                  setUploading(false);
-                }
-              }}
-            />
-          </label>
-        </Section>
+        {/* Uploading is how a report ENTERS the process, so it belongs to
+            the Review Officer, who does it from the screening queue where
+            the checklist lives. Left reachable here for them as a
+            convenience; evaluators and peer reviewers work on reports that
+            already arrived. */}
+        {canScreen ? (
+          <Section
+            title="Upload a periodic report"
+            description="PDF narrative report, or an XLSX/CSV cumulative summary tabulation. AI review runs automatically on upload."
+          >
+            <label className="flex cursor-pointer flex-col items-center gap-2 rounded-md border border-dashed border-border px-6 py-8 text-center hover:bg-muted/50">
+              <Upload className="size-5 text-muted-foreground" />
+              <span className="text-sm font-medium">
+                {uploading ? "Uploading and reviewing…" : "Choose a PDF, XLSX or CSV"}
+              </span>
+              <input
+                type="file"
+                accept="application/pdf,.pdf,.xlsx,.xls,.csv"
+                className="sr-only"
+                disabled={uploading}
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  // Clear immediately so the element never retains this
+                  // File — a stray later event on the same input could
+                  // otherwise silently resubmit it as a second upload.
+                  e.target.value = "";
+                  if (!f) return;
+                  setUploading(true);
+                  try {
+                    const doc = await psurApi.upload(f);
+                    toast.success(
+                      doc.stage === "REVIEWED"
+                        ? "Document uploaded and reviewed."
+                        : "Document uploaded.",
+                    );
+                    setDocsPage(1);
+                    docs.refetch();
+                  } catch (err) {
+                    toast.error(
+                      isNotConfigured(err)
+                        ? "Backend not connected — the document was not uploaded."
+                        : "Upload failed.",
+                    );
+                  } finally {
+                    setUploading(false);
+                  }
+                }}
+              />
+            </label>
+          </Section>
+        ) : null}
 
         <Section title="Documents">
           <QueryBoundary query={docs}>

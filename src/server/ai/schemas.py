@@ -1008,3 +1008,134 @@ class AiLiteratureAnalysis(BaseModel):
         if not isinstance(v, list):
             return []
         return [item.strip() for item in v if isinstance(item, str) and item.strip()]
+
+
+# ---------------------------------------------------------------------------
+# NAFDAC PSUR Administrative Screening Checklist
+#
+# The Review Officer's 16-item check, completed on receipt before a report is
+# allocated for scientific assessment. Separate from AiPsurScreening above,
+# which is the older 4-item check embedded in the full review.
+# ---------------------------------------------------------------------------
+
+_KNOWN_SCREENING_CHECK_IDS = {
+    "COVER_LETTER_COMPLETE",
+    "QPPV_DETAILS_STATED",
+    "ONE_PSUR_PER_ACTIVE_SUBSTANCE",
+    "PDF_OPENS_AND_FOLLOWS_TEMPLATE",
+    "IBD_AND_FIRST_REGISTRATION_STATED",
+    "DLP_AND_INTERVAL_CONSISTENT",
+    "INTERVAL_CONTIGUOUS",
+    "RECEIVED_WITHIN_TIMEFRAME",
+    "TITLE_PAGE_COMPLETE_AND_SIGNED",
+    "EXECUTIVE_SUMMARY_COMPLETE",
+    "SECTIONS_PRESENT_OR_JUSTIFIED",
+    "LINE_LISTING_OR_NIL_STATEMENT",
+    "LITERATURE_IN_OWN_WORDS",
+    "INTEGRATED_BENEFIT_RISK_ANALYSIS",
+    "APPENDIX_RSI_ATTACHED",
+    "PREVIOUS_QUERIES_ADDRESSED",
+}
+
+# The checklist's own four columns. NOT_ASSESSABLE is the honest answer when
+# the submitted document cannot settle the question — see the prompt.
+_KNOWN_SCREENING_STATUSES = {"YES", "NO", "NOT_APPLICABLE", "NOT_ASSESSABLE"}
+
+
+class AiPsurSubmissionDetails(BaseModel):
+    """Section A of the checklist — the submission's identifying details.
+
+    Every field is free text and every field defaults to empty. Empty means
+    "not found in the document" and is a perfectly good answer; a plausible
+    invention is not. A fabricated NAFDAC registration number on a screening
+    record is worse than a blank one an officer fills in by hand.
+    """
+
+    product_name: str = ""
+    active_substance: str = ""
+    nafdac_reg_no: str = ""
+    mah: str = ""
+    qppv: str = ""
+    qppv_contact: str = ""
+    ibd: str = ""
+    first_nafdac_registration_date: str = ""
+    dlp: str = ""
+    interval_covered: str = ""
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_placeholders(cls, v):
+        # Models reach for "N/A", "Not stated", "unknown" and similar rather
+        # than an empty string. They all mean the same thing here, and the UI
+        # renders a blank field better than it renders someone's idea of how
+        # to spell "missing".
+        if not isinstance(v, str):
+            return ""
+        text = v.strip()
+        if text.lower().strip(".") in {
+            "n/a", "na", "not stated", "not found", "not available",
+            "unknown", "none", "not specified", "not provided", "-", "--",
+        }:
+            return ""
+        return text
+
+
+class AiPsurScreeningCheck(BaseModel):
+    """One row of section B."""
+
+    id: Literal[
+        "COVER_LETTER_COMPLETE", "QPPV_DETAILS_STATED", "ONE_PSUR_PER_ACTIVE_SUBSTANCE",
+        "PDF_OPENS_AND_FOLLOWS_TEMPLATE", "IBD_AND_FIRST_REGISTRATION_STATED",
+        "DLP_AND_INTERVAL_CONSISTENT", "INTERVAL_CONTIGUOUS", "RECEIVED_WITHIN_TIMEFRAME",
+        "TITLE_PAGE_COMPLETE_AND_SIGNED", "EXECUTIVE_SUMMARY_COMPLETE",
+        "SECTIONS_PRESENT_OR_JUSTIFIED", "LINE_LISTING_OR_NIL_STATEMENT",
+        "LITERATURE_IN_OWN_WORDS", "INTEGRATED_BENEFIT_RISK_ANALYSIS",
+        "APPENDIX_RSI_ATTACHED", "PREVIOUS_QUERIES_ADDRESSED",
+    ]
+    status: Literal["YES", "NO", "NOT_APPLICABLE", "NOT_ASSESSABLE"] = "NOT_ASSESSABLE"
+    # The checklist's "Deficiency noted" column.
+    deficiency: str = ""
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _normalize_id(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_SCREENING_CHECK_IDS:
+            return v.strip().upper()
+        # Unlike the other enum normalizers here there is no safe default: a
+        # wrong id would attach a comment to the wrong numbered item, and the
+        # compliance directive cites those numbers. Rejecting the row loses
+        # one answer; guessing corrupts the record.
+        raise ValueError(f"Unrecognised screening check id: {v!r}")
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_SCREENING_STATUSES:
+            return v.strip().upper()
+        # Degrade to "cannot tell" rather than to a pass or a fail. An
+        # unreadable answer is not evidence either way.
+        return "NOT_ASSESSABLE"
+
+
+class AiPsurAdministrativeScreening(BaseModel):
+    """A completed administrative screening — a RECOMMENDATION for the
+    Review Officer, never an automatic accept or reject."""
+
+    submission_details: AiPsurSubmissionDetails = AiPsurSubmissionDetails()
+    checks: list[AiPsurScreeningCheck] = []
+
+    @field_validator("checks", mode="before")
+    @classmethod
+    def _drop_unparseable_rows(cls, v):
+        # One malformed row must not cost the other fifteen. Anything the
+        # per-row validators reject is dropped here; the application fills
+        # the gap with NOT_ASSESSABLE, which is the truthful stand-in.
+        if not isinstance(v, list):
+            return []
+        kept = []
+        for item in v:
+            try:
+                kept.append(AiPsurScreeningCheck.model_validate(item))
+            except Exception:
+                continue
+        return kept

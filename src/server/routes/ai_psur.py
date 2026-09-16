@@ -28,8 +28,9 @@ from ..ai.prompts import (
     PSUR_FULL_FIX_PROMPT,
     PSUR_REVIEW_PDF_PROMPT,
     PSUR_REVIEW_SPREADSHEET_PROMPT,
+    PSUR_SCREENING_PDF_PROMPT,
 )
-from ..ai.schemas import AiPsurFix, AiPsurReview
+from ..ai.schemas import AiPsurAdministrativeScreening, AiPsurFix, AiPsurReview
 from ..dependencies import AuthenticatedUser, require_any_permission, require_permission
 
 logger = logging.getLogger(__name__)
@@ -446,4 +447,118 @@ async def fix_psur(
             ai_used=False,
             prompt_version=PROMPT_VERSION,
             error="AI fix returned an unusable response.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# NAFDAC PSUR Administrative Screening Checklist
+# ---------------------------------------------------------------------------
+
+
+class ScreeningCheckOut(BaseModel):
+    id: str
+    status: str
+    deficiency: str = ""
+
+
+class SubmissionDetailsOut(BaseModel):
+    product_name: str = ""
+    active_substance: str = ""
+    nafdac_reg_no: str = ""
+    mah: str = ""
+    qppv: str = ""
+    qppv_contact: str = ""
+    ibd: str = ""
+    first_nafdac_registration_date: str = ""
+    dlp: str = ""
+    interval_covered: str = ""
+
+
+class AdministrativeScreeningResponse(BaseModel):
+    submission_details: Optional[SubmissionDetailsOut] = None
+    checks: list[ScreeningCheckOut] = []
+    ai_used: bool
+    prompt_version: str
+    pages_extracted: Optional[int] = None
+    truncated: bool = False
+    model: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/screen-pdf", response_model=AdministrativeScreeningResponse)
+async def screen_pdf(
+    file: UploadFile = File(...),
+    product: str = Form(""),
+    reportingPeriod: str = Form(""),
+    # The Review Officer's own check, and only theirs. Deliberately narrower
+    # than /review-pdf: an evaluator has no business screening a submission,
+    # and by the time they see it the officer has already decided.
+    user: AuthenticatedUser = Depends(require_permission("psur.screen")),
+):
+    """Complete the 16-item administrative screening checklist from a PDF.
+
+    A separate call from /review-pdf on purpose. Screening happens on
+    receipt, before the report is allocated for scientific assessment, so a
+    submission that gets returned to the MAH never costs a full scientific
+    review. It also keeps the two prompts focused on one job each.
+
+    Item 8 (timeliness) is deliberately absent from the result: it is date
+    arithmetic against a fixed policy and the application computes it from
+    the extracted DLP, rather than asking a model to do sums that decide
+    whether an MAH was late.
+    """
+    raw = await file.read()
+    try:
+        text, total_pages = _extract_pdf_text(raw)
+    except Exception as exc:
+        logger.error("PDF text extraction failed for %s: %s", file.filename, exc)
+        return AdministrativeScreeningResponse(
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="Could not extract text from this PDF.",
+        )
+
+    if not text.strip():
+        return AdministrativeScreeningResponse(
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            pages_extracted=total_pages,
+            error="No extractable text found in this PDF (it may be a scanned image without a text layer).",
+        )
+
+    truncated = len(text) >= MAX_PDF_CHARS
+
+    try:
+        payload = {
+            "filename": file.filename,
+            "declaredProduct": product or None,
+            "declaredReportingPeriod": reportingPeriod or None,
+            "totalPages": total_pages,
+            "truncated": truncated,
+            "extractedText": text,
+        }
+        completion = await structured_completion(
+            system_prompt=PSUR_SCREENING_PDF_PROMPT,
+            user_content=json.dumps(payload),
+            max_output_tokens=2000,
+        )
+        parsed = AiPsurAdministrativeScreening.model_validate(completion.data)
+        return AdministrativeScreeningResponse(
+            submission_details=SubmissionDetailsOut(**parsed.submission_details.model_dump()),
+            checks=[ScreeningCheckOut(**c.model_dump()) for c in parsed.checks],
+            ai_used=True,
+            prompt_version=PROMPT_VERSION,
+            pages_extracted=total_pages,
+            truncated=truncated,
+            model=completion.model,
+        )
+    except AiNotConfiguredError as exc:
+        logger.info("PSUR screening skipped: %s", exc)
+        return AdministrativeScreeningResponse(
+            ai_used=False, prompt_version=PROMPT_VERSION, pages_extracted=total_pages, error=str(exc)
+        )
+    except AiRequestError as exc:
+        logger.error("PSUR screening failed: %s", exc)
+        return AdministrativeScreeningResponse(
+            ai_used=False, prompt_version=PROMPT_VERSION, pages_extracted=total_pages, error=str(exc)
         )

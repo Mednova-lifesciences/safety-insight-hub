@@ -1,10 +1,15 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, FileText, Info } from "lucide-react";
+import { FileText, Upload } from "lucide-react";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { PsurScreeningDecision } from "@/components/pv/psur-screening-decision";
 import {
+  PsurScreeningChecklist,
+  ScreeningSummaryPill,
+} from "@/components/pv/psur-screening-checklist";
+import {
+  AssistLabel,
+  EmptyState,
   PageHeader,
   QueryBoundary,
   Section,
@@ -12,6 +17,7 @@ import {
   StatusPill,
 } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { usePvQuery } from "@/lib/data-source";
 import { psur as psurApi } from "@/services/api/psur";
 import { demoPsurDocuments } from "@/services/demo/dataset";
@@ -24,21 +30,19 @@ import {
 import type { PsurDocument } from "@/types/pv";
 
 /**
- * The Review Officer's queue — the first of the three steps a periodic
- * report passes through at NAFDAC.
+ * The Review Officer's desk — NAFDAC's PSUR Administrative Screening
+ * Checklist, completed on receipt before a report is allocated for
+ * scientific assessment.
  *
- * What the officer's checks will actually BE is not settled yet: NAFDAC has
- * supplied the V4 template for the scientific review (which drives /psur)
- * but not the equivalent for screening. Rather than invent one, this page
- * gives the officer the two things that are certain — the queue of reports
- * nobody has triaged, and the forward/return decision — and says plainly
- * that the checks themselves are still to come. A placeholder that admits
- * what it is beats a fabricated checklist that looks authoritative.
+ * Three things live here and nowhere else: the incoming report is uploaded
+ * here, the 16-item checklist is completed here, and the accept/return
+ * decision is taken here. The evaluator's page (/psur) holds the scientific
+ * review and never shows any of this.
  *
- * The Administrative Completeness Check the AI already performs stays on
- * /psur, where the officer can read it in full; only the DECISION is
- * duplicated here, through the same shared component, so the two surfaces
- * cannot disagree.
+ * Uploading is on this page rather than /psur because upload IS receipt —
+ * it is the moment a submission enters the process, which is the officer's
+ * job. The AI screening runs at that moment too, because the PDF's bytes
+ * are not retained afterwards.
  */
 export const Route = createFileRoute("/_app/screening")({
   head: () => ({
@@ -47,7 +51,7 @@ export const Route = createFileRoute("/_app/screening")({
       {
         name: "description",
         content:
-          "Triage incoming periodic safety reports and decide whether they proceed to scientific review or return to the MAH.",
+          "Complete NAFDAC's PSUR administrative screening checklist and decide whether a submission proceeds to scientific assessment.",
       },
       { property: "og:title", content: "Report screening — MedNova PV Assist" },
       {
@@ -69,76 +73,122 @@ function ScreeningPage() {
     () => psurApi.documents(),
     () => demoPsurDocuments,
   );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const all = docs.data?.data ?? [];
+  const awaiting = all.filter(isAwaitingScreening);
+  // Default to the first untriaged report, so the page opens on work rather
+  // than on an empty pane.
+  const active = all.find((d) => d.id === selectedId) ?? awaiting[0];
 
   return (
     <>
       <PageHeader
         title="Report screening"
-        description="Incoming periodic safety reports awaiting triage. Decide whether each proceeds to scientific review or returns to the MAH."
+        description="Complete the administrative screening checklist on receipt, before the report is allocated for scientific assessment."
+        meta={
+          <>
+            <AssistLabel>AI completes the checklist — your confirmation is required</AssistLabel>
+            {docs.data ? <SourceTag source={docs.data.source} /> : null}
+          </>
+        }
       />
 
       <div className="space-y-4 p-6">
-        <Section title="Screening checks">
-          <div className="flex gap-3 rounded-md border border-dashed border-border bg-muted/40 p-4">
-            <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <div className="space-y-1 text-sm">
-              <p className="font-medium">The officer&rsquo;s own checks are not built yet.</p>
-              <p className="text-muted-foreground">
-                NAFDAC has provided the V4 template for the scientific review, but not the
-                equivalent for screening. Until it arrives, use the AI Administrative Completeness
-                Check on the{" "}
-                <Link to="/psur" className="underline">
-                  PSUR / PBRER review
-                </Link>{" "}
-                page as your reference, and record the decision here or there — both write the same
-                record.
-              </p>
-            </div>
-          </div>
+        <Section
+          title="Receive a report"
+          description="Uploading records the submission as received and runs the screening checks. The date of receipt is taken from this moment."
+        >
+          <label
+            className={cn(
+              "flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-border px-4 py-3 text-sm transition-colors hover:bg-muted",
+              uploading && "pointer-events-none opacity-60",
+            )}
+          >
+            <Upload className="size-4" />
+            <span>{uploading ? "Screening the submission…" : "Choose a PSUR/PBRER file"}</span>
+            <input
+              type="file"
+              className="hidden"
+              accept=".pdf,.xlsx,.xls,.csv"
+              disabled={uploading}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setUploading(true);
+                try {
+                  const created = await psurApi.upload(file);
+                  setSelectedId(created.id);
+                  toast.success("Received. The screening checklist is ready for your review.");
+                  docs.refetch();
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Could not receive this file.");
+                } finally {
+                  setUploading(false);
+                  e.target.value = "";
+                }
+              }}
+            />
+          </label>
         </Section>
 
         <QueryBoundary query={docs} loadingLabel="Loading screening queue">
-          {(items, source) => {
-            const awaiting = items.filter(isAwaitingScreening);
-            const decided = items.filter((d) => !isAwaitingScreening(d));
+          {(items) => {
+            const untriaged = items.filter(isAwaitingScreening);
+            const triaged = items.filter((d) => !isAwaitingScreening(d));
             return (
               <>
                 <Section
                   title="Awaiting screening"
                   description={
-                    awaiting.length === 0
+                    untriaged.length === 0
                       ? "Nothing is waiting on you right now."
-                      : `${awaiting.length} report${awaiting.length === 1 ? "" : "s"} to triage.`
+                      : `${untriaged.length} report${untriaged.length === 1 ? "" : "s"} to screen.`
                   }
-                  actions={<SourceTag source={source} />}
                 >
-                  {awaiting.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Reports appear here as soon as they are uploaded.
-                    </p>
+                  {untriaged.length === 0 ? (
+                    <EmptyState
+                      title="Nothing to screen"
+                      description="Reports appear here as soon as they are received."
+                    />
                   ) : (
-                    <div className="space-y-3">
-                      {awaiting.map((doc) => (
-                        <ScreeningQueueRow
+                    <div className="space-y-2">
+                      {untriaged.map((doc) => (
+                        <QueueRow
                           key={doc.id}
                           doc={doc}
-                          onChanged={() => docs.refetch()}
+                          selected={doc.id === active?.id}
+                          onSelect={() => setSelectedId(doc.id)}
                         />
                       ))}
                     </div>
                   )}
                 </Section>
 
+                {active ? (
+                  <Section
+                    title={`Screening: ${active.filename}`}
+                    description={`${active.product} · ${active.reportingPeriod}`}
+                  >
+                    <PsurScreeningChecklist
+                      key={active.id}
+                      doc={active}
+                      onChanged={() => docs.refetch()}
+                    />
+                  </Section>
+                ) : null}
+
                 <Section
-                  title="Already triaged"
-                  description="Reports you have sent forward or returned. The compliance directive for a completed review is downloaded from here."
+                  title="Already screened"
+                  description="Reports you have accepted or returned. The compliance directive for a completed review is downloaded from here."
                 >
-                  {decided.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Nothing triaged yet.</p>
+                  {triaged.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Nothing screened yet.</p>
                   ) : (
                     <div className="space-y-2">
-                      {decided.map((doc) => (
-                        <TriagedRow key={doc.id} doc={doc} />
+                      {triaged.map((doc) => (
+                        <TriagedRow key={doc.id} doc={doc} onOpen={() => setSelectedId(doc.id)} />
                       ))}
                     </div>
                   )}
@@ -157,60 +207,41 @@ function DocumentSummary({ doc }: { doc: PsurDocument }) {
     <div className="min-w-0">
       <p className="truncate text-sm font-medium">{doc.filename}</p>
       <p className="text-xs text-muted-foreground">
-        {doc.product} · {doc.reportingPeriod} · uploaded by {doc.uploadedBy} on{" "}
-        {doc.uploadedAt.slice(0, 10)}
+        {doc.product} · {doc.reportingPeriod} · received {doc.uploadedAt.slice(0, 10)}
       </p>
     </div>
   );
 }
 
-function ScreeningQueueRow({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
-  const checks = doc.screening?.administrativeChecks ?? [];
-  const failed = checks.filter((c) => c.status === "NO");
-
+function QueueRow({
+  doc,
+  selected,
+  onSelect,
+}: {
+  doc: PsurDocument;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
-    <div className="space-y-3 rounded-md border border-border p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <DocumentSummary doc={doc} />
-        <Button asChild size="sm" variant="outline">
-          <Link to="/psur">
-            Open full check <ArrowRight className="size-3.5" />
-          </Link>
-        </Button>
-      </div>
-
-      {/* A short read of what the AI check found, so the officer is not
-          forced onto another page to make an obvious call. The detail
-          stays on /psur rather than being duplicated here. */}
-      {checks.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          No administrative completeness check has run on this report yet.
-        </p>
-      ) : (
-        <p className="flex flex-wrap items-center gap-2 text-xs">
-          <StatusPill tone={failed.length > 0 ? "critical" : "success"}>
-            {failed.length > 0
-              ? `${failed.length} of ${checks.length} checks failed`
-              : `${checks.length} checks passed`}
-          </StatusPill>
-          {failed.length > 0 ? (
-            <span className="text-muted-foreground">{failed.map((c) => c.label).join("; ")}</span>
-          ) : null}
-        </p>
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex w-full flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+        selected ? "border-primary bg-accent" : "border-border hover:bg-muted",
       )}
-
-      <PsurScreeningDecision doc={doc} onChanged={onChanged} />
-    </div>
+    >
+      <DocumentSummary doc={doc} />
+      <ScreeningSummaryPill doc={doc} />
+    </button>
   );
 }
 
-function TriagedRow({ doc }: { doc: PsurDocument }) {
+function TriagedRow({ doc, onOpen }: { doc: PsurDocument; onOpen: () => void }) {
   const [downloading, setDownloading] = useState(false);
   const stage = deriveWorkflowStage(doc);
-
   // The directive is built from the findings of the COMPLETED scientific
   // review, so it does not exist until a peer reviewer has signed off.
-  // Offering the button earlier would hand the officer an empty document.
   const directiveReady = isPeerReviewed(doc);
 
   async function download(kind: "docx" | "text") {
@@ -232,6 +263,9 @@ function TriagedRow({ doc }: { doc: PsurDocument }) {
         <StatusPill tone={stage === "RETURNED_TO_MAH" ? "neutral" : "success"}>
           {WORKFLOW_STAGE_LABELS[stage]}
         </StatusPill>
+        <Button size="sm" variant="ghost" onClick={onOpen}>
+          View checklist
+        </Button>
         {directiveReady ? (
           <>
             <Button
