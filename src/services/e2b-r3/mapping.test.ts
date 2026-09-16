@@ -365,6 +365,26 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
     expect(pvCase.products.map((p) => p.product.sourceValue)).toEqual(["PENTA", "IPV", "PCV"]);
   });
 
+  it("preserves punctuation inside a verbatim primary suspect product name", async () => {
+    const profile = {
+      ...ondoAefiProfile,
+      productDelimiter: { separators: [] },
+    };
+    const { pvCase } = await mapSourceRecordToPVCase(
+      {
+        reaction: "19",
+        product: "Measles, Mumps / Rubella",
+        patient_identifier: "A B",
+      },
+      profile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.products).toHaveLength(1);
+    expect(pvCase.products[0]!.product.sourceValue).toBe("Measles, Mumps / Rubella");
+  });
+
   it("a dot-separated reaction field against Ondo's empty codebook resolves as one unrecognised value — nothing to split against since no code is known at all", async () => {
     const { pvCase } = await mapSourceRecordToPVCase(
       { reaction: "8.19.21", product: "MR/MV", patient_identifier: "A B" },

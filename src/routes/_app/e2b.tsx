@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { useEffect, useState } from "react";
-import { Download, FileStack, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
+import { Download, FileStack, ShieldAlert, ShieldCheck, ShieldOff, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { e2b as e2bApi } from "@/services/api/e2b";
 import {
@@ -19,6 +19,9 @@ import { linelist as linelistApi } from "@/services/api/linelist";
 import { demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { isNotConfigured } from "@/services/api/client";
+import { ai } from "@/services/api/ai";
+import { coding as codingApi } from "@/services/api/coding";
+import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
 import {
   EmptyState,
   PageHeader,
@@ -76,6 +79,12 @@ function E2bPage() {
   );
   const [overridingJobId, setOverridingJobId] = useState<string | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
+  const [slashAsSeparator, setSlashAsSeparator] = useState<Record<string, boolean>>({});
+  const [verbatimProduct, setVerbatimProduct] = useState<Record<string, boolean>>({});
+  const [aiCodingBusy, setAiCodingBusy] = useState<string | null>(null);
+  const [aiCodingResults, setAiCodingResults] = useState<
+    Record<string, { term: string; rationale: string; matches: { term: string; code: string }[] }[]>
+  >({});
   // The org's persisted NAFDAC E2B(R3) regulatory configuration (sender/
   // receiver identifiers, C.1.3, the outcome codelist, and reporter-
   // qualification mappings — see Settings → Regulatory Profiles). Starts
@@ -98,10 +107,33 @@ function E2bPage() {
       });
   }, []);
 
+  function profileForJob(jobId: string) {
+    const job = (jobs.data?.data ?? []).find((item) => item.id === jobId);
+    const base = getSourceProfile(job?.sourceProfileId || "ondo-aefi");
+    if (
+      !slashAsSeparator[jobId] &&
+      !verbatimProduct[jobId]
+    ) {
+      return base;
+    }
+    return {
+      ...base,
+      reactionDelimiter: {
+        ...base.reactionDelimiter,
+        separators: slashAsSeparator[jobId] && !base.reactionDelimiter.separators.includes("/")
+          ? [...base.reactionDelimiter.separators, "/"]
+          : base.reactionDelimiter.separators,
+      },
+      productDelimiter: verbatimProduct[jobId]
+        ? { separators: [] }
+        : base.productDelimiter,
+    };
+  }
+
   async function checkValidatedPreflight(jobId: string) {
     setPreflightBusy(jobId);
     try {
-      const result = await runValidatedPreflightForJob(jobId, regConfig);
+      const result = await runValidatedPreflightForJob(jobId, regConfig, profileForJob(jobId));
       setPreflightResults((prev) => ({ ...prev, [jobId]: result }));
       if (result.readyForValidatedExport && result.transmissionConfigConfirmed) {
         toast.success(
@@ -126,7 +158,7 @@ function E2bPage() {
   async function exportValidated(jobId: string) {
     setPreflightBusy(jobId);
     try {
-      const batches = await generateValidatedExportForJob(jobId, regConfig);
+      const batches = await generateValidatedExportForJob(jobId, regConfig, profileForJob(jobId));
       for (const b of batches) await downloadValidatedBatch(jobId, b);
       toast.success(
         `Downloaded ${batches.length} real E2B(R3) batch file(s) — ${batches.reduce((n, b) => n + b.caseCount, 0)} case(s) total.`,
@@ -135,6 +167,68 @@ function E2bPage() {
       toast.error(err instanceof Error ? err.message : "Validated export failed.");
     } finally {
       setPreflightBusy(null);
+    }
+
+  }
+
+  async function askAiForMedDra(caseId: string, sourceValue: string) {
+    const key = `${caseId}:${sourceValue}`;
+    setAiCodingBusy(key);
+    try {
+      const proposal = await ai.coding.suggest({ dictionary: "MedDRA", text: sourceValue });
+      const candidates = proposal.ai_used ? proposal.candidates : [];
+      const verified = await Promise.all(
+        candidates.map(async (candidate) => ({
+          ...candidate,
+          matches: (await codingApi.searchDictionary("MedDRA", candidate.term))
+            .filter((match) => match.source === "dictionary")
+            .slice(0, 5)
+            .map((match) => ({ term: match.term, code: match.code })),
+        })),
+      );
+      setAiCodingResults((previous) => ({ ...previous, [key]: verified }));
+      if (verified.length === 0) {
+        toast.warning("AI could not find a verified MedDRA candidate for this text.");
+      }
+
+      async function acceptMedDraCandidate(
+        jobId: string,
+        caseId: string,
+        sourceValue: string,
+        candidate: { term: string; code: string },
+      ) {
+        try {
+          const suggestion = await codingApi.addCandidate(
+            caseId,
+            "REACTION",
+            sourceValue,
+            {
+              term: candidate.term,
+              code: candidate.code,
+              dictionary: "MedDRA",
+              dictionaryVersion: "29.1",
+              source: "dictionary",
+            },
+          );
+          await codingApi.accept(
+            caseId,
+            suggestion.id,
+            `Human-confirmed MedDRA 29.1 LLT ${candidate.code} after AI-assisted normalization.`,
+          );
+          toast.success(`Accepted MedDRA LLT ${candidate.code}. Rerunning preflight.`);
+          await checkValidatedPreflight(jobId);
+        } catch (err) {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : "Could not persist the confirmed MedDRA correction.",
+          );
+        }
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "AI coding assistance failed.");
+    } finally {
+      setAiCodingBusy(null);
     }
   }
 
@@ -290,6 +384,62 @@ function E2bPage() {
                             sender/receiver transmission identifiers to be confirmed by NAFDAC/Ondo
                             (see the configuration gaps below) — neither condition alone unlocks it.
                           </p>
+                          <div className="mt-2 rounded border border-border bg-background/60 px-2 py-2 text-xs">
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                checked={slashAsSeparator[j.id] ?? false}
+                                onChange={(event) => {
+                                  setSlashAsSeparator((previous) => ({
+                                    ...previous,
+                                    [j.id]: event.target.checked,
+                                  }));
+                                  setPreflightResults((previous) => {
+                                    const next = { ...previous };
+                                    delete next[j.id];
+                                    return next;
+                                  });
+                                }}
+                              />
+                              <span>
+                                <span className="font-medium">Interpret “/” as separate reactions</span>
+                                <span className="mt-0.5 block text-muted-foreground">
+                                  Default is off because “Rash/Urticaria” may be one source phrase.
+                                  Turn this on only when the source owner confirms slash means two
+                                  distinct reactions, then rerun preflight.
+                                </span>
+                              </span>
+                            </label>
+                          </div>
+                          <div className="mt-2 rounded border border-border bg-background/60 px-2 py-2 text-xs">
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                checked={verbatimProduct[j.id] ?? false}
+                                onChange={(event) => {
+                                  setVerbatimProduct((previous) => ({
+                                    ...previous,
+                                    [j.id]: event.target.checked,
+                                  }));
+                                  setPreflightResults((previous) => {
+                                    const next = { ...previous };
+                                    delete next[j.id];
+                                    return next;
+                                  });
+                                }}
+                              />
+                              <span>
+                                <span className="font-medium">
+                                  Keep primary suspect vaccine name verbatim
+                                </span>
+                                <span className="mt-0.5 block text-muted-foreground">
+                                  Preserves commas and slashes inside the product name as one
+                                  medicinal product. Use this when the source cell contains one
+                                  registered vaccine name, not a product list.
+                                </span>
+                              </span>
+                            </label>
+                          </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <Button
                               size="sm"
@@ -518,6 +668,71 @@ function E2bPage() {
                                               <p>Source value: "{e.sourceValue}"</p>
                                             ) : null}
                                             <p>Remediation: {e.remediation}</p>
+                                            {e.code === "VIGIFLOW-MEDDRA-MISSING" && e.sourceValue ? (
+                                              <div className="mt-2">
+                                                <Button
+                                                  size="sm"
+                                                  variant="outline"
+                                                  disabled={aiCodingBusy === `${r.caseId}:${e.sourceValue}`}
+                                                  onClick={() =>
+                                                    askAiForMedDra(r.caseId, e.sourceValue!)
+                                                  }
+                                                >
+                                                  <Sparkles className="size-3.5" />
+                                                  {aiCodingBusy === `${r.caseId}:${e.sourceValue}`
+                                                    ? "Finding verified candidates…"
+                                                    : "Suggest correction with AI"}
+                                                </Button>
+                                                {(aiCodingResults[`${r.caseId}:${e.sourceValue}`] ?? [])
+                                                  .length > 0 ? (
+                                                  <div className="mt-2 rounded border border-info/30 bg-info-soft p-2">
+                                                    <p className="font-medium">
+                                                      AI suggestions — confirm one before changing
+                                                      the source record
+                                                    </p>
+                                                    {aiCodingResults[
+                                                      `${r.caseId}:${e.sourceValue}`
+                                                    ]?.map((candidate, candidateIndex) => (
+                                                      <div key={candidateIndex} className="mt-1">
+                                                        <p>
+                                                          {candidate.term}{" "}
+                                                          <span className="text-muted-foreground">
+                                                            ({candidate.rationale})
+                                                          </span>
+                                                        </p>
+                                                        {candidate.matches.length > 0 ? (
+                                                          <ul className="ml-3 list-disc">
+                                                            {candidate.matches.map((match) => (
+                                                              <li key={match.code} className="flex items-center justify-between gap-2">
+                                                                MedDRA LLT {match.code}: {match.term}
+                                                                <Button
+                                                                  size="sm"
+                                                                  variant="outline"
+                                                                  onClick={() =>
+                                                                    acceptMedDraCandidate(
+                                                                      j.id,
+                                                                      r.caseId,
+                                                                      e.sourceValue!,
+                                                                      match,
+                                                                    )
+                                                                  }
+                                                                >
+                                                                  Confirm and apply
+                                                                </Button>
+                                                              </li>
+                                                            ))}
+                                                          </ul>
+                                                        ) : (
+                                                          <p className="text-muted-foreground">
+                                                            No verified MedDRA 29.1 match.
+                                                          </p>
+                                                        )}
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                ) : null}
+                                              </div>
+                                            ) : null}
                                           </div>
                                         ))}
                                     </div>

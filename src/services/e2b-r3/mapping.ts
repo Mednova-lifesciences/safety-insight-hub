@@ -15,7 +15,7 @@ import type {
   WhoDrugCodedProduct,
 } from "./types";
 import type { MedDraCodingProvider, WhoDrugCodingProvider } from "./coding-provider";
-import type { SourceProfile } from "./source-profiles/types";
+import type { DelimiterConfig, SourceProfile } from "./source-profiles/types";
 import type { E2bTransmissionConfig } from "./transmission-config";
 import { parseCompoundSourceValue } from "./compound-source-parser";
 
@@ -319,11 +319,15 @@ export interface SplitResult {
   rawValue: string;
 }
 
-export function splitBySourceProfile(raw: string | undefined, profile: SourceProfile): SplitResult {
+export function splitBySourceProfile(
+  raw: string | undefined,
+  profile: SourceProfile,
+  delimiter: DelimiterConfig = profile.reactionDelimiter,
+): SplitResult {
   const rawValue = (raw ?? "").trim();
   if (!rawValue) return { values: [], quarantined: false, rawValue };
 
-  const escaped = profile.reactionDelimiter.separators.map((s) =>
+  const escaped = delimiter.separators.map((s) =>
     s.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
   );
   if (escaped.length > 0) {
@@ -575,7 +579,11 @@ export async function mapSourceRecordToPVCase(
   // products (task explicitly scopes the codebook-quarantine requirement
   // to reactions only); a provider may still return UNMAPPED/etc, which
   // is fine and non-blocking under Option A (see validation.ts).
-  const productSplit = splitBySourceProfile(row.product, profile);
+  const productSplit = splitBySourceProfile(
+    row.product,
+    profile,
+    profile.productDelimiter ?? profile.reactionDelimiter,
+  );
   if (productSplit.quarantined) {
     warnings.push({
       field: "product",

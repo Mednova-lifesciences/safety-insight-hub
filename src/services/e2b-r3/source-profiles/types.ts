@@ -131,6 +131,10 @@ export interface SourceProfile {
    */
   reactionEncoding?: "CODED" | "VERBATIM" | undefined;
   reactionDelimiter: DelimiterConfig;
+  /** Product names may contain punctuation that is part of the registered
+   * name (for example "Vaccine, Paediatric / IPV"). When omitted, preserve
+   * the historical behaviour of using reaction delimiters for products. */
+  productDelimiter?: DelimiterConfig | undefined;
   /** Only consulted when reactionEncoding is "CODED". A VERBATIM source
    *  legitimately has no codebook at all. */
   reactionCodebook: ReactionCodebook;
