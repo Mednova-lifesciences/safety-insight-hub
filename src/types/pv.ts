@@ -1,5 +1,11 @@
 /** Domain types mirroring the payloads the FastAPI layer will return. */
 
+// Type-only, so this erases at compile time and creates no import cycle.
+// Re-exported because a notification's audience is a list of roles, and
+// every consumer of that field already imports from here.
+import type { Role } from "@/lib/auth";
+export type { Role };
+
 export type WorkflowStep =
   "INTAKE" | "TRIAGE" | "CODING" | "REVIEW" | "QC" | "REGULATORY_READY" | "CLOSED";
 
@@ -1234,10 +1240,28 @@ export interface Notification {
     | "MANAGER_REVIEW"
     | "SIGNAL_REVIEW"
     | "PSUR_COMPLETE"
-    | "LINELIST_FAILED";
+    | "LINELIST_FAILED"
+    // The four handoffs in the NAFDAC assessment. Each one moves a report
+    // from one person's desk to another's, and the person receiving it has
+    // no other way of knowing it arrived.
+    | "PSUR_SENT_FOR_SCIENTIFIC_REVIEW"
+    | "PSUR_RETURNED_TO_MAH"
+    | "PSUR_AWAITING_PEER_REVIEW"
+    | "PSUR_PEER_REVIEW_COMPLETE";
   title: string;
   body: string;
   at: string;
   read: boolean;
   link?: string | undefined;
+  /**
+   * Who this is for. Absent means everyone in the organisation, which is
+   * how every notification behaved before this existed and how the
+   * case-handling ones still behave.
+   *
+   * Filtering happens on read rather than on write: one row is stored and
+   * each person sees it or does not. That keeps the audit trail single —
+   * "this handoff happened once" — rather than fanning one event out into a
+   * row per recipient that could later disagree with itself.
+   */
+  audience?: Role[] | undefined;
 }

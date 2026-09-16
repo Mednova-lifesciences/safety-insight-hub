@@ -7,7 +7,7 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
-import type { AuditEvent, WorkflowStep, WorkflowStepState } from "@/types/pv";
+import type { AuditEvent, Role, WorkflowStep, WorkflowStepState } from "@/types/pv";
 
 /** Domain objects are stored in a jsonb `data` column. */
 export const toJson = (value: unknown): Json => value as unknown as Json;
@@ -97,6 +97,9 @@ export async function pushNotification(n: {
   title: string;
   body: string;
   link?: string;
+  /** Roles this is for. Omit for everyone, which is what every
+   *  notification did before audiences existed. */
+  audience?: Role[];
 }): Promise<void> {
   const row = {
     id: newId("nt"),
@@ -106,6 +109,7 @@ export async function pushNotification(n: {
     at: new Date().toISOString(),
     read: false,
     ...(n.link ? { link: n.link } : {}),
+    ...(n.audience ? { audience: n.audience } : {}),
   };
   await supabase.from("pv_notifications").insert({ id: row.id, data: toJson(row) });
 }

@@ -1091,7 +1091,6 @@ describe("a coded source with no codebook is caught during line-list processing"
   });
 });
 
-
 describe("mergeColumnMapping — AI reads the headers, guards keep it honest", () => {
   const p = (column: string, field: string | null, confidence = 0.9, reason = "because") => ({
     column,

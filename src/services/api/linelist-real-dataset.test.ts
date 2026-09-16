@@ -28,7 +28,10 @@ describe("line-list executive summary — real Ondo dataset, before vs after cod
     ) as ParsedRow[];
     expect(rows.length).toBe(231);
     const legendLines = JSON.parse(
-      readFileSync(join(__dirname, "..", "e2b-r3", "__fixtures__", "ondo-real-legend.json"), "utf-8"),
+      readFileSync(
+        join(__dirname, "..", "e2b-r3", "__fixtures__", "ondo-real-legend.json"),
+        "utf-8",
+      ),
     ) as { row: number; text: string }[];
 
     // Identity header<->field mapping — these fixture rows are already
@@ -37,7 +40,9 @@ describe("line-list executive summary — real Ondo dataset, before vs after cod
     // own header" — not a hand-picked or hardcoded set.
     const presentFields = TARGET_FIELDS.filter((f) => rows.some((r) => r[f] !== undefined));
     const headers = [...presentFields];
-    const mapping: Record<string, TargetField> = Object.fromEntries(presentFields.map((f) => [f, f]));
+    const mapping: Record<string, TargetField> = Object.fromEntries(
+      presentFields.map((f) => [f, f]),
+    );
 
     const baseProfile = getSourceProfile("ondo-aefi");
     // BEFORE: the base profile with no discovered codebook at all — this
@@ -54,7 +59,8 @@ describe("line-list executive summary — real Ondo dataset, before vs after cod
     expect(discovered.discoveryStatus).toBe("DISCOVERED");
     const after = runValidation(headers, mapping, rows, runtimeProfile);
 
-    const countOf = (issues: typeof before, code: string) => issues.filter((i) => i.code === code).length;
+    const countOf = (issues: typeof before, code: string) =>
+      issues.filter((i) => i.code === code).length;
 
     // The stale finding this whole investigation started from.
     const beforeUnrecognised = countOf(before, "UNRECOGNISED_OUTCOME_VALUE");

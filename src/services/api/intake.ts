@@ -14,8 +14,7 @@ export const intake = {
       { method: "POST", body: { fields, message } },
     ),
   convertToIcsr: (id: string) =>
-    apiRequest<{ caseId: string }>(
-      `/api/intake/conversations/${encodeURIComponent(id)}/convert`,
-      { method: "POST" },
-    ),
+    apiRequest<{ caseId: string }>(`/api/intake/conversations/${encodeURIComponent(id)}/convert`, {
+      method: "POST",
+    }),
 };

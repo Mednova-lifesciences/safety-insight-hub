@@ -3,6 +3,7 @@ import { Bell } from "lucide-react";
 import { notifications as notificationsApi } from "@/services/api/notifications";
 import { demoNotifications } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
+import { useRole } from "@/lib/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,13 +46,18 @@ const tone: Record<Notification["type"], Tone> = {
   SIGNAL_REVIEW: "warning",
   PSUR_COMPLETE: "success",
   LINELIST_FAILED: "critical",
+  PSUR_SENT_FOR_SCIENTIFIC_REVIEW: "info",
+  PSUR_RETURNED_TO_MAH: "warning",
+  PSUR_AWAITING_PEER_REVIEW: "info",
+  PSUR_PEER_REVIEW_COMPLETE: "success",
 };
 
 function NotificationsPage() {
   const queryClient = useQueryClient();
+  const role = useRole();
   const query = usePvQuery(
-    ["notifications"],
-    () => notificationsApi.list(),
+    ["notifications", role],
+    () => notificationsApi.list(role),
     () => demoNotifications,
   );
   return (

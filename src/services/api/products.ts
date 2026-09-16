@@ -28,10 +28,7 @@ function fromRow(row: { id: string; data: unknown }): CatalogDrug {
  *  calls never filter by organization_id themselves. */
 export const products = {
   list: async (): Promise<CatalogDrug[]> => {
-    const { data, error } = await supabase
-      .from("pv_products")
-      .select("id,data")
-      .order("id");
+    const { data, error } = await supabase.from("pv_products").select("id,data").order("id");
     if (error) throw new Error(error.message);
     return (data ?? []).map(fromRow).sort((a, b) => a.name.localeCompare(b.name));
   },
