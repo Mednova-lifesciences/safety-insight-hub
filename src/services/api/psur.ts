@@ -1919,6 +1919,13 @@ export const psur = {
             pages: screeningResult.pages_extracted ?? 0,
           })
         : blankAdministrativeScreening(doc.uploadedAt, doc.product, doc.reportingPeriod);
+      if (
+        typeof screeningResult.pages_extracted === "number" &&
+        screeningResult.pages_extracted > 0
+      ) {
+        doc.pages = screeningResult.pages_extracted;
+        doc.pagesEstimated = false;
+      }
     } catch {
       administrativeScreening = blankAdministrativeScreening(
         doc.uploadedAt,

@@ -270,7 +270,7 @@ async def review_pdf(
         completion = await structured_completion(
             system_prompt=PSUR_REVIEW_PDF_PROMPT,
             user_content=json.dumps(payload),
-            max_output_tokens=3000,
+            max_output_tokens=6000,
         )
         parsed = AiPsurReview.model_validate(completion.data)
         return ReviewResponse(
@@ -353,7 +353,7 @@ async def review_pdf_text(
         completion = await structured_completion(
             system_prompt=PSUR_REVIEW_PDF_PROMPT,
             user_content=json.dumps(payload),
-            max_output_tokens=3000,
+            max_output_tokens=6000,
         )
         parsed = AiPsurReview.model_validate(completion.data)
         return ReviewResponse(
@@ -385,13 +385,13 @@ async def review_pdf_text(
     except AiNotConfiguredError as exc:
         logger.info("Deferred PSUR PDF AI review skipped: %s", exc)
         return ReviewResponse(findings=[], ai_used=False, prompt_version=PROMPT_VERSION, error=str(exc))
-    except AiRequestError:
+    except AiRequestError as exc:
         logger.exception("Deferred PSUR PDF AI review failed")
         return ReviewResponse(
             findings=[],
             ai_used=False,
             prompt_version=PROMPT_VERSION,
-            error="AI review unavailable.",
+            error=f"AI review unavailable: {exc}",
         )
     except Exception:
         logger.exception("Deferred PSUR PDF AI review returned unusable output")
