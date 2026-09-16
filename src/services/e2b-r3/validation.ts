@@ -482,7 +482,9 @@ export function validateVigiFlowPreflight(pvCase: PVCase): ValidationError[] {
           "BLOCKING",
           L,
           "Reaction is not mapped to a valid MedDRA term.",
-          `Decoded source term "${r.sourceDecoding.sourceTerm}" cannot be converted to MedDRA because no MedDRA dictionary/subscription is configured. A source category number must never be emitted as E.i.2.1b.`,
+          r.reaction.status === "PROVIDER_UNAVAILABLE"
+            ? `Decoded source term "${r.sourceDecoding.sourceTerm}" could not be checked because the MedDRA 29.1 provider is unavailable. Confirm the live backend URL and MedDRA dictionary deployment. A source category number must never be emitted as E.i.2.1b.`
+            : `Decoded source term "${r.sourceDecoding.sourceTerm}" was not found as an exact MedDRA 29.1 LLT. Confirm the intended clinical term and select a valid MedDRA LLT; a source category number must never be emitted as E.i.2.1b.`,
           { e2bField: "E.i.2.1b", sourceField: "reaction", sourceValue: r.reaction.sourceValue },
         ),
       );
