@@ -38,14 +38,27 @@ import type {
   PsurUncertaintyCategory,
   PsurV4SectionId,
   PsurWorkflowStage,
+  PsurAdministrativeScreening,
+  PsurScreeningCheckItem,
+  PsurScreeningOutcomeDecision,
+  PsurSubmissionDetails,
 } from "@/types/pv";
 import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
 import { deriveWorkflowStage } from "@/services/psur/workflow";
+import {
+  SCREENING_CHECKS,
+  assessTimeliness,
+  emptySubmissionDetails,
+  normalizeChecks,
+  recommendOutcome,
+  screeningCheck,
+} from "@/services/psur/screening-checklist";
 import type {
   AiPsurBenefitRiskOut,
   AiPsurFindingOut,
   AiPsurRecommendationOut,
   AiPsurScreeningOut,
+  AiPsurScreeningResponse,
   AiPsurSpecialPopulationItemOut,
   AiPsurNigerianContextOut,
   AiPsurUncertaintyOut,
@@ -233,6 +246,134 @@ function mapAiFinding(f: AiPsurFindingOut): PsurFinding {
 }
 
 /** AI screening result (wire shape) -> domain PsurScreeningResult. */
+/**
+ * Turns the AI's screening answers into a completed checklist.
+ *
+ * Three things happen here that the model is deliberately not trusted with:
+ *
+ *  - Item 8 is COMPUTED from the extracted Data Lock Point and the date this
+ *    system received the file, against NAFDAC's 70/90-day windows. The model
+ *    is told to omit it entirely. Date arithmetic that decides whether an MAH
+ *    was late should not be a language model's guess.
+ *  - Checks the model did not return, or returned malformed, come back as
+ *    "cannot tell from the document" rather than being dropped from the form
+ *    or defaulted to a pass. All 16 rows always render.
+ *  - Items that need a NAFDAC record the system does not hold (2, 3, 7, 16)
+ *    are forced to NOT_ASSESSABLE even if the model answered them, and the
+ *    officer is told which record to check. The prompt asks for this too;
+ *    this is the belt to that braces, because a confident wrong YES on
+ *    "matches the NAFDAC certificate" is exactly the failure mode that
+ *    matters here.
+ */
+function mapAiAdministrativeScreening(
+  ai: AiPsurScreeningResponse,
+  dateReceived: string,
+): PsurAdministrativeScreening {
+  const detailsIn = ai.submission_details;
+  const submissionDetails: PsurSubmissionDetails = {
+    ...emptySubmissionDetails(),
+    ...(detailsIn
+      ? {
+          productName: detailsIn.product_name,
+          activeSubstance: detailsIn.active_substance,
+          nafdacRegNo: detailsIn.nafdac_reg_no,
+          mah: detailsIn.mah,
+          qppv: detailsIn.qppv,
+          qppvContact: detailsIn.qppv_contact,
+          ibd: detailsIn.ibd,
+          firstNafdacRegistrationDate: detailsIn.first_nafdac_registration_date,
+          dlp: detailsIn.dlp,
+          intervalCovered: detailsIn.interval_covered,
+        }
+      : {}),
+    dateReceived,
+  };
+
+  const byId = new Map(ai.checks.map((c) => [c.id, c]));
+  const timeliness = assessTimeliness(submissionDetails);
+
+  const checks = SCREENING_CHECKS.map((def) => {
+    if (def.computed) {
+      return {
+        id: def.id,
+        status: timeliness.status,
+        deficiency: timeliness.note,
+        assistGenerated: true,
+      };
+    }
+
+    const answered = byId.get(def.id);
+
+    if (def.requiresExternalRecord) {
+      return {
+        id: def.id,
+        status: "NOT_ASSESSABLE" as const,
+        // Keep whatever the model observed about the DOCUMENT — that is
+        // genuinely useful to whoever does the manual comparison — but
+        // never its verdict on the match.
+        deficiency: answered?.deficiency
+          ? `${answered.deficiency} Check against: ${def.requiresExternalRecord}`
+          : `Check against: ${def.requiresExternalRecord}`,
+        assistGenerated: true,
+      };
+    }
+
+    if (!answered) {
+      return {
+        id: def.id,
+        status: "NOT_ASSESSABLE" as const,
+        deficiency: "The AI did not return an answer for this check.",
+        assistGenerated: true,
+      };
+    }
+
+    return {
+      id: def.id,
+      status: answered.status as PsurScreeningCheckItem["status"],
+      deficiency: answered.deficiency,
+      assistGenerated: true,
+    };
+  });
+
+  return {
+    performedAt: new Date().toISOString(),
+    submissionDetails,
+    checks,
+    assistGenerated: true,
+  };
+}
+
+/** A blank checklist for when the AI is unavailable. Every row reads
+ *  "cannot tell", which is true, and leaves all 16 for the officer. */
+function blankAdministrativeScreening(
+  dateReceived: string,
+  product: string,
+  intervalCovered: string,
+): PsurAdministrativeScreening {
+  const submissionDetails: PsurSubmissionDetails = {
+    ...emptySubmissionDetails(),
+    productName: product,
+    intervalCovered,
+    dateReceived,
+  };
+  const timeliness = assessTimeliness(submissionDetails);
+  return {
+    performedAt: new Date().toISOString(),
+    submissionDetails,
+    checks: SCREENING_CHECKS.map((def) => ({
+      id: def.id,
+      status: def.computed ? timeliness.status : ("NOT_ASSESSABLE" as const),
+      deficiency: def.computed
+        ? timeliness.note
+        : def.requiresExternalRecord
+          ? `Check against: ${def.requiresExternalRecord}`
+          : "",
+      assistGenerated: def.computed === true,
+    })),
+    assistGenerated: false,
+  };
+}
+
 function mapAiScreening(s: AiPsurScreeningOut | null | undefined): PsurScreeningResult | undefined {
   if (!s) return undefined;
   return {
@@ -1385,6 +1526,27 @@ export const psur = {
       newValue: file.name,
     });
 
+    // The Review Officer's 16-item screening checklist.
+    //
+    // Runs here, at upload, rather than when the officer opens the queue,
+    // because the PDF's bytes are never stored — this is the only moment
+    // anything can read the document. Failing softly on purpose: a screening
+    // that could not run leaves a blank checklist the officer fills in by
+    // hand, which is exactly what they did before this existed.
+    let administrativeScreening: PsurAdministrativeScreening;
+    try {
+      const screeningResult = await ai.psur.screenPdf(file, doc.product, doc.reportingPeriod);
+      administrativeScreening = screeningResult.ai_used
+        ? mapAiAdministrativeScreening(screeningResult, doc.uploadedAt)
+        : blankAdministrativeScreening(doc.uploadedAt, doc.product, doc.reportingPeriod);
+    } catch {
+      administrativeScreening = blankAdministrativeScreening(
+        doc.uploadedAt,
+        doc.product,
+        doc.reportingPeriod,
+      );
+    }
+
     try {
       const aiResult = await ai.psur.reviewPdf(file, doc.product, doc.reportingPeriod);
       const findings: PsurFinding[] = aiResult.ai_used
@@ -1426,6 +1588,7 @@ export const psur = {
       await persistFindings(doc.id, findings);
       const reviewed: PsurDocumentRow = {
         ...doc,
+        administrativeScreening,
         stage: "REVIEWED",
         // The record was seeded with "Not yet extracted" placeholders at
         // upload time with nothing that ever filled them in afterward —
@@ -1651,6 +1814,114 @@ export const psur = {
       entityId: findingId,
       previousValue: previous ? `assessor: ${previous.owner}` : "none",
       newValue: `derived: ${derivedRequiresMahAction(next) ? "MAH" : "ASSESSOR"}`,
+    });
+    return next;
+  },
+
+  /**
+   * The officer's own edits to the screening checklist.
+   *
+   * Replaces the whole thing, the same way every other assessor-edited panel
+   * here works, and clears `assistGenerated` on any row whose status the
+   * officer changed — so the page can always show which answers a person has
+   * actually stood behind rather than merely left alone.
+   */
+  updateAdministrativeScreening: async (
+    documentId: string,
+    screening: {
+      submissionDetails: PsurSubmissionDetails;
+      checks: PsurScreeningCheckItem[];
+    },
+  ): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    const previous = document.administrativeScreening;
+    const previousById = new Map((previous?.checks ?? []).map((c) => [c.id, c]));
+
+    const checks = normalizeChecks(screening.checks).map((c) => {
+      const before = previousById.get(c.id);
+      const touched = !before || before.status !== c.status || before.deficiency !== c.deficiency;
+      return { ...c, assistGenerated: touched ? false : c.assistGenerated };
+    });
+
+    // Item 8 is recomputed rather than accepted from the form: the officer
+    // may have just corrected the DLP, and a stale verdict sitting beside a
+    // corrected date is worse than no verdict.
+    const timeliness = assessTimeliness(screening.submissionDetails);
+    const withTimeliness = checks.map((c) =>
+      screeningCheck(c.id).computed
+        ? { ...c, status: timeliness.status, deficiency: timeliness.note, assistGenerated: true }
+        : c,
+    );
+
+    const next: PsurDocumentRow = {
+      ...document,
+      administrativeScreening: {
+        performedAt: previous?.performedAt ?? new Date().toISOString(),
+        submissionDetails: screening.submissionDetails,
+        checks: withTimeliness,
+        assistGenerated: false,
+        ...(previous?.outcome ? { outcome: previous.outcome } : {}),
+      },
+    };
+    await saveDocument(next);
+    await recordAudit({
+      action: "PSUR_SCREENING_CHECKLIST_UPDATED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      newValue: `${withTimeliness.filter((c) => c.status === "NO").length} of 16 checks failing`,
+    });
+    return next;
+  },
+
+  /**
+   * Section C — the officer's outcome, and the handoff.
+   *
+   * Recording the outcome and moving the report are one action: an outcome
+   * that did not move it would leave a decided report sitting on the
+   * officer's desk. Only ACCEPTED_FOR_ASSESSMENT sends it onward; a
+   * compliance directive and a rejection both end with the MAH.
+   */
+  recordScreeningOutcome: async (
+    documentId: string,
+    decision: PsurScreeningOutcomeDecision,
+    deficiencies: string,
+  ): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    const screening = document.administrativeScreening;
+    if (!screening) throw new Error("No screening checklist to record an outcome against");
+
+    const actor = currentActor();
+    const now = new Date().toISOString();
+    // Cited items are derived from the answers, never typed, so the
+    // directive's "items no." can never disagree with section B.
+    const citedItems = recommendOutcome(screening.checks).citedItems;
+    const workflowStage: PsurWorkflowStage =
+      decision === "ACCEPTED_FOR_ASSESSMENT" ? "AWAITING_EVALUATION" : "RETURNED_TO_MAH";
+    const previousStage = deriveWorkflowStage(document);
+
+    const next: PsurDocumentRow = {
+      ...document,
+      workflowStage,
+      administrativeScreening: {
+        ...screening,
+        outcome: { decision, citedItems, deficiencies, by: actor.name, at: now },
+      },
+    };
+    await saveDocument(next);
+    await recordAudit({
+      action: "PSUR_SCREENING_OUTCOME_RECORDED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      newValue: citedItems.length > 0 ? `${decision} (items ${citedItems.join(", ")})` : decision,
+      reason: deficiencies,
+    });
+    await recordAudit({
+      action: "PSUR_WORKFLOW_STAGE_CHANGED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      previousValue: previousStage,
+      newValue: workflowStage,
+      reason: deficiencies,
     });
     return next;
   },

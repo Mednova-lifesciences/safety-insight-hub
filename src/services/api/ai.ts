@@ -215,6 +215,35 @@ export interface AiPsurRecommendationOut {
   basis: string;
 }
 
+/** Wire shape of the administrative screening checklist result.
+ *
+ *  `checks` deliberately does NOT include item 8 (timeliness) — the server
+ *  omits it and the application computes it from the extracted DLP. Rows the
+ *  model returned malformed are dropped server-side rather than guessed at,
+ *  so this list can be shorter than 15; the application fills any gap with
+ *  "cannot tell". */
+export interface AiPsurScreeningResponse {
+  submission_details?: {
+    product_name: string;
+    active_substance: string;
+    nafdac_reg_no: string;
+    mah: string;
+    qppv: string;
+    qppv_contact: string;
+    ibd: string;
+    first_nafdac_registration_date: string;
+    dlp: string;
+    interval_covered: string;
+  } | null;
+  checks: { id: string; status: string; deficiency: string }[];
+  ai_used: boolean;
+  prompt_version: string;
+  pages_extracted?: number | null;
+  truncated?: boolean;
+  model?: string | null;
+  error?: string | null;
+}
+
 export interface AiPsurReviewResponse {
   findings: AiPsurFindingOut[];
   ai_used: boolean;
@@ -420,6 +449,14 @@ export const ai = {
   },
 
   psur: {
+    /** The Review Officer's 16-item administrative screening checklist.
+     *  Separate from reviewPdf: this runs on receipt, before the report is
+     *  allocated for scientific assessment. */
+    screenPdf: (file: File, product: string, reportingPeriod: string) =>
+      apiUpload<AiPsurScreeningResponse>("/api/ai/psur/screen-pdf", file, {
+        product,
+        reportingPeriod,
+      }),
     reviewPdf: (file: File, product: string, reportingPeriod: string) =>
       apiUpload<AiPsurReviewResponse>("/api/ai/psur/review-pdf", file, {
         product,
