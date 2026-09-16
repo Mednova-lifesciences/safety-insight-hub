@@ -179,6 +179,41 @@ function E2bPage() {
       if (verified.length === 0) {
         toast.warning("AI could not find a verified MedDRA candidate for this text.");
       }
+
+      async function acceptMedDraCandidate(
+        jobId: string,
+        caseId: string,
+        sourceValue: string,
+        candidate: { term: string; code: string },
+      ) {
+        try {
+          const suggestion = await codingApi.addCandidate(
+            caseId,
+            "REACTION",
+            sourceValue,
+            {
+              term: candidate.term,
+              code: candidate.code,
+              dictionary: "MedDRA",
+              dictionaryVersion: "29.1",
+              source: "dictionary",
+            },
+          );
+          await codingApi.accept(
+            caseId,
+            suggestion.id,
+            `Human-confirmed MedDRA 29.1 LLT ${candidate.code} after AI-assisted normalization.`,
+          );
+          toast.success(`Accepted MedDRA LLT ${candidate.code}. Rerunning preflight.`);
+          await checkValidatedPreflight(jobId);
+        } catch (err) {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : "Could not persist the confirmed MedDRA correction.",
+          );
+        }
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "AI coding assistance failed.");
     } finally {
@@ -628,8 +663,22 @@ function E2bPage() {
                                                         {candidate.matches.length > 0 ? (
                                                           <ul className="ml-3 list-disc">
                                                             {candidate.matches.map((match) => (
-                                                              <li key={match.code}>
+                                                              <li key={match.code} className="flex items-center justify-between gap-2">
                                                                 MedDRA LLT {match.code}: {match.term}
+                                                                <Button
+                                                                  size="sm"
+                                                                  variant="outline"
+                                                                  onClick={() =>
+                                                                    acceptMedDraCandidate(
+                                                                      j.id,
+                                                                      r.caseId,
+                                                                      e.sourceValue!,
+                                                                      match,
+                                                                    )
+                                                                  }
+                                                                >
+                                                                  Confirm and apply
+                                                                </Button>
                                                               </li>
                                                             ))}
                                                           </ul>
