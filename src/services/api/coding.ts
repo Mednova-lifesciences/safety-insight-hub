@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { apiRequest } from "./client";
 import { currentActor, newId, recordAudit, toJson } from "./db";
 import { ai } from "./ai";
 import type { CodingHistoryEntry, CodingSuggestion } from "@/types/pv";
@@ -222,6 +223,33 @@ export const coding = {
       source: "dictionary" | "ai";
     }[]
   > => {
+    if (dictionary === "MedDRA" && query.trim()) {
+      try {
+        const results = await apiRequest<
+          {
+            term: string;
+            code: string;
+            dictionary: "MedDRA";
+            dictionaryVersion: string;
+            preferredTerm: string;
+            preferredTermCode: string;
+          }[]
+        >("/api/coding/meddra/search", {
+          query: { q: query.trim(), limit: 20 },
+        });
+        return results.map((result) => ({
+          term: result.term,
+          code: result.code,
+          dictionary: result.dictionary,
+          dictionaryVersion: result.dictionaryVersion,
+          synonyms: result.preferredTerm !== result.term ? [result.preferredTerm] : [],
+          source: "dictionary" as const,
+        }));
+      } catch {
+        // Keep the existing Supabase dictionary fallback when the licensed
+        // MedDRA service is not connected in a local/demo environment.
+      }
+    }
     let request = supabase.from("pv_dictionary_terms").select("*").eq("dictionary", dictionary);
     const q = query.trim();
     if (q) request = request.ilike("term", `%${q}%`);
