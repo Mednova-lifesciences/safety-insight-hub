@@ -1,4 +1,10 @@
 import {
+  OUTCOME_LABELS,
+  STATUS_LABELS,
+  normalizeChecks,
+  screeningCheck,
+} from "./screening-checklist";
+import {
   PSUR_V4_TEMPLATE_SECTIONS,
   type PsurAdministrativeCheck,
   type PsurAiRecommendation,
@@ -102,11 +108,28 @@ function buildMeta(doc: PsurDocument): DocumentMeta {
   };
 }
 
+/** One administrative screening row, flattened so the renderers do not
+ *  need to know whether it came from the Review Officer's 16-item NAFDAC
+ *  checklist or the older four-item check it replaced. */
+export interface AdministrativeSummaryRow {
+  /** "4" for a checklist item, absent for a legacy four-item check. */
+  number?: number | undefined;
+  label: string;
+  status: string;
+  comment: string;
+}
+
 export interface ExecutiveSummaryModel {
   meta: DocumentMeta;
   administrative: {
-    checks: PsurAdministrativeCheck[];
-    aiRecommendation: PsurScreeningResult["recommendation"];
+    /** Which screening produced these rows, so the document can say so
+     *  rather than presenting two different checks as one thing. */
+    source: "SCREENING_CHECKLIST" | "LEGACY_FOUR_ITEM";
+    rows: AdministrativeSummaryRow[];
+    /** The officer's outcome, when the 16-item checklist produced it. */
+    outcome: string | null;
+    /** Retained for the legacy path only. */
+    aiRecommendation: PsurScreeningResult["recommendation"] | null;
     assessorDecision: PsurScreeningResult["humanOverride"] | null;
   } | null;
   sectionCoverage: PsurSectionCoverage[];
@@ -139,6 +162,51 @@ export interface ExecutiveSummaryModel {
   signOff: PsurSignOff | null;
 }
 
+function buildAdministrativeSummary(doc: PsurDocument): ExecutiveSummaryModel["administrative"] {
+  const checklist = doc.administrativeScreening;
+  if (checklist && checklist.checks.length > 0) {
+    return {
+      source: "SCREENING_CHECKLIST",
+      rows: normalizeChecks(checklist.checks).map((c) => {
+        const def = screeningCheck(c.id);
+        return {
+          number: def.number,
+          label: def.label,
+          status: STATUS_LABELS[c.status],
+          comment: c.deficiency,
+        };
+      }),
+      outcome: checklist.outcome
+        ? `${OUTCOME_LABELS[checklist.outcome.decision]}${
+            checklist.outcome.citedItems.length > 0
+              ? ` (items ${checklist.outcome.citedItems.join(", ")})`
+              : ""
+          } — ${checklist.outcome.officerName || checklist.outcome.by}, ${fmtDate(
+            checklist.outcome.at,
+          )}`
+        : null,
+      aiRecommendation: null,
+      assessorDecision: null,
+    };
+  }
+
+  if (doc.screening) {
+    return {
+      source: "LEGACY_FOUR_ITEM",
+      rows: doc.screening.administrativeChecks.map((c) => ({
+        label: c.label,
+        status: c.status,
+        comment: c.comment,
+      })),
+      outcome: null,
+      aiRecommendation: doc.screening.recommendation,
+      assessorDecision: doc.screening.humanOverride ?? null,
+    };
+  }
+
+  return null;
+}
+
 export function buildExecutiveSummaryModel(
   doc: PsurDocument,
   allFindings: PsurFinding[],
@@ -151,13 +219,10 @@ export function buildExecutiveSummaryModel(
 
   return {
     meta: buildMeta(doc),
-    administrative: doc.screening
-      ? {
-          checks: doc.screening.administrativeChecks,
-          aiRecommendation: doc.screening.recommendation,
-          assessorDecision: doc.screening.humanOverride ?? null,
-        }
-      : null,
+    // Prefers the Review Officer's own 16-item checklist; the older
+    // four-item check is the fallback for documents screened before it
+    // existed.
+    administrative: buildAdministrativeSummary(doc),
     sectionCoverage: buildAuthoritativeSectionCoverage(doc),
     findings: {
       total: allFindings.length,

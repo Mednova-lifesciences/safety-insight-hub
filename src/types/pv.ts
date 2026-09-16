@@ -864,8 +864,17 @@ export interface PsurScreeningOutcome {
    *  so it reads the way the paper form does. Derived from the failed
    *  checks rather than typed, so it cannot disagree with section B. */
   citedItems: number[];
-  /** "Deficiencies / action required". */
+  /** "Deficiencies / action required" — what the MAH must do. */
   deficiencies: string;
+  /** The officer's own closing assessment of the submission. Distinct from
+   *  `deficiencies`, which is addressed to the MAH: this is the screening
+   *  record's conclusion, and it is what the evaluator reads first. */
+  conclusions: string;
+  /** The name the officer signs with, as the form's sign-off block asks
+   *  for. Kept separate from `by` (the account that acted): a signature is
+   *  a claim a person makes, an account is a fact the system records, and
+   *  a regulatory record wants both. */
+  officerName: string;
   /** Section C's sign-off block. The signature is the officer's password
    *  confirmation, not a typed name — see ConfirmWithPassword. */
   by: string;

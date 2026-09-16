@@ -242,13 +242,26 @@ function TriagedRow({ doc, onOpen }: { doc: PsurDocument; onOpen: () => void }) 
   const stage = deriveWorkflowStage(doc);
   // The directive is built from the findings of the COMPLETED scientific
   // review, so it does not exist until a peer reviewer has signed off.
-  const directiveReady = isPeerReviewed(doc);
+  const directiveReady = isPeerReviewed(doc) || stage === "RETURNED_TO_MAH";
+
+  // Two different letters, and which one applies depends on how far the
+  // report got. A submission returned at screening has no scientific review
+  // to write a compliance directive from — the screening directive IS what
+  // the MAH receives. A report that went all the way through gets the
+  // directive built from the evaluator's findings.
+  const returnedAtScreening = stage === "RETURNED_TO_MAH";
 
   async function download(kind: "docx" | "text") {
     setDownloading(true);
     try {
-      if (kind === "docx") await psurApi.downloadComplianceDirective(doc.id);
-      else await psurApi.downloadComplianceDirectiveText(doc.id);
+      if (returnedAtScreening) {
+        if (kind === "docx") await psurApi.downloadScreeningDirective(doc.id);
+        else await psurApi.downloadScreeningDirectiveText(doc.id);
+      } else if (kind === "docx") {
+        await psurApi.downloadComplianceDirective(doc.id);
+      } else {
+        await psurApi.downloadComplianceDirectiveText(doc.id);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not download the directive.");
     } finally {
@@ -274,7 +287,8 @@ function TriagedRow({ doc, onOpen }: { doc: PsurDocument; onOpen: () => void }) 
               disabled={downloading}
               onClick={() => download("docx")}
             >
-              <FileText className="size-4" /> Compliance Directive (Word)
+              <FileText className="size-4" />{" "}
+              {returnedAtScreening ? "Screening Directive (Word)" : "Compliance Directive (Word)"}
             </Button>
             <Button
               size="sm"

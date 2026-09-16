@@ -466,3 +466,58 @@ export const OUTCOME_LABELS: Record<PsurScreeningOutcomeDecision, string> = {
   COMPLIANCE_DIRECTIVE: "Compliance directive",
   NOT_ACCEPTED_RESUBMIT: "Not accepted — resubmit",
 };
+
+// ---------------------------------------------------------------------------
+// Feeding the evaluator's Section Coverage
+// ---------------------------------------------------------------------------
+
+/**
+ * The V4 template has its own "Administrative Screening" section, and the
+ * evaluator's Section Coverage panel needs a status for it.
+ *
+ * That status used to be derived from a separate four-item AI check, which
+ * meant the evaluator saw a second, weaker opinion on work the officer had
+ * already done properly. These two functions let it be derived from the
+ * officer's actual checklist instead, in the same PsurSectionStatus
+ * vocabulary the panel already speaks — no new states invented.
+ *
+ * Only items 1-8 count towards the status. Items 9-16 are presence checks
+ * whose adequacy is the evaluator's own job, so letting them mark the
+ * administrative section deficient would be the screening step pre-judging
+ * the scientific one.
+ */
+export function deriveChecklistSectionStatus(
+  checks: ReadonlyArray<PsurScreeningCheckItem> | undefined,
+): "ADEQUATELY_ADDRESSED" | "PRESENT_BUT_INCOMPLETE" | "MISSING" | "ASSESSOR_PENDING" {
+  if (!checks || checks.length === 0) return "ASSESSOR_PENDING";
+  const validation = checks.filter((c) => isValidationItem(c.id));
+  if (validation.length === 0) return "ASSESSOR_PENDING";
+  if (validation.some((c) => c.status === "NO")) return "MISSING";
+  if (validation.every((c) => c.status === "NOT_ASSESSABLE")) return "ASSESSOR_PENDING";
+  if (validation.some((c) => c.status === "NOT_ASSESSABLE")) return "PRESENT_BUT_INCOMPLETE";
+  return "ADEQUATELY_ADDRESSED";
+}
+
+/** A one-line summary for that row, in the officer's own terms. */
+export function describeChecklistSectionStatus(
+  checks: ReadonlyArray<PsurScreeningCheckItem> | undefined,
+): string {
+  if (!checks || checks.length === 0) {
+    return "The administrative screening checklist has not been completed.";
+  }
+  const failed = checks.filter((c) => c.status === "NO");
+  const unresolved = checks.filter((c) => c.status === "NOT_ASSESSABLE");
+  if (failed.length > 0) {
+    return `${failed.length} of 16 screening checks failed: item(s) ${failed
+      .map((c) => screeningCheck(c.id).number)
+      .sort((a, b) => a - b)
+      .join(", ")}.`;
+  }
+  if (unresolved.length > 0) {
+    return `No screening check failed, but item(s) ${unresolved
+      .map((c) => screeningCheck(c.id).number)
+      .sort((a, b) => a - b)
+      .join(", ")} could not be settled from the submission.`;
+  }
+  return "All 16 administrative screening checks passed.";
+}

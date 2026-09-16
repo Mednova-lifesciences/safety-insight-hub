@@ -3,11 +3,16 @@ import {
   describeAdministrativeStatus,
 } from "./administrative-screening";
 import {
+  deriveChecklistSectionStatus,
+  describeChecklistSectionStatus,
+} from "./screening-checklist";
+import {
   deriveAggregateSafetySectionStatus,
   deriveExposureSectionStatus,
 } from "./nigeria-requirements";
 import {
   PSUR_V4_TEMPLATE_SECTIONS,
+  type PsurAdministrativeScreening,
   type PsurBenefitRiskAssessment,
   type PsurNigerianContext,
   type PsurFinding,
@@ -187,6 +192,9 @@ export interface AuthoritativeCoverageInput {
     | (Pick<PsurScreeningResult, "sectionCoverage"> &
         Partial<Pick<PsurScreeningResult, "administrativeChecks">>)
     | undefined;
+  /** The Review Officer's completed 16-item checklist, which is the real
+   *  answer for the ADMIN_SCREENING row when one exists. */
+  administrativeScreening?: PsurAdministrativeScreening | undefined;
   /** PDF vs spreadsheet — decides whether Section 5's Nigerian exposure
    *  requirement binds at all (see nigerianExposureRequired). */
   sourceType?: "PDF" | "SPREADSHEET" | undefined;
@@ -230,8 +238,27 @@ export function buildAuthoritativeSectionCoverage(
 
     switch (s.id) {
       case "ADMIN_SCREENING": {
-        // Derived from the four checks themselves — the parent row used to
-        // read "Not yet assessed" directly above its own completed results.
+        // Derived from the screening that actually happened — the parent row
+        // used to read "Not yet assessed" directly above its own completed
+        // results.
+        //
+        // The Review Officer's 16-item checklist wins whenever there is one.
+        // This row used to come from a separate four-item AI check, which
+        // meant the evaluator saw a second, weaker opinion on work the
+        // officer had already done properly against NAFDAC's real form.
+        //
+        // The old four remain the fallback, and only the fallback: documents
+        // screened before the checklist existed still have to say something
+        // truthful here.
+        const checklist = doc.administrativeScreening?.checks;
+        if (checklist && checklist.length > 0) {
+          return {
+            section: s.id,
+            status: deriveChecklistSectionStatus(checklist),
+            comment: describeChecklistSectionStatus(checklist),
+            source: "rule",
+          };
+        }
         const checks = doc.screening?.administrativeChecks;
         if (!checks || checks.length === 0) return fallback;
         return {

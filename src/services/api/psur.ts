@@ -46,6 +46,10 @@ import type {
 import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
 import { deriveWorkflowStage } from "@/services/psur/workflow";
 import {
+  buildScreeningDirectiveModel,
+  type ScreeningDirectiveModel,
+} from "@/services/psur/screening-directive";
+import {
   SCREENING_CHECKS,
   assessTimeliness,
   emptySubmissionDetails,
@@ -739,14 +743,28 @@ function renderExecutiveSummaryText(m: ExecutiveSummaryModel): string {
   lines.push("ADMINISTRATIVE COMPLETENESS CHECK");
   lines.push(rule);
   if (m.administrative) {
-    lines.push(`AI recommendation: ${m.administrative.aiRecommendation}`);
+    // Says which screening produced these rows, so the 16-item NAFDAC
+    // checklist and the older four-item check are never mistaken for each
+    // other in a document a regulator files.
     lines.push(
-      m.administrative.assessorDecision
-        ? `Assessor decision: ${m.administrative.assessorDecision.decision} (${m.administrative.assessorDecision.by}, ${fmtDateLocal(m.administrative.assessorDecision.at)}) — ${m.administrative.assessorDecision.rationale}`
-        : "Assessor decision: not yet recorded.",
+      m.administrative.source === "SCREENING_CHECKLIST"
+        ? "Source: NAFDAC PSUR Administrative Screening Checklist (16 items)."
+        : "Source: administrative completeness check (4 items, pre-checklist).",
     );
-    for (const c of m.administrative.checks) {
-      lines.push(`  [${c.status}] ${c.label} — ${c.comment}`);
+    if (m.administrative.outcome) {
+      lines.push(`Screening outcome: ${m.administrative.outcome}`);
+    }
+    if (m.administrative.aiRecommendation) {
+      lines.push(`AI recommendation: ${m.administrative.aiRecommendation}`);
+    }
+    if (m.administrative.assessorDecision) {
+      lines.push(
+        `Assessor decision: ${m.administrative.assessorDecision.decision} (${m.administrative.assessorDecision.by}, ${fmtDateLocal(m.administrative.assessorDecision.at)}) — ${m.administrative.assessorDecision.rationale}`,
+      );
+    }
+    for (const c of m.administrative.rows) {
+      const number = c.number === undefined ? "" : `${c.number}. `;
+      lines.push(`  [${c.status}] ${number}${c.label}${c.comment ? ` — ${c.comment}` : ""}`);
     }
   } else {
     lines.push("Not yet run for this document.");
@@ -946,6 +964,195 @@ function fmtDateLocal(iso: string): string {
   return iso.slice(0, 16).replace("T", " ") + " UTC";
 }
 
+/**
+ * The screening-stage directive, as plain text and as Word.
+ *
+ * Written on receipt, about how the submission is packaged — not about its
+ * safety content, which nobody has assessed yet. It says so at the top,
+ * because an MAH receiving it must not read a packaging rejection as a
+ * scientific verdict on their product.
+ */
+function renderScreeningDirectiveText(m: ScreeningDirectiveModel): string {
+  const rule = "=".repeat(72);
+  const lines: string[] = [];
+
+  lines.push("PSUR ADMINISTRATIVE SCREENING — DIRECTIVE TO THE MARKETING AUTHORISATION HOLDER");
+  lines.push(rule);
+  lines.push("");
+  lines.push("This directive concerns the ADMINISTRATIVE SCREENING of the submission named below,");
+  lines.push("carried out on receipt. It is not an assessment of the report's scientific content.");
+  lines.push("");
+
+  lines.push("SUBMISSION");
+  lines.push("-".repeat(72));
+  lines.push(`Product:              ${m.productName}`);
+  lines.push(`Active substance:     ${m.activeSubstance}`);
+  lines.push(`NAFDAC Reg. No.:      ${m.nafdacRegNo}`);
+  lines.push(`MAH:                  ${m.mah}`);
+  lines.push(`Reporting interval:   ${m.reportingInterval}`);
+  lines.push(`Data Lock Point:      ${m.dlp}`);
+  lines.push(`Date received:        ${m.dateReceived}`);
+  lines.push(`Days DLP to receipt:  ${m.daysToReceipt}`);
+  lines.push(`File:                 ${m.filename}`);
+  lines.push("");
+
+  lines.push("OUTCOME");
+  lines.push("-".repeat(72));
+  lines.push(m.outcomeLabel);
+  if (m.citedItems.length > 0) {
+    lines.push(`Checklist items cited: ${m.citedItems.join(", ")}`);
+  }
+  lines.push("");
+
+  if (m.conclusions) {
+    lines.push("CONCLUSIONS");
+    lines.push("-".repeat(72));
+    lines.push(m.conclusions);
+    lines.push("");
+  }
+
+  if (m.deficiencies) {
+    lines.push("ACTION REQUIRED");
+    lines.push("-".repeat(72));
+    lines.push(m.deficiencies);
+    lines.push("");
+  }
+
+  lines.push("DEFICIENCIES IDENTIFIED");
+  lines.push("-".repeat(72));
+  if (m.failedRows.length === 0) {
+    lines.push("No screening check was recorded as failed.");
+  } else {
+    for (const r of m.failedRows) {
+      lines.push(`${r.number}. ${r.label}`);
+      lines.push(`   ${r.deficiency || "Recorded as not met."}`);
+      lines.push("");
+    }
+  }
+  lines.push("");
+
+  if (m.unresolvedRows.length > 0) {
+    lines.push("ITEMS REQUIRING CLARIFICATION");
+    lines.push("-".repeat(72));
+    lines.push("These could not be settled from the submission as received.");
+    lines.push("");
+    for (const r of m.unresolvedRows) {
+      lines.push(`${r.number}. ${r.label}`);
+      if (r.deficiency) lines.push(`   ${r.deficiency}`);
+      lines.push("");
+    }
+  }
+
+  lines.push("SCREENING OFFICER");
+  lines.push("-".repeat(72));
+  lines.push(`Name:   ${m.officerName || "Not recorded"}`);
+  lines.push(
+    `Signed: ${m.signedAt ? m.signedAt.slice(0, 16).replace("T", " ") + " UTC" : "Not recorded"}`,
+  );
+  lines.push("");
+  lines.push(`Generated ${m.generatedAtLabel} UTC.`);
+
+  return lines.join("\n");
+}
+
+function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
+  const deficiencyParagraphs =
+    m.failedRows.length === 0
+      ? [new Paragraph({ text: "No screening check was recorded as failed." })]
+      : m.failedRows.flatMap((r) => [
+          new Paragraph({
+            children: [new TextRun({ text: `${r.number}. ${r.label}`, bold: true })],
+          }),
+          new Paragraph({ text: r.deficiency || "Recorded as not met." }),
+        ]);
+
+  const unresolvedParagraphs =
+    m.unresolvedRows.length === 0
+      ? []
+      : [
+          docxHeading("Items requiring clarification"),
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: "These could not be settled from the submission as received.",
+                italics: true,
+              }),
+            ],
+          }),
+          ...m.unresolvedRows.flatMap((r) => [
+            new Paragraph({
+              children: [new TextRun({ text: `${r.number}. ${r.label}`, bold: true })],
+            }),
+            ...(r.deficiency ? [new Paragraph({ text: r.deficiency })] : []),
+          ]),
+        ];
+
+  return new Document({
+    sections: [
+      {
+        children: [
+          docxHeading("PSUR Administrative Screening — Directive to the MAH"),
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: "This directive concerns the administrative screening of the submission below, carried out on receipt. It is not an assessment of the report's scientific content.",
+                italics: true,
+              }),
+            ],
+          }),
+          new Paragraph({ text: "" }),
+
+          docxHeading("Submission"),
+          docxLabelValue("Product", m.productName),
+          docxLabelValue("Active substance", m.activeSubstance),
+          docxLabelValue("NAFDAC Reg. No.", m.nafdacRegNo),
+          docxLabelValue("MAH", m.mah),
+          docxLabelValue("Reporting interval", m.reportingInterval),
+          docxLabelValue("Data Lock Point", m.dlp),
+          docxLabelValue("Date received", m.dateReceived),
+          docxLabelValue("Days DLP to receipt", m.daysToReceipt),
+          docxLabelValue("File", m.filename),
+          new Paragraph({ text: "" }),
+
+          docxHeading("Outcome"),
+          new Paragraph({ text: m.outcomeLabel }),
+          ...(m.citedItems.length > 0
+            ? [docxLabelValue("Checklist items cited", m.citedItems.join(", "))]
+            : []),
+          new Paragraph({ text: "" }),
+
+          ...(m.conclusions
+            ? [docxHeading("Conclusions"), new Paragraph({ text: m.conclusions })]
+            : []),
+          ...(m.deficiencies
+            ? [docxHeading("Action required"), new Paragraph({ text: m.deficiencies })]
+            : []),
+
+          docxHeading("Deficiencies identified"),
+          ...deficiencyParagraphs,
+          new Paragraph({ text: "" }),
+
+          ...unresolvedParagraphs,
+          new Paragraph({ text: "" }),
+
+          docxHeading("Screening officer"),
+          docxLabelValue("Name", m.officerName || "Not recorded"),
+          docxLabelValue(
+            "Signed",
+            m.signedAt ? `${m.signedAt.slice(0, 16).replace("T", " ")} UTC` : "Not recorded",
+          ),
+          new Paragraph({ text: "" }),
+          new Paragraph({
+            children: [
+              new TextRun({ text: `Generated ${m.generatedAtLabel} UTC.`, italics: true }),
+            ],
+          }),
+        ],
+      },
+    ],
+  });
+}
+
 function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
   const lines: string[] = [];
   const rule = "-".repeat(60);
@@ -1074,15 +1281,33 @@ function buildExecutiveSummaryDocx(m: ExecutiveSummaryModel): Document {
     docxHeading("Administrative Completeness Check"),
     ...(m.administrative
       ? [
-          docxLabelValue("AI recommendation", m.administrative.aiRecommendation),
           docxLabelValue(
-            "Assessor decision",
-            m.administrative.assessorDecision
-              ? `${m.administrative.assessorDecision.decision} (${m.administrative.assessorDecision.by}, ${fmtDateLocal(m.administrative.assessorDecision.at)}) — ${m.administrative.assessorDecision.rationale}`
-              : "not yet recorded",
+            "Source",
+            m.administrative.source === "SCREENING_CHECKLIST"
+              ? "NAFDAC PSUR Administrative Screening Checklist (16 items)"
+              : "Administrative completeness check (4 items, pre-checklist)",
           ),
-          ...m.administrative.checks.map(
-            (c) => new Paragraph({ text: `[${c.status}] ${c.label} — ${c.comment}` }),
+          ...(m.administrative.outcome
+            ? [docxLabelValue("Screening outcome", m.administrative.outcome)]
+            : []),
+          ...(m.administrative.aiRecommendation
+            ? [docxLabelValue("AI recommendation", m.administrative.aiRecommendation)]
+            : []),
+          ...(m.administrative.assessorDecision
+            ? [
+                docxLabelValue(
+                  "Assessor decision",
+                  `${m.administrative.assessorDecision.decision} (${m.administrative.assessorDecision.by}, ${fmtDateLocal(m.administrative.assessorDecision.at)}) — ${m.administrative.assessorDecision.rationale}`,
+                ),
+              ]
+            : []),
+          ...m.administrative.rows.map(
+            (c) =>
+              new Paragraph({
+                text: `[${c.status}] ${c.number === undefined ? "" : `${c.number}. `}${c.label}${
+                  c.comment ? ` — ${c.comment}` : ""
+                }`,
+              }),
           ),
         ]
       : [new Paragraph({ text: "Not yet run for this document." })]),
@@ -1885,6 +2110,8 @@ export const psur = {
     documentId: string,
     decision: PsurScreeningOutcomeDecision,
     deficiencies: string,
+    conclusions: string,
+    officerName: string,
   ): Promise<PsurDocument> => {
     const document = await readDocument(documentId);
     const screening = document.administrativeScreening;
@@ -1904,7 +2131,15 @@ export const psur = {
       workflowStage,
       administrativeScreening: {
         ...screening,
-        outcome: { decision, citedItems, deficiencies, by: actor.name, at: now },
+        outcome: {
+          decision,
+          citedItems,
+          deficiencies,
+          conclusions,
+          officerName,
+          by: actor.name,
+          at: now,
+        },
       },
     };
     await saveDocument(next);
@@ -2466,6 +2701,35 @@ export const psur = {
    * System-generated draft for assessor review, never presented as an
    * official NAFDAC issuance. DOCX is the primary, professional format.
    */
+  /**
+   * The screening-stage directive — what the MAH is sent when a submission
+   * is returned before it ever reaches scientific assessment.
+   *
+   * Separate from downloadComplianceDirective below, which is written from
+   * the completed scientific review. A submission returned at screening has
+   * no scientific review to write one from, which is exactly why this
+   * exists.
+   */
+  downloadScreeningDirective: async (documentId: string): Promise<void> => {
+    const doc = await readDocument(documentId);
+    const model = buildScreeningDirectiveModel(doc);
+    if (!model) throw new Error("This report has no completed screening checklist to report on.");
+    await downloadBlob(
+      await Packer.toBlob(buildScreeningDirectiveDocx(model)),
+      docBaseName(doc) + "-screening-directive.docx",
+    );
+  },
+
+  downloadScreeningDirectiveText: async (documentId: string): Promise<void> => {
+    const doc = await readDocument(documentId);
+    const model = buildScreeningDirectiveModel(doc);
+    if (!model) throw new Error("This report has no completed screening checklist to report on.");
+    await downloadBlob(
+      new Blob([renderScreeningDirectiveText(model)], { type: "text/plain" }),
+      docBaseName(doc) + "-screening-directive.txt",
+    );
+  },
+
   downloadComplianceDirective: async (documentId: string): Promise<void> => {
     const doc = await readDocument(documentId);
     const findings = await readFindings(documentId);
