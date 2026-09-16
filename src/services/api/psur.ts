@@ -45,6 +45,7 @@ import type {
 } from "@/types/pv";
 import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
 import { deriveWorkflowStage } from "@/services/psur/workflow";
+import { pushNotification } from "./db";
 import {
   buildScreeningDirectiveModel,
   type ScreeningDirectiveModel,
@@ -269,6 +270,43 @@ function mapAiFinding(f: AiPsurFindingOut): PsurFinding {
  *    "matches the NAFDAC certificate" is exactly the failure mode that
  *    matters here.
  */
+/** How a report is named in a notification — enough to recognise it
+ *  without opening anything. */
+function describe(doc: { filename: string; product?: string }): string {
+  return doc.product && doc.product !== "Not yet extracted"
+    ? `${doc.product} (${doc.filename})`
+    : doc.filename;
+}
+
+/**
+ * Tells the assessors what the Review Officer decided.
+ *
+ * Both outcomes are announced, not only the one that creates work. A report
+ * returned to the MAH is a report the evaluators should stop expecting —
+ * silence there just leaves them waiting for something that is not coming.
+ *
+ * Peer reviewers are included on both for the same reason: a report that
+ * starts moving is one they will be asked to countersign later, and until
+ * it reaches them they have no other sight of it.
+ */
+async function notifyScreeningOutcome(
+  decision: PsurScreeningOutcomeDecision,
+  doc: { filename: string; product?: string },
+  citedItems: number[],
+): Promise<void> {
+  const accepted = decision === "ACCEPTED_FOR_ASSESSMENT";
+  const cited = citedItems.length > 0 ? ` Items cited: ${citedItems.join(", ")}.` : "";
+  await pushNotification({
+    type: accepted ? "PSUR_SENT_FOR_SCIENTIFIC_REVIEW" : "PSUR_RETURNED_TO_MAH",
+    title: accepted ? "Sent for scientific review" : "Returned to the MAH",
+    body: accepted
+      ? `${describe(doc)} passed screening and is waiting in the evaluation queue.`
+      : `${describe(doc)} was returned to the MAH at screening and will not reach scientific review.${cited}`,
+    link: accepted ? "/psur" : "/screening",
+    audience: ["EVALUATOR", "PEER_REVIEWER"],
+  });
+}
+
 export function mapAiAdministrativeScreening(
   ai: AiPsurScreeningResponse,
   dateReceived: string,
@@ -2255,6 +2293,12 @@ export const psur = {
       newValue: citedItems.length > 0 ? `${decision} (items ${citedItems.join(", ")})` : decision,
       reason: deficiencies,
     });
+
+    // The evaluators need to know a report has landed in their queue; the
+    // peer reviewers get told too, because a report they will eventually
+    // countersign has started moving and they have no other way of seeing
+    // that until it reaches them.
+    await notifyScreeningOutcome(decision, next, citedItems);
     await recordAudit({
       action: "PSUR_WORKFLOW_STAGE_CHANGED",
       entity: "PsurDocument",
@@ -2312,6 +2356,13 @@ export const psur = {
       newValue: workflowStage,
       reason: rationale,
     });
+    await notifyScreeningOutcome(
+      decision === "PROCEED_TO_SCIENTIFIC_REVIEW"
+        ? "ACCEPTED_FOR_ASSESSMENT"
+        : "COMPLIANCE_DIRECTIVE",
+      next,
+      [],
+    );
     return next;
   },
 
@@ -2486,6 +2537,29 @@ export const psur = {
         previousValue: previousStage,
         newValue: workflowStage,
       });
+
+      if (workflowStage === "AWAITING_PEER_REVIEW") {
+        await pushNotification({
+          type: "PSUR_AWAITING_PEER_REVIEW",
+          title: "Ready for peer review",
+          body: `${describe(next)} has been signed off by ${nextSignOff.evaluatorName || "the evaluator"} and is ready for your review.`,
+          link: "/psur",
+          audience: ["PEER_REVIEWER"],
+        });
+      }
+
+      if (workflowStage === "PEER_REVIEWED") {
+        // Back to the evaluator: their review has been countersigned and
+        // the assessment is closed. They wrote it; they should hear how it
+        // ended without having to go looking.
+        await pushNotification({
+          type: "PSUR_PEER_REVIEW_COMPLETE",
+          title: "Peer review complete",
+          body: `${describe(next)} has been countersigned by ${nextSignOff.peerReviewerName || "the peer reviewer"}. The assessment is complete.`,
+          link: "/psur",
+          audience: ["EVALUATOR"],
+        });
+      }
     }
     return next;
   },

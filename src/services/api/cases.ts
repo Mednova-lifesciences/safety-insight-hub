@@ -146,7 +146,8 @@ export function buildCaseDetail(
       {
         reportedTerm: reaction,
         onsetDate: str(payload.reaction["onsetDate"]),
-        outcome: (str(payload.reaction["outcome"], "UNKNOWN") as CaseDetail["outcome"]) ?? "UNKNOWN",
+        outcome:
+          (str(payload.reaction["outcome"], "UNKNOWN") as CaseDetail["outcome"]) ?? "UNKNOWN",
         codedTerm: null,
       },
     ],
@@ -235,11 +236,15 @@ export const cases = {
     // scheme collision-safe without changing the visible id format.
     let detail: CaseDetail | undefined;
     for (let attempt = 0; attempt < 5; attempt++) {
-      const { count } = await supabase.from("pv_cases").select("id", { count: "exact", head: true });
+      const { count } = await supabase
+        .from("pv_cases")
+        .select("id", { count: "exact", head: true });
       const jitter = attempt === 0 ? 0 : Math.floor(Math.random() * 900) + 1;
       const caseId = `MN-${new Date().getFullYear()}-${String(900000 + (count ?? 0) + 1 + jitter).slice(0, 6)}`;
       const candidate = buildCaseDetail(caseId, payload, actor.name);
-      const { error } = await supabase.from("pv_cases").insert({ id: caseId, data: toJson(candidate) });
+      const { error } = await supabase
+        .from("pv_cases")
+        .insert({ id: caseId, data: toJson(candidate) });
       if (!error) {
         detail = candidate;
         break;

@@ -105,7 +105,10 @@ export const seriousness = {
       const { cases } = await import("./cases");
       const detail = await cases.get(caseId);
       const updated: CaseDetail = { ...detail, seriousness: "SERIOUS" };
-      await supabase.from("pv_cases").update({ data: toJson(updated) }).eq("id", caseId);
+      await supabase
+        .from("pv_cases")
+        .update({ data: toJson(updated) })
+        .eq("id", caseId);
     }
 
     await recordAudit({

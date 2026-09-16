@@ -72,7 +72,14 @@ describe("parseTabularFile — trailing legend/codebook after the case table", (
     // reprinted letterhead band, which is exactly why this used to be
     // silently dropped by the same sparse-row filter.
     const file = xlsxFile([
-      ["S/N", "Patient Name", "Sex", "Age", "Reaction type (Codes -see 1 below )", "Outcome (Codes-see 3 below)"],
+      [
+        "S/N",
+        "Patient Name",
+        "Sex",
+        "Age",
+        "Reaction type (Codes -see 1 below )",
+        "Outcome (Codes-see 3 below)",
+      ],
       [1, "Jane Doe", "F", 2, "19", "1"],
       [2, "John Smith", "M", 1, "8", "2"],
       [],

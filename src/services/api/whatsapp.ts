@@ -137,7 +137,9 @@ export const whatsapp = {
     // phoneNumber, so that's the cheapest reliable discriminator without
     // touching the other feature's data.
     return (data ?? [])
-      .filter((row) => typeof (row.data as { phoneNumber?: unknown } | null)?.phoneNumber === "string")
+      .filter(
+        (row) => typeof (row.data as { phoneNumber?: unknown } | null)?.phoneNumber === "string",
+      )
       .map(conversationFromRow);
   },
 
@@ -270,7 +272,10 @@ export const whatsapp = {
     } satisfies Record<string, unknown> as unknown as NewIcsrPayload;
     const created = await casesApi.create(payload);
     const nextData = { ...d, status: "CONVERTED" as const, linkedCaseId: created.caseId };
-    await supabase.from("pv_intake_conversations").update({ data: toJson(nextData) }).eq("id", conversation.id);
+    await supabase
+      .from("pv_intake_conversations")
+      .update({ data: toJson(nextData) })
+      .eq("id", conversation.id);
     await recordAudit({
       action: "INTAKE_CONVERTED",
       entity: "IntakeConversation",

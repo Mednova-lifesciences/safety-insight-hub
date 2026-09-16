@@ -199,7 +199,7 @@ export const NAV: NavGroup[] = [
         permission: "audit.view.all",
         hiddenForRoles: ASSESSOR_ROLES,
       },
-      { to: "/notifications", label: "Notifications", icon: Bell, hiddenForRoles: ASSESSOR_ROLES },
+      { to: "/notifications", label: "Notifications", icon: Bell },
     ],
   },
 ];
@@ -210,8 +210,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { backendConnected, demoData, setDemoData } = useDataSource();
   const notificationsQuery = usePvQuery(
-    ["notifications"],
-    () => notificationsApi.list(),
+    ["notifications", user?.role ?? "none"],
+    () => notificationsApi.list(user?.role ?? null),
     () => demoNotifications,
   );
   const unread = notificationsQuery.data?.data.filter((n) => !n.read).length ?? 0;
