@@ -2289,7 +2289,7 @@ export const linelist = {
     const needsReviewFor = (rowNumber: number): string => (issuesByRow.has(rowNumber) ? "YES" : "");
     const escapeCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
     const headerRow = [...columns, "Needs review", "Unresolved column(s)"];
-    const lines = job.rawRows
+    const dataLines = job.rawRows
       ? [
           headerRow.map(escapeCell).join(","),
           ...job.rawRows.map((row, idx) =>
@@ -2313,6 +2313,23 @@ export const linelist = {
             ].join(","),
           ),
         ];
+    // Preserve sparse rows from the original upload (usually the source
+    // form's codebook/legend, but also title or instruction text). They were
+    // intentionally excluded from case rows by the parser, yet they are
+    // needed when this fixed file is uploaded again so the same codebook can
+    // be rediscovered. Keep each line in one escaped CSV cell: on re-upload
+    // it remains a sparse, non-case row and is recovered as discardedRows.
+    const preservedSourceText = (job.discardedRows ?? [])
+      .map((entry) => entry.text.trim())
+      .filter(Boolean);
+    const lines = preservedSourceText.length
+      ? [
+        ...dataLines,
+        "",
+        escapeCell("# ORIGINAL SOURCE TEXT — preserved from uploaded file"),
+        ...preservedSourceText.map(escapeCell),
+        ]
+      : dataLines;
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     try {
