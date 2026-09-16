@@ -543,6 +543,36 @@ async def screen_pdf(
             max_output_tokens=2000,
         )
         parsed = AiPsurAdministrativeScreening.model_validate(completion.data)
+
+        # No usable rows is a FAILURE, not an assessment.
+        #
+        # Left unsaid, this arrives at the officer as sixteen rows of
+        # "cannot tell from the document" — indistinguishable from a model
+        # that read the submission carefully and genuinely could not
+        # answer. They are opposite situations: one needs the officer to
+        # fill the form in by hand, the other is a bug. Say which.
+        if not parsed.checks:
+            logger.error(
+                "PSUR screening returned no usable checks for %s (model=%s)",
+                file.filename,
+                completion.model,
+            )
+            return AdministrativeScreeningResponse(
+                submission_details=SubmissionDetailsOut(
+                    **parsed.submission_details.model_dump()
+                ),
+                checks=[],
+                ai_used=False,
+                prompt_version=PROMPT_VERSION,
+                pages_extracted=total_pages,
+                truncated=truncated,
+                model=completion.model,
+                error=(
+                    "The AI returned no usable screening answers, so the checklist below is "
+                    "blank and must be completed by hand."
+                ),
+            )
+
         return AdministrativeScreeningResponse(
             submission_details=SubmissionDetailsOut(**parsed.submission_details.model_dump()),
             checks=[ScreeningCheckOut(**c.model_dump()) for c in parsed.checks],

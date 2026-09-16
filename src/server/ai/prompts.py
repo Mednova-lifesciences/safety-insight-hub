@@ -1241,6 +1241,35 @@ For these, ask only "is this present?" — never "is it any good?". A thin liter
 exists is a YES for item 13. Judging its quality is the assessor's job later, and answering NO \
 because you thought it weak would wrongly turn a content observation into a validation failure.
 
-Return ONLY the JSON object described by the schema.
+OUTPUT — return ONLY this JSON object, with exactly these keys:
+
+{
+  "submission_details": {
+    "product_name": "<from the document, or empty string if not stated>",
+    "active_substance": "<or empty string>",
+    "nafdac_reg_no": "<or empty string>",
+    "mah": "<or empty string>",
+    "qppv": "<or empty string>",
+    "qppv_contact": "<telephone and/or e-mail, or empty string>",
+    "ibd": "<International Birth Date, or empty string>",
+    "first_nafdac_registration_date": "<or empty string>",
+    "dlp": "<Data Lock Point, or empty string>",
+    "interval_covered": "<e.g. 01 Jul 2025 - 30 Jun 2026, or empty string>"
+  },
+  "checks": [
+    {"id": "COVER_LETTER_COMPLETE", "status": "YES" | "NO" | "NOT_APPLICABLE" | "NOT_ASSESSABLE", "deficiency": "<one or two sentences, grounded in the text>"}
+  ]
+}
+
+"checks" must contain ONE entry for each of these 15 ids, using the id EXACTLY as spelled here:
+COVER_LETTER_COMPLETE, QPPV_DETAILS_STATED, ONE_PSUR_PER_ACTIVE_SUBSTANCE,
+PDF_OPENS_AND_FOLLOWS_TEMPLATE, IBD_AND_FIRST_REGISTRATION_STATED, DLP_AND_INTERVAL_CONSISTENT,
+INTERVAL_CONTIGUOUS, TITLE_PAGE_COMPLETE_AND_SIGNED, EXECUTIVE_SUMMARY_COMPLETE,
+SECTIONS_PRESENT_OR_JUSTIFIED, LINE_LISTING_OR_NIL_STATEMENT, LITERATURE_IN_OWN_WORDS,
+INTEGRATED_BENEFIT_RISK_ANALYSIS, APPENDIX_RSI_ATTACHED, PREVIOUS_QUERIES_ADDRESSED
+
+RECEIVED_WITHIN_TIMEFRAME (item 8) is NOT in that list and must NOT appear - the application
+computes it. A row whose id is not spelled exactly as above is discarded, which loses that check
+entirely, so copy them character for character.
 """
 )
