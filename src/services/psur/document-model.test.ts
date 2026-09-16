@@ -600,12 +600,33 @@ describe("Compliance Directive — signatory block", () => {
     expect(m.signatory.evaluatorSignedAtLabel).toContain("2026-09-12");
   });
 
+  it("carries saved signature SHA values into the document model", () => {
+    const m = buildComplianceDirectiveModel(
+      baseDoc({
+        signOff: {
+          conclusion: "c",
+          reviewerConfidence: "LOW",
+          references: "r",
+          evaluatorName: "A. Okafor",
+          evaluatorSignatureSha: "evaluator-sha",
+          peerReviewerName: "N. Bello",
+          peerReviewerSignatureSha: "peer-sha",
+        },
+      }),
+      [],
+    );
+    expect(m.signatory.evaluatorSignatureSha).toBe("evaluator-sha");
+    expect(m.signatory.peerReviewerSignatureSha).toBe("peer-sha");
+  });
+
   it("leaves unsigned fields null rather than inventing a name or date", () => {
     const m = buildComplianceDirectiveModel(baseDoc(), []);
     expect(m.signatory.evaluatorName).toBeNull();
     expect(m.signatory.evaluatorSignedAtLabel).toBeNull();
+    expect(m.signatory.evaluatorSignatureSha).toBeNull();
     expect(m.signatory.peerReviewerName).toBeNull();
     expect(m.signatory.peerReviewedAtLabel).toBeNull();
+    expect(m.signatory.peerReviewerSignatureSha).toBeNull();
   });
 
   it("does not leak the assessor's internal confidence to the MAH", () => {

@@ -93,6 +93,18 @@ import {
   nigerianExposureRequired,
 } from "@/services/psur/nigeria-requirements";
 
+async function computeSha256(input: string): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error("Web Crypto SHA-256 is unavailable; signature cannot be recorded.");
+  }
+  const data = new TextEncoder().encode(input);
+  const hash = await subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 /** Findings are review assistance only — the regulatory assessment is
  *  always recorded by a human reviewer (see AssistLabel in psur.tsx). */
 
@@ -1371,7 +1383,9 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
     lines.push(
       `Response deadline: ${m.followUp.responseDeadline ?? "not specified in this directive"}`,
     );
-    lines.push(`Next PSUR/PBRER due date: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`);
+    lines.push(
+      `Next PSUR/PBRER resubmission date: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`,
+    );
     lines.push("");
   }
 
@@ -1380,10 +1394,12 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
   lines.push(`Evaluator / Assessing Officer: ${m.signatory.evaluatorName ?? "pending signature"}`);
   lines.push(`Date: ${m.signatory.evaluatorSignedAtLabel ?? "pending"}`);
   lines.push(`Signature: ${m.signatory.evaluatorName ? "recorded electronically" : "pending"}`);
+  lines.push(`Signature SHA: ${m.signatory.evaluatorSignatureSha ?? "not recorded"}`);
   lines.push("");
   lines.push(`Peer reviewer: ${m.signatory.peerReviewerName ?? "pending signature"}`);
   lines.push(`Date: ${m.signatory.peerReviewedAtLabel ?? "pending"}`);
   lines.push(`Signature: ${m.signatory.peerReviewerName ? "recorded electronically" : "pending"}`);
+  lines.push(`Signature SHA: ${m.signatory.peerReviewerSignatureSha ?? "not recorded"}`);
   lines.push("");
   lines.push(
     `Note: ${m.resolvedCount} previously-identified deficiency/deficiencies already resolved and ${m.dismissedCount} finding(s) dismissed as not applicable are not restated in this directive.`,
@@ -1718,7 +1734,7 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
         text: `Response deadline: ${m.followUp.responseDeadline ?? "not specified in this directive"}`,
       }),
       new Paragraph({
-        text: `Next PSUR/PBRER due date: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`,
+        text: `Next PSUR/PBRER resubmission date: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`,
       }),
       new Paragraph({ text: "" }),
     );
@@ -1732,6 +1748,7 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
     ),
     docxLabelValue("Date", m.signatory.evaluatorSignedAtLabel ?? "pending"),
     docxLabelValue("Signature", m.signatory.evaluatorName ? "recorded electronically" : "pending"),
+    docxLabelValue("Signature SHA", m.signatory.evaluatorSignatureSha ?? "not recorded"),
     new Paragraph({ text: "" }),
     docxLabelValue("Peer reviewer", m.signatory.peerReviewerName ?? "pending signature"),
     docxLabelValue("Date", m.signatory.peerReviewedAtLabel ?? "pending"),
@@ -1739,6 +1756,7 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
       "Signature",
       m.signatory.peerReviewerName ? "recorded electronically" : "pending",
     ),
+    docxLabelValue("Signature SHA", m.signatory.peerReviewerSignatureSha ?? "not recorded"),
     new Paragraph({ text: "" }),
   );
 
@@ -2498,11 +2516,40 @@ export const psur = {
   updateSignOff: async (documentId: string, signOff: PsurSignOff): Promise<PsurDocument> => {
     const document = await readDocument(documentId);
     const now = new Date().toISOString();
-    const nextSignOff: PsurSignOff = {
+    // Start with the provided sign-off data but ensure timestamps exist when
+    // a name is present. Use a mutable local so SHA fields can be computed
+    // asynchronously and applied when missing.
+    let nextSignOff: PsurSignOff = {
       ...signOff,
       ...(signOff.evaluatorName ? { evaluatorSignedAt: signOff.evaluatorSignedAt ?? now } : {}),
       ...(signOff.peerReviewerName ? { peerReviewedAt: signOff.peerReviewedAt ?? now } : {}),
     };
+
+    // Compute and attach signature SHAs when a signature timestamp and name
+    // are present but no SHA was supplied. The SHA covers the document id,
+    // signer name and timestamp to provide a compact, auditable fingerprint.
+    const mutable = { ...nextSignOff } as PsurSignOff;
+    if (mutable.evaluatorSignedAt && mutable.evaluatorName && !mutable.evaluatorSignatureSha) {
+      const toHash = `${documentId}|${mutable.evaluatorName}|${mutable.evaluatorSignedAt}`;
+      mutable.evaluatorSignatureSha = await computeSha256(toHash);
+      await recordAudit({
+        action: "PSUR_EVALUATOR_SIGNATURE_SHA_COMPUTED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        newValue: `evaluatorSignatureSha=${mutable.evaluatorSignatureSha}`,
+      });
+    }
+    if (mutable.peerReviewedAt && mutable.peerReviewerName && !mutable.peerReviewerSignatureSha) {
+      const toHash = `${documentId}|${mutable.peerReviewerName}|${mutable.peerReviewedAt}`;
+      mutable.peerReviewerSignatureSha = await computeSha256(toHash);
+      await recordAudit({
+        action: "PSUR_PEER_REVIEWER_SIGNATURE_SHA_COMPUTED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        newValue: `peerReviewerSignatureSha=${mutable.peerReviewerSignatureSha}`,
+      });
+    }
+    nextSignOff = mutable;
 
     // Section 13 carries both signatures, and which of them just arrived is
     // what moves the report on: the evaluator's hands it to the peer

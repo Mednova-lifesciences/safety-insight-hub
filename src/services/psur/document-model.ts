@@ -425,8 +425,10 @@ export interface ComplianceDirectiveModel {
   signatory: {
     evaluatorName: string | null;
     evaluatorSignedAtLabel: string | null;
+    evaluatorSignatureSha: string | null;
     peerReviewerName: string | null;
     peerReviewedAtLabel: string | null;
+    peerReviewerSignatureSha: string | null;
   };
   resolvedCount: number;
   dismissedCount: number;
@@ -554,9 +556,12 @@ export function buildComplianceDirectiveModel(
       evaluatorSignedAtLabel: doc.signOff?.evaluatorSignedAt
         ? fmtDate(doc.signOff.evaluatorSignedAt)
         : null,
+      evaluatorSignatureSha: doc.signOff?.evaluatorSignatureSha || null,
       peerReviewerName: doc.signOff?.peerReviewerName?.trim() || null,
       peerReviewedAtLabel: doc.signOff?.peerReviewedAt ? fmtDate(doc.signOff.peerReviewedAt) : null,
+      peerReviewerSignatureSha: doc.signOff?.peerReviewerSignatureSha || null,
     },
+
     resolvedCount: resolved.length,
     dismissedCount: dismissed.length,
   };
