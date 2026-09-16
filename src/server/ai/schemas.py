@@ -5,10 +5,13 @@ parse untrusted model output" — not the JSON-mode request itself. A
 response that doesn't validate is treated exactly like a failed request:
 the caller falls back to deterministic behaviour.
 """
+import logging
 import re
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------- Line-list --
@@ -1130,12 +1133,30 @@ class AiPsurAdministrativeScreening(BaseModel):
         # One malformed row must not cost the other fifteen. Anything the
         # per-row validators reject is dropped here; the application fills
         # the gap with NOT_ASSESSABLE, which is the truthful stand-in.
+        #
+        # Dropping is logged rather than silent. A prompt change once left
+        # the model with no idea what shape "checks" should take, so every
+        # row was rejected and the result was an empty checklist that looked
+        # exactly like "the AI could not assess anything" — a real failure
+        # wearing the costume of an honest answer. The count below is what
+        # tells those two apart.
         if not isinstance(v, list):
+            if v is not None:
+                logger.warning("PSUR screening: 'checks' was %s, not a list", type(v).__name__)
             return []
         kept = []
+        rejected: list[str] = []
         for item in v:
             try:
                 kept.append(AiPsurScreeningCheck.model_validate(item))
             except Exception:
-                continue
+                rejected.append(
+                    str(item.get("id")) if isinstance(item, dict) else type(item).__name__
+                )
+        if rejected:
+            logger.warning(
+                "PSUR screening: discarded %d unparseable check row(s): %s",
+                len(rejected),
+                ", ".join(rejected[:20]),
+            )
         return kept
