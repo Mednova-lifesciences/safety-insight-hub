@@ -12,7 +12,7 @@ import {
 } from "./validation";
 import { splitIntoBatches, batchFilename } from "./batching";
 import { serializeBatchToXml } from "./serializer";
-import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
+import { meddra29Provider, unavailableWhoDrugProvider } from "./coding-provider";
 import {
   isTransmissionConfigConfirmed,
   describeUnconfirmedTransmissionConfig,
@@ -171,7 +171,7 @@ export async function runValidatedPreflightForJob(
   const job = await readJob(jobId);
   const sourceProfile = explicitProfile ?? resolveProfileForJob(job);
   const rows: ParsedRow[] = job.parsedRows ?? [];
-  const providers = { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider };
+  const providers = { meddra: meddra29Provider, whodrug: unavailableWhoDrugProvider };
   const processedAt = new Date().toISOString();
 
   // Discover this job's own codebook from whatever legend text its

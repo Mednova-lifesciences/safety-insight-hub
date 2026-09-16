@@ -5,6 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
+import re
+from functools import lru_cache
+from pathlib import Path
 
 from ..dependencies import get_current_user, AuthenticatedUser
 from ..db import get_supabase_client
@@ -21,6 +24,132 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+MEDDRA_VERSION = "29.1"
+MEDDRA_ROOT = Path(__file__).resolve().parents[3] / "docs" / "MedDRA_29_1_English" / "MedAscii"
+
+
+class MedDraTerm(BaseModel):
+    code: str
+    term: str
+    preferred_term: str
+    preferred_term_code: str
+    hierarchy: dict[str, str] = {}
+
+
+class MedDraResolution(BaseModel):
+    source_value: str
+    status: str
+    dictionary: str = "MedDRA"
+    dictionary_version: str = MEDDRA_VERSION
+    mapping_method: str = "LICENSED_DICTIONARY"
+    term: Optional[MedDraTerm] = None
+
+
+def _meddra_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+
+
+@lru_cache(maxsize=1)
+def _load_meddra() -> tuple[dict[str, MedDraTerm], dict[str, MedDraTerm]]:
+    """Load the supplied MedDRA release once per worker.
+
+    LLT is the coding level used by E2B(R3). The hierarchy file supplies the
+    corresponding PT/HLT/HLGT/SOC context without exposing the raw release
+    files through the API.
+    """
+    llt_path = MEDDRA_ROOT / "llt.asc"
+    hierarchy_path = MEDDRA_ROOT / "mdhier.asc"
+    if not llt_path.is_file() or not hierarchy_path.is_file():
+        raise FileNotFoundError(f"MedDRA {MEDDRA_VERSION} files are not installed")
+
+    pt_names: dict[str, str] = {}
+    with (MEDDRA_ROOT / "pt.asc").open(encoding="latin-1") as stream:
+        for line in stream:
+            fields = line.rstrip("\r\n").split("$")
+            if len(fields) >= 2 and fields[0] and fields[1]:
+                pt_names[fields[0]] = fields[1]
+
+    hierarchy: dict[str, dict[str, str]] = {}
+    with hierarchy_path.open(encoding="latin-1") as stream:
+        for line in stream:
+            fields = line.rstrip("\r\n").split("$")
+            if len(fields) >= 9 and fields[0] and fields[4]:
+                hierarchy[fields[0]] = {
+                    "preferred_term_code": fields[0],
+                    "preferred_term": pt_names.get(fields[0], fields[4]),
+                    "hlt": fields[5],
+                    "hlgt": fields[6],
+                    "soc": fields[7],
+                }
+
+    by_code: dict[str, MedDraTerm] = {}
+    by_key: dict[str, MedDraTerm] = {}
+    with llt_path.open(encoding="latin-1") as stream:
+        for line in stream:
+            fields = line.rstrip("\r\n").split("$")
+            if len(fields) < 3 or not fields[0] or not fields[1] or not fields[2]:
+                continue
+            context = hierarchy.get(fields[2])
+            if not context or not context["preferred_term"]:
+                continue
+            term = MedDraTerm(
+                code=fields[0],
+                term=fields[1],
+                preferred_term=context["preferred_term"],
+                preferred_term_code=context["preferred_term_code"],
+                hierarchy=context,
+            )
+            by_code[term.code] = term
+            by_key.setdefault(_meddra_key(term.term), term)
+    return by_code, by_key
+
+
+@router.get("/meddra/status")
+async def meddra_status(user: AuthenticatedUser = Depends(get_current_user)):
+    by_code, _ = _load_meddra()
+    return {"configured": bool(by_code), "dictionary": "MedDRA", "version": MEDDRA_VERSION}
+
+
+@router.post("/meddra/resolve", response_model=MedDraResolution)
+async def resolve_meddra(
+    request: dict,
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    source = str(request.get("text", "")).strip()
+    if not source:
+        return MedDraResolution(source_value=source, status="INVALID", term=None)
+    by_code, by_key = _load_meddra()
+    term = by_code.get(source) or by_key.get(_meddra_key(source))
+    if not term:
+        return MedDraResolution(source_value=source, status="UNMAPPED", term=None)
+    return MedDraResolution(source_value=source, status="MAPPED", term=term)
+
+
+@router.get("/meddra/search")
+async def search_meddra(
+    q: str = "",
+    limit: int = 20,
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    query = _meddra_key(q)
+    if not query:
+        return []
+    _, by_key = _load_meddra()
+    results = [
+        term for key, term in by_key.items() if query in key
+    ][: max(1, min(limit, 50))]
+    return [
+        {
+            "term": term.term,
+            "code": term.code,
+            "dictionary": "MedDRA",
+            "dictionaryVersion": MEDDRA_VERSION,
+            "preferredTerm": term.preferred_term,
+            "preferredTermCode": term.preferred_term_code,
+        }
+        for term in results
+    ]
 
 class CodingSuggestion(BaseModel):
     id: str
