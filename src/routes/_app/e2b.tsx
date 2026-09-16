@@ -80,6 +80,7 @@ function E2bPage() {
   const [overridingJobId, setOverridingJobId] = useState<string | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
   const [slashAsSeparator, setSlashAsSeparator] = useState<Record<string, boolean>>({});
+  const [verbatimProduct, setVerbatimProduct] = useState<Record<string, boolean>>({});
   const [aiCodingBusy, setAiCodingBusy] = useState<string | null>(null);
   const [aiCodingResults, setAiCodingResults] = useState<
     Record<string, { term: string; rationale: string; matches: { term: string; code: string }[] }[]>
@@ -109,13 +110,23 @@ function E2bPage() {
   function profileForJob(jobId: string) {
     const job = (jobs.data?.data ?? []).find((item) => item.id === jobId);
     const base = getSourceProfile(job?.sourceProfileId || "ondo-aefi");
-    if (!slashAsSeparator[jobId] || base.reactionDelimiter.separators.includes("/")) return base;
+    if (
+      !slashAsSeparator[jobId] &&
+      !verbatimProduct[jobId]
+    ) {
+      return base;
+    }
     return {
       ...base,
       reactionDelimiter: {
         ...base.reactionDelimiter,
-        separators: [...base.reactionDelimiter.separators, "/"],
+        separators: slashAsSeparator[jobId] && !base.reactionDelimiter.separators.includes("/")
+          ? [...base.reactionDelimiter.separators, "/"]
+          : base.reactionDelimiter.separators,
       },
+      productDelimiter: verbatimProduct[jobId]
+        ? { separators: [] }
+        : base.productDelimiter,
     };
   }
 
@@ -396,6 +407,35 @@ function E2bPage() {
                                   Default is off because “Rash/Urticaria” may be one source phrase.
                                   Turn this on only when the source owner confirms slash means two
                                   distinct reactions, then rerun preflight.
+                                </span>
+                              </span>
+                            </label>
+                          </div>
+                          <div className="mt-2 rounded border border-border bg-background/60 px-2 py-2 text-xs">
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                checked={verbatimProduct[j.id] ?? false}
+                                onChange={(event) => {
+                                  setVerbatimProduct((previous) => ({
+                                    ...previous,
+                                    [j.id]: event.target.checked,
+                                  }));
+                                  setPreflightResults((previous) => {
+                                    const next = { ...previous };
+                                    delete next[j.id];
+                                    return next;
+                                  });
+                                }}
+                              />
+                              <span>
+                                <span className="font-medium">
+                                  Keep primary suspect vaccine name verbatim
+                                </span>
+                                <span className="mt-0.5 block text-muted-foreground">
+                                  Preserves commas and slashes inside the product name as one
+                                  medicinal product. Use this when the source cell contains one
+                                  registered vaccine name, not a product list.
                                 </span>
                               </span>
                             </label>
