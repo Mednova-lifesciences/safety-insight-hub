@@ -586,6 +586,9 @@ export interface PsurDocument {
    *  summary tabulation). Defaults to PDF for documents uploaded before
    *  this field existed. */
   sourceType?: "PDF" | "SPREADSHEET";
+  /** Extracted PDF text retained so scientific review can be run by the
+   * evaluator after the Review Officer hands the document onward. */
+  extractedText?: string | undefined;
   /** Administrative Completeness Check — runs immediately at upload,
    *  before detailed scientific review. Distinct pass, distinct data;
    *  never collapsed into the findings list. Absent on documents

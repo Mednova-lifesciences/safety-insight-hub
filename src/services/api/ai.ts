@@ -242,6 +242,7 @@ export interface AiPsurScreeningResponse {
   truncated?: boolean;
   model?: string | null;
   error?: string | null;
+  extracted_text?: string | null;
 }
 
 export interface AiPsurReviewResponse {
@@ -461,6 +462,16 @@ export const ai = {
       apiUpload<AiPsurReviewResponse>("/api/ai/psur/review-pdf", file, {
         product,
         reportingPeriod,
+      }),
+    reviewPdfText: (body: {
+      filename: string;
+      extractedText: string;
+      product: string;
+      reportingPeriod: string;
+    }) =>
+      apiRequest<AiPsurReviewResponse>("/api/ai/psur/review-pdf-text", {
+        method: "POST",
+        body,
       }),
     reviewSpreadsheet: (body: {
       filename: string;

@@ -242,10 +242,12 @@ function PsurPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const activeDoc = visible.find((d) => d.id === selected) ?? visible[0];
   const findings = usePvQuery(
-    ["psur", "findings", activeDoc?.id ?? "none"],
-    async () => (await psurApi.review(activeDoc!.id)).findings,
+    ["psur", "findings", activeDoc?.id ?? "none", activeDoc?.stage ?? "none"],
+    async () =>
+      activeDoc?.stage === "REVIEWED" ? (await psurApi.review(activeDoc.id)).findings : [],
     () => demoPsurFindings,
   );
+  const activeWorkflowStage = activeDoc ? deriveWorkflowStage(activeDoc) : null;
   /**
    * Saving Sections 9-11 can SYNTHESIZE new findings server-side — those
    * sections' coverage status is derived from their own data, and
@@ -261,6 +263,7 @@ function PsurPage() {
     findings.refetch();
   };
   const [uploading, setUploading] = useState(false);
+  const [runningScientificReview, setRunningScientificReview] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [docsPage, setDocsPage] = useState(1);
   const [dismissingId, setDismissingId] = useState<string | null>(null);
@@ -367,18 +370,26 @@ function PsurPage() {
                         <StatusPill tone="info">{d.reportingPeriod}</StatusPill>
                         <StatusPill
                           tone={
-                            d.stage === "FAILED"
+                            deriveWorkflowStage(d) === "PEER_REVIEWED"
+                              ? "success"
+                              : deriveWorkflowStage(d) === "AWAITING_PEER_REVIEW"
+                                ? "warning"
+                                : deriveWorkflowStage(d) === "AWAITING_EVALUATION"
+                                  ? "info"
+                                  : d.stage === "FAILED"
                               ? "critical"
-                              : d.stage === "REVIEWED"
-                                ? "success"
-                                : "info"
+                              : "neutral"
                           }
                         >
-                          {/* "REVIEWED" means the AI pass has run and
-                              generated findings — not that a human has
-                              accepted/dismissed them yet. Spelled out here
-                              since "reviewed" alone reads as the latter. */}
-                          {d.stage === "REVIEWED" ? "AI reviewed" : d.stage.toLowerCase()}
+                          {deriveWorkflowStage(d) === "PEER_REVIEWED"
+                            ? "Signed off by peer reviewer"
+                            : deriveWorkflowStage(d) === "AWAITING_PEER_REVIEW"
+                              ? "Signed off by evaluator — awaiting peer review"
+                              : deriveWorkflowStage(d) === "AWAITING_EVALUATION"
+                                ? "Pending scientific review"
+                                : d.stage === "FAILED"
+                                  ? "Upload failed"
+                                  : "Pending screening"}
                         </StatusPill>
                         <span className="mono-num text-xs text-muted-foreground">
                           {/* An unreviewed PDF's page count is only a
@@ -451,6 +462,33 @@ function PsurPage() {
               description="Missing sections, consistency issues, numerical discrepancies, signal-related items and benefit-risk areas requiring attention."
               actions={
                 <div className="flex flex-wrap items-center gap-2">
+                  {canEvaluate &&
+                  activeWorkflowStage === "AWAITING_EVALUATION" &&
+                  activeDoc.stage !== "REVIEWED" ? (
+                    <Button
+                      size="sm"
+                      disabled={runningScientificReview}
+                      onClick={async () => {
+                        setRunningScientificReview(true);
+                        try {
+                          await psurApi.runScientificReview(activeDoc.id);
+                          toast.success("AI scientific review completed.");
+                          await allDocs.refetch();
+                          await findings.refetch();
+                        } catch (err) {
+                          toast.error(
+                            err instanceof Error
+                              ? err.message
+                              : "AI scientific review could not be completed.",
+                          );
+                        } finally {
+                          setRunningScientificReview(false);
+                        }
+                      }}
+                    >
+                      {runningScientificReview ? "Running AI validation…" : "Run AI validation"}
+                    </Button>
+                  ) : null}
                   {findings.data ? <SourceTag source={findings.data.source} /> : null}
                   {AUTO_FIX_ENABLED && canEvaluate ? (
                     <QueryBoundary query={findings}>
