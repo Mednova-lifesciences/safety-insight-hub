@@ -4,6 +4,7 @@ import { ConfirmWithPassword } from "@/components/pv/confirm-with-password";
 import { deriveWorkflowStage } from "@/services/psur/workflow";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { PsurScreeningDecision } from "@/components/pv/psur-screening-decision";
+import { ScreeningRecord } from "@/components/pv/psur-screening-checklist";
 import { useState } from "react";
 import { ArrowRight, Download, FileText, Stamp, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
@@ -404,12 +405,28 @@ function PsurPage() {
               </div>
             </Section>
 
-            <AdministrativeScreeningPanel
-              key={`screening-${activeDoc.id}`}
-              doc={activeDoc}
-              findings={findings.data?.data ?? []}
-              onChanged={refreshDocAndFindings}
-            />
+            {/* What the Review Officer actually recorded, read-only.
+                Evaluators and peer reviewers need to know what screening
+                found — it is context for their own review — but the
+                decision was the officer's and is not theirs to revisit.
+
+                Falls back to the older four-item completeness check only
+                for documents screened before NAFDAC's checklist existed.
+                Those two must never both render: a second, weaker opinion
+                shown beside the real one is worse than no opinion. */}
+            {activeDoc.administrativeScreening ? (
+              <ScreeningRecord
+                key={`screening-record-${activeDoc.id}`}
+                screening={activeDoc.administrativeScreening}
+              />
+            ) : (
+              <AdministrativeScreeningPanel
+                key={`screening-${activeDoc.id}`}
+                doc={activeDoc}
+                findings={findings.data?.data ?? []}
+                onChanged={refreshDocAndFindings}
+              />
+            )}
 
             <Section
               title="Review findings"

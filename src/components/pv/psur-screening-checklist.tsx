@@ -20,8 +20,10 @@ import {
   emptySubmissionDetails,
   normalizeChecks,
   recommendOutcome,
+  screeningCheck,
 } from "@/services/psur/screening-checklist";
 import type {
+  PsurAdministrativeScreening,
   PsurDocument,
   PsurScreeningCheckItem,
   PsurScreeningCheckStatus,
@@ -56,6 +58,8 @@ export function PsurScreeningChecklist({
     normalizeChecks(stored?.checks ?? []),
   );
   const [deficiencies, setDeficiencies] = useState(stored?.outcome?.deficiencies ?? "");
+  const [conclusions, setConclusions] = useState(stored?.outcome?.conclusions ?? "");
+  const [officerName, setOfficerName] = useState(stored?.outcome?.officerName ?? "");
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState<PsurScreeningOutcomeDecision | null>(null);
 
@@ -94,7 +98,13 @@ export function PsurScreeningChecklist({
       submissionDetails: details,
       checks,
     });
-    await psurApi.recordScreeningOutcome(doc.id, decision, deficiencies.trim());
+    await psurApi.recordScreeningOutcome(
+      doc.id,
+      decision,
+      deficiencies.trim(),
+      conclusions.trim(),
+      officerName.trim(),
+    );
     toast.success(
       decision === "ACCEPTED_FOR_ASSESSMENT"
         ? "Accepted — sent for scientific assessment."
@@ -170,13 +180,25 @@ export function PsurScreeningChecklist({
                 </span>
               ) : null}
             </div>
+            {outcome.conclusions ? (
+              <div className="rounded-md border border-border bg-muted/50 px-2 py-1.5">
+                <p className="label-caps">Final conclusions</p>
+                <p className="mt-0.5 text-xs">{outcome.conclusions}</p>
+              </div>
+            ) : null}
             {outcome.deficiencies ? (
-              <p className="rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs">
-                {outcome.deficiencies}
-              </p>
+              <div className="rounded-md border border-border bg-muted/50 px-2 py-1.5">
+                <p className="label-caps">Deficiencies / action required</p>
+                <p className="mt-0.5 text-xs">{outcome.deficiencies}</p>
+              </div>
             ) : null}
             <p className="text-xs text-muted-foreground">
-              Screened by {outcome.by} on {outcome.at.slice(0, 16).replace("T", " ")} UTC.
+              Signed by {outcome.officerName || outcome.by} on{" "}
+              {outcome.at.slice(0, 16).replace("T", " ")} UTC
+              {outcome.officerName && outcome.officerName !== outcome.by
+                ? ` (account: ${outcome.by})`
+                : ""}
+              .
             </p>
           </div>
         ) : confirming ? (
@@ -196,16 +218,29 @@ export function PsurScreeningChecklist({
             confirmLabel={`Confirm — ${OUTCOME_LABELS[confirming].toLowerCase()}`}
             actionName="the screening outcome"
             destructive={confirming !== "ACCEPTED_FOR_ASSESSMENT"}
+            blockedReason={
+              !officerName.trim()
+                ? "Enter your name in the sign-off block above — a screening outcome cannot be recorded unsigned."
+                : !conclusions.trim()
+                  ? "Record your conclusions above before signing off."
+                  : undefined
+            }
             onConfirmed={() => commitOutcome(confirming)}
             onCancel={() => setConfirming(null)}
           >
-            <div className="space-y-1 rounded-md border border-border bg-background px-2 py-1.5">
-              <p className="label-caps">Items cited</p>
-              <p className="text-xs">
-                {recommendation.citedItems.length > 0
-                  ? recommendation.citedItems.join(", ")
-                  : "None — nothing failed."}
-              </p>
+            <div className="space-y-2 rounded-md border border-border bg-background px-2 py-1.5">
+              <div>
+                <p className="label-caps">Items cited</p>
+                <p className="text-xs">
+                  {recommendation.citedItems.length > 0
+                    ? recommendation.citedItems.join(", ")
+                    : "None — nothing failed."}
+                </p>
+              </div>
+              <div>
+                <p className="label-caps">Signing as</p>
+                <p className="text-xs">{officerName.trim() || "—"}</p>
+              </div>
             </div>
           </ConfirmWithPassword>
         ) : (
@@ -225,6 +260,20 @@ export function PsurScreeningChecklist({
             </div>
 
             <div className="space-y-1.5">
+              <Label htmlFor="screening-conclusions">Final conclusions</Label>
+              <Textarea
+                id="screening-conclusions"
+                rows={3}
+                placeholder="Your closing assessment of this submission — what you found, and why the outcome follows."
+                value={conclusions}
+                onChange={(e) => setConclusions(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                The screening record&rsquo;s own conclusion. This is what the evaluator reads first.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
               <Label htmlFor="screening-deficiencies">Deficiencies / action required</Label>
               <Textarea
                 id="screening-deficiencies"
@@ -233,6 +282,25 @@ export function PsurScreeningChecklist({
                 value={deficiencies}
                 onChange={(e) => setDeficiencies(e.target.value)}
               />
+            </div>
+
+            {/* The form's own sign-off block. The typed name is the
+                signature a person claims; the password confirmation on the
+                next step is what makes the claim theirs. */}
+            <div className="space-y-1.5 border-t border-border pt-3">
+              <Label htmlFor="screening-officer">
+                Screening officer &mdash; name and signature
+              </Label>
+              <Input
+                id="screening-officer"
+                placeholder="Your full name, as it should appear on the record"
+                value={officerName}
+                onChange={(e) => setOfficerName(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                You will confirm with your password on the next step. The date is recorded
+                automatically.
+              </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -434,4 +502,102 @@ export function ScreeningSummaryPill({ doc }: { doc: PsurDocument }) {
     return <StatusPill tone="warning">{unresolved} still to confirm</StatusPill>;
   }
   return <StatusPill tone="success">All 16 checks pass</StatusPill>;
+}
+
+/**
+ * The officer's completed checklist, read-only, for the evaluator and peer
+ * reviewer.
+ *
+ * They need to know what screening found — it is real context for the
+ * scientific review — but the decision was the officer's step and is not
+ * theirs to revisit. Deliberately a summary rather than the full form: all
+ * sixteen rows with their status, but no controls, and the failures and
+ * unresolved items pulled to the top where a reviewer will actually read
+ * them.
+ */
+export function ScreeningRecord({ screening }: { screening: PsurAdministrativeScreening }) {
+  const checks = normalizeChecks(screening.checks);
+  const failed = checks.filter((c) => c.status === "NO");
+  const unresolved = checks.filter((c) => c.status === "NOT_ASSESSABLE");
+  const outcome = screening.outcome;
+
+  return (
+    <Section
+      title="Administrative screening (Review Officer)"
+      description="NAFDAC's 16-item screening checklist, completed on receipt. Shown here as a record — the screening decision belongs to the Review Officer."
+      actions={
+        outcome ? (
+          <StatusPill
+            tone={outcome.decision === "ACCEPTED_FOR_ASSESSMENT" ? "success" : "critical"}
+          >
+            {OUTCOME_LABELS[outcome.decision]}
+          </StatusPill>
+        ) : (
+          <StatusPill tone="warning">Screening not yet concluded</StatusPill>
+        )
+      }
+    >
+      <div className="space-y-3">
+        {outcome?.conclusions ? (
+          <div className="rounded-md border border-border bg-muted/50 px-2 py-1.5">
+            <p className="label-caps">Officer&rsquo;s conclusions</p>
+            <p className="mt-0.5 text-xs">{outcome.conclusions}</p>
+          </div>
+        ) : null}
+
+        {failed.length > 0 ? (
+          <div className="space-y-1">
+            <p className="label-caps">Failed ({failed.length})</p>
+            {failed.map((c) => (
+              <p key={c.id} className="text-xs">
+                <span className="mono-num text-muted-foreground">
+                  {screeningCheck(c.id).number}.
+                </span>{" "}
+                {screeningCheck(c.id).label}
+                {c.deficiency ? (
+                  <span className="text-muted-foreground"> — {c.deficiency}</span>
+                ) : null}
+              </p>
+            ))}
+          </div>
+        ) : null}
+
+        {unresolved.length > 0 ? (
+          <div className="space-y-1">
+            <p className="label-caps">Could not be settled from the submission</p>
+            <p className="text-xs text-muted-foreground">
+              Item(s){" "}
+              {unresolved
+                .map((c) => screeningCheck(c.id).number)
+                .sort((a, b) => a - b)
+                .join(", ")}
+              .
+            </p>
+          </div>
+        ) : null}
+
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground">All 16 checks</summary>
+          <ul className="mt-2 space-y-1">
+            {checks.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center gap-2">
+                <StatusPill tone={statusTone(c.status)}>{STATUS_LABELS[c.status]}</StatusPill>
+                <span className="mono-num text-muted-foreground">
+                  {screeningCheck(c.id).number}.
+                </span>
+                <span>{screeningCheck(c.id).label}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+
+        {outcome ? (
+          <p className="text-xs text-muted-foreground">
+            Signed by {outcome.officerName || outcome.by} on{" "}
+            {outcome.at.slice(0, 16).replace("T", " ")} UTC.
+          </p>
+        ) : null}
+      </div>
+    </Section>
+  );
 }
