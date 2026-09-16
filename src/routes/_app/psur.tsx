@@ -212,9 +212,8 @@ function PsurPage() {
   // things on it. `psur.review` got them through the door (see the
   // PermissionGate on the route); these decide what they can touch.
   const canEvaluate = usePermission("psur.evaluate");
-  // The Compliance Directive is outbound correspondence to the MAH, and
-  // sending it is the Review Officer's job — not the evaluator's. This is
-  // the gate that takes it off the evaluator's page.
+  // Screening decisions remain Review Officer-only; evaluator and peer
+  // reviewer access to the generated Compliance Directive is read-only.
   const canScreen = usePermission("psur.screen");
   const canPeerReview = usePermission("psur.peer_review");
   const allDocs = usePvQuery(
@@ -553,11 +552,11 @@ function PsurPage() {
                       </Button>
                     </>
                   ) : null}
-                  {/* Officer-only: the directive is what goes out to the MAH.
-                      Evaluators and peer reviewers do not send correspondence,
-                      so they do not get the button. The officer downloads it
-                      from here or from the screening queue — same document. */}
-                  {activeDoc.stage === "REVIEWED" && canScreen ? (
+                  {/* The Compliance Directive is generated from the saved
+                      scientific assessment. The Review Officer, evaluator and
+                      peer reviewer can all download the same authoritative
+                      document from their permitted PSUR surface. */}
+                  {activeDoc.stage === "REVIEWED" && (canScreen || canEvaluate || canPeerReview) ? (
                     <>
                       <Button
                         size="sm"
@@ -2067,7 +2066,7 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
             </p>
           </div>
           <div>
-            <p className="label-caps mb-1">Next PSUR/PBRER due date</p>
+            <p className="label-caps mb-1">Next PSUR/PBRER resubmission date</p>
             <Input type="date" value={nextDue} onChange={(e) => setNextDue(e.target.value)} />
             <p className="mt-1 text-xs text-muted-foreground">
               The next reporting cycle — not the deadline for answering this assessment.
@@ -2227,6 +2226,11 @@ function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => 
                 Signed {signOff.evaluatorSignedAt.slice(0, 16).replace("T", " ")} UTC
               </p>
             ) : null}
+            {signOff.evaluatorSignatureSha ? (
+              <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                Signature SHA: {signOff.evaluatorSignatureSha}
+              </p>
+            ) : null}
           </div>
           <div>
             <p className="label-caps mb-1">Peer reviewed by (name and signature)</p>
@@ -2238,6 +2242,11 @@ function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => 
             {signOff.peerReviewedAt ? (
               <p className="mt-1 text-xs text-muted-foreground">
                 Signed {signOff.peerReviewedAt.slice(0, 16).replace("T", " ")} UTC
+              </p>
+            ) : null}
+            {signOff.peerReviewerSignatureSha ? (
+              <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                Signature SHA: {signOff.peerReviewerSignatureSha}
               </p>
             ) : null}
           </div>

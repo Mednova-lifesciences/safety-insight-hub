@@ -543,7 +543,7 @@ export const PSUR_V4_TEMPLATE_SECTIONS: PsurV4Section[] = [
     subItems: [
       "Risk minimisation considerations",
       "Overall benefit-risk outcome",
-      "Next PSUR/PBRER due date",
+      "Next PSUR/PBRER resubmission date",
       "Follow-up required",
     ],
   },
@@ -1119,8 +1119,12 @@ export interface PsurSignOff {
   references: string;
   evaluatorName?: string | undefined;
   evaluatorSignedAt?: string | undefined;
+  /** SHA256 of the evaluator's signature (derived from document id, name and timestamp) */
+  evaluatorSignatureSha?: string | undefined;
   peerReviewerName?: string | undefined;
   peerReviewedAt?: string | undefined;
+  /** SHA256 of the peer reviewer's signature (derived from document id, name and timestamp) */
+  peerReviewerSignatureSha?: string | undefined;
 }
 
 /** A pointer to WHERE an assessor can go look for evidence a finding says
