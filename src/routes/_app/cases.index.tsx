@@ -31,16 +31,27 @@ export const Route = createFileRoute("/_app/cases/")({
   head: () => ({
     meta: [
       { title: "Case workbench — MedNova PV Assist" },
-      { name: "description", content: "Search, filter and open individual case safety reports across the safety database." },
+      {
+        name: "description",
+        content:
+          "Search, filter and open individual case safety reports across the safety database.",
+      },
       { property: "og:title", content: "Case workbench — MedNova PV Assist" },
-      { property: "og:description", content: "ICSR workbench with seriousness, workflow, assignment and due-date filters." },
+      {
+        property: "og:description",
+        content: "ICSR workbench with seriousness, workflow, assignment and due-date filters.",
+      },
     ],
   }),
   component: CaseWorkbench,
 });
 
 function CaseWorkbench() {
-  const query = usePvQuery(["cases"], () => casesApi.list(), () => demoCases);
+  const query = usePvQuery(
+    ["cases"],
+    () => casesApi.list(),
+    () => demoCases,
+  );
   const canProcessLineList = usePermission("linelist.process");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
@@ -126,11 +137,15 @@ function CaseWorkbench() {
           <div>
             <span className="label-caps">Workflow status</span>
             <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="mt-1 w-48"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="mt-1 w-48">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
                 {WORKFLOW_STEPS.map((s) => (
-                  <SelectItem key={s} value={s}>{WORKFLOW_LABELS[s]}</SelectItem>
+                  <SelectItem key={s} value={s}>
+                    {WORKFLOW_LABELS[s]}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -139,7 +154,9 @@ function CaseWorkbench() {
           <div>
             <span className="label-caps">Seriousness</span>
             <Select value={seriousness} onValueChange={setSeriousness}>
-              <SelectTrigger className="mt-1 w-40"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="mt-1 w-40">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
                 <SelectItem value="SERIOUS">Serious</SelectItem>
@@ -152,23 +169,43 @@ function CaseWorkbench() {
           <div>
             <span className="label-caps">Assigned to</span>
             <Select value={assignee} onValueChange={setAssignee}>
-              <SelectTrigger className="mt-1 w-44"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="mt-1 w-44">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Anyone</SelectItem>
                 {assignees.map((a) => (
-                  <SelectItem key={a} value={a}>{a}</SelectItem>
+                  <SelectItem key={a} value={a}>
+                    {a}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
           <div>
-            <label className="label-caps" htmlFor="from">Received from</label>
-            <Input id="from" type="date" className="mt-1 w-40" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <label className="label-caps" htmlFor="from">
+              Received from
+            </label>
+            <Input
+              id="from"
+              type="date"
+              className="mt-1 w-40"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
           </div>
           <div>
-            <label className="label-caps" htmlFor="to">to</label>
-            <Input id="to" type="date" className="mt-1 w-40" value={to} onChange={(e) => setTo(e.target.value)} />
+            <label className="label-caps" htmlFor="to">
+              to
+            </label>
+            <Input
+              id="to"
+              type="date"
+              className="mt-1 w-40"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
           </div>
         </div>
 
@@ -178,16 +215,37 @@ function CaseWorkbench() {
               <table className="w-full min-w-[1100px] text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50 text-left">
-                    {["Case ID", "Patient", "Product", "Reaction", "Seriousness", "Outcome", "Status", "Assigned", "Received", "Due", "Priority"].map((h) => (
-                      <th key={h} className="label-caps px-3 py-2 whitespace-nowrap">{h}</th>
+                    {[
+                      "Case ID",
+                      "Patient",
+                      "Product",
+                      "Reaction",
+                      "Seriousness",
+                      "Outcome",
+                      "Status",
+                      "Assigned",
+                      "Received",
+                      "Due",
+                      "Priority",
+                    ].map((h) => (
+                      <th key={h} className="label-caps px-3 py-2 whitespace-nowrap">
+                        {h}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((c) => (
-                    <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/40">
+                    <tr
+                      key={c.id}
+                      className="border-b border-border last:border-0 hover:bg-muted/40"
+                    >
                       <td className="px-3 py-2 whitespace-nowrap">
-                        <Link to="/cases/$caseId" params={{ caseId: c.id }} className="mono-num font-medium text-primary hover:underline">
+                        <Link
+                          to="/cases/$caseId"
+                          params={{ caseId: c.id }}
+                          className="mono-num font-medium text-primary hover:underline"
+                        >
                           {c.id}
                         </Link>
                         {c.dynamicFieldsCount ? (
@@ -196,28 +254,41 @@ function CaseWorkbench() {
                           </StatusPill>
                         ) : null}
                       </td>
-                      <td className="mono-num px-3 py-2 whitespace-nowrap">{c.patientIdentifier}</td>
+                      <td className="mono-num px-3 py-2 whitespace-nowrap">
+                        {c.patientIdentifier}
+                      </td>
                       <td className="max-w-52 truncate px-3 py-2">{c.product}</td>
                       <td className="max-w-52 truncate px-3 py-2">{c.reaction}</td>
-                      <td className="px-3 py-2"><SeriousnessBadge value={c.seriousness} /></td>
+                      <td className="px-3 py-2">
+                        <SeriousnessBadge value={c.seriousness} />
+                      </td>
                       <td className="px-3 py-2 text-xs whitespace-nowrap text-muted-foreground">
                         {c.outcome.replaceAll("_", " ").toLowerCase()}
                       </td>
-                      <td className="px-3 py-2"><WorkflowBadge value={c.workflowStep} /></td>
+                      <td className="px-3 py-2">
+                        <WorkflowBadge value={c.workflowStep} />
+                      </td>
                       <td className="px-3 py-2 whitespace-nowrap">{c.assignedTo}</td>
                       <td className="mono-num px-3 py-2 whitespace-nowrap">{c.receivedDate}</td>
                       <td className="mono-num px-3 py-2 whitespace-nowrap">
                         {c.dueDate}
                         {c.dueDate < "2026-08-15" && c.workflowStep !== "CLOSED" ? (
-                          <StatusPill tone="critical" className="ml-2">overdue</StatusPill>
+                          <StatusPill tone="critical" className="ml-2">
+                            overdue
+                          </StatusPill>
                         ) : null}
                       </td>
-                      <td className="px-3 py-2"><PriorityBadge value={c.priority} /></td>
+                      <td className="px-3 py-2">
+                        <PriorityBadge value={c.priority} />
+                      </td>
                     </tr>
                   ))}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-3 py-10 text-center text-sm text-muted-foreground">
+                      <td
+                        colSpan={11}
+                        className="px-3 py-10 text-center text-sm text-muted-foreground"
+                      >
                         No cases match the current filters.
                       </td>
                     </tr>

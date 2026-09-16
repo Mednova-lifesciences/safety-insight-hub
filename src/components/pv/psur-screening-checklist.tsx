@@ -48,9 +48,13 @@ import type {
 export function PsurScreeningChecklist({
   doc,
   onChanged,
+  onScreened,
 }: {
   doc: PsurDocument;
   onChanged: () => void;
+  /** Fired once the outcome is recorded, so the page can clear this form
+   *  away — the report has left the officer's desk with it. */
+  onScreened?: (decision: PsurScreeningOutcomeDecision) => void;
 }) {
   const stored = doc.administrativeScreening;
   const [details, setDetails] = useState<PsurSubmissionDetails>(
@@ -119,7 +123,8 @@ export function PsurScreeningChecklist({
         : "Recorded and returned to the MAH.",
     );
     setConfirming(null);
-    onChanged();
+    if (onScreened) onScreened(decision);
+    else onChanged();
   }
 
   // The decision, at the top as well as the bottom.
@@ -284,6 +289,39 @@ export function PsurScreeningChecklist({
                     : "None — nothing failed."}
                 </p>
               </div>
+
+              {/* Both dates exist only because the report is going back to
+                  the MAH: one is when they must reply to this letter, the
+                  other when their resubmission is due. Neither means
+                  anything for a submission that was accepted, so neither is
+                  shown then. */}
+              {returnsToMah(confirming) ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="screening-response-deadline" className="text-xs">
+                      MAH response deadline
+                    </Label>
+                    <Input
+                      id="screening-response-deadline"
+                      type="date"
+                      value={responseDeadline}
+                      onChange={(e) => setResponseDeadline(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="screening-next-due" className="text-xs">
+                      PSUR / PBRER resubmission date
+                    </Label>
+                    <Input
+                      id="screening-next-due"
+                      type="date"
+                      value={nextDue}
+                      onChange={(e) => setNextDue(e.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
               <div>
                 <p className="label-caps">Signing as</p>
                 <p className="text-xs">{officerName.trim() || "—"}</p>
@@ -329,39 +367,6 @@ export function PsurScreeningChecklist({
                 value={deficiencies}
                 onChange={(e) => setDeficiencies(e.target.value)}
               />
-            </div>
-
-            {/* Both dates go on the directive. They are separate fields
-                because they answer different questions — one is when the
-                MAH must reply to THIS letter, the other is when their next
-                periodic report falls due — and conflating them has already
-                caused trouble once in the evaluator's Section 12. */}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="screening-response-deadline">MAH response deadline</Label>
-                <Input
-                  id="screening-response-deadline"
-                  type="date"
-                  value={responseDeadline}
-                  onChange={(e) => setResponseDeadline(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Printed on the directive as the date the MAH must respond by. Required when the
-                  report goes back to them.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="screening-next-due">Next PSUR / PBRER due</Label>
-                <Input
-                  id="screening-next-due"
-                  type="date"
-                  value={nextDue}
-                  onChange={(e) => setNextDue(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  The next reporting cycle — not the deadline for answering this directive.
-                </p>
-              </div>
             </div>
 
             {/* The form's own sign-off block. The typed name is the

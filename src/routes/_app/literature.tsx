@@ -1,14 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import {
-  Download,
-  Newspaper,
-  ScanSearch,
-  Sparkles,
-  Upload,
-  X,
-} from "lucide-react";
+import { Download, Newspaper, ScanSearch, Sparkles, Upload, X } from "lucide-react";
 import { ai, type AiLiteratureAnalysis } from "@/services/api/ai";
 import { isNotConfigured } from "@/services/api/client";
 import { recordAudit } from "@/services/api/db";
@@ -66,15 +59,14 @@ function LiteratureScreeningPage() {
   const [results, setResults] = useState<ScreeningResult[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const allArticles = useMemo(
-    () => [...DEMO_LITERATURE_ARTICLES, ...userArticles],
-    [userArticles],
-  );
+  const allArticles = useMemo(() => [...DEMO_LITERATURE_ARTICLES, ...userArticles], [userArticles]);
   const activeResults = useMemo(() => results.filter((r) => !r.dismissed), [results]);
   const highRiskCount = activeResults.filter((r) => r.flag.riskLevel === "HIGH").length;
 
   function updateResult(articleId: string, patch: Partial<ScreeningResult>) {
-    setResults((prev) => prev.map((r) => (r.flag.article.id === articleId ? { ...r, ...patch } : r)));
+    setResults((prev) =>
+      prev.map((r) => (r.flag.article.id === articleId ? { ...r, ...patch } : r)),
+    );
   }
 
   async function runScreening() {
@@ -126,7 +118,11 @@ function LiteratureScreeningPage() {
       {
         flag,
         ai: ai?.analysis ?? null,
-        aiState: ai ? (ai.analysis ? ("done" as const) : ("unavailable" as const)) : ("idle" as const),
+        aiState: ai
+          ? ai.analysis
+            ? ("done" as const)
+            : ("unavailable" as const)
+          : ("idle" as const),
         aiNote: ai?.note ?? null,
         dismissed: false,
         signalReference: null,
@@ -156,7 +152,12 @@ function LiteratureScreeningPage() {
           toast.error("That file appears to be empty.");
           return;
         }
-        addUserArticle(file.name.replace(/\.[^.]+$/, ""), text.slice(0, 20_000), undefined, "Uploaded document");
+        addUserArticle(
+          file.name.replace(/\.[^.]+$/, ""),
+          text.slice(0, 20_000),
+          undefined,
+          "Uploaded document",
+        );
       };
       reader.readAsText(file);
       return;
@@ -279,7 +280,12 @@ function LiteratureScreeningPage() {
         title="Literature screening"
         description="Weekly local-literature surveillance required by NAFDAC GVP: journals and health news that global indexes never see. The keyword engine flags first; the AI assist adds a structured clinical reading; a human decides what becomes a signal."
         actions={
-          <Button variant="outline" size="sm" disabled={activeResults.length === 0} onClick={exportCsv}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={activeResults.length === 0}
+            onClick={exportCsv}
+          >
             <Download className="size-4" /> Export CSV
           </Button>
         }
@@ -287,9 +293,9 @@ function LiteratureScreeningPage() {
 
       <div className="space-y-4 p-6">
         <div className="rounded-md border border-info/30 bg-info-soft px-3 py-2 text-xs text-foreground">
-          Keyword flags are triage signals only — they never auto-create anything. Creating a
-          signal records an audited POTENTIAL entry on the Signal review page, where a qualified
-          reviewer confirms or refutes it.
+          Keyword flags are triage signals only — they never auto-create anything. Creating a signal
+          records an audited POTENTIAL entry on the Signal review page, where a qualified reviewer
+          confirms or refutes it.
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
@@ -297,8 +303,9 @@ function LiteratureScreeningPage() {
             <p className="label-caps">Weekly corpus</p>
             <p className="text-sm text-muted-foreground">
               {DEMO_LITERATURE_ARTICLES.length} indexed local publications are pre-loaded for this
-              demonstration{userArticles.length > 0 ? `, plus ${userArticles.length} you added` : ""}.
-              In production this runs nightly against journal RSS feeds and health news sources.
+              demonstration
+              {userArticles.length > 0 ? `, plus ${userArticles.length} you added` : ""}. In
+              production this runs nightly against journal RSS feeds and health news sources.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" disabled={screening} onClick={runScreening}>
@@ -339,10 +346,20 @@ function LiteratureScreeningPage() {
               onChange={(e) => setPastedText(e.target.value)}
             />
             <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="outline" disabled={!pastedText.trim()} onClick={screenPasted}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!pastedText.trim()}
+                onClick={screenPasted}
+              >
                 <ScanSearch className="size-4" /> Screen pasted text
               </Button>
-              <Button size="sm" variant="ghost" disabled={extractingDoc} onClick={() => fileRef.current?.click()}>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={extractingDoc}
+                onClick={() => fileRef.current?.click()}
+              >
                 <Upload className="size-4" />
                 {extractingDoc ? "Extracting & analyzing…" : "Upload PDF / Word / text"}
               </Button>
@@ -364,7 +381,7 @@ function LiteratureScreeningPage() {
 
         {results.length > 0 ? (
           <section className="space-y-3">
-              <p className="label-caps">Flagged publications</p>
+            <p className="label-caps">Flagged publications</p>
             {results.map((r) => (
               <article key={r.flag.article.id} className="panel space-y-3 p-4">
                 <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
@@ -372,8 +389,7 @@ function LiteratureScreeningPage() {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium">{r.flag.article.title}</p>
                     <p className="mono-num mt-0.5 text-xs text-muted-foreground">
-                      {r.flag.article.publication} · {r.flag.article.date} ·{" "}
-                      {r.flag.article.author}
+                      {r.flag.article.publication} · {r.flag.article.date} · {r.flag.article.author}
                     </p>
                   </div>
                   <StatusPill tone={r.flag.riskLevel === "HIGH" ? "critical" : "warning"}>
@@ -444,11 +460,7 @@ function LiteratureScreeningPage() {
                     <Sparkles className="size-4" />
                     {r.aiState === "done" ? "AI analysis applied" : "Analyze with AI"}
                   </Button>
-                  <Button
-                    size="sm"
-                    disabled={!!r.signalReference}
-                    onClick={() => createSignal(r)}
-                  >
+                  <Button size="sm" disabled={!!r.signalReference} onClick={() => createSignal(r)}>
                     Create signal
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => dismiss(r)}>

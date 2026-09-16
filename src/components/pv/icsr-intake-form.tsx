@@ -507,8 +507,8 @@ function IcsrIntakeFormFields({
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Sparkles className="size-4 shrink-0 text-primary" />
           Upload a photo or scan of a paper adverse-event form and watch it turn into structured
-          data below — every field stays editable, and nothing is saved until you review and
-          submit it yourself.
+          data below — every field stays editable, and nothing is saved until you review and submit
+          it yourself.
         </p>
 
         <Section

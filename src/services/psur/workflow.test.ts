@@ -9,6 +9,7 @@ import {
   isInScientificReview,
   isPeerReviewed,
   isReturnedToMah,
+  visibleForScientificReview,
 } from "./workflow";
 import type { PsurDocument, PsurScreeningResult, PsurWorkflowStage } from "@/types/pv";
 
@@ -241,5 +242,44 @@ describe("WORKFLOW_STAGE_LABELS", () => {
       "PEER_REVIEWED",
     ];
     for (const stage of stages) expect(WORKFLOW_STAGE_LABELS[stage]).toBeTruthy();
+  });
+});
+
+describe("who sees what on the scientific review page", () => {
+  const EVAL = { canEvaluate: true, canPeerReview: false };
+  const PEER = { canEvaluate: true, canPeerReview: true }; // peer also edits
+  const NEITHER = { canEvaluate: false, canPeerReview: false };
+
+  it("a peer reviewer sees only what an evaluator has sent them", () => {
+    // The point of the separation: reviewing a review that is still being
+    // written is not a check, it is a guess at what it will say.
+    expect(visibleForScientificReview(doc({ workflowStage: "AWAITING_PEER_REVIEW" }), PEER)).toBe(
+      true,
+    );
+    expect(visibleForScientificReview(doc({ workflowStage: "PEER_REVIEWED" }), PEER)).toBe(true);
+    expect(visibleForScientificReview(doc({ workflowStage: "AWAITING_EVALUATION" }), PEER)).toBe(
+      false,
+    );
+  });
+
+  it("an evaluator sees everything that got past screening", () => {
+    for (const stage of ["AWAITING_EVALUATION", "AWAITING_PEER_REVIEW", "PEER_REVIEWED"] as const) {
+      expect(visibleForScientificReview(doc({ workflowStage: stage }), EVAL), stage).toBe(true);
+    }
+  });
+
+  it("nobody reviewing sees a report still with the officer or returned", () => {
+    for (const who of [EVAL, PEER]) {
+      expect(visibleForScientificReview(doc({ workflowStage: "SCREENING" }), who)).toBe(false);
+      expect(visibleForScientificReview(doc({ workflowStage: "RETURNED_TO_MAH" }), who)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("someone with neither permission sees nothing", () => {
+    expect(visibleForScientificReview(doc({ workflowStage: "PEER_REVIEWED" }), NEITHER)).toBe(
+      false,
+    );
   });
 });

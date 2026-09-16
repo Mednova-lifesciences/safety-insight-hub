@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { usePermission } from "@/lib/auth";
 import { ConfirmWithPassword } from "@/components/pv/confirm-with-password";
-import { deriveWorkflowStage } from "@/services/psur/workflow";
+import { deriveWorkflowStage, visibleForScientificReview } from "@/services/psur/workflow";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { PsurScreeningDecision } from "@/components/pv/psur-screening-decision";
 import { ScreeningRecord } from "@/components/pv/psur-screening-checklist";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowRight, Download, FileText, Stamp, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { psur as psurApi } from "@/services/api/psur";
@@ -216,13 +216,32 @@ function PsurPage() {
   // sending it is the Review Officer's job — not the evaluator's. This is
   // the gate that takes it off the evaluator's page.
   const canScreen = usePermission("psur.screen");
-  const docs = usePvQuery(
+  const canPeerReview = usePermission("psur.peer_review");
+  const allDocs = usePvQuery(
     ["psur", "documents"],
     () => psurApi.documents(),
     () => demoPsurDocuments,
   );
+
+  // One page, two queues. A peer reviewer is sent work by an evaluator and
+  // sees only what has actually been sent; see visibleForScientificReview.
+  const visible = useMemo(
+    () =>
+      (allDocs.data?.data ?? []).filter((d) =>
+        visibleForScientificReview(d, { canEvaluate, canPeerReview }),
+      ),
+    [allDocs.data, canEvaluate, canPeerReview],
+  );
+  const docs = useMemo(
+    () => ({
+      ...allDocs,
+      data: allDocs.data ? { ...allDocs.data, data: visible } : allDocs.data,
+    }),
+    [allDocs, visible],
+  );
+
   const [selected, setSelected] = useState<string | null>(null);
-  const activeDoc = (docs.data?.data ?? []).find((d) => d.id === selected) ?? docs.data?.data?.[0];
+  const activeDoc = visible.find((d) => d.id === selected) ?? visible[0];
   const findings = usePvQuery(
     ["psur", "findings", activeDoc?.id ?? "none"],
     async () => (await psurApi.review(activeDoc!.id)).findings,
@@ -239,7 +258,7 @@ function PsurPage() {
    * yet — this should not happen" diagnostic against stale data.
    */
   const refreshDocAndFindings = () => {
-    docs.refetch();
+    allDocs.refetch();
     findings.refetch();
   };
   const [uploading, setUploading] = useState(false);

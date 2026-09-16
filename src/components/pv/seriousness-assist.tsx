@@ -92,8 +92,14 @@ export function SeriousnessAssist({ caseDetail }: { caseDetail: CaseDetail }) {
           ) : (
             <div className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-3">
-                <Field label="Reported seriousness" value={<SeriousnessBadge value={assessment.reportedSeriousness} />} />
-                <Field label="Narrative assessment" value={<SeriousnessBadge value={assessment.narrativeAssessment} />} />
+                <Field
+                  label="Reported seriousness"
+                  value={<SeriousnessBadge value={assessment.reportedSeriousness} />}
+                />
+                <Field
+                  label="Narrative assessment"
+                  value={<SeriousnessBadge value={assessment.narrativeAssessment} />}
+                />
                 <Field
                   label="Result"
                   value={
@@ -102,7 +108,9 @@ export function SeriousnessAssist({ caseDetail }: { caseDetail: CaseDetail }) {
                         Potential seriousness mismatch
                       </StatusPill>
                     ) : (
-                      <StatusPill tone="success">Consistent with reported classification</StatusPill>
+                      <StatusPill tone="success">
+                        Consistent with reported classification
+                      </StatusPill>
                     )
                   }
                 />
@@ -111,9 +119,10 @@ export function SeriousnessAssist({ caseDetail }: { caseDetail: CaseDetail }) {
               <div className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2.5">
                 <p className="text-sm text-foreground">{assessment.rationale}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Engine: <span className="mono-num">{assessment.engineVersion}</span> · The official
-                  case seriousness remains <strong>{assessment.reportedSeriousness.replace("_", "-").toLowerCase()}</strong> until a
-                  reviewer records a decision.
+                  Engine: <span className="mono-num">{assessment.engineVersion}</span> · The
+                  official case seriousness remains{" "}
+                  <strong>{assessment.reportedSeriousness.replace("_", "-").toLowerCase()}</strong>{" "}
+                  until a reviewer records a decision.
                 </p>
               </div>
 
@@ -128,7 +137,10 @@ export function SeriousnessAssist({ caseDetail }: { caseDetail: CaseDetail }) {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm">{c.criterion}</p>
                         {c.evidence.map((e) => (
-                          <p key={e} className="mt-1 border-l-2 border-warning/50 pl-2 text-xs text-muted-foreground italic">
+                          <p
+                            key={e}
+                            className="mt-1 border-l-2 border-warning/50 pl-2 text-xs text-muted-foreground italic"
+                          >
                             “{e}”
                           </p>
                         ))}
