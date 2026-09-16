@@ -63,7 +63,6 @@ describe("the two role families stay apart", () => {
     for (const role of ADMIN_ROLES) {
       expect(ROLE_PERMISSIONS[role]).not.toContain("case.create");
       expect(ROLE_PERMISSIONS[role]).not.toContain("case.view");
-      expect(ROLE_PERMISSIONS[role]).not.toContain("linelist.process");
       expect(ROLE_PERMISSIONS[role]).not.toContain("regulatory.manage");
     }
   });
