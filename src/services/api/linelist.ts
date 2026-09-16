@@ -372,7 +372,11 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     // reaction field left empty. That is the dangerous class of mistake (a
     // wrong field, not an absent one), so it outranks everything.
     ["adversedrugreaction", 95],
-    ["adr", 50],
+    // Do not use the bare "adr" abbreviation here: after punctuation is
+    // removed, "Adress of reporting health facility" starts with "adr" and
+    // was therefore incorrectly claimed as the reaction column. Full
+    // "Adverse Drug Reaction" is covered above; shorter ADR headers must be
+    // handled by an explicit source mapping rather than a substring guess.
     ["sideeffect", 85],
     ["adverseeffect", 85],
     ["untowardeffect", 85],
