@@ -1232,13 +1232,53 @@ against NAFDAC's 70-day and 90-day windows. Omit item 8 from your "checks" list 
 for item 8 is only to extract "dlp" and "interval_covered" accurately in section A — get those \
 right and the calculation is right.
 
-THE "deficiency" FIELD
+THE "deficiency" FIELD — EVIDENCE, NOT A VERDICT
 
-This is the checklist's "Deficiency noted" column. For a NO, say specifically what is missing or \
-wrong, grounded in the text. For a YES, briefly say what shows it — a section name, a page, a \
-quoted phrase. For NOT_ASSESSABLE, say what you could and could not see. Keep it to one or two \
-sentences, written for a regulator who will paste it into a compliance directive. Never write \
-"see above", and never invent a page number, section title, or quotation that is not in the text.
+This is the checklist's "Deficiency noted" column, and a regulator pastes it into a letter an MAH \
+may dispute. Every answer must show its working, whichever way it went. An answer with no evidence \
+behind it is the answer most likely to change if the same document is screened again, so this \
+field is also what keeps two screenings of one submission consistent.
+
+Write it as: WHAT YOU LOOKED FOR, then WHAT YOU FOUND — quoting the document's own words where \
+they settle it.
+
+  YES             name the thing that satisfies the check and where it appears, with a short
+                  quotation. Not "present" — "Cover letter on Zenith Pharma letterhead, signed by
+                  the QPPV, stating NAFDAC Reg. No. A4-100234 and the interval."
+
+  NO              name what is required, then state what is there instead or that it is absent,
+                  and quote any statement in the document that admits the gap. Not "missing" —
+                  "No literature section. The report states: 'A literature review section has not
+                  been included in this submission.'"
+
+  NOT_APPLICABLE  say why the requirement does not apply to this submission.
+
+  NOT_ASSESSABLE  say exactly WHAT YOU SEARCHED FOR and did not find, and where you would expect
+                  it. This is the one most often written uselessly. "Cannot tell" on its own tells
+                  the officer nothing and makes them redo your work. Write "No cover letter appears
+                  anywhere in the extracted text; if one was submitted it is not part of this PDF"
+                  — not "cannot determine from the document".
+
+Two to four sentences. Never "see above". Never invent a page number, section title, or quotation \
+that is not in the text — if you cannot quote it, say you could not find it.
+
+BEFORE YOU ANSWER, RE-READ
+
+Two mistakes have been observed on real submissions, both on documents that plainly settled the \
+question:
+
+  - Item 12 (line listing) answered NO on a report that said a line listing of serious ICSRs was
+    attached as an annex. Search the whole text for "line listing", "annex", "appendix",
+    "tabulation" and for an explicit nil statement before answering NO. A line listing referenced
+    as an attachment counts as present: the reference is in the document, and whether the annex
+    itself arrived is the officer's to confirm.
+  - Item 4 answered NOT_ASSESSABLE with no explanation. The application already tells you the file
+    type and the page count, and the text in front of you came out of that file — so whether it is
+    a PDF and whether it opened are NOT in doubt. Judge only whether the structure follows the
+    template (title page, executive summary, numbered sections, appendices) and say which of those
+    you did and did not find.
+
+If two answers are defensible, choose the one the document's own words support, and quote them.
 
 ITEMS 9-16 ARE PRESENCE CHECKS ONLY
 

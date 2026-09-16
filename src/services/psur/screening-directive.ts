@@ -1,4 +1,4 @@
-import type { PsurDocument, PsurScreeningCheckItem } from "@/types/pv";
+import type { PsurDocument, PsurScreeningCheckId, PsurScreeningCheckItem } from "@/types/pv";
 import {
   OUTCOME_LABELS,
   STATUS_LABELS,
@@ -30,9 +30,17 @@ import {
 
 export interface ScreeningDirectiveRow {
   number: number;
+  /** The checklist requirement, as the MAH's own copy of the form words it. */
   label: string;
   status: string;
+  /** Why it failed — the officer's or the AI's evidence, verbatim. */
   deficiency: string;
+  /** What the MAH has to DO about it. Derived from the requirement itself,
+   *  so a directive never lists a deficiency without saying what would fix
+   *  it — "Section 13 is missing" leaves an MAH guessing; "Provide the
+   *  literature review section, summarised in the company's own words"
+   *  does not. */
+  action: string;
 }
 
 export interface ScreeningDirectiveModel {
@@ -69,6 +77,50 @@ export interface ScreeningDirectiveModel {
   generatedAtLabel: string;
 }
 
+/**
+ * What the MAH must do about each failed check.
+ *
+ * Written per requirement rather than generated, because a directive is
+ * acted on: "item 12 failed" is not something an MAH can comply with, and
+ * an instruction invented per-submission would vary between letters for the
+ * same defect. These are fixed, so the same failure always asks for the
+ * same remedy.
+ */
+const REQUIRED_ACTION: Record<PsurScreeningCheckId, string> = {
+  COVER_LETTER_COMPLETE:
+    "Submit a cover letter on MAH letterhead, signed by the QPPV, stating the product name, strength(s) and dosage form(s), NAFDAC Registration Number, renewal/application number and the reporting interval.",
+  QPPV_DETAILS_STATED:
+    "State the QPPV and Deputy QPPV name, telephone number and e-mail on both the cover letter and the title page, and confirm they match the details held on NAFDAC's record.",
+  ONE_PSUR_PER_ACTIVE_SUBSTANCE:
+    "Submit one PSUR per active substance covering all registered strengths and dosage forms, with the product name and strength written exactly as they appear on the NAFDAC certificate.",
+  PDF_OPENS_AND_FOLLOWS_TEMPLATE:
+    "Resubmit as a single PDF that opens fully and follows the NAFDAC PSUR Full Template — title page, executive summary, Sections 1-21 and appendices.",
+  IBD_AND_FIRST_REGISTRATION_STATED:
+    "State both the International Birth Date and the date of first NAFDAC registration on the title page, and calculate the reporting interval from the IBD.",
+  DLP_AND_INTERVAL_CONSISTENT:
+    "State the Data Lock Point and the reporting interval, and make them consistent across the cover letter, the title page and the executive summary.",
+  INTERVAL_CONTIGUOUS:
+    "Confirm the reporting interval follows on from the previous PSUR with no gap or overlap, or state explicitly that this is a first submission.",
+  RECEIVED_WITHIN_TIMEFRAME:
+    "Submit within 70 days of the Data Lock Point for an interval of 12 months or less, or 90 days for a longer interval. Where this submission was late, provide a written justification for the delay.",
+  TITLE_PAGE_COMPLETE_AND_SIGNED:
+    "Provide a complete title page signed and dated by the Nigerian QPPV, including the MAH name and address and a confidentiality statement.",
+  EXECUTIVE_SUMMARY_COMPLETE:
+    "Provide an executive summary addressing every element of the template, from the introduction through to the conclusions.",
+  SECTIONS_PRESENT_OR_JUSTIFIED:
+    "Provide Sections 1-21, each populated or marked not applicable with a stated reason, together with a table of contents and a list of abbreviations.",
+  LINE_LISTING_OR_NIL_STATEMENT:
+    "Provide a line listing of serious adverse events and ICSRs for the interval, however few, or an explicit statement that none were received.",
+  LITERATURE_IN_OWN_WORDS:
+    "Provide a literature section summarised in the company's own words, including a product-specific assessment paragraph rather than reproduced abstracts.",
+  INTEGRATED_BENEFIT_RISK_ANALYSIS:
+    "Provide an integrated benefit-risk analysis drawing on data from across the report, concluding on key findings, any new risks, the overall benefit-risk balance and the actions proposed.",
+  APPENDIX_RSI_ATTACHED:
+    "Attach Appendix I (the Reference Safety Information / SmPC), and reference the current RMP version where an RMP exists.",
+  PREVIOUS_QUERIES_ADDRESSED:
+    "Address each query and commitment raised in NAFDAC's previous assessment of this product, stating where in the report the response appears.",
+};
+
 function rowsFor(
   checks: PsurScreeningCheckItem[],
   status: PsurScreeningCheckItem["status"],
@@ -82,6 +134,7 @@ function rowsFor(
         label: def.label,
         status: STATUS_LABELS[c.status],
         deficiency: c.deficiency,
+        action: REQUIRED_ACTION[c.id],
       };
     })
     .sort((a, b) => a.number - b.number);
