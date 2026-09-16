@@ -1,0 +1,672 @@
+1/9/2026$M$13$10000398$Acetaminophen$10060090$$$$$$$N$$
+1/9/2026$M$13$10008318$Cervical stricture$10067732$$$$$$$N$$
+1/9/2026$M$13$10014604$Encephalitis post measles$10042297$$$$$$$N$$
+1/9/2026$M$13$10033762$Paracetamol$10060090$$$$$$$N$$
+1/9/2026$M$13$10039372$Salicylate$10060090$$$$$$$N$$
+1/9/2026$M$13$10057301$Post measles encephalitis$10042297$$$$$$$N$$
+1/9/2026$M$13$10068151$Closed capsulotomy$10075014$$$$$$$N$$
+1/9/2026$M$13$10092924$Walking aid support$10092920$$$$$$$N$$
+1/9/2026$M$5$10071090$Transfusion-related complication$10071090$$$$$$$Y$$
+1/9/2026$M$5$10076518$Rhesus antibodies (anti-D) positive$10039036$$$$$$$Y$$
+1/9/2026$M$5$10076519$Rhesus antibodies (anti-D) negative$10039035$$$$$$$Y$$
+1/9/2026$M$5$10086468$Sleep-related hypermotor epilepsy$10086468$$$$$$$Y$$
+1/9/2026$M$6 13$10009936$Coloboma of optic disc$10009936$$$$$$$Y$$
+1/9/2026$M$6 13$10016561$Fever malignant$10052243$$$$$$$N$$
+1/9/2026$M$6 13$10062312$Congenital intrahepatic shunt$10093530$$$$$$$N$$
+1/9/2026$M$6 13$10093264$Spiritual experience$10093669$$$$$$$N$$
+1/9/2026$M$6 13$10093401$Wrong technique in product usage process performed in error$10076573$$$$$$$N$$
+1/9/2026$M$6$10000098$Abdominal transposition$10067265$$$$$$$Y$$
+1/9/2026$M$6$10000557$Acquired hypogammaglobulinaemia$10020983$$$$$$$Y$$
+1/9/2026$M$6$10000558$Acquired hypogammaglobulinemia$10020983$$$$$$$Y$$
+1/9/2026$M$6$10000668$Acute and subacute iridocyclitis$10002709$$$$$$$N$$
+1/9/2026$M$6$10000669$Acute and subacute iridocyclitis, unspecified$10002709$$$$$$$N$$
+1/9/2026$M$6$10002688$Anterior cyclitis$10002709$$$$$$$Y$$
+1/9/2026$M$6$10002709$Anterior uveitis$10002709$$$$$$$Y$$
+1/9/2026$M$6$10005461$Blood creatine$10093690$$$$$$$Y$$
+1/9/2026$M$6$10005462$Blood creatine abnormal$10011329$$$$$$$Y$$
+1/9/2026$M$6$10005463$Blood creatine decreased$10011331$$$$$$$Y$$
+1/9/2026$M$6$10005464$Blood creatine increased$10011333$$$$$$$Y$$
+1/9/2026$M$6$10005466$Blood creatine normal$10011346$$$$$$$Y$$
+1/9/2026$M$6$10006249$Breast fibroadenosis$10016621$$$$$$$Y$$
+1/9/2026$M$6$10008214$Certain types of iridocyclitis$10002709$$$$$$$N$$
+1/9/2026$M$6$10008760$Choriodoretinitis$10036370$$$$$$$N$$
+1/9/2026$M$6$10008769$Chorioretinitis$10036370$$$$$$$Y$$
+1/9/2026$M$6$10008771$Chorioretinitis, unspecified$10036370$$$$$$$Y$$
+1/9/2026$M$6$10008933$Chronic iridocyclitis$10002709$$$$$$$Y$$
+1/9/2026$M$6$10008934$Chronic iridocyclitis in diseases classified elsewhere$10002709$$$$$$$N$$
+1/9/2026$M$6$10008935$Chronic iridocyclitis, unspecified$10002709$$$$$$$Y$$
+1/9/2026$M$6$10011328$Creatine$10093690$$$$$$$Y$$
+1/9/2026$M$6$10011329$Creatine abnormal$10011329$$$$$$$Y$$
+1/9/2026$M$6$10011330$Creatine abnormal NOS$10011329$$$$$$$Y$$
+1/9/2026$M$6$10011331$Creatine decreased$10011331$$$$$$$Y$$
+1/9/2026$M$6$10011332$Creatine high$10011333$$$$$$$Y$$
+1/9/2026$M$6$10011333$Creatine increased$10011333$$$$$$$Y$$
+1/9/2026$M$6$10011345$Creatine low$10011331$$$$$$$Y$$
+1/9/2026$M$6$10011346$Creatine normal$10011346$$$$$$$Y$$
+1/9/2026$M$6$10011353$Creatine urine$10093690$$$$$$$Y$$
+1/9/2026$M$6$10011354$Creatine urine abnormal$10011329$$$$$$$Y$$
+1/9/2026$M$6$10011355$Creatine urine decreased$10011331$$$$$$$Y$$
+1/9/2026$M$6$10011356$Creatine urine increased$10011333$$$$$$$Y$$
+1/9/2026$M$6$10011357$Creatine urine normal$10011346$$$$$$$Y$$
+1/9/2026$M$6$10013433$Disseminated chorioretinitis and disseminated retino- choroiditis$10036370$$$$$$$N$$
+1/9/2026$M$6$10013434$Disseminated chorioretinitis and disseminated retino-choroiditis$10036370$$$$$$$N$$
+1/9/2026$M$6$10013435$Disseminated chorioretinitis, unspecified$10036370$$$$$$$Y$$
+1/9/2026$M$6$10013436$Disseminated choroiditis and chorioretinitis, generalized$10036370$$$$$$$N$$
+1/9/2026$M$6$10013437$Disseminated choroiditis and chorioretinitis, peripheral$10036370$$$$$$$N$$
+1/9/2026$M$6$10013438$Disseminated choroiditis and chorioretinitis, posterior pole$10036370$$$$$$$N$$
+1/9/2026$M$6$10013448$Disseminated retinitis and retinochoroiditis, metastatic$10036370$$$$$$$N$$
+1/9/2026$M$6$10013449$Disseminated retinitis and retinochoroiditis, pigment epitheliopathy$10036370$$$$$$$N$$
+1/9/2026$M$6$10013735$Drug maladministration$10081576$$$$$$$Y$$
+1/9/2026$M$6$10013736$Drug misadministration$10081576$$$$$$$Y$$
+1/9/2026$M$6$10016616$Fibroadenosis breast$10016621$$$$$$$Y$$
+1/9/2026$M$6$10016617$Fibroadenosis of breast$10016621$$$$$$$Y$$
+1/9/2026$M$6$10016618$Fibroadenosis of breast (benign)$10016621$$$$$$$Y$$
+1/9/2026$M$6$10016776$Flexural psoriasis$10063160$$$$$$$Y$$
+1/9/2026$M$6$10016833$Focal chorioretinitis and focal retinochoroiditis$10036370$$$$$$$N$$
+1/9/2026$M$6$10016834$Focal chorioretinitis, unspecified$10036370$$$$$$$Y$$
+1/9/2026$M$6$10016835$Focal choroiditis and chorioretinitis of other posterior pole$10036370$$$$$$$N$$
+1/9/2026$M$6$10016836$Focal choroiditis and chorioretinitis, juxtapapillary$10036370$$$$$$$N$$
+1/9/2026$M$6$10016837$Focal choroiditis and chorioretinitis, peripheral$10036370$$$$$$$N$$
+1/9/2026$M$6$10016839$Focal retinitis and retinochoroiditis of other posterior pole$10036370$$$$$$$N$$
+1/9/2026$M$6$10016840$Focal retinitis and retinochoroiditis, juxtapapillary$10036370$$$$$$$N$$
+1/9/2026$M$6$10016841$Focal retinitis and retinochoroiditis, macular or paramacular$10036370$$$$$$$N$$
+1/9/2026$M$6$10016842$Focal retinitis and retinochoroiditis, peripheral$10036370$$$$$$$N$$
+1/9/2026$M$6$10017700$Gangliocytoma$10017700$$$$$$$Y$$
+1/9/2026$M$6$10020394$Horseshoe tear of retina without detachment$10066422$$$$$$$Y$$
+1/9/2026$M$6$10021534$Impetigo herpetiformis$10093632$$$$$$$Y$$
+1/9/2026$M$6$10022557$Intermediate uveitis$10022557$$$$$$$Y$$
+1/9/2026$M$6$10022881$Invasive bronchopulmonary aspergillosis$10093496$$$$$$$Y$$
+1/9/2026$M$6$10022941$Iridocyclitis$10002709$$$$$$$Y$$
+1/9/2026$M$6$10024211$Lens-induced iridocyclitis$10002709$$$$$$$Y$$
+1/9/2026$M$6$10028187$Multiple defects of retina without detachment$10066422$$$$$$$Y$$
+1/9/2026$M$6$10029235$Neurilemmoma benign$10039667$$$$$$$Y$$
+1/9/2026$M$6$10029238$Neurilemoma benign$10039667$$$$$$$Y$$
+1/9/2026$M$6$10030958$Opticoneuroretinitis$10060701$$$$$$$N$$
+1/9/2026$M$6$10031570$Other and unspecified forms of chorioretinitis and retinochoroiditis$10036370$$$$$$$N$$
+1/9/2026$M$6$10033687$Panuveitis$10033687$$$$$$$Y$$
+1/9/2026$M$6$10034052$Pars planitis$10022557$$$$$$$Y$$
+1/9/2026$M$6$10034631$Peripheral uveitis$10022557$$$$$$$Y$$
+1/9/2026$M$6$10035079$Pituitary adenoma$10035079$$$$$$$Y$$
+1/9/2026$M$6$10035094$Pituitary macroadenoma$10035079$$$$$$$Y$$
+1/9/2026$M$6$10035095$Pituitary microadenoma$10035079$$$$$$$Y$$
+1/9/2026$M$6$10035266$Plasma creatine$10093690$$$$$$$Y$$
+1/9/2026$M$6$10036263$Post-laminectomy syndrome$10093520$$$$$$$N$$
+1/9/2026$M$6$10036370$Posterior uveitis$10036370$$$$$$$Y$$
+1/9/2026$M$6$10036384$Postlaminectomy syndrome$10093520$$$$$$$N$$
+1/9/2026$M$6$10036385$Postlaminectomy syndrome of cervical region$10093520$$$$$$$N$$
+1/9/2026$M$6$10036386$Postlaminectomy syndrome of lumbar region$10093520$$$$$$$N$$
+1/9/2026$M$6$10036387$Postlaminectomy syndrome of thoracic region$10093520$$$$$$$N$$
+1/9/2026$M$6$10036388$Postlaminectomy syndrome of unspecified region$10093520$$$$$$$N$$
+1/9/2026$M$6$10036702$Primary iridocyclitis$10002709$$$$$$$Y$$
+1/9/2026$M$6$10038129$Recurrent iridocyclitis$10002709$$$$$$$Y$$
+1/9/2026$M$6$10038897$Retinal tear$10066422$$$$$$$Y$$
+1/9/2026$M$6$10038898$Retinal tear (excl detachment)$10066422$$$$$$$N$$
+1/9/2026$M$6$10039098$Rhinophyma$10093625$$$$$$$Y$$
+1/9/2026$M$6$10039239$Round hole of retina without detachment$10066422$$$$$$$Y$$
+1/9/2026$M$6$10039668$Schwannoma benign$10039667$$$$$$$Y$$
+1/9/2026$M$6$10039845$Secondary iridocyclitis, noninfectious$10002709$$$$$$$Y$$
+1/9/2026$M$6$10040221$Serum creatine$10093690$$$$$$$Y$$
+1/9/2026$M$6$10042016$Sternal wiring$10093607$$$$$$$Y$$
+1/9/2026$M$6$10042299$Subaortic stenosis, congenital$10042431$$$$$$$Y$$
+1/9/2026$M$6$10042401$Sublingual varices$10093794$$$$$$$Y$$
+1/9/2026$M$6$10043156$TB of glottis$10093438$$$$$$$Y$$
+1/9/2026$M$6$10045072$Tuberculous laryngitis$10093438$$$$$$$Y$$
+1/9/2026$M$6$10045073$Tuberculous laryngitis, bacteriological or histological examination not done$10093438$$$$$$$N$$
+1/9/2026$M$6$10045074$Tuberculous laryngitis, bacteriological or histological examination unknown (at present)$10093438$$$$$$$N$$
+1/9/2026$M$6$10045075$Tuberculous laryngitis, confirmed by animal inoculation$10093438$$$$$$$N$$
+1/9/2026$M$6$10045076$Tuberculous laryngitis, confirmed by bacterial culture$10093438$$$$$$$N$$
+1/9/2026$M$6$10045077$Tuberculous laryngitis, confirmed histologically$10093438$$$$$$$N$$
+1/9/2026$M$6$10045078$Tuberculous laryngitis, tubercle bacilli found (in sputum) by microscopy$10093438$$$$$$$N$$
+1/9/2026$M$6$10045079$Tuberculous laryngitis, unspecified examination$10093438$$$$$$$N$$
+1/9/2026$M$6$10045985$Unspecified iridocyclitis$10002709$$$$$$$Y$$
+1/9/2026$M$6$10046852$Uveitis anterior$10002709$$$$$$$Y$$
+1/9/2026$M$6$10047027$Varicose veins sublingual$10093794$$$$$$$Y$$
+1/9/2026$M$6$10047506$Visceral transposition (excl dextrocardia)$10067265$$$$$$$Y$$
+1/9/2026$M$6$10049048$Erythrokeratodermia variabilis$10093634$$$$$$$Y$$
+1/9/2026$M$6$10049056$Colon operation NOS$10062032$$$$$$$Y$$
+1/9/2026$M$6$10052181$Oculopharyngeal dystrophy$10093773$$$$$$$Y$$
+1/9/2026$M$6$10053810$Blood 1,25-dihydroxycholecalciferol increased$10062134$$$$$$$Y$$
+1/9/2026$M$6$10053811$Blood 1,25-dihydroxycholecalciferol decreased$10062189$$$$$$$Y$$
+1/9/2026$M$6$10053812$Blood 25-hydroxycholecalciferol increased$10062134$$$$$$$Y$$
+1/9/2026$M$6$10053813$Blood 25-hydroxycholecalciferol decreased$10062189$$$$$$$Y$$
+1/9/2026$M$6$10053827$Blood 1,25-dihydroxy vitamin D increased$10062134$$$$$$$Y$$
+1/9/2026$M$6$10053828$Blood 1,25-dihydroxy vitamin D decreased$10062189$$$$$$$Y$$
+1/9/2026$M$6$10053829$Blood 25-hydroxy vitamin D2 increased$10062134$$$$$$$Y$$
+1/9/2026$M$6$10053830$Blood 25-hydroxy vitamin D2 decreased$10062189$$$$$$$Y$$
+1/9/2026$M$6$10057239$Post laminectomy syndrome$10093520$$$$$$$Y$$
+1/9/2026$M$6$10058438$Liver prolapse$10051565$$$$$$$Y$$
+1/9/2026$M$6$10059897$Blood 1,25-dihydroxycholecalciferol$10050713$$$$$$$Y$$
+1/9/2026$M$6$10059936$Blood 25-hydroxycholecalciferol$10050713$$$$$$$Y$$
+1/9/2026$M$6$10059949$Blood 25-hydroxy vitamin D2$10050713$$$$$$$Y$$
+1/9/2026$M$6$10060701$Neuroretinitis$10060701$$$$$$$Y$$
+1/9/2026$M$6$10061779$Colon operation$10062032$$$$$$$Y$$
+1/9/2026$M$6$10062644$Noninfective bronchitis$10093754$$$$$$$Y$$
+1/9/2026$M$6$10063160$Inverse psoriasis$10063160$$$$$$$Y$$
+1/9/2026$M$6$10063407$Psoriasis genital$10063160$$$$$$$Y$$
+1/9/2026$M$6$10063559$Acute vestibular syndrome$10093488$$$$$$$Y$$
+1/9/2026$M$6$10063947$Geographic atrophy$10063947$$$$$$$Y$$
+1/9/2026$M$6$10064356$Wrong solution used in drug reconstitution$10076869$$$$$$$Y$$
+1/9/2026$M$6$10064361$Wrong drug strength selected$10076542$$$$$$$Y$$
+1/9/2026$M$6$10064362$Wrong drug product selected$10076542$$$$$$$Y$$
+1/9/2026$M$6$10064363$Wrong patient package insert selected during dispensing$10080359$$$$$$$Y$$
+1/9/2026$M$6$10064364$Wrong label placed on medication during dispensing$10080359$$$$$$$Y$$
+1/9/2026$M$6$10064367$Wrong drug selected$10076542$$$$$$$Y$$
+1/9/2026$M$6$10064802$Serum procollagen type I N-terminal propeptide increased$10093808$$$$$$$Y$$
+1/9/2026$M$6$10064941$Incorrect storage of drug$10079843$$$$$$$Y$$
+1/9/2026$M$6$10065631$Wrong drug dispensed$10080359$$$$$$$Y$$
+1/9/2026$M$6$10065632$Wrong dosage form dispensed$10080359$$$$$$$Y$$
+1/9/2026$M$6$10065633$Wrong directions typed on label$10080359$$$$$$$Y$$
+1/9/2026$M$6$10065635$Deteriorated drug dispensed$10080359$$$$$$$Y$$
+1/9/2026$M$6$10065636$Wrong route of administration dispensed$10080359$$$$$$$Y$$
+1/9/2026$M$6$10065637$Wrong drug strength dispensed$10080359$$$$$$$Y$$
+1/9/2026$M$6$10065990$Post nucleotomy syndrome$10093520$$$$$$$Y$$
+1/9/2026$M$6$10066422$Retinal break$10066422$$$$$$$Y$$
+1/9/2026$M$6$10066423$Retinal hole$10066422$$$$$$$Y$$
+1/9/2026$M$6$10066723$Pneumocystosis recurrent$10073755$$$$$$$Y$$
+1/9/2026$M$6$10066837$Gleich's syndrome$10093629$$$$$$$Y$$
+1/9/2026$M$6$10067155$Reactive perforating collagenosis$10082163$$$$$$$Y$$
+1/9/2026$M$6$10067449$Airway patency oesophageal device$10093523$$$$$$$N$$
+1/9/2026$M$6$10067451$Airway patency esophageal device$10093523$$$$$$$N$$
+1/9/2026$M$6$10067452$Pharyngolaryngeal lumen airway$10093523$$$$$$$N$$
+1/9/2026$M$6$10067487$Failed back surgery syndrome$10093520$$$$$$$Y$$
+1/9/2026$M$6$10067669$Prescription form tampering$10093675$$$$$$$Y$$
+1/9/2026$M$6$10067679$Inappropriate device programming$10080718$$$$$$$Y$$
+1/9/2026$M$6$10067682$FBSS$10093520$$$$$$$Y$$
+1/9/2026$M$6$10067894$Expired drug dispensed$10080359$$$$$$$Y$$
+1/9/2026$M$6$10067965$Pharyngotracheal lumen airway insertion$10093523$$$$$$$Y$$
+1/9/2026$M$6$10069205$Neurostimulator implantation$10069205$$$$$$$Y$$
+1/9/2026$M$6$10069328$Incorrect product storage$10079843$$$$$$$Y$$
+1/9/2026$M$6$10070084$Device placement at incorrect location$10092959$$$$$$$Y$$
+1/9/2026$M$6$10070469$Wrong device dispensed$10080357$$$$$$$Y$$
+1/9/2026$M$6$10071599$IL-2 receptor assay$10073452$$$$$$$Y$$
+1/9/2026$M$6$10074856$Inappropriate drug titration$10074853$$$$$$$Y$$
+1/9/2026$M$6$10074911$Wrong drug prescribed$10081770$$$$$$$Y$$
+1/9/2026$M$6$10074988$Accidental dose increase$10080304$$$$$$$Y$$
+1/9/2026$M$6$10074989$Accidental dose decrease$10080304$$$$$$$Y$$
+1/9/2026$M$6$10075319$Unintentional intravascular injection$10081202$$$$$$$Y$$
+1/9/2026$M$6$10076543$Wrong product selected$10076542$$$$$$$Y$$
+1/9/2026$M$6$10076545$Wrong drug concentration selected$10076542$$$$$$$Y$$
+1/9/2026$M$6$10076941$Portal vein embolisation$10092861$$$$$$$Y$$
+1/9/2026$M$6$10076942$Portal vein embolization$10092861$$$$$$$Y$$
+1/9/2026$M$6$10077171$Hemiasomatognosia$10093588$$$$$$$Y$$
+1/9/2026$M$6$10077344$Wrong quantity of drug dispensed$10080359$$$$$$$Y$$
+1/9/2026$M$6$10077350$Drug stored in wrong location$10079843$$$$$$$Y$$
+1/9/2026$M$6$10077411$Perianal psoriasis$10063160$$$$$$$Y$$
+1/9/2026$M$6$10078760$Zygapophyseal joint arthritis$10054813$$$$$$$Y$$
+1/9/2026$M$6$10079218$Product cleaning error by user$10076573$$$$$$$Y$$
+1/9/2026$M$6$10079519$Wrong drug concentration dispensed$10080359$$$$$$$Y$$
+1/9/2026$M$6$10079566$Tablet split by mistake$10076573$$$$$$$Y$$
+1/9/2026$M$6$10079584$Serum procollagen type I N-terminal propeptide decreased$10093807$$$$$$$Y$$
+1/9/2026$M$6$10079997$Wrong concentration prepared$10076869$$$$$$$Y$$
+1/9/2026$M$6$10079998$Drug not dispensed in original container$10080359$$$$$$$Y$$
+1/9/2026$M$6$10080239$Incorrect dose selected$10076542$$$$$$$Y$$
+1/9/2026$M$6$10080240$Improper storage of product in use$10079843$$$$$$$Y$$
+1/9/2026$M$6$10080241$Improper storage of unused product$10079843$$$$$$$Y$$
+1/9/2026$M$6$10080242$Device stored with needle attached$10079843$$$$$$$Y$$
+1/9/2026$M$6$10080363$Expired device dispensed$10080357$$$$$$$Y$$
+1/9/2026$M$6$10080421$Pharmacy label placed incorrectly$10080359$$$$$$$Y$$
+1/9/2026$M$6$10080978$Wrong drug product dispensed$10080359$$$$$$$Y$$
+1/9/2026$M$6$10081107$Active ingredient not added to diluent$10076869$$$$$$$Y$$
+1/9/2026$M$6$10081227$Airway patency device insertion$10093523$$$$$$$Y$$
+1/9/2026$M$6$10081229$Oropharyngeal airway insertion$10093523$$$$$$$Y$$
+1/9/2026$M$6$10081230$Nasopharyngeal airway insertion$10093523$$$$$$$Y$$
+1/9/2026$M$6$10082087$Ciliary body inflammation$10002709$$$$$$$Y$$
+1/9/2026$M$6$10082542$Product concentrate not diluted$10076869$$$$$$$Y$$
+1/9/2026$M$6$10083148$Product used prior to being brought to recommended temperature$10076869$$$$$$$Y$$
+1/9/2026$M$6$10083149$Duplicate therapy with same active substance$10080422$$$$$$$Y$$
+1/9/2026$M$6$10084335$Wrong diluent used$10076869$$$$$$$Y$$
+1/9/2026$M$6$10084336$Wrong eluent used$10076869$$$$$$$Y$$
+1/9/2026$M$6$10084372$Injector positioned upside down$10072878$$$$$$$Y$$
+1/9/2026$M$6$10085280$Fibroadenomatoid mastopathy$10016621$$$$$$$Y$$
+1/9/2026$M$6$10085717$Acute iridocyclitis$10002709$$$$$$$Y$$
+1/9/2026$M$6$10086335$Shafer's sign$10092020$$$$$$$Y$$
+1/9/2026$M$6$10086338$Vitreous tobacco dust$10092020$$$$$$$Y$$
+1/9/2026$M$6$10087263$Vaccine incorrect diluent used$10076869$$$$$$$Y$$
+1/9/2026$M$6$10087264$Vaccine incorrect diluent volume$10076869$$$$$$$Y$$
+1/9/2026$M$6$10087979$Retinal atrophic hole$10066422$$$$$$$Y$$
+1/9/2026$M$6$10088457$Post discectomy syndrome$10093520$$$$$$$Y$$
+1/9/2026$M$6$10089292$Corneal culture$10093716$$$$$$$Y$$
+1/9/2026$M$6$10089498$Granulomatous anterior uveitis$10002709$$$$$$$Y$$
+1/9/2026$M$6$10089991$Occipital nerve stimulator implantation$10069205$$$$$$$Y$$
+1/9/2026$M$6$10090149$Acupoint catgut embedding$10083706$$$$$$$Y$$
+1/9/2026$M$6$10090303$Port occlusion$10080803$$$$$$$Y$$
+1/9/2026$M$6$10090317$Wrong drug strength prepared$10076869$$$$$$$Y$$
+1/9/2026$M$6$10090365$Dental bone graft$10093431$$$$$$$Y$$
+1/9/2026$M$6$10090504$Dental socket preservation$10093431$$$$$$$Y$$
+1/9/2026$M$6$10090608$Wrong drug strength compounded$10076869$$$$$$$Y$$
+1/9/2026$M$6$10090609$Diluent not added to active ingredient$10076869$$$$$$$Y$$
+1/9/2026$M$6$10090768$Illicit prescription attainment$10093675$$$$$$$Y$$
+1/9/2026$M$6$10090769$Fraudulent prescription attainment from multiple physicians$10093675$$$$$$$Y$$
+1/9/2026$M$6$10091529$Kufor-Rakeb syndrome$10093490$$$$$$$Y$$
+1/9/2026$M$6$10091589$Operculated retinal hole$10066422$$$$$$$Y$$
+1/9/2026$M$6$10091628$Device implantation error$10091628$$$$$$$Y$$
+1/9/2026$M$6$10091672$Ridge augmentation procedure$10093431$$$$$$$Y$$
+1/9/2026$M$6$10091673$Autogenous tooth bone graft$10093431$$$$$$$Y$$
+1/9/2026$M$6$10091897$Follicular occlusion triad$10093622$$$$$$$Y$$
+1/9/2026$M$6$10092020$Vitreous pigment cells$10092020$$$$$$$Y$$
+1/9/2026$M$6$10092041$Reconstituted product storage time exceeded$10079843$$$$$$$Y$$
+1/9/2026$M$6$10092915$Mixed neuroendocrine non-neuroendocrine neoplasm$10092915$$$$$$$Y$$
+1/9/2026$M$6$10092928$Interdigital psoriasis$10063160$$$$$$$Y$$
+1/9/2026$M$6$10092991$Tuberculosis immune response test$10073542$$$$$$$Y$$
+1/9/2026$M$6$10093266$Experience of unity$10093669$$$$$$$Y$$
+1/9/2026$M$6$10093287$Dosing error$10080304$$$$$$$Y$$
+1/9/2026$M$6$10093359$Staphylococcus aureus folliculitis$10093670$$$$$$$Y$$
+1/9/2026$M$6$10093391$Generalized epileptic spasms$10093770$$$$$$$Y$$
+1/9/2026$M$6$10093398$Generalised epileptic spasms$10093770$$$$$$$Y$$
+1/9/2026$A$$10093402$Intranodal haemangioma$10093402$$$$$$$Y$$
+1/9/2026$A$$10093403$Intranodal hemangioma$10093402$$$$$$$Y$$
+1/9/2026$A$$10093404$McMahon score for renal failure$10093404$$$$$$$Y$$
+1/9/2026$A$$10093405$Uterine transposition procedure$10093405$$$$$$$Y$$
+1/9/2026$A$$10093406$Cystic thyroid nodule$10058900$$$$$$$Y$$
+1/9/2026$A$$10093407$Venous recanalisation procedure$10093407$$$$$$$Y$$
+1/9/2026$A$$10093408$Venous recanalization procedure$10093407$$$$$$$Y$$
+1/9/2026$A$$10093409$Chest wall hernia$10093409$$$$$$$Y$$
+1/9/2026$A$$10093410$Low-grade fibromyxoid sarcoma$10093410$$$$$$$Y$$
+1/9/2026$A$$10093411$Combined hamartoma of retina and retinal pigment epithelium$10092433$$$$$$$Y$$
+1/9/2026$A$$10093412$Parvovirus B19 IgM antibody test$10070366$$$$$$$Y$$
+1/9/2026$A$$10093413$Parvovirus B19 IgG antibody test$10070366$$$$$$$Y$$
+1/9/2026$A$$10093414$Lymphocyte subset panel abnormal$10093414$$$$$$$Y$$
+1/9/2026$A$$10093415$Hallucinogen persisting perception disorder$10093415$$$$$$$Y$$
+1/9/2026$A$$10093416$Hyperimmune plasma transfusion$10093416$$$$$$$Y$$
+1/9/2026$A$$10093417$Pneumothorax repair$10093417$$$$$$$Y$$
+1/9/2026$A$$10093418$Desquamative interstitial pneumonia$10078268$$$$$$$Y$$
+1/9/2026$A$$10093419$Transcervical fracture of femoral neck$10016450$$$$$$$Y$$
+1/9/2026$A$$10093420$Small bowel feces sign$10041101$$$$$$$Y$$
+1/9/2026$A$$10093421$Small bowel faeces sign$10041101$$$$$$$Y$$
+1/9/2026$A$$10093422$Gingivoplasty$10093422$$$$$$$Y$$
+1/9/2026$A$$10093423$Sternoplasty$10093423$$$$$$$Y$$
+1/9/2026$A$$10093424$Oropharynx papilloma$10093424$$$$$$$Y$$
+1/9/2026$A$$10093425$Contracted gallbladder$10093425$$$$$$$Y$$
+1/9/2026$A$$10093426$Cochleostomy$10093426$$$$$$$Y$$
+1/9/2026$A$$10093427$Renal vein transposition$10093427$$$$$$$Y$$
+1/9/2026$A$$10093428$Anal levatorplasty$10093428$$$$$$$Y$$
+1/9/2026$A$$10093429$Transurethral resection of ejaculatory duct$10093429$$$$$$$Y$$
+1/9/2026$A$$10093430$Ejaculatory duct obstruction$10093430$$$$$$$Y$$
+1/9/2026$A$$10093431$Alveolar bone reconstruction$10093431$$$$$$$Y$$
+1/9/2026$A$$10093432$Iridocyclectomy$10093432$$$$$$$Y$$
+1/9/2026$A$$10093433$Clitoroplasty$10093433$$$$$$$Y$$
+1/9/2026$A$$10093434$Tau protein increased$10093434$$$$$$$Y$$
+1/9/2026$A$$10093435$Hip circumference decreased$10093435$$$$$$$Y$$
+1/9/2026$A$$10093436$Protein Z deficiency$10093436$$$$$$$Y$$
+1/9/2026$A$$10093437$Quadricepsplasty$10093437$$$$$$$Y$$
+1/9/2026$A$$10093438$Laryngeal tuberculosis$10093438$$$$$$$Y$$
+1/9/2026$A$$10093439$Tau protein decreased$10093439$$$$$$$Y$$
+1/9/2026$A$$10093440$Clitoropexy$10093433$$$$$$$Y$$
+1/9/2026$A$$10093441$Metacarpal aplasia$10062335$$$$$$$Y$$
+1/9/2026$A$$10093442$Family history of obesity$10064117$$$$$$$Y$$
+1/9/2026$A$$10093443$Phonomicrosurgery$10077452$$$$$$$Y$$
+1/9/2026$A$$10093444$Cardiac cryoballoon ablation$10059864$$$$$$$Y$$
+1/9/2026$A$$10093445$Elmslie-Trillat procedure$10049548$$$$$$$Y$$
+1/9/2026$A$$10093446$Foraminoplasty$10066924$$$$$$$Y$$
+1/9/2026$A$$10093447$Anacusis$10011878$$$$$$$Y$$
+1/9/2026$A$$10093448$Endoscopic gastric mucosal ablation$10065100$$$$$$$Y$$
+1/9/2026$A$$10093449$Velopharyngoplasty$10034833$$$$$$$Y$$
+1/9/2026$A$$10093450$Postoperative hyperthyroidism$10020850$$$$$$$Y$$
+1/9/2026$A$$10093451$Weaver-Dunn procedure$10062242$$$$$$$Y$$
+1/9/2026$A$$10093452$Laser hair removal$10012364$$$$$$$Y$$
+1/9/2026$A$$10093453$Singleton-Merten syndrome$10093453$$$$$$$Y$$
+1/9/2026$A$$10093454$Urinary tract fungal bezoar$10093454$$$$$$$Y$$
+1/9/2026$A$$10093455$Product reconstitution omission error$10076869$$$$$$$Y$$
+1/9/2026$A$$10093456$Product reconstitution not performed$10081301$$$$$$$Y$$
+1/9/2026$A$$10093457$Inappropriate solution used in product reconstitution$10081301$$$$$$$Y$$
+1/9/2026$A$$10093458$Electrocardiogram epsilon wave present$10093458$$$$$$$Y$$
+1/9/2026$A$$10093459$Facet arthritis$10054813$$$$$$$Y$$
+1/9/2026$A$$10093460$Bulging duodenal papilla$10093460$$$$$$$Y$$
+1/9/2026$A$$10093461$Mesenteric lipodystrophy$10063031$$$$$$$Y$$
+1/9/2026$A$$10093462$Lichtenstein repair$10022020$$$$$$$Y$$
+1/9/2026$A$$10093463$Odontohypophosphatasia$10049933$$$$$$$Y$$
+1/9/2026$A$$10093464$ReNU syndrome$10093464$$$$$$$Y$$
+1/9/2026$A$$10093465$Tuberculosis immune response test positive$10072866$$$$$$$Y$$
+1/9/2026$A$$10093466$Postprandial somnolence$10041349$$$$$$$Y$$
+1/9/2026$A$$10093467$Peripheral nerve revision surgery$10061341$$$$$$$Y$$
+1/9/2026$A$$10093468$Carotid adventitial denudation procedure$10093468$$$$$$$Y$$
+1/9/2026$A$$10093469$Acquired joint hypermobility$10093469$$$$$$$Y$$
+1/9/2026$A$$10093470$Porphyrins plasma increased$10093470$$$$$$$Y$$
+1/9/2026$A$$10093471$Porphyrins plasma$10093471$$$$$$$Y$$
+1/9/2026$A$$10093472$Porphyrins plasma decreased$10093472$$$$$$$Y$$
+1/9/2026$A$$10093473$Intravitreal gas injection$10067701$$$$$$$Y$$
+1/9/2026$A$$10093474$HMG CoA reductase antibody test positive$10093474$$$$$$$Y$$
+1/9/2026$A$$10093475$Radiocephalic fistula$10003190$$$$$$$Y$$
+1/9/2026$A$$10093476$Acupoint embedding$10083706$$$$$$$Y$$
+1/9/2026$A$$10093477$Genital tract infection$10048461$$$$$$$Y$$
+1/9/2026$A$$10093478$Charcot foot reconstruction$10093478$$$$$$$Y$$
+1/9/2026$A$$10093479$Double aortic arch$10093479$$$$$$$Y$$
+1/9/2026$A$$10093480$Epicondyle release surgery$10093480$$$$$$$Y$$
+1/9/2026$A$$10093481$Onychoplasty$10093481$$$$$$$Y$$
+1/9/2026$A$$10093482$Intravascular ultrasound$10093482$$$$$$$Y$$
+1/9/2026$A$$10093483$Functional mitral insufficiency$10027727$$$$$$$Y$$
+1/9/2026$A$$10093484$Cofactor-enhanced anaphylactic reaction to food$10002198$$$$$$$Y$$
+1/9/2026$A$$10093485$Scaphoid waist fracture$10048049$$$$$$$Y$$
+1/9/2026$A$$10093486$Volar plate release$10016687$$$$$$$Y$$
+1/9/2026$A$$10093487$Gigantomastia$10006242$$$$$$$Y$$
+1/9/2026$A$$10093488$Vestibular syndrome$10093488$$$$$$$Y$$
+1/9/2026$A$$10093489$Hand ulceration$10040943$$$$$$$Y$$
+1/9/2026$A$$10093490$Juvenile parkinsonism$10093490$$$$$$$Y$$
+1/9/2026$A$$10093491$Clenched fist syndrome$10010893$$$$$$$Y$$
+1/9/2026$A$$10093492$Hypertrophic cardiomyopathy with reduced ventricular function$10020871$$$$$$$Y$$
+1/9/2026$A$$10093493$Ectopic liver$10093493$$$$$$$Y$$
+1/9/2026$A$$10093494$Wandering liver$10051565$$$$$$$Y$$
+1/9/2026$A$$10093495$Hepatoptosis$10051565$$$$$$$Y$$
+1/9/2026$A$$10093496$Invasive pulmonary aspergillosis$10093496$$$$$$$Y$$
+1/9/2026$A$$10093497$Dysmorphic urinary red blood cells present$10093497$$$$$$$Y$$
+1/9/2026$A$$10093498$Immature reticulocyte fraction increased$10093498$$$$$$$Y$$
+1/9/2026$A$$10093499$Nasopharynx cyst$10034821$$$$$$$Y$$
+1/9/2026$A$$10093500$Dermal filler migration$10093500$$$$$$$Y$$
+1/9/2026$A$$10093501$Verheij syndrome$10093501$$$$$$$Y$$
+1/9/2026$A$$10093502$Diaphragmatic mesothelial cyst$10062328$$$$$$$Y$$
+1/9/2026$A$$10093503$Acquired vascular malformation cerebral$10093503$$$$$$$Y$$
+1/9/2026$A$$10093504$Acquired cerebrovascular arteriovenous malformation$10093503$$$$$$$Y$$
+1/9/2026$A$$10093505$Squamous cell carcinoma in situ of the cervix$10041848$$$$$$$Y$$
+1/9/2026$A$$10093506$Thyroid sarcoidosis$10093506$$$$$$$Y$$
+1/9/2026$A$$10093507$Device not primed$10077040$$$$$$$Y$$
+1/9/2026$A$$10093508$Ocular amyloidosis$10093508$$$$$$$Y$$
+1/9/2026$A$$10093509$Gustatory hyperhidrosis$10093509$$$$$$$Y$$
+1/9/2026$A$$10093510$Gastric artery embolisation$10093510$$$$$$$Y$$
+1/9/2026$A$$10093511$Gastric artery embolization$10093510$$$$$$$Y$$
+1/9/2026$A$$10093512$Hormonal contraceptive implant removal$10093512$$$$$$$Y$$
+1/9/2026$A$$10093513$Foetal ascites$10093513$$$$$$$Y$$
+1/9/2026$A$$10093514$Mucorales test$10093514$$$$$$$Y$$
+1/9/2026$A$$10093515$Pelvic girdle muscle weakness$10028372$$$$$$$Y$$
+1/9/2026$A$$10093516$Total marrow and lymphoid irradiation$10037794$$$$$$$Y$$
+1/9/2026$A$$10093517$Mucorales PCR test$10093514$$$$$$$Y$$
+1/9/2026$A$$10093518$Fetal ascites$10093513$$$$$$$Y$$
+1/9/2026$A$$10093519$Bacterial tolerance$10034133$$$$$$$Y$$
+1/9/2026$A$$10093520$Persistent spinal pain syndrome$10093520$$$$$$$Y$$
+1/9/2026$A$$10093521$Dopamine decreased$10093521$$$$$$$Y$$
+1/9/2026$A$$10093522$Plasma dopamine decreased$10093521$$$$$$$Y$$
+1/9/2026$A$$10093523$Airway device insertion$10093523$$$$$$$Y$$
+1/9/2026$A$$10093524$Uterosacral ligament suspension$10070519$$$$$$$Y$$
+1/9/2026$A$$10093525$Tension gastrothorax$10093525$$$$$$$Y$$
+1/9/2026$A$$10093526$Thoracic stomach syndrome$10093525$$$$$$$Y$$
+1/9/2026$A$$10093527$Rhesus antibodies (anti-E)$10039033$$$$$$$Y$$
+1/9/2026$A$$10093528$Rhesus antibodies (anti-E) negative$10039035$$$$$$$Y$$
+1/9/2026$A$$10093529$Rhesus antibodies (anti-E) positive$10039036$$$$$$$Y$$
+1/9/2026$A$$10093530$Congenital intrahepatic portosystemic shunt$10093530$$$$$$$Y$$
+1/9/2026$A$$10093531$Neonatal bacterial sepsis$10040049$$$$$$$Y$$
+1/9/2026$A$$10093532$Parathyroid nodule$10033942$$$$$$$Y$$
+1/9/2026$A$$10093533$Erosive pustulosis$10088153$$$$$$$Y$$
+1/9/2026$A$$10093534$Fascicular ventricular tachycardia$10047302$$$$$$$Y$$
+1/9/2026$A$$10093535$Congenital condition aggravated$10010264$$$$$$$N$$
+1/9/2026$A$$10093536$Glisson capsule resection$10092153$$$$$$$Y$$
+1/9/2026$A$$10093537$Sinus opacification$10062244$$$$$$$Y$$
+1/9/2026$A$$10093538$Deviated pituitary stalk$10093538$$$$$$$Y$$
+1/9/2026$A$$10093539$Synovial thickening$10093539$$$$$$$Y$$
+1/9/2026$A$$10093540$Magnetic resonance imaging orbit$10093540$$$$$$$Y$$
+1/9/2026$A$$10093541$Colon dyskinesia$10061173$$$$$$$Y$$
+1/9/2026$A$$10093542$Hepatobiliary nuclear scan$10061946$$$$$$$Y$$
+1/9/2026$A$$10093543$Myocardial pyrophosphate scan$10054082$$$$$$$Y$$
+1/9/2026$A$$10093544$RNU4-2-related neurodevelopmental disorder$10093464$$$$$$$Y$$
+1/9/2026$A$$10093545$Cheilognathopalatoschisis$10009260$$$$$$$Y$$
+1/9/2026$A$$10093546$Autism spectrum disorder level 3$10063844$$$$$$$Y$$
+1/9/2026$A$$10093547$Autism spectrum disorder level 1$10063844$$$$$$$Y$$
+1/9/2026$A$$10093548$Autism spectrum disorder level 2$10063844$$$$$$$Y$$
+1/9/2026$A$$10093549$Eccrine syringofibroadenoma$10042658$$$$$$$Y$$
+1/9/2026$A$$10093550$Coronary hypersensitivity syndrome$10069167$$$$$$$Y$$
+1/9/2026$A$$10093551$Family history of liver disease$10064117$$$$$$$Y$$
+1/9/2026$A$$10093552$Mixed squamous neuroendocrine carcinoma$10093552$$$$$$$Y$$
+1/9/2026$A$$10093553$Splenic autotransplantation$10093553$$$$$$$Y$$
+1/9/2026$A$$10093554$Renal papilloma$10093554$$$$$$$Y$$
+1/9/2026$A$$10093555$Respiratory rehabilitation therapy$10059828$$$$$$$Y$$
+1/9/2026$A$$10093556$Laser ablation$10090499$$$$$$$Y$$
+1/9/2026$A$$10093557$Meniscus repair$10054948$$$$$$$Y$$
+1/9/2026$A$$10093558$Anorectovaginoplasty$10059349$$$$$$$Y$$
+1/9/2026$A$$10093559$Hearing disorder$10003778$$$$$$$Y$$
+1/9/2026$A$$10093560$Hepatic hemosiderosis$10090169$$$$$$$Y$$
+1/9/2026$A$$10093561$Autotransplantation$10057677$$$$$$$Y$$
+1/9/2026$A$$10093562$Reconstructive surgery$10042609$$$$$$$Y$$
+1/9/2026$A$$10093563$Hepatic haemosiderosis$10090169$$$$$$$Y$$
+1/9/2026$A$$10093564$Vertebral biopsy$10004735$$$$$$$Y$$
+1/9/2026$A$$10093565$Extraconal orbital hematoma$10083565$$$$$$$Y$$
+1/9/2026$A$$10093566$Extraconal orbital haematoma$10083565$$$$$$$Y$$
+1/9/2026$A$$10093567$Palpation$10093567$$$$$$$Y$$
+1/9/2026$A$$10093568$Pituitary crisis$10093568$$$$$$$Y$$
+1/9/2026$A$$10093569$Retinotomy$10093569$$$$$$$Y$$
+1/9/2026$A$$10093570$Vascular embolic device unintended vessel occlusion$10093570$$$$$$$Y$$
+1/9/2026$A$$10093571$Vascular embolic device complication during placement$10093571$$$$$$$Y$$
+1/9/2026$A$$10093572$Vascular embolic device cast complication$10093572$$$$$$$Y$$
+1/9/2026$A$$10093573$Vascular embolic device inadequate penetration$10093571$$$$$$$Y$$
+1/9/2026$A$$10093574$Vascular embolic device cast degradation$10093572$$$$$$$Y$$
+1/9/2026$A$$10093575$Vascular embolic device premature polymerization$10093571$$$$$$$Y$$
+1/9/2026$A$$10093576$Vascular embolic device cast extrusion$10093572$$$$$$$Y$$
+1/9/2026$A$$10093577$Vascular embolic device prolonged polymerization$10093571$$$$$$$Y$$
+1/9/2026$A$$10093578$Vascular embolic device cast fragmentation$10093572$$$$$$$Y$$
+1/9/2026$A$$10093579$Vascular embolic device cast migration$10093572$$$$$$$Y$$
+1/9/2026$A$$10093580$Vascular embolic device catheter entrapment$10093571$$$$$$$Y$$
+1/9/2026$A$$10093581$Vascular embolic device cast toxicity$10093572$$$$$$$Y$$
+1/9/2026$A$$10093582$Vascular embolic device excessive penetration$10093571$$$$$$$Y$$
+1/9/2026$A$$10093583$Vascular embolic device cast expansion$10093572$$$$$$$Y$$
+1/9/2026$A$$10093584$Vascular embolic device prolonged polymerisation$10093571$$$$$$$Y$$
+1/9/2026$A$$10093585$Vascular embolic device premature polymerisation$10093571$$$$$$$Y$$
+1/9/2026$A$$10093586$Abdominoperineal reconstruction$10093586$$$$$$$Y$$
+1/9/2026$A$$10093587$Cryptosporidium test$10093587$$$$$$$Y$$
+1/9/2026$A$$10093588$Asomatognosia$10093588$$$$$$$Y$$
+1/9/2026$A$$10093589$Psychogenic non-epileptic seizure$10058895$$$$$$$Y$$
+1/9/2026$A$$10093590$Apolipoprotein E e3/e4 gene carrier$10082637$$$$$$$Y$$
+1/9/2026$A$$10093591$Masako maneuver$10088622$$$$$$$Y$$
+1/9/2026$A$$10093592$Infratemporal space infection$10089849$$$$$$$Y$$
+1/9/2026$A$$10093593$External diaphragmatic pacing$10079721$$$$$$$Y$$
+1/9/2026$A$$10093594$Somatoparaphrenia$10093594$$$$$$$Y$$
+1/9/2026$A$$10093595$Rotavirus and adenovirus rapid combination test$10093595$$$$$$$Y$$
+1/9/2026$A$$10093596$Pouchoscopy$10010007$$$$$$$Y$$
+1/9/2026$A$$10093597$Paratracheal neck dissection$10081204$$$$$$$Y$$
+1/9/2026$A$$10093598$Laparoscopic and endoscopic cooperative surgery$10058468$$$$$$$Y$$
+1/9/2026$A$$10093599$Rectal culture$10011629$$$$$$$Y$$
+1/9/2026$A$$10093600$Conjunctival feeder vessel$10093600$$$$$$$Y$$
+1/9/2026$A$$10093601$Autosomal dominant tubulointerstitial kidney disease$10093601$$$$$$$Y$$
+1/9/2026$A$$10093602$Conjunctival infero-nasal feeder vessel$10093600$$$$$$$Y$$
+1/9/2026$A$$10093603$Vascular ring repair$10093603$$$$$$$Y$$
+1/9/2026$A$$10093604$Vascular ring division$10093603$$$$$$$Y$$
+1/9/2026$A$$10093605$Drug-laboratory test interaction$10079427$$$$$$$Y$$
+1/9/2026$A$$10093606$Sano conduit upsizing$10068098$$$$$$$Y$$
+1/9/2026$A$$10093607$Sternal closure$10093607$$$$$$$Y$$
+1/9/2026$A$$10093608$Sano shunt procedure$10068098$$$$$$$Y$$
+1/9/2026$A$$10093609$Delayed sternal closure$10093607$$$$$$$Y$$
+1/9/2026$A$$10093610$Protein contact dermatitis$10093610$$$$$$$Y$$
+1/9/2026$A$$10093611$Procedural coronary artery displacement$10093611$$$$$$$Y$$
+1/9/2026$A$$10093612$Congenital hypomelanosis$10093612$$$$$$$Y$$
+1/9/2026$A$$10093613$Familial reactive perforating collagenosis$10093613$$$$$$$Y$$
+1/9/2026$A$$10093614$Hereditary progressive mucinous histiocytosis$10093614$$$$$$$Y$$
+1/9/2026$A$$10093615$Cold panniculitis$10093615$$$$$$$Y$$
+1/9/2026$A$$10093616$Occupational exposure to allergen$10093616$$$$$$$Y$$
+1/9/2026$A$$10093617$Hereditary hypotrichosis$10093617$$$$$$$Y$$
+1/9/2026$A$$10093618$Acute oedema/cutaneous distension syndrome$10093618$$$$$$$Y$$
+1/9/2026$A$$10093619$Noma neonatorum$10093619$$$$$$$Y$$
+1/9/2026$A$$10093620$Genital melanosis$10093620$$$$$$$Y$$
+1/9/2026$A$$10093621$Cutaneous mucinosis$10093621$$$$$$$Y$$
+1/9/2026$A$$10093622$Follicular occlusion syndrome$10093622$$$$$$$Y$$
+1/9/2026$A$$10093623$Chronic relapsing vesiculosquamous dermatitis$10013913$$$$$$$Y$$
+1/9/2026$A$$10093624$Nummular psoriasis$10037153$$$$$$$Y$$
+1/9/2026$A$$10093625$Phymatous rosacea$10093625$$$$$$$Y$$
+1/9/2026$A$$10093626$Acute edema/cutaneous distension syndrome$10093618$$$$$$$Y$$
+1/9/2026$A$$10093627$Pityriasis capitis$10011859$$$$$$$Y$$
+1/9/2026$A$$10093628$Generalized pustular psoriasis of pregnancy$10093632$$$$$$$Y$$
+1/9/2026$A$$10093629$Episodic angioedema with eosinophilia$10093629$$$$$$$Y$$
+1/9/2026$A$$10093630$Watson syndrome$10029268$$$$$$$Y$$
+1/9/2026$A$$10093631$Trichoptilosis$10044625$$$$$$$Y$$
+1/9/2026$A$$10093632$Generalised pustular psoriasis of pregnancy$10093632$$$$$$$Y$$
+1/9/2026$A$$10093633$Circinate psoriasis$10090621$$$$$$$Y$$
+1/9/2026$A$$10093634$Erythrokeratodermia variabilis progressiva$10093634$$$$$$$Y$$
+1/9/2026$A$$10093635$Athlete's nodules$10067868$$$$$$$Y$$
+1/9/2026$A$$10093636$Follicular occlusion tetrad$10093622$$$$$$$Y$$
+1/9/2026$A$$10093637$Yttrium-90 transarterial radioembolisation$10073946$$$$$$$Y$$
+1/9/2026$A$$10093638$Yttrium-90 transarterial radioembolization$10073946$$$$$$$Y$$
+1/9/2026$A$$10093639$Extended pelvic lymph node dissection$10048956$$$$$$$Y$$
+1/9/2026$A$$10093640$Gastric rupture$10093640$$$$$$$Y$$
+1/9/2026$A$$10093641$Gastrorrhexis$10093640$$$$$$$Y$$
+1/9/2026$A$$10093642$Small intestine erosion$10093642$$$$$$$Y$$
+1/9/2026$A$$10093643$Peripheral arterial thromboembolism$10061340$$$$$$$Y$$
+1/9/2026$A$$10093644$Herpes laryngopharyngitis$10066888$$$$$$$Y$$
+1/9/2026$A$$10093645$Cecal cancer metastatic$10055114$$$$$$$Y$$
+1/9/2026$A$$10093646$Peripheral retinal degeneration$10038845$$$$$$$Y$$
+1/9/2026$A$$10093647$Spinal schwannoma$10039667$$$$$$$Y$$
+1/9/2026$A$$10093648$Hepatic vein embolization$10092861$$$$$$$Y$$
+1/9/2026$A$$10093649$Hepatic vein embolisation$10092861$$$$$$$Y$$
+1/9/2026$A$$10093650$Caecal cancer metastatic$10055114$$$$$$$Y$$
+1/9/2026$A$$10093651$Acetaminophen drug level$10060090$$$$$$$Y$$
+1/9/2026$A$$10093652$Salicylate drug level$10060090$$$$$$$Y$$
+1/9/2026$A$$10093653$Paracetamol drug level$10060090$$$$$$$Y$$
+1/9/2026$A$$10093654$Microtrabecular fracture$10066251$$$$$$$Y$$
+1/9/2026$A$$10093655$Distal tremor$10044565$$$$$$$Y$$
+1/9/2026$A$$10093656$Rhesus antibodies (anti-e) positive$10039036$$$$$$$Y$$
+1/9/2026$A$$10093657$Rhesus antibodies (anti-e) negative$10039035$$$$$$$Y$$
+1/9/2026$A$$10093658$Rhesus antibodies (anti-e)$10039033$$$$$$$Y$$
+1/9/2026$A$$10093659$Blood HIV RNA detectable$10093659$$$$$$$Y$$
+1/9/2026$A$$10093660$HIV viral load detectable$10093659$$$$$$$Y$$
+1/9/2026$A$$10093661$Right ventricular outflow tract stent insertion$10093661$$$$$$$Y$$
+1/9/2026$A$$10093662$Ischemic cerebellar stroke$10079062$$$$$$$Y$$
+1/9/2026$A$$10093663$Ischaemic cerebellar stroke$10079062$$$$$$$Y$$
+1/9/2026$A$$10093664$Vertebral scalloping$10093664$$$$$$$Y$$
+1/9/2026$A$$10093665$Posterior vertebral scalloping$10093664$$$$$$$Y$$
+1/9/2026$A$$10093666$Konno-Rastan procedure$10093666$$$$$$$Y$$
+1/9/2026$A$$10093667$Viral load detectable$10093667$$$$$$$Y$$
+1/9/2026$A$$10093668$Incision site granuloma$10093668$$$$$$$Y$$
+1/9/2026$A$$10093669$Psychedelic associated experience$10093669$$$$$$$Y$$
+1/9/2026$A$$10093670$Staphylococcal folliculitis$10093670$$$$$$$Y$$
+1/9/2026$A$$10093671$Therapeutic use of walking aid$10092920$$$$$$$Y$$
+1/9/2026$A$$10093672$Soluble CD25 increased$10066315$$$$$$$Y$$
+1/9/2026$A$$10093673$Soluble IL-2 receptor alpha increased$10066315$$$$$$$Y$$
+1/9/2026$A$$10093674$Portal vein stent placement$10093674$$$$$$$Y$$
+1/9/2026$A$$10093675$Prescription fraud$10093675$$$$$$$Y$$
+1/9/2026$A$$10093676$Prescription forgery$10093675$$$$$$$Y$$
+1/9/2026$A$$10093677$Thoracic aortic pseudoaneurysm$10082505$$$$$$$Y$$
+1/9/2026$A$$10093678$Obstructive coronary artery disease$10011078$$$$$$$Y$$
+1/9/2026$A$$10093679$Cervical facet joint syndrome$10054813$$$$$$$Y$$
+1/9/2026$A$$10093680$Vulvar excoriation$10062559$$$$$$$Y$$
+1/9/2026$A$$10093681$Radiosynoviorthesis$10048875$$$$$$$Y$$
+1/9/2026$A$$10093682$Rhizomelic chondrodysplasia punctata$10087150$$$$$$$Y$$
+1/9/2026$A$$10093683$Inferior alveolar nerve injury$10093683$$$$$$$Y$$
+1/9/2026$A$$10093684$Cervicocerebral atherosclerosis$10065559$$$$$$$Y$$
+1/9/2026$A$$10093685$Infectious cheilitis$10093685$$$$$$$Y$$
+1/9/2026$A$$10093686$Corneal epithelial detachment$10011013$$$$$$$Y$$
+1/9/2026$A$$10093687$Measles encephalitis$10093687$$$$$$$Y$$
+1/9/2026$A$$10093688$Gastrectomy with D1 lymphadenectomy$10061965$$$$$$$Y$$
+1/9/2026$A$$10093689$Gastrectomy with D2 lymphadenectomy$10061965$$$$$$$Y$$
+1/9/2026$A$$10093690$Creatine test$10093690$$$$$$$Y$$
+1/9/2026$A$$10093691$Pituitary neuroendocrine tumour$10035079$$$$$$$Y$$
+1/9/2026$A$$10093692$Pituitary neuroendocrine tumor$10035079$$$$$$$Y$$
+1/9/2026$A$$10093693$HIV-associated vacuolar myelopathy$10093693$$$$$$$Y$$
+1/9/2026$A$$10093694$Vaccine failure$10046862$$$$$$$Y$$
+1/9/2026$A$$10093695$Neutrophilic urticarial dermatosis$10058105$$$$$$$Y$$
+1/9/2026$A$$10093696$Blanching erythema$10015150$$$$$$$Y$$
+1/9/2026$A$$10093697$Ectopic valve deployment$10093697$$$$$$$Y$$
+1/9/2026$A$$10093698$Orbital aspergillosis$10093698$$$$$$$Y$$
+1/9/2026$A$$10093699$Computerised tomogram bone$10093699$$$$$$$Y$$
+1/9/2026$A$$10093700$Temple syndrome$10093700$$$$$$$Y$$
+1/9/2026$A$$10093701$Ligament excision$10093701$$$$$$$Y$$
+1/9/2026$A$$10093702$Perineural injection$10093702$$$$$$$Y$$
+1/9/2026$A$$10093703$Solitary bone plasmacytoma$10035484$$$$$$$Y$$
+1/9/2026$A$$10093704$Computerized tomogram bone$10093699$$$$$$$Y$$
+1/9/2026$A$$10093705$Suspected off label use of device$10093705$$$$$$$Y$$
+1/9/2026$A$$10093706$Chewing tobacco user$10057581$$$$$$$Y$$
+1/9/2026$A$$10093707$Smokeless tobacco user$10057581$$$$$$$Y$$
+1/9/2026$A$$10093708$Familial exudative vitreoretinopathy$10093708$$$$$$$Y$$
+1/9/2026$A$$10093709$Attenuated live vaccine-derived infection$10093709$$$$$$$Y$$
+1/9/2026$A$$10093710$Triple pituitary stimulation test$10093710$$$$$$$Y$$
+1/9/2026$A$$10093711$Basal ventricular septal hypertrophy$10057576$$$$$$$Y$$
+1/9/2026$A$$10093712$Balloon osteoplasty$10091271$$$$$$$Y$$
+1/9/2026$A$$10093713$Bone lesion ablation$10093713$$$$$$$Y$$
+1/9/2026$A$$10093714$Diamine oxidase test$10093714$$$$$$$Y$$
+1/9/2026$A$$10093715$S100 protein test$10093715$$$$$$$Y$$
+1/9/2026$A$$10093716$Ophthalmic culture$10093716$$$$$$$Y$$
+1/9/2026$A$$10093717$Atypical anorexia nervosa$10093717$$$$$$$Y$$
+1/9/2026$A$$10093718$Tick-borne encephalitis virus test$10078302$$$$$$$Y$$
+1/9/2026$A$$10093719$Hypermobile Ehlers-Danlos syndrome$10014316$$$$$$$Y$$
+1/9/2026$A$$10093720$Nasopharyngeal culture$10011632$$$$$$$Y$$
+1/9/2026$A$$10093721$Proinsulinoma$10022498$$$$$$$Y$$
+1/9/2026$A$$10093722$Refractory condition$10093722$$$$$$$Y$$
+1/9/2026$A$$10093723$Duffy null associated neutropenia$10074832$$$$$$$Y$$
+1/9/2026$A$$10093724$Duffy null phenotype$10093122$$$$$$$Y$$
+1/9/2026$A$$10093725$Fy(a-b-) phenotype$10093122$$$$$$$Y$$
+1/9/2026$A$$10093726$Vasoplegic shock$10070559$$$$$$$Y$$
+1/9/2026$A$$10093727$ACKR1 null genotype$10093122$$$$$$$Y$$
+1/9/2026$A$$10093728$ACKR1/DARC-associated neutropenia$10074832$$$$$$$Y$$
+1/9/2026$A$$10093729$Distal oesophagitis$10030216$$$$$$$Y$$
+1/9/2026$A$$10093730$DARC null genotype$10093122$$$$$$$Y$$
+1/9/2026$A$$10093731$Distal esophagitis$10030216$$$$$$$Y$$
+1/9/2026$A$$10093732$Duffy antigen negative$10093732$$$$$$$Y$$
+1/9/2026$A$$10093733$Progressive solitary sclerosis$10093733$$$$$$$Y$$
+1/9/2026$A$$10093734$Cushing's triad$10093734$$$$$$$Y$$
+1/9/2026$A$$10093735$Corneal pseudomicrocysts$10093735$$$$$$$Y$$
+1/9/2026$A$$10093736$Assisted dying$10090248$$$$$$$Y$$
+1/9/2026$A$$10093737$Posterior cyclitis$10022557$$$$$$$Y$$
+1/9/2026$A$$10093738$Retinochoroiditis$10036370$$$$$$$Y$$
+1/9/2026$A$$10093739$Breast implant leakage$10012587$$$$$$$Y$$
+1/9/2026$A$$10093740$Polyendocrine metabolic ovarian syndrome$10065161$$$$$$$Y$$
+1/9/2026$A$$10093741$Pulmonary embolism severity index$10093741$$$$$$$Y$$
+1/9/2026$A$$10093742$Nail lichen planus$10093742$$$$$$$Y$$
+1/9/2026$A$$10093743$MASCC risk index for febrile neutropenia$10093743$$$$$$$Y$$
+1/9/2026$A$$10093744$Orgasmic headache$10079056$$$$$$$Y$$
+1/9/2026$A$$10093745$Stable disease$10093745$$$$$$$Y$$
+1/9/2026$A$$10093746$Ileodescendostomy$10052997$$$$$$$Y$$
+1/9/2026$A$$10093747$Ileoascendostomy$10052997$$$$$$$Y$$
+1/9/2026$A$$10093748$Extrapulmonary neuroendocrine carcinoma$10057270$$$$$$$Y$$
+1/9/2026$A$$10093749$Orbital cavernous venous malformation$10093749$$$$$$$Y$$
+1/9/2026$A$$10093750$Cavernous haemangioma of the orbit$10093749$$$$$$$Y$$
+1/9/2026$A$$10093751$Cavernous hemangioma of the orbit$10093749$$$$$$$Y$$
+1/9/2026$A$$10093752$Thulium laser enucleation of prostate$10044445$$$$$$$Y$$
+1/9/2026$A$$10093753$Corn allergy$10016946$$$$$$$Y$$
+1/9/2026$A$$10093754$Bronchial inflammation$10093754$$$$$$$Y$$
+1/9/2026$A$$10093755$Closed breast capsulotomy$10075014$$$$$$$Y$$
+1/9/2026$A$$10093756$Hantavirus test negative$10093756$$$$$$$Y$$
+1/9/2026$A$$10093757$Ebola virus test negative$10093757$$$$$$$Y$$
+1/9/2026$A$$10093758$Zaire Ebolavirus infection$10014071$$$$$$$Y$$
+1/9/2026$A$$10093759$Bundibugyo Ebolavirus infection$10014071$$$$$$$Y$$
+1/9/2026$A$$10093760$Hantavirus infection$10061198$$$$$$$Y$$
+1/9/2026$A$$10093761$Lacrimal caruncle nevus$10051045$$$$$$$Y$$
+1/9/2026$A$$10093762$Rhizomelic dwarfism$10013883$$$$$$$Y$$
+1/9/2026$A$$10093763$Lacrimal caruncle naevus$10051045$$$$$$$Y$$
+1/9/2026$A$$10093764$SCN1A gene mutation$10093764$$$$$$$Y$$
+1/9/2026$A$$10093765$Ocular myasthenia gravis$10028417$$$$$$$Y$$
+1/9/2026$A$$10093766$Cornual heterotopic pregnancy$10064228$$$$$$$Y$$
+1/9/2026$A$$10093767$Umbilicus excision$10065257$$$$$$$Y$$
+1/9/2026$A$$10093768$Metastatic uveal melanoma$10081431$$$$$$$Y$$
+1/9/2026$A$$10093769$Radioimmunoprecipitation assay$10091374$$$$$$$Y$$
+1/9/2026$A$$10093770$Epileptic spasms$10093770$$$$$$$Y$$
+1/9/2026$A$$10093771$Infantile generalised epileptic spasms$10021750$$$$$$$Y$$
+1/9/2026$A$$10093772$Infantile generalized epileptic spasms$10021750$$$$$$$Y$$
+1/9/2026$A$$10093773$Oculopharyngeal muscular dystrophy$10093773$$$$$$$Y$$
+1/9/2026$A$$10093774$GOLD system assessment$10093774$$$$$$$Y$$
+1/9/2026$A$$10093775$Procollagen type I N-terminal propeptide$10093775$$$$$$$Y$$
+1/9/2026$A$$10093776$Transferrin receptor-ferritin index$10093776$$$$$$$Y$$
+1/9/2026$A$$10093777$Forrest classification stage$10093777$$$$$$$Y$$
+1/9/2026$A$$10093778$Banff classification of allograft pathology$10093778$$$$$$$Y$$
+1/9/2026$A$$10093779$Allergen immunotherapy$10070581$$$$$$$Y$$
+1/9/2026$A$$10093780$Soluble transferrin receptor assay$10073450$$$$$$$Y$$
+1/9/2026$A$$10093781$Immunoblot$10091374$$$$$$$Y$$
+1/9/2026$A$$10093782$General endotracheal anaesthesia$10018060$$$$$$$Y$$
+1/9/2026$A$$10093783$General endotracheal anesthesia$10018060$$$$$$$Y$$
+1/9/2026$A$$10093784$Tricho-dento-osseous syndrome$10010452$$$$$$$Y$$
+1/9/2026$A$$10093785$Transperineal template-guided prostate mapping biopsy$10004857$$$$$$$Y$$
+1/9/2026$A$$10093786$Accidental vaccine underdose$10074904$$$$$$$Y$$
+1/9/2026$A$$10093787$Accidental vaccine overdose$10000381$$$$$$$Y$$
+1/9/2026$A$$10093788$Pelotherapy$10093788$$$$$$$Y$$
+1/9/2026$A$$10093789$Corkscrew ureter$10061078$$$$$$$Y$$
+1/9/2026$A$$10093790$Nasal cavity haemangioma$10093790$$$$$$$Y$$
+1/9/2026$A$$10093791$Nasal cavity hemangioma$10093790$$$$$$$Y$$
+1/9/2026$A$$10093792$Secondary hypercholesterolemia$10020603$$$$$$$Y$$
+1/9/2026$A$$10093793$Carotid artery atherosclerosis$10067116$$$$$$$Y$$
+1/9/2026$A$$10093794$Oral varices$10093794$$$$$$$Y$$
+1/9/2026$A$$10093795$Secondary hypercholesterolaemia$10020603$$$$$$$Y$$
+1/9/2026$A$$10093796$Non-user of tobacco snus$10072840$$$$$$$Y$$
+1/9/2026$A$$10093797$Central line-associated bloodstream infection$10084453$$$$$$$Y$$
+1/9/2026$A$$10093798$CLABSI$10084453$$$$$$$Y$$
+1/9/2026$A$$10093799$Post-traumatic pseudolipoma$10093799$$$$$$$Y$$
+1/9/2026$A$$10093800$Post-finasteride syndrome$10082430$$$$$$$Y$$
+1/9/2026$A$$10093801$Desmoglein 1 antibody$10093801$$$$$$$Y$$
+1/9/2026$A$$10093802$Desmoglein 3 antibody$10093802$$$$$$$Y$$
+1/9/2026$A$$10093803$Phonophoresis$10093803$$$$$$$Y$$
+1/9/2026$A$$10093804$Lipofibromatous hamartoma$10093804$$$$$$$Y$$
+1/9/2026$A$$10093805$Adrenal gland ultrasound$10093805$$$$$$$Y$$
+1/9/2026$A$$10093806$Otosyphilis$10029339$$$$$$$Y$$
+1/9/2026$A$$10093807$Procollagen type I N-terminal propeptide decreased$10093807$$$$$$$Y$$
+1/9/2026$A$$10093808$Procollagen type I N-terminal propeptide increased$10093808$$$$$$$Y$$
+1/9/2026$A$$10093809$Brain cannulation$10093809$$$$$$$Y$$
+1/9/2026$A$$10093810$Brain decannulation$10093810$$$$$$$Y$$
+1/9/2026$A$$10093811$Frontal lobe stroke$10093811$$$$$$$Y$$
+1/9/2026$A$$10093812$Risk of ovarian malignancy algorithm index$10093812$$$$$$$Y$$
+1/9/2026$A$$10093813$Pneumoparotid$10093813$$$$$$$Y$$
+1/9/2026$A$$10093814$Hypervitaminosis E$10093814$$$$$$$Y$$
+1/9/2026$A$$10093815$Postoperative peritonitis$10093815$$$$$$$Y$$
+1/9/2026$A$$10093816$Vulvar Crohn's disease$10070949$$$$$$$Y$$
+1/9/2026$A$$10093817$ROMA index$10093812$$$$$$$Y$$
+1/9/2026$A$$10093818$Myocilin gene mutation$10093818$$$$$$$Y$$
