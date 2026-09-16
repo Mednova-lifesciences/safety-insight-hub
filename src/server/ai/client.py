@@ -39,6 +39,22 @@ from openai import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+
+# Asks OpenAI to sample reproducibly: the same prompt and the same seed
+# should give the same answer.
+#
+# This exists because screening the SAME file twice produced different
+# checklists — one run answered NO where the next answered YES on the same
+# evidence. For an assessment an MAH can dispute, "it depends which day you
+# uploaded it" is not an acceptable property, and a regulator cannot defend
+# a finding they cannot reproduce.
+#
+# Best-effort on OpenAI's side, not a guarantee (the response carries a
+# system_fingerprint that changes when their backend does), so it reduces
+# the flapping rather than abolishing it. The real fix is the prompt
+# demanding evidence for every answer, which makes an unstable judgement
+# visible instead of silent.
+COMPLETION_SEED = int(os.getenv("OPENAI_SEED", "7"))
 VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
 # Line-list validation (analysis + adversarial review) can be pointed at a
 # stronger/different model independently of the app's other AI workflows,
@@ -178,6 +194,9 @@ async def structured_completion(
                 # configured here is controlled by env vars that can change
                 # independently of this code.
                 max_completion_tokens=max_output_tokens,
+                # See COMPLETION_SEED — the same document must not screen
+                # differently on a second upload.
+                seed=COMPLETION_SEED,
             )
             if send_temperature:
                 kwargs["temperature"] = 0
@@ -273,6 +292,9 @@ async def vision_structured_completion(
                 # configured here is controlled by env vars that can change
                 # independently of this code.
                 max_completion_tokens=max_output_tokens,
+                # See COMPLETION_SEED — the same document must not screen
+                # differently on a second upload.
+                seed=COMPLETION_SEED,
             )
             if send_temperature:
                 kwargs["temperature"] = 0

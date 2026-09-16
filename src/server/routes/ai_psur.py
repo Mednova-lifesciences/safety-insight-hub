@@ -540,7 +540,10 @@ async def screen_pdf(
         completion = await structured_completion(
             system_prompt=PSUR_SCREENING_PDF_PROMPT,
             user_content=json.dumps(payload),
-            max_output_tokens=2000,
+            # Fifteen checks that must each cite their evidence need room to
+            # do it; at 2000 the model started truncating its reasoning into
+            # bare verdicts.
+            max_output_tokens=4000,
         )
         parsed = AiPsurAdministrativeScreening.model_validate(completion.data)
 

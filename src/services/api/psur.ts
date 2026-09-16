@@ -1008,6 +1008,29 @@ function fmtDateLocal(iso: string): string {
  * because an MAH receiving it must not read a packaging rejection as a
  * scientific verdict on their product.
  */
+/** Wraps and indents a cell so the plain-text directive stays readable in
+ *  a fixed-width mail client. */
+function indent(text: string, spaces = 2, width = 72): string {
+  const pad = " ".repeat(spaces);
+  const out: string[] = [];
+  let line = pad;
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (line.length + word.length + 1 > width && line.trim()) {
+      out.push(line);
+      line = pad;
+    }
+    line += (line === pad ? "" : " ") + word;
+  }
+  if (line.trim()) out.push(line);
+  return out.join("\n");
+}
+
+/** Table cells, shared by both directives — there is no reason for two
+ *  definitions of a bold heading cell. */
+const headerCell = (text: string) =>
+  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text, bold: true })] })] });
+const cell = (text: string) => new TableCell({ children: [new Paragraph(text)] });
+
 function renderScreeningDirectiveText(m: ScreeningDirectiveModel): string {
   const rule = "=".repeat(72);
   const lines: string[] = [];
@@ -1060,14 +1083,21 @@ function renderScreeningDirectiveText(m: ScreeningDirectiveModel): string {
     lines.push("");
   }
 
+  // Three columns, because a directive has to be acted on: the requirement
+  // that failed, why it failed, and what the MAH must do about it. A list
+  // of defects with no remedy beside each one leaves them guessing.
   lines.push("DEFICIENCIES IDENTIFIED");
   lines.push("-".repeat(72));
   if (m.failedRows.length === 0) {
     lines.push("No screening check was recorded as failed.");
   } else {
     for (const r of m.failedRows) {
-      lines.push(`${r.number}. ${r.label}`);
-      lines.push(`   ${r.deficiency || "Recorded as not met."}`);
+      lines.push(`ITEM ${r.number} — CHECKLIST REQUIREMENT`);
+      lines.push(indent(r.label));
+      lines.push("  REASON");
+      lines.push(indent(r.deficiency || "Recorded as not met.", 4));
+      lines.push("  ACTION REQUIRED");
+      lines.push(indent(r.action, 4));
       lines.push("");
     }
   }
@@ -1079,8 +1109,14 @@ function renderScreeningDirectiveText(m: ScreeningDirectiveModel): string {
     lines.push("These could not be settled from the submission as received.");
     lines.push("");
     for (const r of m.unresolvedRows) {
-      lines.push(`${r.number}. ${r.label}`);
-      if (r.deficiency) lines.push(`   ${r.deficiency}`);
+      lines.push(`ITEM ${r.number} — CHECKLIST REQUIREMENT`);
+      lines.push(indent(r.label));
+      if (r.deficiency) {
+        lines.push("  WHAT WAS LOOKED FOR");
+        lines.push(indent(r.deficiency, 4));
+      }
+      lines.push("  ACTION REQUIRED");
+      lines.push(indent(r.action, 4));
       lines.push("");
     }
   }
@@ -1098,15 +1134,40 @@ function renderScreeningDirectiveText(m: ScreeningDirectiveModel): string {
 }
 
 function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
+  // A real table: requirement | reason | action. The MAH's copy of this
+  // letter is what they work from, so each defect carries its remedy on the
+  // same row rather than somewhere further down the page.
+  const deficiencyTable = (rows: typeof m.failedRows, reasonHeading: string) =>
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({
+          tableHeader: true,
+          children: [
+            headerCell("Item"),
+            headerCell("Checklist requirement"),
+            headerCell(reasonHeading),
+            headerCell("Action required"),
+          ],
+        }),
+        ...rows.map(
+          (r) =>
+            new TableRow({
+              children: [
+                cell(String(r.number)),
+                cell(r.label),
+                cell(r.deficiency || "Recorded as not met."),
+                cell(r.action),
+              ],
+            }),
+        ),
+      ],
+    });
+
   const deficiencyParagraphs =
     m.failedRows.length === 0
       ? [new Paragraph({ text: "No screening check was recorded as failed." })]
-      : m.failedRows.flatMap((r) => [
-          new Paragraph({
-            children: [new TextRun({ text: `${r.number}. ${r.label}`, bold: true })],
-          }),
-          new Paragraph({ text: r.deficiency || "Recorded as not met." }),
-        ]);
+      : [deficiencyTable(m.failedRows, "Reason")];
 
   const unresolvedParagraphs =
     m.unresolvedRows.length === 0
@@ -1121,12 +1182,7 @@ function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
               }),
             ],
           }),
-          ...m.unresolvedRows.flatMap((r) => [
-            new Paragraph({
-              children: [new TextRun({ text: `${r.number}. ${r.label}`, bold: true })],
-            }),
-            ...(r.deficiency ? [new Paragraph({ text: r.deficiency })] : []),
-          ]),
+          deficiencyTable(m.unresolvedRows, "What was looked for"),
         ];
 
   return new Document({
@@ -1516,10 +1572,6 @@ function buildExecutiveSummaryDocx(m: ExecutiveSummaryModel): Document {
 }
 
 function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
-  const headerCell = (text: string) =>
-    new TableCell({ children: [new Paragraph({ children: [new TextRun({ text, bold: true })] })] });
-  const cell = (text: string) => new TableCell({ children: [new Paragraph(text)] });
-
   const table =
     m.deficiencies.length > 0
       ? new Table({

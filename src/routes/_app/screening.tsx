@@ -11,6 +11,8 @@ import {
   AssistLabel,
   EmptyState,
   PageHeader,
+  Pager,
+  paginate,
   QueryBoundary,
   Section,
   SourceTag,
@@ -81,6 +83,8 @@ function ScreeningPage() {
     filename: string;
     decision: PsurScreeningOutcomeDecision;
   } | null>(null);
+  const [queuePage, setQueuePage] = useState(1);
+  const [screenedPage, setScreenedPage] = useState(1);
 
   const all = docs.data?.data ?? [];
 
@@ -190,16 +194,23 @@ function ScreeningPage() {
                       description="Reports appear here as soon as they are received."
                     />
                   ) : (
-                    <div className="space-y-2">
-                      {untriaged.map((doc) => (
-                        <QueueRow
-                          key={doc.id}
-                          doc={doc}
-                          selected={doc.id === active?.id}
-                          onSelect={() => open(doc.id)}
-                        />
-                      ))}
-                    </div>
+                    <>
+                      <div className="space-y-2">
+                        {paginate(untriaged, queuePage).map((doc) => (
+                          <QueueRow
+                            key={doc.id}
+                            doc={doc}
+                            selected={doc.id === active?.id}
+                            onSelect={() => open(doc.id)}
+                          />
+                        ))}
+                      </div>
+                      <Pager
+                        page={queuePage}
+                        total={untriaged.length}
+                        onPageChange={setQueuePage}
+                      />
+                    </>
                   )}
                 </Section>
 
@@ -228,11 +239,18 @@ function ScreeningPage() {
                   {triaged.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Nothing screened yet.</p>
                   ) : (
-                    <div className="space-y-2">
-                      {triaged.map((doc) => (
-                        <TriagedRow key={doc.id} doc={doc} onOpen={() => open(doc.id)} />
-                      ))}
-                    </div>
+                    <>
+                      <div className="space-y-2">
+                        {paginate(triaged, screenedPage).map((doc) => (
+                          <TriagedRow key={doc.id} doc={doc} onOpen={() => open(doc.id)} />
+                        ))}
+                      </div>
+                      <Pager
+                        page={screenedPage}
+                        total={triaged.length}
+                        onPageChange={setScreenedPage}
+                      />
+                    </>
                   )}
                 </Section>
               </>
