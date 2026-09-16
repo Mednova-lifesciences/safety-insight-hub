@@ -272,6 +272,9 @@ function mapAiFinding(f: AiPsurFindingOut): PsurFinding {
 export function mapAiAdministrativeScreening(
   ai: AiPsurScreeningResponse,
   dateReceived: string,
+  /** What the application itself observed about the file, for item 4.
+   *  Optional so older callers and tests need not supply it. */
+  fileEvidence?: { sourceType: "PDF" | "SPREADSHEET"; pages: number },
 ): PsurAdministrativeScreening {
   const detailsIn = ai.submission_details;
   const submissionDetails: PsurSubmissionDetails = {
@@ -307,6 +310,39 @@ export function mapAiAdministrativeScreening(
     }
 
     const answered = byId.get(def.id);
+
+    // Item 4 asks three things, and the system knows two of them for
+    // certain: whether the submission is a PDF, and whether it opened well
+    // enough to read. Those are facts this application established by doing
+    // it, not judgements — so they are stated rather than guessed at, and a
+    // model can never claim a file failed to open when the text in front of
+    // it came out of that file. Only "follows the template" is left to
+    // judgement, which is why the status still comes from the model.
+    if (def.id === "PDF_OPENS_AND_FOLLOWS_TEMPLATE") {
+      const evidence = fileEvidence
+        ? `System: received as ${fileEvidence.sourceType}` +
+          (fileEvidence.pages > 0 ? `, ${fileEvidence.pages} page(s)` : "") +
+          `, text extracted successfully.`
+        : "";
+      // A submission that is not a PDF fails this outright, whatever the
+      // model made of the contents.
+      if (fileEvidence && fileEvidence.sourceType !== "PDF") {
+        return {
+          id: def.id,
+          status: "NO" as const,
+          deficiency:
+            `Not submitted as a PDF (received as ${fileEvidence.sourceType}). ` +
+            (answered?.deficiency ?? ""),
+          assistGenerated: true,
+        };
+      }
+      return {
+        id: def.id,
+        status: (answered?.status ?? "NOT_ASSESSABLE") as PsurScreeningCheckItem["status"],
+        deficiency: [evidence, answered?.deficiency].filter(Boolean).join(" "),
+        assistGenerated: true,
+      };
+    }
 
     if (def.requiresExternalRecord) {
       return {
@@ -1002,6 +1038,12 @@ function renderScreeningDirectiveText(m: ScreeningDirectiveModel): string {
   if (m.citedItems.length > 0) {
     lines.push(`Checklist items cited: ${m.citedItems.join(", ")}`);
   }
+  if (m.mahResponseDeadline) {
+    lines.push(`RESPOND BY:           ${m.mahResponseDeadline}`);
+  }
+  if (m.nextPsurDueDate) {
+    lines.push(`Next PSUR/PBRER due:  ${m.nextPsurDueDate}`);
+  }
   lines.push("");
 
   if (m.conclusions) {
@@ -1119,6 +1161,8 @@ function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
           ...(m.citedItems.length > 0
             ? [docxLabelValue("Checklist items cited", m.citedItems.join(", "))]
             : []),
+          ...(m.mahResponseDeadline ? [docxLabelValue("Respond by", m.mahResponseDeadline)] : []),
+          ...(m.nextPsurDueDate ? [docxLabelValue("Next PSUR/PBRER due", m.nextPsurDueDate)] : []),
           new Paragraph({ text: "" }),
 
           ...(m.conclusions
@@ -1762,7 +1806,10 @@ export const psur = {
     try {
       const screeningResult = await ai.psur.screenPdf(file, doc.product, doc.reportingPeriod);
       administrativeScreening = screeningResult.ai_used
-        ? mapAiAdministrativeScreening(screeningResult, doc.uploadedAt)
+        ? mapAiAdministrativeScreening(screeningResult, doc.uploadedAt, {
+            sourceType: "PDF",
+            pages: screeningResult.pages_extracted ?? 0,
+          })
         : blankAdministrativeScreening(doc.uploadedAt, doc.product, doc.reportingPeriod);
     } catch {
       administrativeScreening = blankAdministrativeScreening(
@@ -2112,6 +2159,8 @@ export const psur = {
     deficiencies: string,
     conclusions: string,
     officerName: string,
+    mahResponseDeadline: string,
+    nextPsurDueDate: string,
   ): Promise<PsurDocument> => {
     const document = await readDocument(documentId);
     const screening = document.administrativeScreening;
@@ -2137,6 +2186,8 @@ export const psur = {
           deficiencies,
           conclusions,
           officerName,
+          mahResponseDeadline,
+          nextPsurDueDate,
           by: actor.name,
           at: now,
         },

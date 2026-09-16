@@ -875,6 +875,16 @@ export interface PsurScreeningOutcome {
    *  a claim a person makes, an account is a fact the system records, and
    *  a regulatory record wants both. */
   officerName: string;
+  /** The date by which the MAH must respond, printed on the directive.
+   *  Required whenever a directive is issued — a directive with no date to
+   *  answer by is not actionable, and the MAH cannot be late for a deadline
+   *  nobody set. Empty when the submission was simply accepted. */
+  mahResponseDeadline: string;
+  /** When the next periodic report is due. A reporting-cycle date, NOT the
+   *  deadline for answering this directive — the two were conflated once
+   *  already in the evaluator's Section 12, which is why they are separate
+   *  fields here too. */
+  nextPsurDueDate: string;
   /** Section C's sign-off block. The signature is the officer's password
    *  confirmation, not a typed name — see ConfirmWithPassword. */
   by: string;

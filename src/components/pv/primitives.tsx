@@ -46,12 +46,16 @@ export function PageHeader({
 }
 
 export function Section({
+  id,
   title,
   description,
   actions,
   children,
   className,
 }: {
+  /** Anchor for in-page navigation — a long form needs a way to jump to
+   *  the part that matters. */
+  id?: string;
   title: string;
   description?: string;
   actions?: ReactNode;
@@ -59,7 +63,7 @@ export function Section({
   className?: string;
 }) {
   return (
-    <section className={cn("panel overflow-hidden", className)}>
+    <section id={id} className={cn("panel overflow-hidden", className)}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold text-foreground">{title}</h2>

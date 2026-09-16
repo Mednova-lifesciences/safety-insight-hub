@@ -56,15 +56,24 @@ describe("auth-portal — administrators come in by their own door", () => {
     }
   });
 
-  it("every administrator role can open the review surface", () => {
+  it("every administrator role keeps the processing tools", () => {
     // A previous change to admin visibility took working pages away from
     // administrators (see app-shell.tsx's note on the Processing group).
-    // Splitting one admin role into three must not repeat that: whatever
-    // else differs between them, all three work on periodic reports and
-    // all three must be able to open that page.
+    // Splitting one admin role into three must not repeat that: line-list
+    // processing and E2B(R3) preparation are not a step of the PSUR
+    // assessment, so all three keep them.
     for (const role of ADMIN_ROLES) {
-      expect(ROLE_PERMISSIONS[role]).toContain("psur.review");
+      expect(ROLE_PERMISSIONS[role]).toContain("linelist.process");
+      expect(ROLE_PERMISSIONS[role]).toContain("e2b.generate");
     }
+  });
+
+  it("only the two roles who review a report can open the review surface", () => {
+    // The Review Officer screens; the scientific review is not their step,
+    // and everything they need is on the screening page.
+    expect(ROLE_PERMISSIONS.REVIEW_OFFICER).not.toContain("psur.review");
+    expect(ROLE_PERMISSIONS.EVALUATOR).toContain("psur.review");
+    expect(ROLE_PERMISSIONS.PEER_REVIEWER).toContain("psur.review");
   });
 
   it("no assessor role can perform another one's step", () => {
@@ -83,11 +92,13 @@ describe("auth-portal — administrators come in by their own door", () => {
     expect(ROLE_PERMISSIONS.PEER_REVIEWER).not.toContain("psur.evaluate");
   });
 
-  it("keeps the assessor roles out of MAH-side staff work entirely", () => {
+  it("keeps the assessor roles out of MAH-side CASE work", () => {
+    // Processing tools are shared; case handling is not. A regulator has no
+    // business creating or triaging an MAH's individual case reports.
     for (const role of ADMIN_ROLES) {
       expect(ROLE_PERMISSIONS[role]).not.toContain("case.create");
+      expect(ROLE_PERMISSIONS[role]).not.toContain("case.view");
       expect(ROLE_PERMISSIONS[role]).not.toContain("intake.manage");
-      expect(ROLE_PERMISSIONS[role]).not.toContain("linelist.process");
     }
   });
 });

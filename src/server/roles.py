@@ -60,18 +60,28 @@ PERMISSION_ROLES: Final = {
     "follow_up.view": {FIELD_ASSOCIATE, PV_COORDINATOR, PV_MANAGER},
     "follow_up.create": {FIELD_ASSOCIATE, PV_COORDINATOR, PV_MANAGER},
     "intake.manage": {FIELD_ASSOCIATE, PV_COORDINATOR, PV_MANAGER},
-    "linelist.process": {PV_COORDINATOR, PV_MANAGER},
-    # Opening the PSUR surface. Everyone who touches a periodic report holds
-    # this; what they may CHANGE once there is governed by the three
-    # permissions below, so that no one role can screen a report, review it,
-    # and countersign its own review.
-    "psur.review": {
+    # The assessor roles keep these: they are processing tools the single
+    # ADMIN role ran before the split, not a step of the PSUR assessment.
+    "linelist.process": {
         PV_COORDINATOR,
         PV_MANAGER,
         REVIEW_OFFICER,
         EVALUATOR,
         PEER_REVIEWER,
     },
+    "e2b.generate": {
+        PV_COORDINATOR,
+        PV_MANAGER,
+        REVIEW_OFFICER,
+        EVALUATOR,
+        PEER_REVIEWER,
+    },
+    # Opening the PSUR surface. Everyone who touches a periodic report holds
+    # this; what they may CHANGE once there is governed by the three
+    # permissions below, so that no one role can screen a report, review it,
+    # and countersign its own review.
+    # REVIEW_OFFICER is absent: the scientific review is not their step.
+    "psur.review": {PV_COORDINATOR, PV_MANAGER, EVALUATOR, PEER_REVIEWER},
     "psur.screen": {REVIEW_OFFICER},
     "psur.evaluate": {PV_COORDINATOR, PV_MANAGER, EVALUATOR},
     "psur.peer_review": {PEER_REVIEWER},

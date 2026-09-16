@@ -168,14 +168,21 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   // the assessment needs. They are narrow on purpose: the whole point of
   // splitting the old ADMIN role was that one person should not be able to
   // screen a report, review it, and countersign their own review.
+  // All three run line-list processing and E2B(R3) preparation, which the
+  // single ADMIN role did before the split and which none of them stopped
+  // needing when it was divided up. Those are processing tools rather than
+  // a step of the PSUR assessment, so they do not follow the one-step-each
+  // rule the psur.* permissions do.
   REVIEW_OFFICER: [
-    // Holds `psur.review` as well as `psur.screen` so the officer can open
-    // the review surface and read what the evaluator found — but without
-    // `psur.evaluate` every panel there is read-only to them.
-    "psur.review",
+    // Deliberately WITHOUT `psur.review`. The scientific review is not the
+    // officer's step: they screen a submission on receipt and decide
+    // whether it goes forward. Everything they need — the checklist, the
+    // outcome, the directive — is on the screening page.
     "psur.screen",
+    "linelist.process",
+    "e2b.generate",
   ],
-  EVALUATOR: ["psur.review", "psur.evaluate"],
+  EVALUATOR: ["psur.review", "psur.evaluate", "linelist.process", "e2b.generate"],
   PEER_REVIEWER: [
     // Reads the whole review and signs the peer half of Section 13.
     // Deliberately WITHOUT `psur.evaluate`: a peer reviewer checks the
@@ -183,6 +190,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     // defeat the check.
     "psur.review",
     "psur.peer_review",
+    "linelist.process",
+    "e2b.generate",
   ],
 };
 

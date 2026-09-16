@@ -52,6 +52,9 @@ export interface ScreeningDirectiveModel {
   citedItems: number[];
   conclusions: string;
   deficiencies: string;
+  /** Blank when the submission was accepted — there is nothing to answer. */
+  mahResponseDeadline: string;
+  nextPsurDueDate: string;
 
   /** Only the items the MAH has to act on — a No. A directive listing the
    *  checks that PASSED would bury the ones that did not. */
@@ -115,6 +118,8 @@ export function buildScreeningDirectiveModel(doc: PsurDocument): ScreeningDirect
     citedItems: outcome?.citedItems ?? [],
     conclusions: outcome?.conclusions ?? "",
     deficiencies: outcome?.deficiencies ?? "",
+    mahResponseDeadline: outcome?.mahResponseDeadline ?? "",
+    nextPsurDueDate: outcome?.nextPsurDueDate ?? "",
 
     failedRows: rowsFor(checks, "NO"),
     unresolvedRows: rowsFor(checks, "NOT_ASSESSABLE"),

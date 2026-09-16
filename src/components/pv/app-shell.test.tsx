@@ -122,8 +122,10 @@ describe("the Processing pages", () => {
         .map((i) => i.to)
         .sort();
 
-    expect(seen("REVIEW_OFFICER")).toEqual(["/psur", "/screening"]);
-    expect(seen("EVALUATOR")).toEqual(["/psur"]);
-    expect(seen("PEER_REVIEWER")).toEqual(["/psur"]);
+    // The officer screens and runs the processing tools, but the scientific
+    // review is not their step. The other two review, and keep the tools.
+    expect(seen("REVIEW_OFFICER")).toEqual(["/e2b", "/line-list", "/screening"]);
+    expect(seen("EVALUATOR")).toEqual(["/e2b", "/line-list", "/psur"]);
+    expect(seen("PEER_REVIEWER")).toEqual(["/e2b", "/line-list", "/psur"]);
   });
 });

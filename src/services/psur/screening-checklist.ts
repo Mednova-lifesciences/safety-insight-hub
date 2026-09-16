@@ -461,11 +461,35 @@ export function recommendOutcome(checks: PsurScreeningCheckItem[]): OutcomeRecom
   };
 }
 
+/**
+ * The form's own words for each outcome, used on the record and the letter.
+ */
 export const OUTCOME_LABELS: Record<PsurScreeningOutcomeDecision, string> = {
   ACCEPTED_FOR_ASSESSMENT: "Accepted for assessment",
   COMPLIANCE_DIRECTIVE: "Compliance directive",
   NOT_ACCEPTED_RESUBMIT: "Not accepted — resubmit",
 };
+
+/**
+ * What each outcome DOES, in the words the officers actually use.
+ *
+ * The checklist's own labels above say what box is ticked; these say where
+ * the report goes. Both appear on the buttons, because "Accepted for
+ * assessment" is the form's language while "proceed to scientific review"
+ * is what the officer is deciding, and an officer looking for the second
+ * should not have to work out that the first means it.
+ */
+export const OUTCOME_ACTIONS: Record<PsurScreeningOutcomeDecision, string> = {
+  ACCEPTED_FOR_ASSESSMENT: "Proceed to scientific review",
+  COMPLIANCE_DIRECTIVE: "Return to MAH with a compliance directive",
+  NOT_ACCEPTED_RESUBMIT: "Return to MAH — not accepted, resubmit",
+};
+
+/** Outcomes that send the report back to the MAH, and therefore need a date
+ *  by which they must respond. */
+export function returnsToMah(decision: PsurScreeningOutcomeDecision): boolean {
+  return decision !== "ACCEPTED_FOR_ASSESSMENT";
+}
 
 // ---------------------------------------------------------------------------
 // Feeding the evaluator's Section Coverage

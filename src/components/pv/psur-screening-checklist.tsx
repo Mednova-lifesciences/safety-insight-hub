@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, ExternalLink, Save, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowDown, ExternalLink, Save, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,7 @@ import { ConfirmWithPassword } from "@/components/pv/confirm-with-password";
 import { cn } from "@/lib/utils";
 import { psur as psurApi } from "@/services/api/psur";
 import {
+  OUTCOME_ACTIONS,
   OUTCOME_LABELS,
   SCREENING_GROUPS,
   SCREENING_GROUP_LABELS,
@@ -20,6 +21,7 @@ import {
   emptySubmissionDetails,
   normalizeChecks,
   recommendOutcome,
+  returnsToMah,
   screeningCheck,
 } from "@/services/psur/screening-checklist";
 import type {
@@ -60,6 +62,10 @@ export function PsurScreeningChecklist({
   const [deficiencies, setDeficiencies] = useState(stored?.outcome?.deficiencies ?? "");
   const [conclusions, setConclusions] = useState(stored?.outcome?.conclusions ?? "");
   const [officerName, setOfficerName] = useState(stored?.outcome?.officerName ?? "");
+  const [responseDeadline, setResponseDeadline] = useState(
+    stored?.outcome?.mahResponseDeadline ?? "",
+  );
+  const [nextDue, setNextDue] = useState(stored?.outcome?.nextPsurDueDate ?? "");
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState<PsurScreeningOutcomeDecision | null>(null);
 
@@ -104,6 +110,8 @@ export function PsurScreeningChecklist({
       deficiencies.trim(),
       conclusions.trim(),
       officerName.trim(),
+      responseDeadline,
+      nextDue,
     );
     toast.success(
       decision === "ACCEPTED_FOR_ASSESSMENT"
@@ -114,8 +122,44 @@ export function PsurScreeningChecklist({
     onChanged();
   }
 
+  // The decision, at the top as well as the bottom.
+  //
+  // Sixteen checks with a comment box each make a long page, and on a phone
+  // the outcome was several screens below the fold — an officer looking for
+  // "proceed to scientific review" had no way of knowing it was down there
+  // at all. The buttons themselves live in section C, where the form puts
+  // them; this is a jump to it, plus what the checklist currently implies,
+  // so the decision is visible from the moment the page opens.
+  const decisionSummary = outcome ? null : (
+    <div
+      className={cn(
+        "rounded-md border px-3 py-2.5",
+        recommendation.decision === "ACCEPTED_FOR_ASSESSMENT"
+          ? "border-border bg-muted/50"
+          : "border-warning/40 bg-warning-soft",
+      )}
+    >
+      <p className="label-caps">Decision</p>
+      <p className="mt-1 text-sm font-medium">{OUTCOME_ACTIONS[recommendation.decision]}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{recommendation.reason}</p>
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-2"
+        onClick={() => {
+          document
+            .getElementById("screening-outcome")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      >
+        Go to the decision <ArrowDown className="size-3.5" />
+      </Button>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
+      {decisionSummary}
       <SubmissionDetailsPanel
         details={details}
         onChange={(patch) => setDetails((d) => ({ ...d, ...patch }))}
@@ -163,6 +207,7 @@ export function PsurScreeningChecklist({
       </Section>
 
       <Section
+        id="screening-outcome"
         title="C. Outcome and sign-off"
         description="The officer's decision. The checklist recommends; it never decides."
       >
@@ -215,7 +260,7 @@ export function PsurScreeningChecklist({
                 ? "This hands the report to the evaluators and closes your screening. It cannot be re-screened."
                 : "This ends the assessment here and returns the report to the marketing authorisation holder. It cannot be undone."
             }
-            confirmLabel={`Confirm — ${OUTCOME_LABELS[confirming].toLowerCase()}`}
+            confirmLabel={`Confirm — ${OUTCOME_ACTIONS[confirming].toLowerCase()}`}
             actionName="the screening outcome"
             destructive={confirming !== "ACCEPTED_FOR_ASSESSMENT"}
             blockedReason={
@@ -223,7 +268,9 @@ export function PsurScreeningChecklist({
                 ? "Enter your name in the sign-off block above — a screening outcome cannot be recorded unsigned."
                 : !conclusions.trim()
                   ? "Record your conclusions above before signing off."
-                  : undefined
+                  : returnsToMah(confirming) && !responseDeadline
+                    ? "Set a date for the MAH to respond by — a directive they cannot be late for is not enforceable."
+                    : undefined
             }
             onConfirmed={() => commitOutcome(confirming)}
             onCancel={() => setConfirming(null)}
@@ -284,6 +331,39 @@ export function PsurScreeningChecklist({
               />
             </div>
 
+            {/* Both dates go on the directive. They are separate fields
+                because they answer different questions — one is when the
+                MAH must reply to THIS letter, the other is when their next
+                periodic report falls due — and conflating them has already
+                caused trouble once in the evaluator's Section 12. */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="screening-response-deadline">MAH response deadline</Label>
+                <Input
+                  id="screening-response-deadline"
+                  type="date"
+                  value={responseDeadline}
+                  onChange={(e) => setResponseDeadline(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Printed on the directive as the date the MAH must respond by. Required when the
+                  report goes back to them.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="screening-next-due">Next PSUR / PBRER due</Label>
+                <Input
+                  id="screening-next-due"
+                  type="date"
+                  value={nextDue}
+                  onChange={(e) => setNextDue(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The next reporting cycle — not the deadline for answering this directive.
+                </p>
+              </div>
+            </div>
+
             {/* The form's own sign-off block. The typed name is the
                 signature a person claims; the password confirmation on the
                 next step is what makes the claim theirs. */}
@@ -303,24 +383,29 @@ export function PsurScreeningChecklist({
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => setConfirming("ACCEPTED_FOR_ASSESSMENT")}>
-                Accept for assessment
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setConfirming("COMPLIANCE_DIRECTIVE")}
-              >
-                Compliance directive
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setConfirming("NOT_ACCEPTED_RESUBMIT")}
-              >
-                Not accepted — resubmit
-              </Button>
+            {/* Labelled with what the decision DOES, with the form's own
+                wording underneath. An officer looking for "proceed to
+                scientific review" should not have to work out that
+                "Accepted for assessment" is the same thing. */}
+            <div className="grid gap-2 sm:grid-cols-3">
+              {(
+                [
+                  "ACCEPTED_FOR_ASSESSMENT",
+                  "COMPLIANCE_DIRECTIVE",
+                  "NOT_ACCEPTED_RESUBMIT",
+                ] as PsurScreeningOutcomeDecision[]
+              ).map((d) => (
+                <Button
+                  key={d}
+                  size="sm"
+                  variant={d === "ACCEPTED_FOR_ASSESSMENT" ? "default" : "outline"}
+                  className="h-auto flex-col items-start gap-0.5 whitespace-normal py-2 text-left"
+                  onClick={() => setConfirming(d)}
+                >
+                  <span className="text-sm font-medium">{OUTCOME_ACTIONS[d]}</span>
+                  <span className="text-xs font-normal opacity-80">{OUTCOME_LABELS[d]}</span>
+                </Button>
+              ))}
             </div>
           </div>
         )}
@@ -435,13 +520,16 @@ function CheckRow({
           ) : null}
 
           {computed ? (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+            // items-start + flex-wrap, not items-center: the sentence is
+            // long, and on a phone it has to wrap underneath the pill rather
+            // than be squeezed into a narrow column beside it.
+            <div className="flex flex-wrap items-start gap-2 text-xs text-muted-foreground">
               <StatusPill tone={statusTone(row.status)}>{STATUS_LABELS[row.status]}</StatusPill>
-              <span>
+              <span className="min-w-0 basis-full sm:basis-auto sm:flex-1">
                 Calculated from the DLP and the date received — correct the dates above to change
                 it.
               </span>
-            </p>
+            </div>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {STATUS_ORDER.map((s) => (
