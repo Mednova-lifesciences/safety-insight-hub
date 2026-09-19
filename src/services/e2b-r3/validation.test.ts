@@ -4,7 +4,6 @@ import {
   validateBusinessRules,
   validateVigiFlowPreflight,
   validateCase,
-  validateOutcomeCodeConfiguration,
   isOverridable,
   computeCaseEligibility,
   E2B_NON_OVERRIDABLE_CODES,
@@ -259,7 +258,7 @@ describe("isOverridable / computeCaseEligibility — the validated-export overri
     expect(isOverridable(result)).toBe(false);
   });
 
-  it("E2B_NON_OVERRIDABLE_CODES contains exactly the 4 ICH minimum-content codes plus the 3 case-identity codes", () => {
+  it("E2B_NON_OVERRIDABLE_CODES also protects unresolved regulatory assessment", () => {
     expect([...E2B_NON_OVERRIDABLE_CODES].sort()).toEqual(
       [
         "E2B-PATIENT-MISSING",
@@ -269,6 +268,7 @@ describe("isOverridable / computeCaseEligibility — the validated-export overri
         "E2B-C1.1-MISSING",
         "E2B-C1.5-MISSING",
         "E2B-C1.8-MISSING",
+        "E2B-C1.7-UNRESOLVED",
       ].sort(),
     );
   });
@@ -346,49 +346,14 @@ describe("isOverridable / computeCaseEligibility — the validated-export overri
   });
 });
 
-describe("validateOutcomeCodeConfiguration — E.i.7 org-level codelist gate", () => {
-  it("blocks a case whose resolved outcome has no confirmed org codelist entry", () => {
-    const errors = validateOutcomeCodeConfiguration(minimalValidCase(), {});
-    expect(errors).toHaveLength(1);
-    expect(errors[0]!.code).toBe("E2B-OUTCOME-CODE-NOT-CONFIGURED");
-    expect(errors[0]!.severity).toBe("BLOCKING");
-  });
-
-  it("passes once the org has confirmed a code for that specific outcome", () => {
-    const errors = validateOutcomeCodeConfiguration(minimalValidCase(), { RECOVERED: "1" });
-    expect(errors).toHaveLength(0);
-  });
-
-  it("never fires for a reaction with no resolved outcome at all", () => {
-    const c = minimalValidCase();
-    c.reactions[0]!.outcome = undefined;
-    expect(validateOutcomeCodeConfiguration(c, {})).toHaveLength(0);
-  });
-
-  it("is overridable — never added to E2B_NON_OVERRIDABLE_CODES (it's an administrative config gap, not a structural defect)", () => {
-    expect(E2B_NON_OVERRIDABLE_CODES.has("E2B-OUTCOME-CODE-NOT-CONFIGURED")).toBe(false);
-  });
-});
-
-describe("runPreflight with an org outcome codelist", () => {
-  // minimalValidCase's reaction is intentionally UNMAPPED (no licensed
-  // MedDRA dictionary configured in this codebase — see the "runPreflight"
-  // describe block above), so overall preflight `status` is always
-  // BLOCKED regardless of outcome-code configuration; these tests assert
-  // the outcomeCodeNotConfigured COUNT specifically, which is the thing
-  // this feature actually changes.
-  it("does not evaluate the E.i.7 codelist gap when outcomeCodes is omitted (backward compatible)", () => {
+describe("E.i.7 codelist", () => {
+  it("never blocks preflight because administrator configuration is absent", () => {
     const summary = runPreflight([minimalValidCase()]);
-    expect(summary.counts.outcomeCodeNotConfigured).toBe(0);
+    const codes = summary.results.flatMap((r) => r.errors.map((e) => e.code));
+    expect(codes).not.toContain("E2B-OUTCOME-CODE-NOT-CONFIGURED");
   });
 
-  it("counts a case as outcome-code-blocked when outcomeCodes is supplied but incomplete", () => {
-    const summary = runPreflight([minimalValidCase()], {});
-    expect(summary.counts.outcomeCodeNotConfigured).toBe(1);
-  });
-
-  it("stops counting the case once every outcome it uses has a confirmed code", () => {
-    const summary = runPreflight([minimalValidCase()], { RECOVERED: "1" });
-    expect(summary.counts.outcomeCodeNotConfigured).toBe(0);
+  it("is not an ordinary export override", () => {
+    expect(E2B_NON_OVERRIDABLE_CODES.has("E2B-OUTCOME-CODE-NOT-CONFIGURED")).toBe(false);
   });
 });

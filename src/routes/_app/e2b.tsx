@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { useEffect, useState } from "react";
-import { Download, FileStack, ShieldAlert, ShieldCheck, ShieldOff, Sparkles } from "lucide-react";
+import { Download, FileStack, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 import { e2b as e2bApi } from "@/services/api/e2b";
 import {
@@ -10,18 +10,26 @@ import {
   downloadValidatedBatch,
   type ValidatedExportResult,
 } from "@/services/e2b-r3/export";
+import {
+  finalizeC17Assessment,
+  finalizeC17AssessmentsBulk,
+  latestC17AssessmentsByCase,
+  listC17AiAssessments,
+  listC17Assessments,
+  pendingC17AssessmentIds,
+} from "@/services/e2b-r3/assessment";
+import type { E2bRegulatoryAssessment } from "@/services/e2b-r3/assessment-types";
+import type { C17AiAssessmentRecord } from "@/services/e2b-r3/ai-assessment-types";
+import { aiAssessmentCanApplyTo } from "@/services/e2b-r3/ai-assessment";
 import { regulatoryConfig } from "@/services/api/regulatory-config";
 import {
   unconfiguredOrgRegulatoryConfig,
   type OrgRegulatoryConfig,
 } from "@/services/e2b-r3/regulatory-config";
-import { linelist as linelistApi } from "@/services/api/linelist";
+import { linelist as linelistApi, rowLabel } from "@/services/api/linelist";
 import { demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { isNotConfigured } from "@/services/api/client";
-import { ai } from "@/services/api/ai";
-import { coding as codingApi } from "@/services/api/coding";
-import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
 import {
   EmptyState,
   PageHeader,
@@ -67,6 +75,17 @@ export const Route = createFileRoute("/_app/e2b")({
   ),
 });
 
+/** "File row 29 (case OND-12)" for a case in a preflight result. */
+function caseLocation(
+  job: Parameters<typeof rowLabel>[0],
+  result: ValidatedExportResult,
+  sendersCaseId: string,
+): string {
+  const pvCase = result.cases.find((c) => c.sendersCaseId === sendersCaseId);
+  const row = pvCase?.sourceInformation?.sourceRow;
+  return row ? rowLabel(job, row) : "";
+}
+
 function E2bPage() {
   const jobs = usePvQuery(
     ["linelist", "jobs"],
@@ -79,12 +98,20 @@ function E2bPage() {
   );
   const [overridingJobId, setOverridingJobId] = useState<string | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
-  const [slashAsSeparator, setSlashAsSeparator] = useState<Record<string, boolean>>({});
-  const [verbatimProduct, setVerbatimProduct] = useState<Record<string, boolean>>({});
-  const [aiCodingBusy, setAiCodingBusy] = useState<string | null>(null);
-  const [aiCodingResults, setAiCodingResults] = useState<
-    Record<string, { term: string; rationale: string; matches: { term: string; code: string }[] }[]>
-  >({});
+  // The line-list check each shown preflight result was computed against.
+  // When the line list changes (a fix, a Settings decision, a new reading
+  // of "/"), its preflight is re-run automatically.
+  const [preflightBasis, setPreflightBasis] = useState<Record<string, string>>({});
+  const [c17Assessments, setC17Assessments] = useState<Record<string, E2bRegulatoryAssessment[]>>(
+    {},
+  );
+  const [c17Rationales, setC17Rationales] = useState<Record<string, string>>({});
+  const [bulkC17JobId, setBulkC17JobId] = useState<string | null>(null);
+  const [bulkC17Rationale, setBulkC17Rationale] = useState("");
+  const [bulkC17Busy, setBulkC17Busy] = useState(false);
+  const [c17AiAssessments, setC17AiAssessments] = useState<Record<string, C17AiAssessmentRecord[]>>(
+    {},
+  );
   // The org's persisted NAFDAC E2B(R3) regulatory configuration (sender/
   // receiver identifiers, C.1.3, the outcome codelist, and reporter-
   // qualification mappings — see Settings → Regulatory Profiles). Starts
@@ -107,34 +134,22 @@ function E2bPage() {
       });
   }, []);
 
-  function profileForJob(jobId: string) {
-    const job = (jobs.data?.data ?? []).find((item) => item.id === jobId);
-    const base = getSourceProfile(job?.sourceProfileId || "ondo-aefi");
-    if (
-      !slashAsSeparator[jobId] &&
-      !verbatimProduct[jobId]
-    ) {
-      return base;
-    }
-    return {
-      ...base,
-      reactionDelimiter: {
-        ...base.reactionDelimiter,
-        separators: slashAsSeparator[jobId] && !base.reactionDelimiter.separators.includes("/")
-          ? [...base.reactionDelimiter.separators, "/"]
-          : base.reactionDelimiter.separators,
-      },
-      productDelimiter: verbatimProduct[jobId]
-        ? { separators: [] }
-        : base.productDelimiter,
-    };
-  }
-
   async function checkValidatedPreflight(jobId: string) {
     setPreflightBusy(jobId);
     try {
-      const result = await runValidatedPreflightForJob(jobId, regConfig, profileForJob(jobId));
+      // No explicit profile: the job's own saved reading (parsing options,
+      // discovered codebook, organization outcome words and designations)
+      // is exactly what line-list validation used.
+      const result = await runValidatedPreflightForJob(jobId, regConfig);
+      const job = (jobs.data?.data ?? []).find((item) => item.id === jobId);
+      setPreflightBasis((prev) => ({ ...prev, [jobId]: job?.checkedAt ?? "" }));
       setPreflightResults((prev) => ({ ...prev, [jobId]: result }));
+      // Only each case's newest assessment is actionable; superseded
+      // versions are history and must never be decided in its place.
+      const assessments = latestC17AssessmentsByCase(await listC17Assessments(jobId));
+      setC17Assessments((prev) => ({ ...prev, [jobId]: assessments }));
+      const aiAssessments = await listC17AiAssessments(assessments.map((a) => a.caseId));
+      setC17AiAssessments((prev) => ({ ...prev, [jobId]: aiAssessments }));
       if (result.readyForValidatedExport && result.transmissionConfigConfirmed) {
         toast.success(
           `${result.totalCases} case(s) passed VigiFlow preflight — ready for real E2B(R3) export.`,
@@ -155,10 +170,76 @@ function E2bPage() {
     }
   }
 
+  // Keep shown results in step with the line list: whenever a job was
+  // rechecked since its preflight ran (data fixed, an outcome word or
+  // designation decided in Settings, "/" reading changed), run it again.
+  useEffect(() => {
+    for (const job of jobs.data?.data ?? []) {
+      const basis = preflightBasis[job.id];
+      if (basis === undefined || preflightBusy === job.id) continue;
+      if ((job.checkedAt ?? "") !== basis) void checkValidatedPreflight(job.id);
+    }
+    // checkValidatedPreflight is recreated each render; the job list and
+    // what each result was based on are what matter here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs.data, preflightBasis]);
+
+  async function finalizeC17(
+    jobId: string,
+    assessment: E2bRegulatoryAssessment,
+    decision: "YES" | "NO",
+  ) {
+    const rationale = c17Rationales[assessment.id ?? ""]?.trim() ?? "";
+    if (!assessment.id) {
+      toast.error("This assessment has not been persisted yet. Run preflight again.");
+      return;
+    }
+    if (!rationale) {
+      toast.error("Enter a rationale before finalizing the C.1.7 decision.");
+      return;
+    }
+    try {
+      const updated = await finalizeC17Assessment(assessment.id, decision, rationale);
+      setC17Assessments((previous) => ({
+        ...previous,
+        [jobId]: (previous[jobId] ?? []).map((item) => (item.id === updated.id ? updated : item)),
+      }));
+      await checkValidatedPreflight(jobId);
+      toast.success(`C.1.7 finalized as ${decision}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save the C.1.7 decision.");
+    }
+  }
+
+  async function finalizeC17Bulk(jobId: string, decision: "YES" | "NO") {
+    const ids = pendingC17AssessmentIds(c17Assessments[jobId] ?? []);
+    const rationale = bulkC17Rationale.trim();
+    if (ids.length === 0) {
+      toast.error("No C.1.7 decisions are pending for this line list.");
+      return;
+    }
+    if (!rationale) {
+      toast.error("Enter a rationale before finalizing the C.1.7 decisions.");
+      return;
+    }
+    setBulkC17Busy(true);
+    try {
+      const updated = await finalizeC17AssessmentsBulk(ids, decision, rationale);
+      setBulkC17JobId(null);
+      setBulkC17Rationale("");
+      await checkValidatedPreflight(jobId);
+      toast.success(`C.1.7 finalized as ${decision} for ${updated.length} case(s).`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save the C.1.7 decisions.");
+    } finally {
+      setBulkC17Busy(false);
+    }
+  }
+
   async function exportValidated(jobId: string) {
     setPreflightBusy(jobId);
     try {
-      const batches = await generateValidatedExportForJob(jobId, regConfig, profileForJob(jobId));
+      const batches = await generateValidatedExportForJob(jobId, regConfig);
       for (const b of batches) await downloadValidatedBatch(jobId, b);
       toast.success(
         `Downloaded ${batches.length} real E2B(R3) batch file(s) — ${batches.reduce((n, b) => n + b.caseCount, 0)} case(s) total.`,
@@ -167,68 +248,6 @@ function E2bPage() {
       toast.error(err instanceof Error ? err.message : "Validated export failed.");
     } finally {
       setPreflightBusy(null);
-    }
-
-  }
-
-  async function askAiForMedDra(caseId: string, sourceValue: string) {
-    const key = `${caseId}:${sourceValue}`;
-    setAiCodingBusy(key);
-    try {
-      const proposal = await ai.coding.suggest({ dictionary: "MedDRA", text: sourceValue });
-      const candidates = proposal.ai_used ? proposal.candidates : [];
-      const verified = await Promise.all(
-        candidates.map(async (candidate) => ({
-          ...candidate,
-          matches: (await codingApi.searchDictionary("MedDRA", candidate.term))
-            .filter((match) => match.source === "dictionary")
-            .slice(0, 5)
-            .map((match) => ({ term: match.term, code: match.code })),
-        })),
-      );
-      setAiCodingResults((previous) => ({ ...previous, [key]: verified }));
-      if (verified.length === 0) {
-        toast.warning("AI could not find a verified MedDRA candidate for this text.");
-      }
-
-      async function acceptMedDraCandidate(
-        jobId: string,
-        caseId: string,
-        sourceValue: string,
-        candidate: { term: string; code: string },
-      ) {
-        try {
-          const suggestion = await codingApi.addCandidate(
-            caseId,
-            "REACTION",
-            sourceValue,
-            {
-              term: candidate.term,
-              code: candidate.code,
-              dictionary: "MedDRA",
-              dictionaryVersion: "29.1",
-              source: "dictionary",
-            },
-          );
-          await codingApi.accept(
-            caseId,
-            suggestion.id,
-            `Human-confirmed MedDRA 29.1 LLT ${candidate.code} after AI-assisted normalization.`,
-          );
-          toast.success(`Accepted MedDRA LLT ${candidate.code}. Rerunning preflight.`);
-          await checkValidatedPreflight(jobId);
-        } catch (err) {
-          toast.error(
-            err instanceof Error
-              ? err.message
-              : "Could not persist the confirmed MedDRA correction.",
-          );
-        }
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "AI coding assistance failed.");
-    } finally {
-      setAiCodingBusy(null);
     }
   }
 
@@ -385,60 +404,30 @@ function E2bPage() {
                             (see the configuration gaps below) — neither condition alone unlocks it.
                           </p>
                           <div className="mt-2 rounded border border-border bg-background/60 px-2 py-2 text-xs">
-                            <label className="flex items-start gap-2">
-                              <input
-                                type="checkbox"
-                                checked={slashAsSeparator[j.id] ?? false}
-                                onChange={(event) => {
-                                  setSlashAsSeparator((previous) => ({
-                                    ...previous,
-                                    [j.id]: event.target.checked,
-                                  }));
-                                  setPreflightResults((previous) => {
-                                    const next = { ...previous };
-                                    delete next[j.id];
-                                    return next;
-                                  });
-                                }}
-                              />
-                              <span>
-                                <span className="font-medium">Interpret “/” as separate reactions</span>
-                                <span className="mt-0.5 block text-muted-foreground">
-                                  Default is off because “Rash/Urticaria” may be one source phrase.
-                                  Turn this on only when the source owner confirms slash means two
-                                  distinct reactions, then rerun preflight.
-                                </span>
-                              </span>
-                            </label>
-                          </div>
-                          <div className="mt-2 rounded border border-border bg-background/60 px-2 py-2 text-xs">
-                            <label className="flex items-start gap-2">
-                              <input
-                                type="checkbox"
-                                checked={verbatimProduct[j.id] ?? false}
-                                onChange={(event) => {
-                                  setVerbatimProduct((previous) => ({
-                                    ...previous,
-                                    [j.id]: event.target.checked,
-                                  }));
-                                  setPreflightResults((previous) => {
-                                    const next = { ...previous };
-                                    delete next[j.id];
-                                    return next;
-                                  });
-                                }}
-                              />
-                              <span>
-                                <span className="font-medium">
-                                  Keep primary suspect vaccine name verbatim
-                                </span>
-                                <span className="mt-0.5 block text-muted-foreground">
-                                  Preserves commas and slashes inside the product name as one
-                                  medicinal product. Use this when the source cell contains one
-                                  registered vaccine name, not a product list.
-                                </span>
-                              </span>
-                            </label>
+                            <p>
+                              <span className="font-medium">How this line list is read: </span>
+                              "/" in a reaction{" "}
+                              {j.parsingOptions?.slashSeparatesReactions
+                                ? "separates two reactions"
+                                : "is kept as one reaction"}
+                              ; the product cell{" "}
+                              {j.parsingOptions?.productCellIsOneName
+                                ? "is one product name"
+                                : "may list several suspect products"}
+                              .{" "}
+                              <Link to="/line-list" className="text-primary hover:underline">
+                                Change on the line-list page
+                              </Link>
+                            </p>
+                            {(j.e2bBlockedCases ?? 0) > 0 ? (
+                              <p className="mt-1 text-critical">
+                                {j.e2bBlockedCases} case(s) have data that blocks VigiFlow.{" "}
+                                <Link to="/line-list" className="font-medium hover:underline">
+                                  Fix them on the line-list page
+                                </Link>{" "}
+                                — this page refreshes itself when they change.
+                              </p>
+                            ) : null}
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <Button
@@ -503,6 +492,148 @@ function E2bPage() {
                             ) : null}
                           </div>
 
+                          {c17Assessments[j.id]?.length ? (
+                            <div className="mt-3 rounded-md border border-warning/30 bg-warning-soft/30 p-3">
+                              <p className="font-medium">
+                                C.1.7 — Local criteria for expedited report
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {c17Assessments[j.id]![0]!.rule.name} — v
+                                {c17Assessments[j.id]![0]!.rule.version} (
+                                {c17Assessments[j.id]![0]!.rule.status.toLowerCase()}). This
+                                assessment is regulatory-review required and cannot be cleared by an
+                                ordinary export override.
+                              </p>
+                              {pendingC17AssessmentIds(c17Assessments[j.id]!).length > 0 ? (
+                                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                                  <span>
+                                    {pendingC17AssessmentIds(c17Assessments[j.id]!).length} of{" "}
+                                    {c17Assessments[j.id]!.length} case(s) awaiting a decision.
+                                  </span>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setBulkC17JobId(j.id);
+                                      setBulkC17Rationale("");
+                                    }}
+                                  >
+                                    Decide all pending…
+                                  </Button>
+                                </div>
+                              ) : null}
+                              <div className="mt-2 max-h-[32rem] space-y-3 overflow-y-auto pr-1">
+                                {c17Assessments[j.id]!.map((assessment) => (
+                                  <div
+                                    key={assessment.id ?? assessment.caseId}
+                                    className="rounded border bg-background p-2"
+                                  >
+                                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                                      <span className="font-mono font-medium">
+                                        {assessment.caseId}
+                                      </span>
+                                      <StatusPill
+                                        tone={
+                                          assessment.status === "FINALIZED" ? "success" : "warning"
+                                        }
+                                      >
+                                        {assessment.status}
+                                      </StatusPill>
+                                      <span className="text-muted-foreground">
+                                        Recommendation:{" "}
+                                        {assessment.recommendation ?? "NEEDS_REVIEW"}
+                                      </span>
+                                    </div>
+                                    {c17AiAssessments[j.id]
+                                      ?.filter((item) => {
+                                        const currentCase = preflightResults[j.id]?.cases.find(
+                                          (itemCase) =>
+                                            itemCase.internalCaseId === assessment.caseId,
+                                        );
+                                        return (
+                                          item.caseId === assessment.caseId &&
+                                          currentCase !== undefined &&
+                                          aiAssessmentCanApplyTo(item, currentCase)
+                                        );
+                                      })
+                                      .slice(0, 1)
+                                      .map((aiAssessment) => (
+                                        <div
+                                          key={aiAssessment.id}
+                                          className="mt-2 rounded border border-primary/20 bg-primary/5 p-2 text-xs"
+                                        >
+                                          <p className="font-medium">AI-ASSISTED ASSESSMENT</p>
+                                          <p className="text-muted-foreground">
+                                            NOT A REGULATORY DECISION
+                                          </p>
+                                          <p className="mt-1">
+                                            Recommendation: {aiAssessment.recommendation}
+                                          </p>
+                                          <p>
+                                            Confidence: {Math.round(aiAssessment.confidence * 100)}%
+                                          </p>
+                                          <p className="mt-1 text-muted-foreground">
+                                            {aiAssessment.reasoningSummary}
+                                          </p>
+                                          {aiAssessment.missingInformation.length > 0 ? (
+                                            <p className="mt-1 text-muted-foreground">
+                                              Missing: {aiAssessment.missingInformation.join("; ")}
+                                            </p>
+                                          ) : null}
+                                          <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                                            Snapshot: {aiAssessment.inputSnapshotHash}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    {assessment.status !== "FINALIZED" ? (
+                                      <div className="mt-2 space-y-2">
+                                        <p className="text-xs text-muted-foreground">
+                                          {assessment.rationale}
+                                        </p>
+                                        <Textarea
+                                          value={c17Rationales[assessment.id ?? ""] ?? ""}
+                                          onChange={(event) =>
+                                            setC17Rationales((previous) => ({
+                                              ...previous,
+                                              [assessment.id ?? ""]: event.target.value,
+                                            }))
+                                          }
+                                          placeholder="Required rationale for the qualified reviewer decision"
+                                          rows={2}
+                                        />
+                                        <div className="flex gap-2">
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => finalizeC17(j.id, assessment, "YES")}
+                                          >
+                                            Finalize YES
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => finalizeC17(j.id, assessment, "NO")}
+                                          >
+                                            Finalize NO
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        Final decision: {assessment.finalDecision} by{" "}
+                                        {assessment.reviewerName ?? "a reviewer"}
+                                        {assessment.reviewedAt
+                                          ? ` on ${new Date(assessment.reviewedAt).toLocaleString()}`
+                                          : ""}{" "}
+                                        — {assessment.rationale}
+                                      </p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
                           {preflightResults[j.id]?.override ? (
                             <div className="mt-2 rounded-md border border-warning/30 bg-warning-soft px-2 py-1.5 text-xs text-foreground">
                               <p className="font-medium">
@@ -532,24 +663,27 @@ function E2bPage() {
                                 case(s) still excluded even with the override on record
                                 (non-overridable):
                               </p>
-                              <div className="mt-1 max-h-48 space-y-2 overflow-y-auto text-xs">
+                              <div className="mt-1 max-h-[32rem] space-y-2 overflow-y-auto pr-1 text-xs">
                                 {preflightResults[j.id]!.caseEligibility.filter(
                                   (c) => !c.includable,
-                                )
-                                  .slice(0, 10)
-                                  .map((c) => (
-                                    <div
-                                      key={c.caseId}
-                                      className="rounded border border-critical/30 bg-critical/5 p-2"
-                                    >
-                                      <p className="font-mono font-medium">{c.caseId} — EXCLUDED</p>
-                                      {c.nonOverridableErrors.map((e, i) => (
-                                        <p key={i} className="mt-1 pl-2 text-muted-foreground">
-                                          {e.code}: {e.message}
-                                        </p>
-                                      ))}
-                                    </div>
-                                  ))}
+                                ).map((c) => (
+                                  <div
+                                    key={c.caseId}
+                                    className="rounded border border-critical/30 bg-critical/5 p-2"
+                                  >
+                                    <p className="font-mono font-medium">
+                                      {c.caseId} — EXCLUDED
+                                      <span className="ml-2 font-sans font-normal text-muted-foreground">
+                                        {caseLocation(j, preflightResults[j.id]!, c.caseId)}
+                                      </span>
+                                    </p>
+                                    {c.nonOverridableErrors.map((e, i) => (
+                                      <p key={i} className="mt-1 pl-2 text-muted-foreground">
+                                        {e.code}: {e.message}
+                                      </p>
+                                    ))}
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           ) : null}
@@ -557,9 +691,7 @@ function E2bPage() {
                           {preflightResults[j.id] &&
                           (!preflightResults[j.id]!.transmissionConfigConfirmed ||
                             preflightResults[j.id]!.caseLevelBlockers.unmappedReporterDesignations
-                              .length > 0 ||
-                            preflightResults[j.id]!.caseLevelBlockers.unresolvedOutcomeCaseCount >
-                              0) ? (
+                              .length > 0) ? (
                             <div className="mt-2 rounded-md border border-warning/30 bg-warning-soft px-2 py-2 text-xs text-foreground">
                               <p className="font-medium">E2B(R3) generation blocked</p>
                               <p className="mt-2 label-caps">Organization configuration</p>
@@ -584,9 +716,7 @@ function E2bPage() {
                                 ))}
                               </ul>
                               {preflightResults[j.id]!.caseLevelBlockers
-                                .unmappedReporterDesignations.length > 0 ||
-                              preflightResults[j.id]!.caseLevelBlockers.unresolvedOutcomeCaseCount >
-                                0 ? (
+                                .unmappedReporterDesignations.length > 0 ? (
                                 <>
                                   <p className="mt-2 label-caps">Case data</p>
                                   <ul className="mt-1 space-y-0.5">
@@ -598,16 +728,6 @@ function E2bPage() {
                                         {d.designation}"
                                       </li>
                                     ))}
-                                    {preflightResults[j.id]!.caseLevelBlockers
-                                      .unresolvedOutcomeCaseCount > 0 ? (
-                                      <li>
-                                        {
-                                          preflightResults[j.id]!.caseLevelBlockers
-                                            .unresolvedOutcomeCaseCount
-                                        }{" "}
-                                        case(s) have unresolved outcome values (E.i.7 codelist gap)
-                                      </li>
-                                    ) : null}
                                   </ul>
                                 </>
                               ) : null}
@@ -645,101 +765,101 @@ function E2bPage() {
                                   ))}
                               </ul>
                               <p className="mt-2 text-xs font-medium text-critical">
-                                Per-case detail (first 10 blocked cases):
+                                Per-case detail (all{" "}
+                                {
+                                  preflightResults[j.id]!.preflight.results.filter((r) => r.blocked)
+                                    .length
+                                }{" "}
+                                blocked cases):
                               </p>
-                              <div className="mt-1 max-h-64 space-y-2 overflow-y-auto text-xs">
-                                {preflightResults[j.id]!.preflight.results.filter((r) => r.blocked)
-                                  .slice(0, 10)
-                                  .map((r) => (
-                                    <div
-                                      key={r.caseId}
-                                      className="rounded border border-critical/30 bg-critical/5 p-2"
-                                    >
-                                      <p className="font-mono font-medium">{r.caseId} — BLOCKED</p>
-                                      {r.errors
-                                        .filter((e) => e.severity === "BLOCKING")
-                                        .map((e, i) => (
-                                          <div key={i} className="mt-1 pl-2 text-muted-foreground">
-                                            <p>
-                                              Field: {e.e2bField ?? "—"} · Rule: {e.code}
-                                            </p>
-                                            <p>Reason: {e.message}</p>
-                                            {e.sourceValue ? (
-                                              <p>Source value: "{e.sourceValue}"</p>
-                                            ) : null}
-                                            <p>Remediation: {e.remediation}</p>
-                                            {e.code === "VIGIFLOW-MEDDRA-MISSING" && e.sourceValue ? (
-                                              <div className="mt-2">
-                                                <Button
-                                                  size="sm"
-                                                  variant="outline"
-                                                  disabled={aiCodingBusy === `${r.caseId}:${e.sourceValue}`}
-                                                  onClick={() =>
-                                                    askAiForMedDra(r.caseId, e.sourceValue!)
-                                                  }
-                                                >
-                                                  <Sparkles className="size-3.5" />
-                                                  {aiCodingBusy === `${r.caseId}:${e.sourceValue}`
-                                                    ? "Finding verified candidates…"
-                                                    : "Suggest correction with AI"}
-                                                </Button>
-                                                {(aiCodingResults[`${r.caseId}:${e.sourceValue}`] ?? [])
-                                                  .length > 0 ? (
-                                                  <div className="mt-2 rounded border border-info/30 bg-info-soft p-2">
-                                                    <p className="font-medium">
-                                                      AI suggestions — confirm one before changing
-                                                      the source record
-                                                    </p>
-                                                    {aiCodingResults[
-                                                      `${r.caseId}:${e.sourceValue}`
-                                                    ]?.map((candidate, candidateIndex) => (
-                                                      <div key={candidateIndex} className="mt-1">
-                                                        <p>
-                                                          {candidate.term}{" "}
-                                                          <span className="text-muted-foreground">
-                                                            ({candidate.rationale})
-                                                          </span>
-                                                        </p>
-                                                        {candidate.matches.length > 0 ? (
-                                                          <ul className="ml-3 list-disc">
-                                                            {candidate.matches.map((match) => (
-                                                              <li key={match.code} className="flex items-center justify-between gap-2">
-                                                                MedDRA LLT {match.code}: {match.term}
-                                                                <Button
-                                                                  size="sm"
-                                                                  variant="outline"
-                                                                  onClick={() =>
-                                                                    acceptMedDraCandidate(
-                                                                      j.id,
-                                                                      r.caseId,
-                                                                      e.sourceValue!,
-                                                                      match,
-                                                                    )
-                                                                  }
-                                                                >
-                                                                  Confirm and apply
-                                                                </Button>
-                                                              </li>
-                                                            ))}
-                                                          </ul>
-                                                        ) : (
-                                                          <p className="text-muted-foreground">
-                                                            No verified MedDRA 29.1 match.
-                                                          </p>
-                                                        )}
-                                                      </div>
-                                                    ))}
-                                                  </div>
-                                                ) : null}
-                                              </div>
-                                            ) : null}
-                                          </div>
-                                        ))}
-                                    </div>
-                                  ))}
+                              <div className="mt-1 max-h-[32rem] space-y-2 overflow-y-auto pr-1 text-xs">
+                                {preflightResults[j.id]!.preflight.results.filter(
+                                  (r) => r.blocked,
+                                ).map((r) => (
+                                  <div
+                                    key={r.caseId}
+                                    className="rounded border border-critical/30 bg-critical/5 p-2"
+                                  >
+                                    <p className="font-mono font-medium">
+                                      {r.caseId} — BLOCKED
+                                      <span className="ml-2 font-sans font-normal text-muted-foreground">
+                                        {caseLocation(j, preflightResults[j.id]!, r.caseId)}
+                                      </span>
+                                    </p>
+                                    {r.errors
+                                      .filter((e) => e.severity === "BLOCKING")
+                                      .map((e, i) => (
+                                        <div key={i} className="mt-1 pl-2 text-muted-foreground">
+                                          <p>
+                                            Field: {e.e2bField ?? "—"} · Rule: {e.code}
+                                          </p>
+                                          <p>Reason: {e.message}</p>
+                                          {e.sourceValue ? (
+                                            <p>Source value: "{e.sourceValue}"</p>
+                                          ) : null}
+                                          <p>Remediation: {e.remediation}</p>
+                                          {e.code === "VIGIFLOW-MEDDRA-MISSING" ? (
+                                            <Link
+                                              to="/line-list"
+                                              className="mt-1 inline-block font-medium text-primary hover:underline"
+                                            >
+                                              Choose the MedDRA term on the line-list page →
+                                            </Link>
+                                          ) : null}
+                                        </div>
+                                      ))}
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           ) : null}
+
+                          <AlertDialog
+                            open={bulkC17JobId === j.id}
+                            onOpenChange={(open) => {
+                              if (!open && !bulkC17Busy) {
+                                setBulkC17JobId(null);
+                                setBulkC17Rationale("");
+                              }
+                            }}
+                          >
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Finalize C.1.7 for every pending case in this line list?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Applies one YES or NO decision and one rationale to all{" "}
+                                  {pendingC17AssessmentIds(c17Assessments[j.id] ?? []).length}{" "}
+                                  pending case(s). Each case is recorded in the audit trail under
+                                  your name and cannot be changed afterwards. If any case cannot be
+                                  finalized, none are. Decide individual cases first if they differ.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <Textarea
+                                placeholder="Rationale for the qualified reviewer decision (required)"
+                                value={bulkC17Rationale}
+                                onChange={(e) => setBulkC17Rationale(e.target.value)}
+                                rows={3}
+                              />
+                              <AlertDialogFooter>
+                                <AlertDialogCancel disabled={bulkC17Busy}>Cancel</AlertDialogCancel>
+                                <Button
+                                  variant="outline"
+                                  disabled={bulkC17Busy || !bulkC17Rationale.trim()}
+                                  onClick={() => finalizeC17Bulk(j.id, "NO")}
+                                >
+                                  Finalize all NO
+                                </Button>
+                                <Button
+                                  disabled={bulkC17Busy || !bulkC17Rationale.trim()}
+                                  onClick={() => finalizeC17Bulk(j.id, "YES")}
+                                >
+                                  Finalize all YES
+                                </Button>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
 
                           <AlertDialog
                             open={overridingJobId === j.id}

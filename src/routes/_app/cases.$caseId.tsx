@@ -500,8 +500,8 @@ function CaseEditForm({ c, onSubmitted }: { c: CaseDetail; onSubmitted: () => vo
           <label className="label-caps">Sex</label>
           <select
             className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
-            value={patientSex}
-            onChange={(e) => setPatientSex(e.target.value as CaseDetail["patient"]["sex"])}
+            value={patientSex ?? "UNKNOWN"}
+            onChange={(e) => setPatientSex((e.target.value as CaseDetail["patient"]["sex"]) ?? "UNKNOWN")}
           >
             {SEX_OPTIONS.map((s) => (
               <option key={s} value={s}>

@@ -53,6 +53,7 @@ export const genericVerbatimProfile: SourceProfile = {
     onsetDate: "onset_date",
     product: "product",
     vaccinationDate: "vaccination_date",
+    reportDate: "report_date",
     batchNumber: "vaccine_batch",
     dose: "dose",
     outcome: "outcome",
@@ -64,8 +65,10 @@ export const genericVerbatimProfile: SourceProfile = {
   reactionEncoding: "VERBATIM",
   // Only separators that cannot plausibly occur inside a reaction term.
   // A bare "." is excluded on purpose — it splits "1.5 cm induration" into
-  // nonsense — matching the caution the coded path already applies.
-  reactionDelimiter: { separators: [",", ";", "/", "|"] },
+  // nonsense. "/" is excluded too: "Rash/Urticaria" is usually one phrase,
+  // and a line list whose source uses "/" between distinct reactions opts
+  // in per job (LineListParsingOptions.slashSeparatesReactions).
+  reactionDelimiter: { separators: [",", ";", "|"] },
   reactionCodebook: {
     sourceId: "generic-verbatim",
     field: "reaction",

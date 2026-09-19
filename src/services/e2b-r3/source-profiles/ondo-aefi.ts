@@ -26,6 +26,7 @@ export const ondoAefiProfile: SourceProfile = {
     onsetDate: "onset_date",
     product: "product",
     vaccinationDate: "vaccination_date",
+    reportDate: "report_date",
     batchNumber: "vaccine_batch",
     dose: "dose",
     outcome: "outcome",

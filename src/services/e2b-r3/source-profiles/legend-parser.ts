@@ -49,7 +49,7 @@ function detectFieldHint(line: string): string | null {
  *  period immediately followed by whitespace, e.g. "1. Life
  *  threatening" — but NOT a bare mid-number decimal point like "0.5",
  *  since that requires a digit, not whitespace, right after the dot). */
-const CODE_ANCHOR = /(\d{1,3})\s*(?:[=:\-]|\.(?=\s))\s*/g;
+const CODE_ANCHOR = /(\d{1,3})\s*(?:[=:-]|\.(?=\s))\s*/g;
 
 /** Real legends sometimes omit the separator entirely for one entry in
  *  an otherwise consistent list (observed: "..., 9 Site induration, 10=...").

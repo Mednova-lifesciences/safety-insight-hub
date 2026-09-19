@@ -3,7 +3,7 @@
  * Handles signup and signin with the FastAPI backend using real authentication
  */
 
-import { apiRequest, setStoredToken, getStoredToken } from "./client";
+import { ApiError, apiRequest, setStoredToken, getStoredToken } from "./client";
 
 export interface SignupRequest {
   email: string;
@@ -94,18 +94,29 @@ export const auth = {
   },
 
   /**
-   * Get current user profile (uses stored token automatically)
+   * Get current user profile (uses stored token automatically).
+   * Returns null when the token is rejected (signed out). Throws when the
+   * server cannot be reached even after retrying, so the caller can keep
+   * the session instead of signing someone out over a network outage.
    */
   async getCurrentUser(): Promise<AuthResponse["profile"] | null> {
-    try {
-      const token = getStoredToken();
-      if (!token) return null;
-      return await apiRequest<AuthResponse["profile"]>("/api/auth/me", {
-        method: "GET",
-        token,
-      });
-    } catch {
-      return null;
+    const token = getStoredToken();
+    if (!token) return null;
+    // Only a real "not signed in" (401/403) ends the session. A server or
+    // network error is retried briefly, so a blip while reloading a page
+    // does not log the person out.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await apiRequest<AuthResponse["profile"]>("/api/auth/me", {
+          method: "GET",
+          token,
+        });
+      } catch (err) {
+        const signedOut = err instanceof ApiError && (err.status === 401 || err.status === 403);
+        if (signedOut) return null;
+        if (attempt >= 3) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+      }
     }
   },
 

@@ -93,3 +93,24 @@ describe("transmission configuration (sender/receiver/environment)", () => {
     expect(content).not.toMatch(/MEDNOVA-\d/);
   });
 });
+
+describe("sender and receiver must be different parties", () => {
+  const confirmed: E2bTransmissionConfig = {
+    ...UNCONFIRMED_DEFAULT_CONFIG,
+    sender: { organization: "Example PV Org", identifier: "ORG-ID-1" },
+    receiver: { organization: "NAFDAC", identifier: "NAFDAC" },
+    reportTypeConfirmed: true,
+  };
+
+  it("accepts distinct sender and receiver identifiers", () => {
+    expect(isTransmissionConfigConfirmed(confirmed)).toBe(true);
+  });
+
+  it("blocks export and says why when the sender identifier is the receiver's", () => {
+    const same = { ...confirmed, sender: { ...confirmed.sender, identifier: " nafdac " } };
+    expect(isTransmissionConfigConfirmed(same)).toBe(false);
+    expect(describeUnconfirmedTransmissionConfig(same).join(" ")).toMatch(
+      /Sender and receiver identifiers are both/,
+    );
+  });
+});

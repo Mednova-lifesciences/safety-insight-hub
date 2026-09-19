@@ -3,18 +3,39 @@ import { currentActor, newId, recordAudit, toJson } from "./db";
 import { mapColumnsByKeywords, parseTabularFile, type KeywordEntry } from "./tabular-parse";
 import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
-import { discoverAndApplyCodebook } from "@/services/e2b-r3/export";
-import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
-import { resolveFieldConcept, mapConceptToOutcome } from "@/services/e2b-r3/mapping";
+import { discoverAndApplyCodebook, mapJobToCases } from "@/services/e2b-r3/export";
 import {
-  acceptOutcomeProposals,
-  decideOutcomeTerm,
-  normaliseOutcomeKey,
+  checkCasesForE2b,
+  e2bCheckIncomplete,
+  mergeE2bIssues,
+  type LineListE2bCheckResult,
+} from "./linelist-e2b-checks";
+import { discoverReporterDesignations, regulatoryConfig } from "./regulatory-config";
+import { termMappings } from "./term-mappings";
+import { coding } from "./coding";
+import { termKey } from "@/services/e2b-r3/term-mappings";
+import { applyParsingOptions } from "@/services/e2b-r3/source-profiles/runtime-profile";
+import {
+  mergeOrgRegulatoryConfigIntoProfile,
+  type OrgRegulatoryConfig,
+} from "@/services/e2b-r3/regulatory-config";
+import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
+import {
+  resolveFieldConcept,
+  mapConceptToOutcome,
+  splitBySourceProfile,
+} from "@/services/e2b-r3/mapping";
+import {
   withOutcomeVocabulary,
   type OutcomeVocabulary,
 } from "@/services/e2b-r3/source-profiles/outcome-vocabulary";
 import type { SourceProfile } from "@/services/e2b-r3/source-profiles/types";
-import type { LineListIssue, LineListIssueType, LineListJob } from "@/types/pv";
+import type {
+  LineListFixLocation,
+  LineListIssue,
+  LineListIssueType,
+  LineListJob,
+} from "@/types/pv";
 
 /**
  * The line-list quality-check pass (runValidation, below) used to be
@@ -45,6 +66,7 @@ function resolveJobRuntimeProfile(job: {
   sheetName?: string;
   sourceProfileId?: string | undefined;
   outcomeVocabulary?: OutcomeVocabulary | undefined;
+  parsingOptions?: LineListJob["parsingOptions"];
 }): SourceProfile {
   // An unregistered id would throw from getSourceProfile and take the whole
   // job down; a job is not worth losing over a stale profile reference, so
@@ -62,83 +84,10 @@ function resolveJobRuntimeProfile(job: {
   // Layered last so it can only fill outcome words nothing else resolved —
   // the profile's own configured outcomeMap still wins inside
   // withOutcomeVocabulary.
-  return withOutcomeVocabulary(runtimeProfile, job.outcomeVocabulary);
-}
-
-/**
- * Resolves the outcome words this file uses that nothing else can.
- *
- * Runs before validation so the findings the user reads already account
- * for it, and persists the result on the job so the same resolution is
- * what E2B export later decodes with — the two must never disagree about
- * what "Fully better" means.
- *
- * Only ever ADDS terms. A term already in the job's vocabulary is not
- * re-asked (the answer is a record, not a cache to be refreshed), and a
- * term the deterministic dictionary resolves is never sent at all.
- */
-async function resolveOutcomeVocabulary<T extends LineListJobRow>(job: T): Promise<T> {
-  const rows = job.parsedRows ?? [];
-  if (rows.length === 0) return job;
-
-  const profile = resolveJobRuntimeProfile(job);
-  const existing = job.outcomeVocabulary ?? {};
-  const unresolved = new Set<string>();
-
-  for (const row of rows) {
-    const raw = row.outcome;
-    if (!raw) continue;
-    if (existing[normaliseOutcomeKey(raw)]) continue;
-    const resolution = resolveFieldConcept(raw, profile, "outcome", mapConceptToOutcome);
-    // MAPPED needs nothing. UNKNOWN_SOURCE_CODE means a coded value with no
-    // codebook entry — a legend problem, not a vocabulary one, and inventing
-    // a meaning for a bare code is precisely what must not happen here.
-    if (resolution?.status === "HUMAN_REVIEW_REQUIRED") unresolved.add(raw);
-  }
-  if (unresolved.size === 0) return job;
-
-  let proposals: {
-    term: string;
-    outcome?: string | null;
-    confidence: number;
-    reason: string;
-  }[] = [];
-  // Same two-attempt budget as the column-mapping call, and for the same
-  // observed reason: a live run hit a 401 against a session token that was
-  // mid-refresh, and every outcome in the file silently stayed unresolved.
-  let attempted = false;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const response = await ai.linelist.mapOutcomes({ terms: [...unresolved] });
-      if (response.ai_used) proposals = response.proposals;
-      attempted = true;
-      break;
-    } catch {
-      // Unresolved is the state the file was already in. Never an error.
-    }
-  }
-  if (!attempted && proposals.length === 0) return job;
-
-  const { accepted, pending } = acceptOutcomeProposals(proposals, (term) => {
-    const r = resolveFieldConcept(term, profile, "outcome", mapConceptToOutcome);
-    return r?.status === "MAPPED";
-  });
-  if (Object.keys(accepted).length === 0 && Object.keys(pending).length === 0) return job;
-
-  const outcomeVocabulary: OutcomeVocabulary = { ...existing, ...accepted, ...pending };
-  const next = { ...job, outcomeVocabulary };
-  await saveJob(next);
-  await recordAudit({
-    action: "LINELIST_OUTCOME_VOCABULARY_RESOLVED",
-    entity: "LineListJob",
-    entityId: job.id,
-    reason:
-      `AI resolved ${Object.keys(accepted).length} outcome term(s) to the E.i.7 codelist` +
-      (Object.keys(pending).length
-        ? `; ${Object.keys(pending).length} read as fatal and left for human confirmation`
-        : ""),
-  });
-  return next;
+  return applyParsingOptions(
+    withOutcomeVocabulary(runtimeProfile, job.outcomeVocabulary),
+    job.parsingOptions,
+  );
 }
 
 export interface ColumnInspection {
@@ -178,6 +127,9 @@ export const TARGET_FIELDS = [
    *  onset_date can be DERIVED from it rather than demanded separately;
    *  see deriveOnsetDate. */
   "onset_interval",
+  /** When the report was received/notified — E2B C.1.4 "date report was
+   *  first received" and C.1.5 "date of most recent information". */
+  "report_date",
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
@@ -322,6 +274,12 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     // "Case Ref" is a common spelling that "reference" does not match, so
     // the column went unmapped and every row generated a fallback case id.
     ["caseref", 85],
+    // "Case No"/"Case Number" are among the commonest spellings on AEFI
+    // forms; without them the file's own case IDs never reach the issue
+    // list, the executive summary or the exported case id.
+    ["caseno", 90],
+    ["casenumber", 90],
+    ["casenum", 85],
     ["reference", 40],
     // Deliberately no bare "case" fallback: real AEFI forms routinely use
     // "case" inside unrelated headers ("If serious case select...", "Type
@@ -443,6 +401,16 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["ageatonset", 70],
     ["ageyears", 70],
     ["age", 30],
+  ],
+  report_date: [
+    ["datereported", 90],
+    ["dateofreport", 90],
+    ["reportdate", 90],
+    ["datereceived", 85],
+    ["receiveddate", 85],
+    ["dateofnotification", 85],
+    ["datenotified", 85],
+    ["notificationdate", 85],
   ],
   vaccination_date: [
     ["dateoflastimmunization", 95],
@@ -1030,6 +998,25 @@ export function runValidation(
   const seenCaseIds = new Map<string, number>();
   const today = new Date();
 
+  // E2B needs the date each report was first received (C.1.4). Without a
+  // column for it, the export can only use the date it was processed —
+  // worth knowing, not worth a finding on every row.
+  if (!mappedFields.has("report_date") && rows.length > 0) {
+    issues.push({
+      row: 0,
+      column: "(file)",
+      severity: "LOW",
+      confidence: "HIGH",
+      code: "NO_REPORT_DATE_COLUMN",
+      message:
+        'No report date column was found, so each case\'s "date first received" (E2B C.1.4) will be the date the file is processed. Add a "Date reported" column if the source has one.',
+      value: null,
+      source: "rule",
+      sources: ["rule"],
+      fixable: false,
+    });
+  }
+
   rows.forEach((row, idx) => {
     const rowNum = idx + 1;
 
@@ -1057,14 +1044,26 @@ export function runValidation(
       }
     });
 
-    if (row.product && MULTI_VALUE_RE.test(row.product)) {
+    // Split exactly the way E2B export splits products (this line list's
+    // own separators and saved parsing options), so "MR/MV" — one vaccine —
+    // is never flagged, and a real list is described as it will be sent:
+    // several suspect products in ONE case. Separate rows would wrongly
+    // create separate cases.
+    const productSplit = row.product
+      ? splitBySourceProfile(
+          row.product,
+          runtimeProfile,
+          runtimeProfile.productDelimiter ?? runtimeProfile.reactionDelimiter,
+        )
+      : null;
+    if (row.product && productSplit && productSplit.values.length > 1) {
       issues.push({
         row: rowNum,
         column: col("product"),
-        severity: "MEDIUM",
+        severity: "LOW",
         confidence: "HIGH",
         code: "MULTIPLE_PRODUCTS_IN_CELL",
-        message: `"${row.product}" appears to list multiple products in one cell — these should be separate rows.`,
+        message: `Lists ${productSplit.values.length} products (${productSplit.values.join("; ")}). Each is reported as a separate suspect product in this one case — no action needed if that is right.`,
         value: row.product,
         source: "rule",
         sources: ["rule"],
@@ -1668,7 +1667,221 @@ export function mergeFindings(
     source: matchedRuleIndexes.has(idx) ? ("rule" as const) : rule.source,
   }));
 
-  return [...finalRules, ...additiveAi];
+  return [...finalRules, ...additiveAi] as LineListIssue[];
+}
+
+/** Where each row of a job came from: its row in the original file (when recorded)
+ *  and the file's own case ID (when the file has one). */
+export function describeRow(
+  job: Pick<LineListJob, "sourceRowNumbers"> & { parsedRows?: ParsedRow[] | undefined },
+  row: number,
+): { fileRow?: number; caseId?: string } {
+  if (row < 1) return {};
+  const fileRow = job.sourceRowNumbers?.[row - 1];
+  const caseId = job.parsedRows?.[row - 1]?.case_id?.trim();
+  return {
+    ...(fileRow ? { fileRow } : {}),
+    ...(caseId ? { caseId } : {}),
+  };
+}
+
+/** "File row 29 (case ABC-12)" — or the data-row number for jobs that
+ *  predate row tracking. */
+export function rowLabel(
+  job: Pick<LineListJob, "sourceRowNumbers"> & { parsedRows?: ParsedRow[] | undefined },
+  row: number,
+): string {
+  if (row < 1) return "Whole file";
+  const { fileRow, caseId } = describeRow(job, row);
+  const where = fileRow ? `File row ${fileRow}` : `Row ${row}`;
+  return caseId ? `${where} (case ${caseId})` : where;
+}
+
+/** Only ever runs while a person is waiting on validation, so it is capped:
+ *  the rest keep their "Suggest with AI" button on the line-list page. */
+const MAX_REACTION_SUGGESTIONS_PER_RUN = 25;
+
+/**
+ * Adds words this line list used that nothing could resolve to the
+ * organization's memory (outcome words, reaction terms, reporter
+ * designations), with an AI proposal where one is cheap to get. A proposal
+ * is only ever shown pre-selected; a person saves it. Best-effort: a
+ * failure here never fails validation.
+ */
+async function recordDiscoveries(
+  discovered: LineListE2bCheckResult["discovered"],
+  file: string,
+): Promise<void> {
+  const tasks: Promise<unknown>[] = [];
+  if (discovered.designations.length > 0) {
+    tasks.push(discoverReporterDesignations(discovered.designations));
+  }
+  if (discovered.outcomeTerms.length > 0) {
+    tasks.push(
+      (async () => {
+        const fresh = await termMappings.discover("OUTCOME", discovered.outcomeTerms, file);
+        if (fresh.length === 0) return;
+        const response = await ai.linelist.mapOutcomes({ terms: fresh.map((t) => t.term) });
+        if (!response.ai_used) return;
+        for (const proposal of response.proposals) {
+          const row = fresh.find((t) => t.termKey === termKey("OUTCOME", proposal.term));
+          if (!row || !proposal.outcome) continue;
+          await termMappings.saveAiSuggestion(row.id, {
+            value: proposal.outcome,
+            confidence: proposal.confidence,
+            reason: proposal.reason,
+          });
+        }
+      })(),
+    );
+  }
+  if (discovered.reactionTerms.length > 0) {
+    tasks.push(
+      (async () => {
+        const fresh = await termMappings.discover("REACTION", discovered.reactionTerms, file);
+        for (const row of fresh.slice(0, MAX_REACTION_SUGGESTIONS_PER_RUN)) {
+          const match = await suggestMedDraTerm(row.term);
+          if (match) await termMappings.saveAiSuggestion(row.id, match);
+        }
+      })(),
+    );
+  }
+  await Promise.allSettled(tasks);
+}
+
+/** A model's reading of a verbatim reaction, kept only if it lands on a
+ *  real MedDRA 29.1 LLT — never a free-text guess. */
+export async function suggestMedDraTerm(
+  text: string,
+): Promise<{ value: string; label: string; confidence: number; reason: string } | null> {
+  try {
+    const proposal = await ai.coding.suggest({ dictionary: "MedDRA", text });
+    if (!proposal.ai_used) return null;
+    for (const candidate of proposal.candidates) {
+      const matches = (await coding.searchDictionary("MedDRA", candidate.term)).filter(
+        (m) => m.source === "dictionary",
+      );
+      // A dictionary search for "Vomiting" also returns "Bilious vomiting";
+      // the term the model actually proposed is the one to offer, so prefer
+      // an exact match and otherwise the closest (shortest) one, never just
+      // whatever the search happened to rank first.
+      const wanted = candidate.term.trim().toLowerCase();
+      const hit =
+        matches.find((m) => m.term.trim().toLowerCase() === wanted) ??
+        [...matches].sort((x, y) => x.term.length - y.term.length)[0];
+      if (hit) {
+        return {
+          value: hit.code,
+          label: hit.term,
+          confidence: 0.8,
+          reason: candidate.rationale || `AI read "${text}" as "${candidate.term}".`,
+        };
+      }
+    }
+  } catch {
+    // No suggestion is an ordinary outcome, not an error.
+  }
+  return null;
+}
+
+/**
+ * Every deterministic finding for a job: the line list's own data-quality
+ * rules plus every E2B(R3)/VigiFlow blocker in its data, from the same
+ * engine E2B export runs. Used by validate, fix and recheck, so all three
+ * always agree.
+ */
+async function computeDeterministicIssues(job: LineListJobRow): Promise<LineListIssue[]> {
+  // The organization's own decisions (outcome words, reporter designations)
+  // belong to the line list's rules too — without them the older checks keep
+  // reporting a word that Settings has already resolved.
+  let orgConfig: OrgRegulatoryConfig | null = null;
+  try {
+    orgConfig = await regulatoryConfig.get();
+  } catch {
+    orgConfig = null;
+  }
+  const jobProfile = resolveJobRuntimeProfile(job);
+  const profile = orgConfig
+    ? mergeOrgRegulatoryConfigIntoProfile(jobProfile, orgConfig)
+    : jobProfile;
+  const ruleIssues = RULE_BASED_DETECTION_ENABLED
+    ? runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows ?? [], profile)
+    : [];
+  if (!job.parsedRows || job.parsedRows.length === 0) return ruleIssues;
+  try {
+    if (!orgConfig) throw new Error("organization configuration unavailable");
+    const { cases } = await mapJobToCases(job, orgConfig);
+    const check = checkCasesForE2b(cases, job.mapping ?? {});
+    await recordDiscoveries(check.discovered, job.filename);
+    return mergeE2bIssues(ruleIssues, check.issues);
+  } catch (err) {
+    return [
+      ...ruleIssues,
+      {
+        row: 0,
+        column: "(all rows)",
+        severity: "MEDIUM",
+        confidence: "HIGH",
+        code: "E2B_CHECK_UNAVAILABLE",
+        message: `E2B(R3) readiness could not be checked: ${err instanceof Error ? err.message : "unknown error"}. Re-run validation to try again.`,
+        value: null,
+        source: "rule",
+        sources: ["rule"],
+        fixable: false,
+      },
+    ];
+  }
+}
+
+/** Replaces a job's stored findings and recomputes its summary counts. */
+async function storeIssues(
+  job: LineListJobRow,
+  issues: LineListIssue[],
+  extra: Partial<LineListJobRow> = {},
+): Promise<LineListJobRow> {
+  await supabase.from("pv_linelist_issues").delete().eq("job_id", job.id);
+  if (issues.length > 0) {
+    const { error } = await supabase
+      .from("pv_linelist_issues")
+      .insert(issues.map((i) => ({ id: newId("lli"), job_id: job.id, data: toJson(i) })));
+    if (error) throw new Error(error.message);
+  }
+  const blocking = issues.filter((i) => i.severity === "CRITICAL" || i.severity === "HIGH");
+  const advisory = issues.filter((i) => i.severity === "MEDIUM" || i.severity === "LOW");
+  const invalidCases = new Set(blocking.filter((i) => i.row > 0).map((i) => i.row)).size;
+  const e2bBlocked = issues.filter((i) => i.blocksE2b && i.row > 0);
+  const next: LineListJobRow = {
+    ...job,
+    ...extra,
+    stage: job.stage === "E2B_GENERATED" ? "E2B_GENERATED" : "VALIDATED",
+    invalidCases,
+    warnings: advisory.length,
+    criticalCount: issues.filter((i) => i.severity === "CRITICAL").length,
+    highCount: issues.filter((i) => i.severity === "HIGH").length,
+    mediumCount: issues.filter((i) => i.severity === "MEDIUM").length,
+    lowCount: issues.filter((i) => i.severity === "LOW").length,
+    validCases: Math.max(job.rows - invalidCases, 0),
+    e2bBlockedCases: new Set(e2bBlocked.map((i) => i.row)).size,
+    openFixIn: [...new Set(e2bBlocked.map((i) => i.fixIn ?? "FILE"))],
+    checkedAt: new Date().toISOString(),
+  };
+  await saveJob(next);
+  return next;
+}
+
+/** Corrections the fix model returned, limited to what it was asked to fix
+ *  and never touching the case-ID column: a line list's own IDs are how a
+ *  person traces a case back to the source, so no automated fix may
+ *  rewrite them. */
+export function safeCorrections<C extends { row: number; column: string }>(
+  corrections: C[],
+  requested: { row: number; column: string }[],
+  mapping: Record<string, string>,
+): C[] {
+  const allowed = new Set(requested.map((i) => `${i.row}:${i.column}`));
+  return corrections.filter(
+    (c) => allowed.has(`${c.row}:${c.column}`) && mapping[c.column] !== "case_id",
+  );
 }
 
 export const linelist = {
@@ -1697,6 +1910,7 @@ export const linelist = {
         headerRowNumber,
         discardedRowsText,
         discardedRows,
+        sourceRowNumbers,
       } = await parseTabularFile(file);
       const rawRows = toRawRows(headers, rows);
       // Keyword mapping first, always — it is the floor the AI pass is
@@ -1753,6 +1967,7 @@ export const linelist = {
         discardedRows,
         sheetName,
         headerRowNumber,
+        sourceRowNumbers,
       };
     } catch (err) {
       job = {
@@ -1856,46 +2071,6 @@ export const linelist = {
    * just the ones the deterministic matcher recognised — a column outside
    * the app's canonical field list is never invisible to the AI pass.
    */
-  /**
-   * Records a person's decision on an outcome term the model was not
-   * allowed to apply by itself — today, one it read as a death.
-   *
-   * Confirming is what actually unblocks the rows using that term, so this
-   * revalidates immediately rather than leaving the job in a state where
-   * the decision has been made but the findings still say otherwise.
-   */
-  decideOutcomeTerm: async (
-    jobId: string,
-    termKey: string,
-    accept: boolean,
-  ): Promise<LineListJob> => {
-    const actor = currentActor();
-    const job = await readJob(jobId);
-    const vocabulary = job.outcomeVocabulary;
-    const existing = vocabulary?.[termKey];
-    if (!vocabulary || !existing) throw new Error("That outcome term is no longer on this job.");
-
-    const next: LineListJobRow = {
-      ...job,
-      outcomeVocabulary: decideOutcomeTerm(vocabulary, termKey, {
-        accept,
-        actor: actor.name,
-      }),
-    };
-    await saveJob(next);
-    await recordAudit({
-      action: accept ? "LINELIST_OUTCOME_TERM_CONFIRMED" : "LINELIST_OUTCOME_TERM_REJECTED",
-      entity: "LineListJob",
-      entityId: jobId,
-      newValue: accept
-        ? `"${existing.term}" confirmed as ${existing.outcome}`
-        : `"${existing.term}" rejected — not ${existing.outcome}`,
-      reason: existing.reason,
-    });
-    await linelist.validate(jobId);
-    return next;
-  },
-
   validate: async (
     jobId: string,
   ): Promise<{
@@ -1906,7 +2081,6 @@ export const linelist = {
   }> => {
     const job = await readJob(jobId);
     let issues: LineListIssue[];
-    let outcomeVocabulary: OutcomeVocabulary | undefined = job.outcomeVocabulary;
     let aiUsed = false;
     let aiError: string | undefined;
     let promptVersion: string | undefined = job.promptVersion;
@@ -1914,29 +2088,13 @@ export const linelist = {
     if (job.parsedRows) {
       // Real upload — re-run validation against the actual parsed content
       // every time, so the result always reflects the current data.
-      await supabase.from("pv_linelist_issues").delete().eq("job_id", jobId);
-      // Resolve this file's own outcome words BEFORE validating, so the
-      // run the user sees already reflects them. Terms the deterministic
-      // dictionary handles never reach the model.
-      const resolved = await resolveOutcomeVocabulary(job);
-      // The save at the end of this function rebuilds the job from `job`,
-      // which is the pre-resolution copy — without carrying the vocabulary
-      // across, that write would erase the resolution this run just
-      // persisted, and the next run would ask the model all over again.
-      outcomeVocabulary = resolved.outcomeVocabulary;
+      // Line-list rules plus every E2B(R3)/VigiFlow blocker in this file's
+      // data, from the same engine export runs — so nothing new appears on
+      // the E2B page once this list is clean. Words nothing could resolve
+      // (outcomes, reactions, designations) are recorded for the
+      // organization to decide once.
+      const ruleIssues = await computeDeterministicIssues(job);
       const parsedRows = job.parsedRows;
-      // RULE_BASED_DETECTION_ENABLED gates the entire deterministic rule
-      // engine (including its NO_COLUMNS_MAPPED short-circuit) — flip the
-      // flag in feature-flags.ts to bring it back, rest of validate() is
-      // unaffected either way.
-      const ruleIssues = RULE_BASED_DETECTION_ENABLED
-        ? runValidation(
-            job.columns ?? [],
-            job.mapping ?? {},
-            parsedRows,
-            resolveJobRuntimeProfile(resolved),
-          )
-        : [];
 
       const analysisRows = (job.rawRows ?? parsedRows) as Record<string, string>[];
       let aiIssues: LineListIssue[] = [];
@@ -1960,9 +2118,10 @@ export const linelist = {
           fixable: f.fixable,
           source: "ai" as const,
           sources: ["ai"] as const,
-          issueType: (f.issueType ?? undefined) as LineListIssueType | undefined,
-          affectedFields:
-            f.affectedFields && f.affectedFields.length > 0 ? f.affectedFields : undefined,
+          ...(f.issueType ? { issueType: f.issueType as LineListIssueType } : {}),
+          ...(f.affectedFields && f.affectedFields.length > 0
+            ? { affectedFields: f.affectedFields }
+            : {}),
         }));
       } catch (err) {
         // The AI endpoint itself is unreachable (network/deploy issue,
@@ -1979,40 +2138,18 @@ export const linelist = {
       // underlying issue seen twice, so the AI-worded duplicate is dropped
       // in favour of the rule's version (see mergeFindings).
       issues = mergeFindings(ruleIssues, aiIssues);
-      if (issues.length > 0) {
-        const { error } = await supabase
-          .from("pv_linelist_issues")
-          .insert(issues.map((i) => ({ id: newId("lli"), job_id: jobId, data: toJson(i) })));
-        if (error) throw new Error(error.message);
-      }
     } else {
       // Legacy/seeded demo job with no stored raw parse — preserve its
       // existing issues rather than silently erasing them.
       issues = await linelist.issues(jobId);
     }
 
-    // invalidCases/warnings keep their original two-bucket meaning
-    // (CRITICAL|HIGH vs MEDIUM|LOW) for backward compatibility; the full
-    // four-tier breakdown is additive on criticalCount..lowCount and in
-    // the executive summary, not a replacement for these.
-    const blocking = issues.filter((i) => i.severity === "CRITICAL" || i.severity === "HIGH");
-    const advisory = issues.filter((i) => i.severity === "MEDIUM" || i.severity === "LOW");
-    const invalidCases = new Set(blocking.map((i) => i.row)).size;
-    const next: LineListJobRow = {
-      ...job,
-      ...(outcomeVocabulary ? { outcomeVocabulary } : {}),
-      stage: "VALIDATED",
-      invalidCases,
-      warnings: advisory.length,
-      criticalCount: issues.filter((i) => i.severity === "CRITICAL").length,
-      highCount: issues.filter((i) => i.severity === "HIGH").length,
-      mediumCount: issues.filter((i) => i.severity === "MEDIUM").length,
-      lowCount: issues.filter((i) => i.severity === "LOW").length,
-      validCases: Math.max(job.rows - invalidCases, 0),
+    const next = await storeIssues(job, issues, {
       validatedAt: new Date().toISOString(),
-      promptVersion,
-    };
-    await saveJob(next);
+      ...(promptVersion ? { promptVersion } : {}),
+    });
+    const invalidCases = next.invalidCases;
+    const advisory = { length: next.warnings };
     await recordAudit({
       action: "LINELIST_VALIDATED",
       entity: "LineListJob",
@@ -2020,6 +2157,74 @@ export const linelist = {
       newValue: `${next.validCases} valid / ${invalidCases} invalid / ${advisory.length} warning(s)${aiUsed ? (RULE_BASED_DETECTION_ENABLED ? " (AI + rule-based)" : " (AI only — rule-based detection disabled)") : RULE_BASED_DETECTION_ENABLED ? " (rule-based only — AI unavailable)" : " (no detection engine available)"}`,
     });
     return { job: next, issues, aiUsed, aiError };
+  },
+
+  /**
+   * Re-runs the fast, deterministic checks (line-list rules + E2B
+   * blockers) against the job's current data and settings, keeping every
+   * earlier AI finding. What makes a Settings decision, a parsing-option
+   * change or a data fix show up immediately on both pages, without a slow
+   * full AI re-analysis.
+   */
+  recheck: async (jobId: string): Promise<LineListJob> => {
+    const job = await readJob(jobId);
+    if (!job.parsedRows) return job;
+    const previous = await linelist.issues(jobId);
+    const priorAi = previous.filter(
+      (i) => i.source === "ai" && !(i.sources ?? []).includes("rule"),
+    );
+    const issues = mergeFindings(await computeDeterministicIssues(job), priorAi);
+    return storeIssues(job, issues);
+  },
+
+  /** Rechecks every line list with an open blocker a decision at `fixIn`
+   *  can clear — e.g. after an outcome word is mapped in Settings. */
+  recheckAffected: async (fixIn: LineListFixLocation): Promise<number> => {
+    const all = await linelist.jobs();
+    const affected = all.filter((j) => (j.openFixIn ?? []).includes(fixIn));
+    for (const j of affected) await linelist.recheck(j.id);
+    return affected.length;
+  },
+
+  /** Saves how this line list's ambiguous separators are read. Applies to
+   *  line-list checks, E2B preflight and export alike, and survives reloads
+   *  — so cases (and any C.1.7 decision bound to them) stay stable. */
+  setParsingOptions: async (
+    jobId: string,
+    options: { slashSeparatesReactions: boolean; productCellIsOneName: boolean },
+  ): Promise<LineListJob> => {
+    const actor = currentActor();
+    const job = await readJob(jobId);
+    const previous = job.parsingOptions;
+    const parsingOptions = {
+      ...options,
+      setBy: actor.name,
+      setAt: new Date().toISOString(),
+    };
+    await saveJob({ ...job, parsingOptions });
+    await recordAudit({
+      action: "LINELIST_PARSING_OPTIONS_CHANGED",
+      entity: "LineListJob",
+      entityId: jobId,
+      previousValue: previous
+        ? `slash separates reactions: ${!!previous.slashSeparatesReactions}; product cell is one name: ${!!previous.productCellIsOneName}`
+        : "defaults",
+      newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}`,
+    });
+    return linelist.recheck(jobId);
+  },
+
+  /** A person confirms the MedDRA term for a reaction word from this line
+   *  list. Remembered for the organization; every affected line list is
+   *  rechecked. */
+  codeReactionTerm: async (
+    jobId: string,
+    term: string,
+    llt: { code: string; term: string },
+  ): Promise<void> => {
+    const job = await readJob(jobId);
+    await termMappings.decideByTerm("REACTION", term, llt.code, llt.term, job.filename);
+    await linelist.recheckAffected("REACTION_TERMS");
   },
 
   issues: async (jobId: string): Promise<LineListIssue[]> => {
@@ -2103,10 +2308,13 @@ export const linelist = {
     const combinedUnresolved = [...fixResult.unresolved, ...needsReviewUnresolved];
 
     let updatedJob: LineListJobRow;
-    if (fixResult.ai_used && fixResult.corrections.length > 0) {
+    const corrections = fixResult.ai_used
+      ? safeCorrections(fixResult.corrections, autoFixable, job.mapping)
+      : [];
+    if (corrections.length > 0) {
       const parsedRows = [...job.parsedRows];
       const rawRows = job.rawRows ? [...job.rawRows] : undefined;
-      for (const correction of fixResult.corrections) {
+      for (const correction of corrections) {
         const idx = correction.row - 1;
         if (idx < 0) continue;
         if (rawRows && idx < rawRows.length && correction.column in rawRows[idx]!) {
@@ -2122,7 +2330,7 @@ export const linelist = {
         parsedRows,
         ...(rawRows ? { rawRows } : {}),
         fixedAt: new Date().toISOString(),
-        lastFixCorrections: fixResult.corrections,
+        lastFixCorrections: corrections,
         lastFixUnresolved: combinedUnresolved,
       };
       await saveJob(updatedJob);
@@ -2130,7 +2338,7 @@ export const linelist = {
         action: "LINELIST_AI_FIX_APPLIED",
         entity: "LineListJob",
         entityId: jobId,
-        newValue: `${fixResult.corrections.length} field(s) corrected, ${combinedUnresolved.length} left unresolved`,
+        newValue: `${corrections.length} field(s) corrected, ${combinedUnresolved.length} left unresolved`,
         reason: `Prompt ${fixResult.prompt_version}`,
       });
     } else {
@@ -2150,51 +2358,22 @@ export const linelist = {
     // data). Only the fast, fully deterministic rule engine re-runs here;
     // a complete AI re-scan only ever happens from an explicit "Re-run
     // validation" click.
-    const correctedKeys = new Set(
-      fixResult.ai_used ? fixResult.corrections.map((c) => `${c.row}:${c.column}`) : [],
-    );
+    const correctedKeys = new Set(corrections.map((c) => `${c.row}:${c.column}`));
     const remainingPriorAiIssues = currentIssues.filter(
       (i) => i.source === "ai" && !correctedKeys.has(`${i.row}:${i.column}`),
     );
-    const ruleIssues = RULE_BASED_DETECTION_ENABLED
-      ? runValidation(
-          updatedJob.columns ?? [],
-          updatedJob.mapping ?? {},
-          updatedJob.parsedRows!,
-          resolveJobRuntimeProfile(updatedJob),
-        )
-      : [];
-    const finalIssues = mergeFindings(ruleIssues, remainingPriorAiIssues);
-
-    await supabase.from("pv_linelist_issues").delete().eq("job_id", jobId);
-    if (finalIssues.length > 0) {
-      const { error } = await supabase
-        .from("pv_linelist_issues")
-        .insert(finalIssues.map((i) => ({ id: newId("lli"), job_id: jobId, data: toJson(i) })));
-      if (error) throw new Error(error.message);
-    }
-
-    const blocking = finalIssues.filter((i) => i.severity === "CRITICAL" || i.severity === "HIGH");
-    const advisory = finalIssues.filter((i) => i.severity === "MEDIUM" || i.severity === "LOW");
-    const invalidCases = new Set(blocking.map((i) => i.row)).size;
-    const next: LineListJobRow = {
-      ...updatedJob,
-      stage: "VALIDATED",
-      invalidCases,
-      warnings: advisory.length,
-      criticalCount: finalIssues.filter((i) => i.severity === "CRITICAL").length,
-      highCount: finalIssues.filter((i) => i.severity === "HIGH").length,
-      mediumCount: finalIssues.filter((i) => i.severity === "MEDIUM").length,
-      lowCount: finalIssues.filter((i) => i.severity === "LOW").length,
-      validCases: Math.max(updatedJob.rows - invalidCases, 0),
+    const finalIssues = mergeFindings(
+      await computeDeterministicIssues(updatedJob),
+      remainingPriorAiIssues,
+    );
+    const next = await storeIssues(updatedJob, finalIssues, {
       validatedAt: new Date().toISOString(),
-    };
-    await saveJob(next);
+    });
 
     return {
       job: next,
       issues: finalIssues,
-      correctionsApplied: fixResult.ai_used ? fixResult.corrections.length : 0,
+      correctionsApplied: corrections.length,
       unresolved: combinedUnresolved,
       aiUsed: fixResult.ai_used,
       aiError: fixResult.error ?? undefined,
@@ -2328,10 +2507,10 @@ export const linelist = {
       .filter(Boolean);
     const lines = preservedSourceText.length
       ? [
-        ...dataLines,
-        "",
-        escapeCell("# ORIGINAL SOURCE TEXT — preserved from uploaded file"),
-        ...preservedSourceText.map(escapeCell),
+          ...dataLines,
+          "",
+          escapeCell("# ORIGINAL SOURCE TEXT — preserved from uploaded file"),
+          ...preservedSourceText.map(escapeCell),
         ]
       : dataLines;
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
@@ -2413,7 +2592,7 @@ export const linelist = {
     for (const [code, group] of codeGroups) {
       lines.push(`${code} — ${group.length} occurrence(s), severity ${group[0]?.severity ?? "?"}`);
       for (const example of group.slice(0, 3)) {
-        lines.push(`  Row ${example.row}, ${example.column}: ${example.message}`);
+        lines.push(`  ${rowLabel(job, example.row)}, ${example.column}: ${example.message}`);
       }
     }
     lines.push("");
@@ -2422,7 +2601,7 @@ export const linelist = {
       lines.push("DUPLICATE / ID-FORMAT FLAGS (review — never removed automatically)");
       lines.push(rule);
       for (const d of duplicateGroups) {
-        lines.push(`Row ${d.row}, ${d.column}: ${d.message}`);
+        lines.push(`${rowLabel(job, d.row)}, ${d.column}: ${d.message}`);
       }
       lines.push("");
     }
@@ -2438,17 +2617,57 @@ export const linelist = {
         lines.push("Fix Issues was run and found nothing it could safely auto-correct.");
       }
       for (const c of corrections) {
-        lines.push(`CORRECTED — Row ${c.row}, ${c.column}: "${c.new_value}" (${c.reason})`);
+        lines.push(
+          `CORRECTED — ${rowLabel(job, c.row)}, ${c.column}: "${c.new_value}" (${c.reason})`,
+        );
       }
       for (const u of unresolved) {
-        lines.push(`UNRESOLVED — Row ${u.row}, ${u.column}: ${u.reason}`);
+        lines.push(`UNRESOLVED — ${rowLabel(job, u.row)}, ${u.column}: ${u.reason}`);
       }
       lines.push("");
     }
 
+    const e2bBlockers = issues.filter((i) => i.blocksE2b && i.row > 0);
+    lines.push("E2B(R3) / VIGIFLOW READINESS");
+    lines.push(rule);
+    if (e2bCheckIncomplete(issues)) {
+      lines.push(
+        "Not fully checked: a service needed for the E2B check could not be reached. Re-run validation before relying on this section.",
+      );
+    }
+    if (e2bBlockers.length === 0) {
+      lines.push("No case in this file has data that would block a validated E2B(R3) export.");
+    } else {
+      const blockedRows = new Set(e2bBlockers.map((i) => i.row));
+      lines.push(
+        `${blockedRows.size} case(s) have data that would block a validated E2B(R3) export:`,
+      );
+      const where: Record<string, string> = {
+        FILE: "Correct in the line list",
+        OUTCOME_TERMS: "Map the outcome word in Settings → Outcome terms",
+        REPORTER_DESIGNATIONS: "Map the reporter in Settings → Reporter qualifications",
+        REACTION_TERMS: "Choose the MedDRA term on the line-list page",
+        SOURCE_CODEBOOK: "Correct the code or include the form's code legend",
+      };
+      for (const [fixIn, label] of Object.entries(where)) {
+        const group = e2bBlockers.filter((i) => (i.fixIn ?? "FILE") === fixIn);
+        if (group.length === 0) continue;
+        lines.push("");
+        lines.push(`${label}:`);
+        for (const i of group) {
+          lines.push(`  ${rowLabel(job, i.row)}, ${i.column}: ${i.message}`);
+        }
+      }
+    }
+    lines.push("");
+
     lines.push("RECOMMENDATIONS");
     lines.push(rule);
-    const top3 = codeGroups.slice(0, 3);
+    // Informational notes (LOW) need no action, so they never drive a
+    // recommendation.
+    const top3 = codeGroups
+      .filter(([, group]) => group[0]?.severity !== "LOW" && group.some((i) => i.row > 0))
+      .slice(0, 3);
     if (top3.length === 0) {
       lines.push("No recurring issues detected — no specific recommendation.");
     } else {

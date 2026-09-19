@@ -101,7 +101,11 @@ export const meddra29Provider: MedDraCodingProvider = {
       return unavailable;
     }
     if (result.status !== "MAPPED" || !result.term) {
-      const unresolved = { sourceValue: verbatimText, status: result.status, mappingMethod: "NONE" as const };
+      const unresolved = {
+        sourceValue: verbatimText,
+        status: result.status,
+        mappingMethod: "NONE" as const,
+      };
       meddraResolutionCache.set(verbatimText, unresolved);
       return unresolved;
     }

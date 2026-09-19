@@ -18,6 +18,7 @@ import type { MedDraCodingProvider, WhoDrugCodingProvider } from "./coding-provi
 import type { DelimiterConfig, SourceProfile } from "./source-profiles/types";
 import type { E2bTransmissionConfig } from "./transmission-config";
 import { parseCompoundSourceValue } from "./compound-source-parser";
+import { normalizeDesignationKey } from "./regulatory-config";
 
 /**
  * The canonical, already-column-mapped row shape the E2B engine operates
@@ -36,6 +37,7 @@ export interface RawLineListRow {
   sex?: string | undefined;
   age?: string | undefined;
   vaccination_date?: string | undefined;
+  report_date?: string | undefined;
   vaccine_batch?: string | undefined;
   /** A separate NUMERIC seriousness-criterion code, distinct from the
    *  word-shaped `seriousness` field — see ColumnMap.seriousCode's doc
@@ -70,6 +72,7 @@ export function applyColumnMap(
     onset_date: get(profile.columnMap.onsetDate),
     product: get(profile.columnMap.product),
     vaccination_date: get(profile.columnMap.vaccinationDate),
+    report_date: get(profile.columnMap.reportDate),
     vaccine_batch: get(profile.columnMap.batchNumber),
     serious_code: get(profile.columnMap.seriousCode),
     dose: get(profile.columnMap.dose),
@@ -327,9 +330,7 @@ export function splitBySourceProfile(
   const rawValue = (raw ?? "").trim();
   if (!rawValue) return { values: [], quarantined: false, rawValue };
 
-  const escaped = delimiter.separators.map((s) =>
-    s.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-  );
+  const escaped = delimiter.separators.map((s) => s.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   if (escaped.length > 0) {
     const pattern = new RegExp(`\\s*(?:${escaped.join("|")})\\s*`, "i");
     if (pattern.test(rawValue)) {
@@ -492,6 +493,14 @@ export interface MapRowResult {
  * licensed provider can populate it) but never required for this
  * function to produce a usable case.
  */
+/** Short, stable code identifying one uploaded line list (job) — the last
+ *  8 alphanumerics of its id, upper-cased. Used so row-numbered case ids
+ *  from different line lists never collide under a shared prefix. */
+export function jobCaseCode(jobId: string): string {
+  const alnum = jobId.replace(/[^A-Za-z0-9]/g, "");
+  return (alnum.slice(-8) || jobId).toUpperCase();
+}
+
 export async function mapSourceRecordToPVCase(
   sourceRecord: Record<string, string | undefined>,
   profile: SourceProfile,
@@ -501,8 +510,17 @@ export async function mapSourceRecordToPVCase(
 ): Promise<MapRowResult> {
   const row = applyColumnMap(sourceRecord, profile);
   const warnings: MappingWarning[] = [];
-  const caseIdPrefix = profile.caseIdPrefix ?? transmissionConfig.caseIdPrefix ?? context.jobId;
+  // Without a source case id, the row number alone only identifies a case
+  // within one line list. A configured prefix is shared by every upload, so
+  // the job's own code is added to keep C.1.1/C.1.8.1 unique across line
+  // lists (each line list holds new cases). The job-id fallback is already
+  // unique per upload.
+  const configuredPrefix = profile.caseIdPrefix ?? transmissionConfig.caseIdPrefix;
+  const caseIdPrefix = configuredPrefix
+    ? `${configuredPrefix}-${jobCaseCode(context.jobId)}`
+    : context.jobId;
   const sendersCaseId = row.case_id?.trim() || `${caseIdPrefix}-${context.sourceRow}`;
+  const reportDate = parseSourceDate(row.report_date) ?? undefined;
 
   // --- Reactions: decode (source codebook) -> code (MedDRA), never the
   // other way around, never skipping the decode step.
@@ -624,7 +642,7 @@ export async function mapSourceRecordToPVCase(
   // the active profile's reporterQualificationMap. No entry means
   // genuinely unresolved, never guessed.
   const qualificationCode = reporterDesignationRaw
-    ? profile.reporterQualificationMap[reporterDesignationRaw.toUpperCase()]
+    ? profile.reporterQualificationMap[normalizeDesignationKey(reporterDesignationRaw)]
     : undefined;
 
   const isFollowUpRaw = (row.is_followup ?? "").trim().toUpperCase();
@@ -663,8 +681,10 @@ export async function mapSourceRecordToPVCase(
     // No "date received from source" column exists in this dataset — the
     // processing timestamp is used as a conservative stand-in, not a
     // fabricated historical date.
-    dateFirstReceived: context.processedAt,
-    dateMostRecentInfo: context.processedAt,
+    // C.1.4 / C.1.5: when the report was received, taken from the source
+    // when it says; otherwise the processing date is the best available.
+    dateFirstReceived: reportDate ?? context.processedAt,
+    dateMostRecentInfo: reportDate ?? context.processedAt,
     additionalDocumentsAvailable: false,
     // C.1.7 requires a genuine clinical/regulatory determination this
     // pipeline has no basis to make on its own — left unresolved rather

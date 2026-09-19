@@ -1,4 +1,5 @@
 import type { DiscoveredSourceCodebook } from "./discovered-codebook";
+import type { LineListParsingOptions } from "@/types/pv";
 import type { FieldCodebook, SourceProfile } from "./types";
 
 /**
@@ -75,4 +76,31 @@ export function resolveRuntimeSourceProfile(
   }
 
   return { ...base, reactionCodebook, fieldCodebooks };
+}
+
+/**
+ * Applies one line list's saved separator decisions to its profile. The
+ * single place those decisions take effect, so validation, preflight and
+ * export can never read the same file differently. Pure; never mutates
+ * `profile`.
+ */
+export function applyParsingOptions(
+  profile: SourceProfile,
+  options: LineListParsingOptions | undefined,
+): SourceProfile {
+  if (!options?.slashSeparatesReactions && !options?.productCellIsOneName) return profile;
+  const reactionSeparators = profile.reactionDelimiter.separators;
+  return {
+    ...profile,
+    reactionDelimiter: {
+      ...profile.reactionDelimiter,
+      separators:
+        options.slashSeparatesReactions && !reactionSeparators.includes("/")
+          ? [...reactionSeparators, "/"]
+          : reactionSeparators,
+    },
+    productDelimiter: options.productCellIsOneName
+      ? { separators: [] }
+      : (profile.productDelimiter ?? profile.reactionDelimiter),
+  };
 }

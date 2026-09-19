@@ -59,6 +59,7 @@
  */
 import type { PVCase, PVReaction, PVProduct, DrugCharacterization } from "./types";
 import { WHODRUG_GLOBAL_RID_OID } from "./coding-provider";
+import { e2bOutcomeCode } from "./outcome-codes";
 
 function esc(value: string): string {
   return value
@@ -112,22 +113,11 @@ const DRUG_CHARACTERIZATION_CODE: Record<DrugCharacterization, string> = {
  *  regulatory-assets/e2b-r3/official-ich/ (schemas + reference/example
  *  instances only).
  *
- *  This is no longer a hardcoded constant: there is no single correct
- *  numbering this codebase can ship, because Appendix I(F) binding is
- *  organization-specific regulatory configuration NAFDAC must confirm,
- *  not a universal ICH constant this file could embed once and reuse
- *  forever (see docs/E2B-R3-NAFDAC-VIGIFLOW.md). The caller now supplies
- *  the org's own persisted, admin-configured codelist (services/e2b-r3/
- *  regulatory-config.ts's OrgRegulatoryConfig.outcomeCodes). An outcome
- *  with no entry in it is validated as BLOCKING before this module ever
- *  runs on a real export (see validation.ts's
- *  validateOutcomeCodeConfiguration) and, as a second, independent line
- *  of defense here, is simply omitted from the serialized XML rather than
- *  guessed — see serializeReaction below. */
-function serializeReaction(
-  r: PVReaction,
-  outcomeCodes: Partial<Record<NonNullable<PVReaction["outcome"]>, string>>,
-): string {
+ *  The numbers now come from outcome-codes.ts (E2B_OUTCOME_CODES), the
+ *  application-controlled ICH E.i.7 codelist. They are not organization
+ *  configuration and are never read from OrgRegulatoryConfig.outcomeCodes
+ *  (a legacy field kept only for backward compatibility). */
+function serializeReaction(r: PVReaction): string {
   const id = esc(r.id);
   const onset = r.onsetDate
     ? `<effectiveTime xsi:type="IVL_TS"><low value="${toHl7Ts(r.onsetDate)}"/></effectiveTime>`
@@ -142,12 +132,9 @@ function serializeReaction(
     return `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="${code}" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="${name}"/><value xsi:type="BL" ${val}/></observation></outboundRelationship2>`;
   };
 
-  // r.outcome may be a resolved canonical concept with no confirmed E2B
-  // code yet (validation.ts's E2B-OUTCOME-CODE-NOT-CONFIGURED — blocking
-  // by default, but overridable, so a case can still reach this function
-  // with an override on record). Never emit a guessed/placeholder code:
-  // treat it exactly as if outcome were absent instead.
-  const outcomeCode = r.outcome ? outcomeCodes[r.outcome] : undefined;
+  // Every canonical ReactionOutcome has a fixed ICH code, so a resolved
+  // outcome is always emitted; an absent outcome is simply omitted.
+  const outcomeCode = r.outcome ? e2bOutcomeCode(r.outcome) : undefined;
   const outcome = outcomeCode
     ? `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="27" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="outcome"/><value xsi:type="CE" code="${esc(outcomeCode)}" codeSystem="2.16.840.1.113883.3.989.2.1.1.11" codeSystemVersion="1.0"/></observation></outboundRelationship2>`
     : "";
@@ -200,7 +187,8 @@ export function serializeCaseToMessage(
     messageId: string;
     senderId: string;
     receiverId: string;
-    outcomeCodes: Partial<Record<NonNullable<PVReaction["outcome"]>, string>>;
+    /** @deprecated Accepted for compatibility but deliberately ignored. */
+    outcomeCodes?: Partial<Record<NonNullable<PVReaction["outcome"]>, string>>;
   },
 ): string {
   const name =
@@ -215,9 +203,7 @@ export function serializeCaseToMessage(
       ? `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><code code="3" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="age"/><value xsi:type="PQ" value="${esc(pvCase.patient.age)}" unit="${pvCase.patient.ageUnit}"/></observation></subjectOf2>`
       : "";
 
-  const reactionsXml = pvCase.reactions
-    .map((r) => serializeReaction(r, opts.outcomeCodes))
-    .join("");
+  const reactionsXml = pvCase.reactions.map((r) => serializeReaction(r)).join("");
   const drugComponentsXml = pvCase.products.map(serializeDrugComponent).join("");
   const causalityXml = pvCase.products.map(serializeCausality).join("");
 
@@ -282,10 +268,7 @@ export interface BatchOptions {
   senderId: string;
   receiverId: string;
   transmissionTimestamp: Date;
-  /** The org's persisted E.i.7 outcome codelist (services/e2b-r3/
-   *  regulatory-config.ts's OrgRegulatoryConfig.outcomeCodes). Defaults to
-   *  an empty object (every outcome omitted from output) when not
-   *  supplied — never a hardcoded fallback numbering. */
+  /** @deprecated Legacy field accepted but ignored; E.i.7 is ICH-controlled. */
   outcomeCodes?: Partial<Record<NonNullable<PVReaction["outcome"]>, string>> | undefined;
 }
 
@@ -302,7 +285,6 @@ export function serializeBatchToXml(cases: PVCase[], opts: BatchOptions): string
         messageId: `${opts.batchId}-MSG${i + 1}`,
         senderId: opts.senderId,
         receiverId: opts.receiverId,
-        outcomeCodes: opts.outcomeCodes ?? {},
       }),
     )
     .join("");

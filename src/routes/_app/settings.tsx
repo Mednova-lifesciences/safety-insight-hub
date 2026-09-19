@@ -19,14 +19,15 @@ import { ROLE_LABELS, useAuth, useCurrentUser, type ProfileDetails } from "@/lib
 import { getMyOrganizationInviteCode, deleteMyOrganization } from "@/services/api/organizations";
 import { whatsapp, type RequiredQuestion } from "@/services/api/whatsapp";
 import { regulatoryConfig } from "@/services/api/regulatory-config";
+import { linelist as linelistApi } from "@/services/api/linelist";
+import { OutcomeTermsSection } from "@/components/pv/outcome-terms-section";
 import {
-  ALL_REACTION_OUTCOMES,
   type OrgQualificationMapping,
   type OrgRegulatoryConfig,
 } from "@/services/e2b-r3/regulatory-config";
 import { computeOrganizationReadiness } from "@/services/e2b-r3/regulatory-readiness";
 import { UNCONFIRMED_SENTINEL } from "@/services/e2b-r3/transmission-config";
-import type { ReactionOutcome, ReportType } from "@/services/e2b-r3/types";
+import type { ReportType } from "@/services/e2b-r3/types";
 import { supabase } from "@/integrations/supabase/client";
 import { isApiConfigured } from "@/services/api/client";
 import { PageHeader, Section, StatusPill } from "@/components/pv/primitives";
@@ -639,15 +640,6 @@ function WhatsAppIntakeSection() {
   );
 }
 
-const OUTCOME_LABELS: Record<string, string> = {
-  RECOVERED: "Recovered/resolved",
-  RECOVERING: "Recovering/resolving",
-  NOT_RECOVERED: "Not recovered/not resolved",
-  RECOVERED_WITH_SEQUELAE: "Recovered/resolved with sequelae",
-  FATAL: "Fatal",
-  UNKNOWN: "Unknown",
-};
-
 const QUALIFICATION_CODE_LABELS: Record<"1" | "2" | "3" | "4" | "5", string> = {
   "1": "1 — Physician",
   "2": "2 — Pharmacist",
@@ -681,13 +673,6 @@ function RegulatoryProfileSection() {
   const [reportTypeConfirmed, setReportTypeConfirmed] = useState(false);
   const [environment, setEnvironment] = useState<"uat" | "production">("uat");
 
-  // Outcome codes are held as a draft here rather than left uncontrolled.
-  // They were previously defaultValue + onBlur, which meant the field kept
-  // whatever had been typed even when the save failed and the reload
-  // returned the old code — the row's pill and its input could disagree
-  // about what was actually stored.
-  const [outcomeDrafts, setOutcomeDrafts] = useState<Partial<Record<ReactionOutcome, string>>>({});
-  const [savingOutcome, setSavingOutcome] = useState<ReactionOutcome | null>(null);
   const [editingDesignation, setEditingDesignation] = useState<string | null>(null);
   const [designationDraft, setDesignationDraft] = useState("");
 
@@ -721,9 +706,6 @@ function RegulatoryProfileSection() {
       setReportType(c.transmission.reportType);
       setReportTypeConfirmed(c.transmission.reportTypeConfirmed === true);
       setEnvironment(c.transmission.environment);
-      // Drafts always come back to what is actually stored, so the form
-      // can never show a value the server did not accept.
-      setOutcomeDrafts({ ...c.outcomeCodes });
     } catch (err) {
       // Never fail silently: a section that just vanishes when its fetch
       // errors (e.g. the underlying table/migration isn't live yet, or a
@@ -751,7 +733,7 @@ function RegulatoryProfileSection() {
     return (
       <Section
         title="Regulatory Profiles — NAFDAC E2B(R3)"
-        description="Configure sender/receiver identifiers, report type, reporter-qualification mappings, and the outcome codelist ONCE — every future E2B(R3) export reuses this automatically."
+        description="Configure sender/receiver identifiers, report type and reporter qualifications once — every future E2B(R3) export reuses them."
       >
         <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
@@ -796,28 +778,6 @@ function RegulatoryProfileSection() {
     }
   }
 
-  /** Saves a code, or clears it when the field is emptied. Emptying used
-   *  to do nothing at all, so a code entered by mistake could only be
-   *  replaced by another one, never taken back. */
-  async function saveOutcomeCode(outcome: ReactionOutcome, code: string) {
-    const trimmed = code.trim();
-    setSavingOutcome(outcome);
-    try {
-      if (trimmed) {
-        await regulatoryConfig.saveOutcomeCode(outcome, trimmed);
-        toast.success(`Outcome code for "${OUTCOME_LABELS[outcome]}" saved.`);
-      } else {
-        await regulatoryConfig.clearOutcomeCode(outcome);
-        toast.success(`Outcome code for "${OUTCOME_LABELS[outcome]}" cleared.`);
-      }
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save outcome code.");
-    } finally {
-      setSavingOutcome(null);
-    }
-  }
-
   async function renameMapping(mapping: OrgQualificationMapping, designation: string) {
     try {
       await regulatoryConfig.renameReporterQualificationMapping(mapping.id, designation);
@@ -851,7 +811,11 @@ function RegulatoryProfileSection() {
   ) {
     try {
       await regulatoryConfig.upsertReporterQualificationMapping(mapping.designation, code);
-      toast.success(`"${mapping.designation}" configured.`);
+      // Clears this designation's errors on every line list that uses it.
+      const rechecked = await linelistApi.recheckAffected("REPORTER_DESIGNATIONS");
+      toast.success(
+        `"${mapping.designation}" configured.${rechecked ? ` ${rechecked} line list(s) rechecked.` : ""}`,
+      );
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save the mapping.");
@@ -871,7 +835,7 @@ function RegulatoryProfileSection() {
   return (
     <Section
       title="Regulatory Profiles — NAFDAC E2B(R3)"
-      description="Configure sender/receiver identifiers, report type, reporter-qualification mappings, and the outcome codelist ONCE — every future E2B(R3) export reuses this automatically."
+      description="Configure sender/receiver identifiers, report type and reporter qualifications once — every future E2B(R3) export reuses them."
     >
       <div className="space-y-6">
         <div>
@@ -988,74 +952,13 @@ function RegulatoryProfileSection() {
           </Button>
         </div>
 
-        <div className="space-y-3 border-t border-border pt-4">
-          <p className="text-sm font-medium">Outcome codelist (E.i.7, Appendix I(F))</p>
-          <p className="text-xs text-muted-foreground">
-            NAFDAC/ICH's numeric binding for each of the six fixed outcome concepts. Not assumed
-            from any developer spec's illustrative numbering — each one starts unconfigured until
-            entered here.
-          </p>
-          <div className="space-y-2">
-            {ALL_REACTION_OUTCOMES.map((outcome) => {
-              const current = config.outcomeCodes[outcome];
-              const draft = outcomeDrafts[outcome] ?? "";
-              const dirty = draft.trim() !== (current ?? "");
-              return (
-                <div
-                  key={outcome}
-                  className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2"
-                >
-                  <span className="min-w-40 flex-1 text-sm">{OUTCOME_LABELS[outcome]}</span>
-                  {current ? (
-                    <StatusPill tone="success">Code {current}</StatusPill>
-                  ) : (
-                    <StatusPill tone="warning">Not configured</StatusPill>
-                  )}
-                  <Input
-                    className="w-20"
-                    placeholder="code"
-                    aria-label={`Outcome code for ${OUTCOME_LABELS[outcome]}`}
-                    value={draft}
-                    onChange={(e) => setOutcomeDrafts((d) => ({ ...d, [outcome]: e.target.value }))}
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!dirty || savingOutcome === outcome}
-                    onClick={() => saveOutcomeCode(outcome, draft)}
-                  >
-                    {savingOutcome === outcome
-                      ? "Saving…"
-                      : draft.trim()
-                        ? current
-                          ? "Update"
-                          : "Save"
-                        : "Clear"}
-                  </Button>
-                  {dirty ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setOutcomeDrafts((d) => ({ ...d, [outcome]: current ?? "" }))}
-                    >
-                      Cancel
-                    </Button>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="space-y-3 border-t border-border pt-4">
-          <p className="text-sm font-medium">
-            Reporter qualification mappings (C.2.r.4, Appendix I(F))
-          </p>
+        <div id="reporter-designations" className="space-y-3 border-t border-border pt-4">
+          <p className="text-sm font-medium">Reporter qualifications (C.2.r.4, Appendix I(F))</p>
           <p className="text-xs text-muted-foreground">
             Free-text reporter designations from any source line-list (CHEW, CHO, Nurse, Midwife,
             Doctor, HMIS, OIC, …) mapped to a qualification code. A designation is added here
-            automatically the first time an E2B(R3) preflight encounters it in real case data — "Not
-            configured" rows need an admin to pick a code before affected cases can export.
+            automatically the first time any line list uses it — "Not configured" rows need an admin
+            to pick a code before affected cases can export.
           </p>
           <div className="space-y-2">
             {config.reporterQualificationMappings.length === 0 ? (
@@ -1063,78 +966,86 @@ function RegulatoryProfileSection() {
                 No designations configured or seen yet.
               </p>
             ) : (
-              config.reporterQualificationMappings.map((m) => (
-                <div
-                  key={m.id}
-                  className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2"
-                >
-                  {editingDesignation === m.id ? (
-                    <>
-                      <Input
-                        className="min-w-40 flex-1"
-                        aria-label={`Rename ${m.designation}`}
-                        value={designationDraft}
-                        onChange={(e) => setDesignationDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") renameMapping(m, designationDraft);
-                          if (e.key === "Escape") setEditingDesignation(null);
-                        }}
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          !designationDraft.trim() || designationDraft.trim() === m.designation
-                        }
-                        onClick={() => renameMapping(m, designationDraft)}
-                      >
-                        Save designation
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditingDesignation(null)}>
-                        Cancel
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="min-w-40 flex-1 text-sm">{m.designation}</span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Rename ${m.designation}`}
-                        onClick={() => {
-                          setEditingDesignation(m.id);
-                          setDesignationDraft(m.designation);
-                        }}
-                      >
-                        Rename
-                      </Button>
-                    </>
-                  )}
-                  {m.code ? (
-                    <StatusPill tone="success">Configured</StatusPill>
-                  ) : (
-                    <StatusPill tone="warning">Not configured</StatusPill>
-                  )}
-                  <Select
-                    value={m.code ?? ""}
-                    onValueChange={(v) => updateMappingCode(m, v as "1" | "2" | "3" | "4" | "5")}
+              // Undecided first, so a new designation is never lost among
+              // the configured ones.
+              [...config.reporterQualificationMappings]
+                .sort((x, y) => Number(!!x.code) - Number(!!y.code))
+                .map((m) => (
+                  <div
+                    key={m.id}
+                    className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2"
                   >
-                    <SelectTrigger className="w-64">
-                      <SelectValue placeholder="Choose a code…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(["1", "2", "3", "4", "5"] as const).map((code) => (
-                        <SelectItem key={code} value={code}>
-                          {QUALIFICATION_CODE_LABELS[code]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button size="sm" variant="ghost" onClick={() => removeMapping(m)}>
-                    <XCircle className="size-4" />
-                  </Button>
-                </div>
-              ))
+                    {editingDesignation === m.id ? (
+                      <>
+                        <Input
+                          className="min-w-40 flex-1"
+                          aria-label={`Rename ${m.designation}`}
+                          value={designationDraft}
+                          onChange={(e) => setDesignationDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") renameMapping(m, designationDraft);
+                            if (e.key === "Escape") setEditingDesignation(null);
+                          }}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            !designationDraft.trim() || designationDraft.trim() === m.designation
+                          }
+                          onClick={() => renameMapping(m, designationDraft)}
+                        >
+                          Save designation
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditingDesignation(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="min-w-40 flex-1 text-sm">{m.designation}</span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Rename ${m.designation}`}
+                          onClick={() => {
+                            setEditingDesignation(m.id);
+                            setDesignationDraft(m.designation);
+                          }}
+                        >
+                          Rename
+                        </Button>
+                      </>
+                    )}
+                    {m.code ? (
+                      <StatusPill tone="success">Configured</StatusPill>
+                    ) : (
+                      <StatusPill tone="warning">Not configured</StatusPill>
+                    )}
+                    <Select
+                      value={m.code ?? ""}
+                      onValueChange={(v) => updateMappingCode(m, v as "1" | "2" | "3" | "4" | "5")}
+                    >
+                      <SelectTrigger className="w-64">
+                        <SelectValue placeholder="Choose a code…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(["1", "2", "3", "4", "5"] as const).map((code) => (
+                          <SelectItem key={code} value={code}>
+                            {QUALIFICATION_CODE_LABELS[code]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" variant="ghost" onClick={() => removeMapping(m)}>
+                      <XCircle className="size-4" />
+                    </Button>
+                  </div>
+                ))
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -1196,6 +1107,19 @@ function SettingsPage() {
   // this split undid.
   const canDeleteOrganization = isManager;
 
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      const el = document.getElementById(id);
+      tries += 1;
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (el || tries > 30) window.clearInterval(timer);
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     <>
       <PageHeader title="Settings" description="Manage your account and organization." />
@@ -1206,6 +1130,8 @@ function SettingsPage() {
         {isManager || isAssessor ? <RegulatoryProfileSection /> : null}
         {isManager ? <OrganizationSection /> : null}
         {canDeleteOrganization ? <DangerZone /> : null}
+        {/* Last on purpose: this list only grows, one row per new word. */}
+        {isManager || isAssessor ? <OutcomeTermsSection /> : null}
       </div>
     </>
   );

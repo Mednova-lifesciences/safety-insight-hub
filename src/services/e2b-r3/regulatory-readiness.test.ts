@@ -63,15 +63,6 @@ describe("computeOrganizationReadiness", () => {
     expect(items.find((i) => i.key === "SENDER")!.status).toBe("CONFIGURED");
     expect(items.find((i) => i.key === "RECEIVER")!.status).toBe("CONFIGURED");
   });
-
-  it("outcome codelist is NOT_VERIFIED until all six concepts have a code (scenario 7)", () => {
-    const config = fullyConfiguredConfig();
-    delete config.outcomeCodes.FATAL;
-    const items = computeOrganizationReadiness(config);
-    const outcomeItem = items.find((i) => i.key === "OUTCOME_CODELIST")!;
-    expect(outcomeItem.status).toBe("NOT_VERIFIED");
-    expect(outcomeItem.detail).toContain("5/6");
-  });
 });
 
 function blockedResult(caseId: string, errors: ValidationError[]): CaseValidationResult {
@@ -87,17 +78,6 @@ function qualError(caseId: string, designation: string): ValidationError {
     message: `Reporter designation "${designation}" has no entry.`,
     remediation: "Configure it.",
     sourceValue: designation,
-  };
-}
-
-function outcomeCodeError(caseId: string): ValidationError {
-  return {
-    code: "E2B-OUTCOME-CODE-NOT-CONFIGURED",
-    severity: "BLOCKING",
-    layer: "BUSINESS_RULE",
-    caseId,
-    message: "Outcome code not configured.",
-    remediation: "Configure it.",
   };
 }
 
@@ -124,20 +104,8 @@ describe("summarizeCaseLevelBlockers", () => {
     expect(summary.unmappedReporterDesignations).toEqual([{ designation: "CHO", caseCount: 1 }]);
   });
 
-  it("counts cases with an unresolved E.i.7 outcome code separately from designation gaps (scenario 7)", () => {
-    const results = [
-      blockedResult("C1", [outcomeCodeError("C1")]),
-      blockedResult("C2", [outcomeCodeError("C2"), qualError("C2", "CHO")]),
-      blockedResult("C3", []),
-    ];
-    const summary = summarizeCaseLevelBlockers(results);
-    expect(summary.unresolvedOutcomeCaseCount).toBe(2);
-    expect(summary.unmappedReporterDesignations).toEqual([{ designation: "CHO", caseCount: 1 }]);
-  });
-
   it("reports nothing when every case is clean", () => {
     const summary = summarizeCaseLevelBlockers([blockedResult("C1", [])]);
     expect(summary.unmappedReporterDesignations).toEqual([]);
-    expect(summary.unresolvedOutcomeCaseCount).toBe(0);
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveInitials,
   mapConceptToOutcome,
+  jobCaseCode,
   mapSourceRecordToPVCase,
   mapSeriousness,
   mapSex,
@@ -478,7 +479,53 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
       context,
       providers,
     );
-    expect(pvCase.sendersCaseId).toBe("NG-MEDNOVA-1");
+    expect(pvCase.sendersCaseId).toBe("NG-MEDNOVA-LLTEST-1");
+  });
+
+  it("keeps row-numbered case ids unique across line lists and stable within one", async () => {
+    const mapRow = (jobId: string, sourceRow: number) =>
+      mapSourceRecordToPVCase(
+        { patient_identifier: "A B" },
+        ondoAefiProfile,
+        UNCONFIRMED_DEFAULT_CONFIG,
+        { ...context, jobId, sourceRow },
+        providers,
+      );
+    const jobA = "ll-3f9a1c2e-0000-4000-8000-00000000aaaa";
+    const jobB = "ll-8b20d4e1-0000-4000-8000-00000000bbbb";
+    const a1 = (await mapRow(jobA, 1)).pvCase;
+    const b1 = (await mapRow(jobB, 1)).pvCase;
+    const a1Again = (await mapRow(jobA, 1)).pvCase;
+
+    expect(a1.sendersCaseId).not.toBe(b1.sendersCaseId);
+    expect(a1.worldwideUniqueId).not.toBe(b1.worldwideUniqueId);
+    expect(a1Again.sendersCaseId).toBe(a1.sendersCaseId);
+    expect(a1.sendersCaseId).toBe(`NG-MEDNOVA-${jobCaseCode(jobA)}-1`);
+  });
+
+  it("takes date first received (C.1.4/C.1.5) from the report date when the file has one", async () => {
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { patient_identifier: "A B", report_date: "12/09/2026" },
+      ondoAefiProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.dateFirstReceived).toBe("2026-09-12");
+    expect(pvCase.dateMostRecentInfo).toBe("2026-09-12");
+    // C.1.2 is when this message was created, so it stays the processing time.
+    expect(pvCase.dateOfCreation).toBe(context.processedAt);
+  });
+
+  it("uses the source's own case_id unchanged when the line list has one", async () => {
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { case_id: "ONDO-2026-0042", patient_identifier: "A B" },
+      ondoAefiProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.sendersCaseId).toBe("ONDO-2026-0042");
   });
 
   it("marks patient identity unresolved (nullFlavor UNK) when no identifier exists at all", async () => {

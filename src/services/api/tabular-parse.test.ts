@@ -32,6 +32,25 @@ function csvFile(text: string, name = "test.csv"): File {
   return new File([text], name, { type: "text/csv" });
 }
 
+describe("column keywords — report date", () => {
+  it("finds the report date without taking the vaccination or onset date", () => {
+    const headers = ["Date Reported", "Date of Vaccination", "Date of Onset"];
+    expect(mapColumnsByKeywords(headers, FIELD_KEYWORDS)).toEqual({
+      "Date Reported": "report_date",
+      "Date of Vaccination": "vaccination_date",
+      "Date of Onset": "onset_date",
+    });
+  });
+});
+
+describe("column keywords — the file's own case id", () => {
+  it("recognises the common case-id spellings, so findings can name the case", () => {
+    for (const header of ["Case No", "Case Number", "Case ID", "Case Ref"]) {
+      expect(mapColumnsByKeywords([header], FIELD_KEYWORDS)[header]).toBe("case_id");
+    }
+  });
+});
+
 describe("parseTabularFile — clean files (no regression)", () => {
   it("uses row 1 as the header when it already looks like one", async () => {
     const file = xlsxFile([

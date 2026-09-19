@@ -1,5 +1,6 @@
-import type { ReactionOutcome } from "./types";
 import type { SourceProfile } from "./source-profiles/types";
+import type { ReactionOutcome } from "./types";
+import { applyOrgOutcomeTerms, type OrgTermMapping } from "./term-mappings";
 import { UNCONFIRMED_SENTINEL, type E2bTransmissionConfig } from "./transmission-config";
 
 /**
@@ -26,11 +27,8 @@ import { UNCONFIRMED_SENTINEL, type E2bTransmissionConfig } from "./transmission
  */
 export interface OrgRegulatoryConfig {
   transmission: E2bTransmissionConfig;
-  /** E.i.7 canonical outcome -> NAFDAC/ICH Appendix I(F)-confirmed numeric
-   *  code. A missing key means that outcome's code has never been
-   *  confirmed — never defaulted to the developer spec's placeholder 1-6
-   *  numbering (see serializer.ts's former OUTCOME_CODE constant, now
-   *  removed in favour of this). */
+  /** Legacy database field retained for backward compatibility only.
+   * E2B generation never reads it; E.i.7 is application-controlled. */
   outcomeCodes: Partial<Record<ReactionOutcome, string>>;
   /** C.2.r.4 free-text designation (raw, as an admin typed it) -> Appendix
    *  I(F) qualification code, keyed by the SAME normalization
@@ -40,7 +38,21 @@ export interface OrgRegulatoryConfig {
    *  distinct from a designation nobody has ever seen (which never gets a
    *  row at all). See services/api/regulatory-config.ts's discovery flow. */
   reporterQualificationMappings: OrgQualificationMapping[];
+  /** Outcome words and reaction corrections this organization has decided
+   *  (see term-mappings.ts). Optional so configs built before this existed
+   *  still type-check; absent means none. */
+  termMappings?: OrgTermMapping[] | undefined;
 }
+
+/** Legacy UI/test compatibility; numeric values are defined in outcome-codes.ts. */
+export const ALL_REACTION_OUTCOMES: ReactionOutcome[] = [
+  "RECOVERED",
+  "RECOVERING",
+  "NOT_RECOVERED",
+  "RECOVERED_WITH_SEQUELAE",
+  "FATAL",
+  "UNKNOWN",
+];
 
 export interface OrgQualificationMapping {
   id: string;
@@ -55,15 +67,6 @@ export interface OrgQualificationMapping {
  *  order — used to drive "N/6 configured" readiness displays. Not a
  *  claim about numeric codes (see OrgRegulatoryConfig.outcomeCodes's doc
  *  comment); purely the enumeration of ReactionOutcome. */
-export const ALL_REACTION_OUTCOMES: ReactionOutcome[] = [
-  "RECOVERED",
-  "RECOVERING",
-  "NOT_RECOVERED",
-  "RECOVERED_WITH_SEQUELAE",
-  "FATAL",
-  "UNKNOWN",
-];
-
 /** The honest, fully-unconfigured starting point — mirrors
  *  transmission-config.ts's UNCONFIRMED_DEFAULT_CONFIG for the rest of
  *  this module's domain. Used whenever an org has no pv_regulatory_config
@@ -80,6 +83,7 @@ export function unconfiguredOrgRegulatoryConfig(): OrgRegulatoryConfig {
     },
     outcomeCodes: {},
     reporterQualificationMappings: [],
+    termMappings: [],
   };
 }
 
@@ -87,8 +91,14 @@ export function unconfiguredOrgRegulatoryConfig(): OrgRegulatoryConfig {
  *  ondo-aefi.ts already do (trim + uppercase) — the single shared
  *  normalization rule so a lookup here always agrees with the one in
  *  mapping.ts's qualificationCode resolution. */
+/** "Nurse", " nurse ", "NURSE." and "Community  Health  Officer" all
+ *  resolve to the same designation, whichever line list they came from. */
 export function normalizeDesignationKey(designation: string): string {
-  return designation.trim().toUpperCase();
+  return designation
+    .trim()
+    .replace(/[.,;:]+$/, "")
+    .replace(/\s+/g, " ")
+    .toUpperCase();
 }
 
 /** Builds the plain designation-key -> code lookup mapSourceRecordToPVCase
@@ -102,7 +112,9 @@ export function reporterQualificationLookup(
 ): Record<string, "1" | "2" | "3" | "4" | "5"> {
   const lookup: Record<string, "1" | "2" | "3" | "4" | "5"> = {};
   for (const m of mappings) {
-    if (m.code) lookup[m.designationKey] = m.code;
+    // Re-normalized from the designation text, so rows stored under an
+    // older key format still match.
+    if (m.code) lookup[normalizeDesignationKey(m.designation)] = m.code;
   }
   return lookup;
 }
@@ -127,8 +139,12 @@ export function mergeOrgRegulatoryConfigIntoProfile(
   config: OrgRegulatoryConfig,
 ): SourceProfile {
   const orgOverrides = reporterQualificationLookup(config.reporterQualificationMappings);
-  return {
-    ...base,
-    reporterQualificationMap: { ...base.reporterQualificationMap, ...orgOverrides },
-  };
+  const seed: Record<string, "1" | "2" | "3" | "4" | "5"> = {};
+  for (const [designation, code] of Object.entries(base.reporterQualificationMap)) {
+    seed[normalizeDesignationKey(designation)] = code;
+  }
+  return applyOrgOutcomeTerms(
+    { ...base, reporterQualificationMap: { ...seed, ...orgOverrides } },
+    config.termMappings,
+  );
 }

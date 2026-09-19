@@ -1,5 +1,5 @@
-import { UNCONFIRMED_SENTINEL } from "./transmission-config";
-import { ALL_REACTION_OUTCOMES, type OrgRegulatoryConfig } from "./regulatory-config";
+import { UNCONFIRMED_SENTINEL, senderSameAsReceiver } from "./transmission-config";
+import type { OrgRegulatoryConfig } from "./regulatory-config";
 import type { CaseValidationResult } from "./validation";
 
 /**
@@ -15,7 +15,7 @@ import type { CaseValidationResult } from "./validation";
  * render these two lists separately, never merged.
  */
 
-export type OrganizationReadinessKey = "SENDER" | "RECEIVER" | "REPORT_TYPE" | "OUTCOME_CODELIST";
+export type OrganizationReadinessKey = "SENDER" | "RECEIVER" | "REPORT_TYPE";
 
 export interface OrganizationReadinessItem {
   key: OrganizationReadinessKey;
@@ -34,21 +34,28 @@ export function computeOrganizationReadiness(
   const items: OrganizationReadinessItem[] = [];
 
   items.push(
-    config.transmission.sender.identifier !== UNCONFIRMED_SENTINEL &&
-      config.transmission.sender.organization !== UNCONFIRMED_SENTINEL
+    senderSameAsReceiver(config.transmission)
       ? {
           key: "SENDER",
           label: "Sender transmission identifier",
-          status: "CONFIGURED",
-          detail: `Sender organisation "${config.transmission.sender.organization}", identifier "${config.transmission.sender.identifier}".`,
+          status: "NOT_VERIFIED",
+          detail: `The sender identifier is the same as the receiver's ("${config.transmission.sender.identifier}"). Enter your own organization's identifier as the sender.`,
         }
-      : {
-          key: "SENDER",
-          label: "Sender transmission identifier",
-          status: "MISSING",
-          detail:
-            "Not yet supplied by NAFDAC/Ondo. Configure under Settings → Regulatory Profiles.",
-        },
+      : config.transmission.sender.identifier !== UNCONFIRMED_SENTINEL &&
+          config.transmission.sender.organization !== UNCONFIRMED_SENTINEL
+        ? {
+            key: "SENDER",
+            label: "Sender transmission identifier",
+            status: "CONFIGURED",
+            detail: `Sender organisation "${config.transmission.sender.organization}", identifier "${config.transmission.sender.identifier}".`,
+          }
+        : {
+            key: "SENDER",
+            label: "Sender transmission identifier",
+            status: "MISSING",
+            detail:
+              "Not yet supplied by NAFDAC/Ondo. Configure under Settings → Regulatory Profiles.",
+          },
   );
 
   items.push(
@@ -85,23 +92,6 @@ export function computeOrganizationReadiness(
         },
   );
 
-  const configuredOutcomes = ALL_REACTION_OUTCOMES.filter((o) => !!config.outcomeCodes[o]);
-  items.push(
-    configuredOutcomes.length === ALL_REACTION_OUTCOMES.length
-      ? {
-          key: "OUTCOME_CODELIST",
-          label: "E.i.7 outcome codelist",
-          status: "CONFIGURED",
-          detail: "All six ICH outcome concepts have a confirmed NAFDAC/Appendix I(F) code.",
-        }
-      : {
-          key: "OUTCOME_CODELIST",
-          label: "E.i.7 outcome codelist",
-          status: "NOT_VERIFIED",
-          detail: `${configuredOutcomes.length}/${ALL_REACTION_OUTCOMES.length} outcome(s) have a confirmed code. Appendix I(F) has not been fully supplied — see Settings → Regulatory Profiles.`,
-        },
-  );
-
   return items;
 }
 
@@ -115,23 +105,21 @@ export interface CaseLevelBlockerSummary {
    *  example — never a flat count that hides which designation(s) are
    *  responsible. */
   unmappedReporterDesignations: { designation: string; caseCount: number }[];
-  unresolvedOutcomeCaseCount: number;
 }
 
 /** Rolls up case-level validation results into the counts/labels the E2B
  *  page's readiness panel renders — pure, and independent of whichever
  *  validation codes happen to produce these findings (E2B-REPORTER-
  *  QUALIFICATION-UNRESOLVED / VIGIFLOW-REPORTER-QUALIFICATION-UNRESOLVED
- *  for designations; E2B-OUTCOME-CODE-NOT-CONFIGURED for outcomes). */
+ *  for designations). E.i.7 outcomes are the fixed ICH codelist and can
+ *  never be an organization-configuration gap, so they are not counted. */
 export function summarizeCaseLevelBlockers(
   results: CaseValidationResult[],
 ): CaseLevelBlockerSummary {
   const designationCounts = new Map<string, number>();
-  let unresolvedOutcomeCases = 0;
 
   for (const result of results) {
     const designationsThisCase = new Set<string>();
-    let outcomeIssueThisCase = false;
     for (const e of result.errors) {
       if (
         (e.code === "E2B-REPORTER-QUALIFICATION-UNRESOLVED" ||
@@ -140,20 +128,15 @@ export function summarizeCaseLevelBlockers(
       ) {
         designationsThisCase.add(e.sourceValue);
       }
-      if (e.code === "E2B-OUTCOME-CODE-NOT-CONFIGURED") {
-        outcomeIssueThisCase = true;
-      }
     }
     for (const d of designationsThisCase) {
       designationCounts.set(d, (designationCounts.get(d) ?? 0) + 1);
     }
-    if (outcomeIssueThisCase) unresolvedOutcomeCases++;
   }
 
   return {
     unmappedReporterDesignations: [...designationCounts.entries()]
       .map(([designation, caseCount]) => ({ designation, caseCount }))
       .sort((a, b) => b.caseCount - a.caseCount),
-    unresolvedOutcomeCaseCount: unresolvedOutcomeCases,
   };
 }
