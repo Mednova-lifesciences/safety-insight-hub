@@ -157,8 +157,7 @@ RawLineListRow  →  mapRowToPVCase()  →  PVCase  →  validateBusinessRules()
 - **`regulatory-config.ts` / `regulatory-readiness.ts`** — the persistent,
   org-level configuration layer decisions D2–D4 actually live in now (no
   longer function-parameter-only). `OrgRegulatoryConfig` bundles an
-  `E2bTransmissionConfig` with the E.i.7 outcome codelist (canonical
-  `ReactionOutcome` → NAFDAC/Appendix I(F)-confirmed numeric code) and an
+  `E2bTransmissionConfig` with an
   open-ended reporter-qualification designation → code table (never
   hardcoded to any one source's vocabulary — CHEW, CHO, Nurse, Midwife,
   Doctor, HMIS, OIC, DENTAL, or anything else a line-list uses).
@@ -229,7 +228,20 @@ and nothing below has been defaulted silently.
 | D4 | Sender/receiver identifiers (C.3.2 and transmission-level identifiers), agreed bilaterally with NAFDAC | **Mechanism built; values unresolved** | Persisted per-org in `pv_regulatory_config`, configured from Settings → Regulatory Profiles. Unset fields resolve to the explicit sentinel (`"__UNCONFIRMED__"`); `isTransmissionConfigConfirmed()` returns `false` and blocks export until an admin enters real NAFDAC-supplied values |
 | D5 | MedDRA subscription/version | **Unresolved** | `unavailableMedDraProvider` marks every reaction `PROVIDER_UNAVAILABLE`. `AuthorizedMappingTableMedDraProvider` exists as real plumbing for an interim Ondo-supplied codebook, but no table has been supplied |
 | D6 | Is WHODrug coding required by NAFDAC? (contact vigibase@who-umc.org) | **Unresolved** | `unavailableWhoDrugProvider` marks every product `PROVIDER_UNAVAILABLE`. `AuthorizedMappingTableWhoDrugProvider` exists as the same kind of real, unpopulated plumbing |
+| D8 | C.1.7 — does the case fulfil local criteria for an expedited report? | **Mechanism built; criteria provisional** | One rule, `NG-C1.7-EXPEDITED-PROVISIONAL` v0.1 (`assessment-rules.ts`). The system never infers YES/NO: every case gets a `NEEDS_REVIEW` recommendation (snapshotted, versioned, superseded when the case's source data changes) and stays `BLOCKING` on non-overridable `E2B-C1.7-UNRESOLVED` until a REVIEW_OFFICER, EVALUATOR or PEER_REVIEWER finalizes YES/NO with a rationale — per case or for every pending case in a line list at once (`finalize_e2b_c17_assessments_bulk`, all-or-nothing). Finalization runs only through `SECURITY DEFINER` RPCs; decisions are immutable and audited per case |
 | D7 | Validated vs. non-validated VigiFlow import | Recommend validated | `validateVigiFlowPreflight` is built assuming validated import is the target; if non-validated is chosen instead, this gate can be relaxed |
+
+### Multiple line lists
+
+Every uploaded line list is its own job and is processed independently —
+any source profile, any number of uploads. Case identity is scoped per job:
+`internalCaseId` is `<jobId>-<row>`, and when a line list has no `case_id`
+column the C.1.1/C.1.8.1 id is `<prefix>-<job code>-<row>` (e.g.
+`NG-MEDNOVA-3F9A1C2E-17`), where the job code is the last 8 alphanumerics
+of the job id (`mapping.ts`'s `jobCaseCode`). Each line list is treated as
+new cases, so ids never collide across uploads and stay stable when the
+same line list is re-run. A line list that carries its own `case_id` uses
+it unchanged.
 
 ## External dependencies
 
@@ -242,7 +254,7 @@ and nothing below has been defaulted silently.
 | MedDRA subscription (decision D5) | Not resolved |
 | WHODrug Global subscription (decision D6) | Not resolved |
 | NAFDAC sender/receiver identifiers (decision D4) | Not resolved |
-| ICH Appendix I(F) — ICH E2B code lists (the actual numeric values behind every coded element, per the developer spec section 10's "Reference package" table) | **Not obtained**. This repo's `regulatory-assets/e2b-r3/official-ich/` only has the schema set + reference/example instances, not this separate ICH-published document. Cross-checked this session (see `serializer.ts`'s `DRUG_CHARACTERIZATION_CODE`/`OUTCOME_CODE` doc comments): **G.k.1 (drug characterization) is now CONFIRMED** — the developer spec section 5.6 states its 1-4 codelist verbatim, matching this codebase exactly. **E.i.7 (outcome) remains genuinely open** — the spec names the OID and the six concepts' order but explicitly withholds the numbers, deferring to Appendix I(F); a live check against ICH/FDA's published source was attempted this session and blocked by a tool outage, not completed |
+| ICH Appendix I(F) — ICH E2B code lists (the actual numeric values behind every coded element, per the developer spec section 10's "Reference package" table) | **Not obtained**. This repo's `regulatory-assets/e2b-r3/official-ich/` only has the schema set + reference/example instances, not this separate ICH-published document. Cross-checked this session (see `serializer.ts`'s `DRUG_CHARACTERIZATION_CODE`/`OUTCOME_CODE` doc comments): **G.k.1 (drug characterization) is now CONFIRMED** — the developer spec section 5.6 states its 1-4 codelist verbatim, matching this codebase exactly. **E.i.7 (outcome) is now application-controlled** — `outcome-codes.ts` binds the six concepts to the ICH E2B(R3) codelist (0 unknown, 1 recovered/resolved, 2 recovering/resolving, 3 not recovered/not resolved/ongoing, 4 recovered/resolved with sequelae, 5 fatal). It is no longer organization configuration: the legacy `pv_regulatory_config.outcome_codes` column is ignored and there is no longer an outcome-codelist readiness gate |
 
 ## Limitations honestly carried into the model
 

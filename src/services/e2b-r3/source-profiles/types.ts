@@ -58,6 +58,8 @@ export interface ColumnMap {
   onsetDate?: string;
   product?: string;
   vaccinationDate?: string;
+  /** When the report was received — E2B C.1.4 / C.1.5. */
+  reportDate?: string;
   batchNumber?: string;
   dose?: string;
   outcome?: string;

@@ -107,8 +107,21 @@ export const UNCONFIRMED_DEFAULT_CONFIG: E2bTransmissionConfig = {
  *  never inferred from `reportType`'s mere presence, since that field
  *  always holds a syntactically valid value (the "4" placeholder in the
  *  unconfirmed default) whether or not NAFDAC has actually confirmed it. */
+/** The sender is whoever submits the report (your organization); the
+ *  receiver is NAFDAC. The same identifier in both is always a data-entry
+ *  mistake, and VigiFlow would reject the message. */
+export function senderSameAsReceiver(config: E2bTransmissionConfig): boolean {
+  const sender = config.sender.identifier.trim().toUpperCase();
+  return (
+    sender !== UNCONFIRMED_SENTINEL.toUpperCase() &&
+    sender !== "" &&
+    sender === config.receiver.identifier.trim().toUpperCase()
+  );
+}
+
 export function isTransmissionConfigConfirmed(config: E2bTransmissionConfig): boolean {
   return (
+    !senderSameAsReceiver(config) &&
     config.sender.organization !== UNCONFIRMED_SENTINEL &&
     config.sender.identifier !== UNCONFIRMED_SENTINEL &&
     config.receiver.identifier !== UNCONFIRMED_SENTINEL &&
@@ -133,6 +146,11 @@ export function describeUnconfirmedTransmissionConfig(config: E2bTransmissionCon
   if (config.receiver.identifier === UNCONFIRMED_SENTINEL) {
     gaps.push(
       "Receiver transmission identifier (N.2.r.3 / N.1.4) — decision D4, NAFDAC/UMC-assigned.",
+    );
+  }
+  if (senderSameAsReceiver(config)) {
+    gaps.push(
+      `Sender and receiver identifiers are both "${config.sender.identifier}". The sender is your organization's own identifier; the receiver is NAFDAC's.`,
     );
   }
   if (config.reportTypeConfirmed !== true) {

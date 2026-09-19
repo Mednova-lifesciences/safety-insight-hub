@@ -406,8 +406,8 @@ function IcsrIntakeFormFields({
 
       setRawExtraction({
         fields: e as unknown as Record<string, unknown>,
-        model: result.model ?? undefined,
-        promptVersion: result.prompt_version,
+        ...(result.model ? { model: result.model } : {}),
+        ...(result.prompt_version ? { promptVersion: result.prompt_version } : {}),
         extractedAt: new Date().toISOString(),
       });
 
@@ -477,7 +477,7 @@ function IcsrIntakeFormFields({
         additionalProducts: additionalProducts.filter((p) => p.reportedName.trim().length > 0),
         concomitantMedicines: concomitantMeds.filter((m) => m.name.trim().length > 0),
         dynamicFields: dynamicFields.filter((f) => f.label.trim().length > 0),
-        rawExtraction: rawExtraction ?? undefined,
+        ...(rawExtraction ? { rawExtraction } : {}),
       });
       toast.success(`Case ${created.caseId} created.`);
       if (user) {

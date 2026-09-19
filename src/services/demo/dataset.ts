@@ -500,7 +500,7 @@ export const demoLineListIssues: LineListIssue[] = [
   {
     row: 17,
     column: "onset_date",
-    severity: "ERROR",
+    severity: "CRITICAL",
     code: "E_DATE_FORMAT",
     message: "Invalid date — could not be parsed as a valid date",
     value: "31/02/2026",
@@ -508,7 +508,7 @@ export const demoLineListIssues: LineListIssue[] = [
   {
     row: 23,
     column: "patient_id",
-    severity: "ERROR",
+    severity: "CRITICAL",
     code: "E_MISSING_PATIENT",
     message: "Missing patient identifier",
     value: null,
@@ -516,7 +516,7 @@ export const demoLineListIssues: LineListIssue[] = [
   {
     row: 58,
     column: "reaction",
-    severity: "ERROR",
+    severity: "CRITICAL",
     code: "E_UNRECOGNISED_REACTION",
     message: "Unrecognised reaction term — no dictionary candidate returned",
     value: "feeling somehow",
@@ -524,7 +524,7 @@ export const demoLineListIssues: LineListIssue[] = [
   {
     row: 74,
     column: "product",
-    severity: "ERROR",
+    severity: "CRITICAL",
     code: "E_INVALID_PRODUCT",
     message: "Invalid product — not found in product dictionary",
     value: "ORS sachet??",
@@ -532,7 +532,7 @@ export const demoLineListIssues: LineListIssue[] = [
   {
     row: 91,
     column: "sex",
-    severity: "WARNING",
+    severity: "MEDIUM",
     code: "W_VALUE_NORMALISED",
     message: "Value normalised during processing",
     value: "f",
@@ -540,7 +540,7 @@ export const demoLineListIssues: LineListIssue[] = [
   {
     row: 104,
     column: "dose",
-    severity: "WARNING",
+    severity: "MEDIUM",
     code: "W_MISSING_OPTIONAL",
     message: "Missing recommended value",
     value: null,

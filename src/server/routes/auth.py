@@ -362,10 +362,14 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Get current user error: {str(e)}")
+        # The token was already accepted above (or never reached), so this
+        # is a transient server/database failure — not a reason to sign the
+        # user out. 503 lets the app retry; 401 made it log people out on
+        # any network blip while loading their profile.
+        logger.error(f"Get current user error: {type(e).__name__}: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Failed to verify token"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Your profile could not be loaded right now. Please try again."
         )
 
 @router.post("/signout")

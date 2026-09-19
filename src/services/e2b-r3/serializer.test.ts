@@ -75,6 +75,31 @@ function baseCase(overrides: Partial<PVCase> = {}): PVCase {
 }
 
 describe("serializeBatchToXml", () => {
+  it.each([
+    ["RECOVERED", "1"],
+    ["RECOVERING", "2"],
+    ["NOT_RECOVERED", "3"],
+    ["RECOVERED_WITH_SEQUELAE", "4"],
+    ["FATAL", "5"],
+    ["UNKNOWN", "0"],
+  ] as const)(
+    "serializes ICH E.i.7 %s as %s without administrator configuration",
+    (outcome, code) => {
+      const xml = serializeBatchToXml(
+        [baseCase({ reactions: [{ ...baseCase().reactions[0]!, outcome }] })],
+        {
+          batchId: "B",
+          senderId: "S",
+          receiverId: "R",
+          transmissionTimestamp: new Date("2026-09-09T08:19:00Z"),
+          outcomeCodes: { UNKNOWN: "6" },
+        },
+      );
+      expect(xml).toContain(`code="${code}"`);
+      if (outcome === "UNKNOWN") expect(xml).not.toContain('code="6"');
+    },
+  );
+
   it("produces well-formed XML with the real E2B(R3) root, not the old flat <ichicsr> shape", () => {
     const xml = serializeBatchToXml([baseCase()], {
       batchId: "MEDNOVA-BATCH-TEST",

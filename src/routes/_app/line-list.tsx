@@ -3,7 +3,17 @@ import { PermissionGate } from "@/components/pv/permission-gate";
 import { useState } from "react";
 import { ArrowRight, Download, FileText, Sparkles, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
-import { linelist as linelistApi, DEFAULT_SOURCE_PROFILE_ID } from "@/services/api/linelist";
+import {
+  linelist as linelistApi,
+  DEFAULT_SOURCE_PROFILE_ID,
+  describeRow,
+} from "@/services/api/linelist";
+import {
+  E2bReadinessBanner,
+  FixAction,
+  ParsingOptionsPanel,
+  ReactionTermsPanel,
+} from "@/components/pv/linelist-e2b-panels";
 import { listSourceProfiles } from "@/services/e2b-r3/source-profiles/registry";
 import {
   Select,
@@ -14,11 +24,7 @@ import {
 } from "@/components/ui/select";
 import { demoLineListIssues, demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
-import {
-  isNotConfigured,
-  isVerificationUnavailable,
-  VERIFICATION_UNAVAILABLE_MESSAGE,
-} from "@/services/api/client";
+import { isNotConfigured } from "@/services/api/client";
 import { AUTO_FIX_ENABLED, RULE_BASED_DETECTION_ENABLED } from "@/services/api/feature-flags";
 import {
   EmptyState,
@@ -93,6 +99,7 @@ function LineListPage() {
   const [fixing, setFixing] = useState(false);
   const [aiNotice, setAiNotice] = useState<string | null>(null);
   const [jobsPage, setJobsPage] = useState(1);
+  const [onlyE2bBlockers, setOnlyE2bBlockers] = useState(false);
 
   async function onFile(file: File) {
     setUploading(true);
@@ -297,9 +304,9 @@ function LineListPage() {
 
         {activeJob ? <ColumnMappingPanel job={activeJob} /> : null}
         {activeJob ? (
-          <OutcomeVocabularyPanel
+          <ParsingOptionsPanel
             job={activeJob}
-            onDecided={() => {
+            onSaved={() => {
               jobs.refetch();
               issues.refetch();
             }}
@@ -405,103 +412,130 @@ function LineListPage() {
               </div>
             ) : null}
             <QueryBoundary query={issues}>
-              {(rows) =>
-                rows.length === 0 ? (
-                  <EmptyState
-                    title={
-                      activeJob.stage === "VALIDATED" || activeJob.stage === "E2B_GENERATED"
-                        ? "Validation completed. No issues were detected in this file."
-                        : activeJob.stage === "FAILED"
-                          ? "This file could not be parsed — see the job's status above."
-                          : 'This file has not been validated yet — click "Re-run validation" above to check it.'
-                    }
-                  />
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[900px] text-sm">
-                      <thead>
-                        <tr className="border-b border-border bg-muted/50 text-left">
-                          {[
-                            "Row",
-                            "Column",
-                            "Severity",
-                            "Confidence",
-                            "Source",
-                            "Code",
-                            "Message",
-                            "Value",
-                            "Fixable",
-                          ].map((h) => (
-                            <th key={h} className="label-caps px-3 py-2">
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((i, idx) => (
-                          <tr
-                            key={`${i.row}-${i.column}-${idx}`}
-                            className="border-b border-border last:border-0"
-                          >
-                            <td className="mono-num px-3 py-2">{i.row}</td>
-                            <td className="mono-num px-3 py-2">{i.column}</td>
-                            <td className="px-3 py-2">
-                              <StatusPill
-                                tone={
-                                  i.severity === "CRITICAL"
-                                    ? "critical"
-                                    : i.severity === "HIGH"
-                                      ? "warning"
-                                      : i.severity === "MEDIUM"
-                                        ? "info"
-                                        : "neutral"
-                                }
+              {(allRows) => {
+                const rows = onlyE2bBlockers ? allRows.filter((i) => i.blocksE2b) : allRows;
+                return (
+                  <div className="space-y-3">
+                    <E2bReadinessBanner job={activeJob} issues={allRows} />
+                    {allRows.some((i) => i.blocksE2b) ? (
+                      <label className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={onlyE2bBlockers}
+                          onChange={(e) => setOnlyE2bBlockers(e.target.checked)}
+                        />
+                        Show only what blocks E2B(R3) / VigiFlow
+                      </label>
+                    ) : null}
+                    {rows.length === 0 ? (
+                      <EmptyState
+                        title={
+                          activeJob.stage === "VALIDATED" || activeJob.stage === "E2B_GENERATED"
+                            ? "Validation completed. No issues were detected in this file."
+                            : activeJob.stage === "FAILED"
+                              ? "This file could not be parsed — see the job's status above."
+                              : 'This file has not been validated yet — click "Re-run validation" above to check it.'
+                        }
+                      />
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[900px] text-sm">
+                          <thead>
+                            <tr className="border-b border-border bg-muted/50 text-left">
+                              {[
+                                "File row",
+                                "Case ID",
+                                "Column",
+                                "Severity",
+                                "E2B",
+                                "Problem",
+                                "Value",
+                                "Source",
+                              ].map((h) => (
+                                <th key={h} className="label-caps px-3 py-2">
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((i, idx) => (
+                              <tr
+                                key={`${i.row}-${i.column}-${idx}`}
+                                className="border-b border-border last:border-0"
                               >
-                                {i.severity.toLowerCase()}
-                              </StatusPill>
-                            </td>
-                            <td className="px-3 py-2">
-                              {i.confidence ? (
-                                <StatusPill tone={i.confidence === "LOW" ? "warning" : "neutral"}>
-                                  {i.confidence.toLowerCase()}
-                                </StatusPill>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">—</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2">
-                              <StatusPill
-                                tone={
-                                  i.sources && i.sources.length > 1
-                                    ? "success"
-                                    : i.source === "ai"
-                                      ? "assist"
-                                      : "neutral"
-                                }
-                              >
-                                {i.sources && i.sources.length > 1
-                                  ? "rule + AI"
-                                  : i.source === "ai"
-                                    ? "AI"
-                                    : "rule"}
-                              </StatusPill>
-                            </td>
-                            <td className="mono-num px-3 py-2 text-xs">{i.code}</td>
-                            <td className="px-3 py-2">{i.message}</td>
-                            <td className="mono-num px-3 py-2 text-muted-foreground">
-                              {i.value ?? "—"}
-                            </td>
-                            <td className="px-3 py-2 text-xs text-muted-foreground">
-                              {i.fixable ? "Yes" : "No"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                                <td className="mono-num px-3 py-2">
+                                  {i.row < 1
+                                    ? "—"
+                                    : (describeRow(activeJob, i.row).fileRow ?? `#${i.row}`)}
+                                </td>
+                                <td className="mono-num whitespace-nowrap px-3 py-2">
+                                  {describeRow(activeJob, i.row).caseId ?? "—"}
+                                </td>
+                                <td className="mono-num px-3 py-2">{i.column}</td>
+                                <td className="px-3 py-2">
+                                  <StatusPill
+                                    tone={
+                                      i.severity === "CRITICAL"
+                                        ? "critical"
+                                        : i.severity === "HIGH"
+                                          ? "warning"
+                                          : i.severity === "MEDIUM"
+                                            ? "info"
+                                            : "neutral"
+                                    }
+                                  >
+                                    {i.severity.toLowerCase()}
+                                  </StatusPill>
+                                </td>
+                                <td className="px-3 py-2">
+                                  {i.blocksE2b ? (
+                                    <StatusPill tone="critical">Blocks</StatusPill>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">—</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <p>{i.message}</p>
+                                  <FixAction fixIn={i.fixIn} />
+                                </td>
+                                <td className="mono-num px-3 py-2 text-muted-foreground">
+                                  {i.value ?? "—"}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <StatusPill
+                                    tone={
+                                      i.sources && i.sources.length > 1
+                                        ? "success"
+                                        : i.source === "ai"
+                                          ? "assist"
+                                          : "neutral"
+                                    }
+                                  >
+                                    {i.sources && i.sources.length > 1
+                                      ? "rule + AI"
+                                      : i.source === "ai"
+                                        ? "AI"
+                                        : "rule"}
+                                  </StatusPill>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    <ReactionTermsPanel
+                      job={activeJob}
+                      issues={allRows}
+                      onDecided={() => {
+                        jobs.refetch();
+                        issues.refetch();
+                      }}
+                    />
                   </div>
-                )
-              }
+                );
+              }}
             </QueryBoundary>
           </Section>
         ) : null}
@@ -581,147 +615,6 @@ function ColumnMappingPanel({ job }: { job: LineListJob }) {
           field, so nothing in {unmapped.length === 1 ? "it" : "them"} is validated or exported. An
           unmapped column is reported rather than guessed at — tell us what it holds and it can be
           added.
-        </p>
-      ) : null}
-    </Section>
-  );
-}
-
-/** How this file's own outcome words were resolved to the six values of
- *  the ICH E2B(R3) E.i.7 codelist.
- *
- *  Shown because the resolution changes what is exported to a regulator.
- *  A term read as fatal is listed separately and is NOT applied: both ways
- *  of getting a death wrong — inventing one, or recording one as something
- *  milder — are the worst errors this system can make, so a person enters
- *  that one.
- */
-function OutcomeVocabularyPanel({ job, onDecided }: { job: LineListJob; onDecided: () => void }) {
-  const [deciding, setDeciding] = useState<string | null>(null);
-
-  async function decide(termKey: string, accept: boolean, term: string) {
-    setDeciding(termKey);
-    try {
-      await linelistApi.decideOutcomeTerm(job.id, termKey, accept);
-      toast.success(
-        accept
-          ? `"${term}" recorded as a fatal outcome. Rows using it have been revalidated.`
-          : `"${term}" will not be treated as fatal. It stays unresolved and will not be proposed again.`,
-      );
-      onDecided();
-    } catch (err) {
-      toast.error(
-        isVerificationUnavailable(err)
-          ? VERIFICATION_UNAVAILABLE_MESSAGE
-          : isNotConfigured(err)
-            ? "Backend not connected — nothing was recorded."
-            : "Could not record that decision.",
-      );
-    } finally {
-      setDeciding(null);
-    }
-  }
-
-  const vocabulary =
-    (
-      job as {
-        outcomeVocabulary?: Record<
-          string,
-          {
-            term: string;
-            outcome: string;
-            confidence: number;
-            reason: string;
-            requiresConfirmation?: boolean;
-            rejected?: boolean;
-            confirmedBy?: string;
-            confirmedAt?: string;
-          }
-        >;
-      }
-    ).outcomeVocabulary ?? {};
-  const entries = Object.entries(vocabulary);
-  if (entries.length === 0) return null;
-  const applied = entries.filter(([, t]) => !t.requiresConfirmation && !t.rejected);
-  const awaiting = entries.filter(([, t]) => t.requiresConfirmation);
-  const rejected = entries.filter(([, t]) => t.rejected);
-
-  return (
-    <Section
-      title="Outcome vocabulary"
-      description="This file's own words for how each reaction ended, resolved to the six values of the ICH E2B(R3) E.i.7 codelist. Terms the standard dictionary already knows are not listed — these are the ones it could not."
-    >
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase text-muted-foreground">
-              <th className="py-2 pr-4">Term in file</th>
-              <th className="py-2 pr-4">E.i.7 outcome</th>
-              <th className="py-2">Why</th>
-            </tr>
-          </thead>
-          <tbody>
-            {applied.map(([key, t]) => (
-              <tr key={key} className="border-t border-border/60 align-top">
-                <td className="py-2 pr-4 font-medium">{t.term}</td>
-                <td className="py-2 pr-4">
-                  <code className="mono-num">{t.outcome}</code>
-                </td>
-                <td className="py-2 text-muted-foreground">
-                  {t.reason}
-                  {t.confirmedBy ? (
-                    <span className="block text-xs">Confirmed by {t.confirmedBy}.</span>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {awaiting.length > 0 ? (
-        <div className="mt-4 rounded-md border border-border bg-muted/50 p-3">
-          <p className="text-sm font-medium">Read as a death — awaiting your decision</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            A fatal outcome is never entered automatically. Rows using these terms stay unresolved
-            until you decide, and your name is recorded against the decision.
-          </p>
-          <ul className="mt-3 space-y-3">
-            {awaiting.map(([key, t]) => (
-              <li key={key} className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="text-sm font-medium">{t.term}</span>
-                  <span className="block text-xs text-muted-foreground">{t.reason}</span>
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={deciding !== null}
-                    onClick={() => decide(key, true, t.term)}
-                  >
-                    {deciding === key ? "Recording…" : "Confirm as fatal"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={deciding !== null}
-                    onClick={() => decide(key, false, t.term)}
-                  >
-                    Not fatal
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      {rejected.length > 0 ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          Not treated as fatal, by decision:{" "}
-          {rejected
-            .map(([, t]) => `"${t.term}"${t.confirmedBy ? ` (${t.confirmedBy})` : ""}`)
-            .join(", ")}
-          . These stay unresolved and are not proposed again.
         </p>
       ) : null}
     </Section>

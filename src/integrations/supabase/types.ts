@@ -281,6 +281,140 @@ export type Database = {
         };
         Relationships: [];
       };
+      pv_e2b_regulatory_assessments: {
+        Row: {
+          assessment_type: string;
+          case_id: string;
+          created_at: string;
+          data: Json;
+          id: string;
+          job_id: string;
+          organization_id: string;
+          assessment_version: number;
+          supersedes_id: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          assessment_type: string;
+          case_id: string;
+          created_at?: string;
+          data?: Json;
+          id: string;
+          job_id: string;
+          organization_id?: string;
+          assessment_version?: number;
+          supersedes_id?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          assessment_type?: string;
+          case_id?: string;
+          created_at?: string;
+          data?: Json;
+          id?: string;
+          job_id?: string;
+          organization_id?: string;
+          assessment_version?: number;
+          supersedes_id?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      pv_e2b_c17_ai_assessments: {
+        Row: {
+          assessment_id: string | null;
+          case_id: string;
+          created_at: string;
+          data: Json;
+          id: string;
+          input_snapshot_hash: string;
+          input_version: string;
+          model: string | null;
+          model_version: string | null;
+          organization_id: string;
+          prompt_version: string;
+          provider: string;
+          rule_id: string;
+          rule_version: string;
+          status: string;
+        };
+        Insert: {
+          assessment_id?: string | null;
+          case_id: string;
+          created_at?: string;
+          data: Json;
+          id: string;
+          input_snapshot_hash: string;
+          input_version: string;
+          model?: string | null;
+          model_version?: string | null;
+          organization_id?: string;
+          prompt_version: string;
+          provider: string;
+          rule_id: string;
+          rule_version: string;
+          status: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      pv_term_mappings: {
+        Row: {
+          created_at: string;
+          id: string;
+          organization_id: string;
+          kind: string;
+          term: string;
+          term_key: string;
+          mapped_value: string | null;
+          mapped_label: string | null;
+          ai_suggestion: string | null;
+          ai_suggestion_label: string | null;
+          ai_confidence: number | null;
+          ai_reason: string | null;
+          first_seen_file: string | null;
+          decided_by: string | null;
+          decided_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          id: string;
+          organization_id?: string;
+          kind: string;
+          term: string;
+          term_key: string;
+          mapped_value?: string | null;
+          mapped_label?: string | null;
+          ai_suggestion?: string | null;
+          ai_suggestion_label?: string | null;
+          ai_confidence?: number | null;
+          ai_reason?: string | null;
+          first_seen_file?: string | null;
+          decided_by?: string | null;
+          decided_at?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          organization_id?: string;
+          kind?: string;
+          term?: string;
+          term_key?: string;
+          mapped_value?: string | null;
+          mapped_label?: string | null;
+          ai_suggestion?: string | null;
+          ai_suggestion_label?: string | null;
+          ai_confidence?: number | null;
+          ai_reason?: string | null;
+          first_seen_file?: string | null;
+          decided_by?: string | null;
+          decided_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       pv_reporter_qualification_mappings: {
         Row: {
           created_at: string;
@@ -533,6 +667,50 @@ export type Database = {
       delete_my_organization: {
         Args: Record<PropertyKey, never>;
         Returns: undefined;
+      };
+      save_e2b_c17_recommendation: {
+        Args: {
+          p_assessment: Json;
+          p_assessment_id: string;
+          p_case_id: string;
+          p_job_id: string;
+          p_supersedes_id?: string | null;
+        };
+        Returns: Json;
+      };
+      finalize_e2b_c17_assessment: {
+        Args: {
+          p_assessment_id: string;
+          p_decision: string;
+          p_rationale: string;
+        };
+        Returns: Json;
+      };
+      finalize_e2b_c17_assessments_bulk: {
+        Args: {
+          p_assessment_ids: string[];
+          p_decision: string;
+          p_rationale: string;
+        };
+        Returns: Json;
+      };
+      save_e2b_c17_ai_assessment: {
+        Args: {
+          p_ai_assessment_id: string;
+          p_case_id: string;
+          p_data: Json;
+          p_input_snapshot_hash: string;
+          p_input_version: string;
+          p_model: string | null;
+          p_model_version: string | null;
+          p_prompt_version: string;
+          p_provider: string;
+          p_regulatory_assessment_id: string | null;
+          p_rule_id: string;
+          p_rule_version: string;
+          p_status: string;
+        };
+        Returns: Json;
       };
     };
     Enums: {

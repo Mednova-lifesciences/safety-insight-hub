@@ -486,7 +486,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Try to restore from stored JWT token
           const token = getStoredToken();
           if (token) {
-            const profile = await apiAuth.getCurrentUser();
+            let profile: Awaited<ReturnType<typeof apiAuth.getCurrentUser>> = null;
+            let serverUnreachable = false;
+            try {
+              profile = await apiAuth.getCurrentUser();
+            } catch {
+              serverUnreachable = true;
+            }
+            if (serverUnreachable) {
+              // The server could not confirm the session right now, but it
+              // did not reject it either. Keep the stored session: every
+              // request is still checked by the server, and signing the
+              // person out over a network outage loses their place.
+              const storedUserJson = window.localStorage.getItem(STORAGE_KEY);
+              if (storedUserJson && (await hasLiveSupabaseSession())) {
+                setUser(JSON.parse(storedUserJson) as CurrentUser);
+                setStatus("authenticated");
+                return;
+              }
+            }
             if (profile) {
               const storedUserJson = window.localStorage.getItem(STORAGE_KEY);
               // The backend recognised the token, but reads are authorised

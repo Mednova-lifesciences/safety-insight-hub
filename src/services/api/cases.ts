@@ -34,8 +34,21 @@ export interface NewIcsrPayload {
   /** Extra suspect drugs beyond the primary `product` above, from the
    *  repeatable drug-row editor. Absent/empty behaves exactly as before
    *  this field existed — `product` alone still becomes suspectProducts[0]. */
-  additionalProducts?: Record<string, unknown>[];
-  concomitantMedicines?: Record<string, unknown>[];
+  additionalProducts?: Array<{
+    reportedName?: string;
+    dose?: string;
+    route?: string;
+    indication?: string;
+    therapyStart?: string;
+    action?: string;
+    batchNumber?: string;
+    expiryDate?: string;
+  }>;
+  concomitantMedicines?: Array<{
+    name?: string;
+    dose?: string;
+    indication?: string;
+  }>;
   /** Case-specific information detected on the source document that
    *  doesn't map to any canonical field — see DynamicField's own doc
    *  comment in types/pv.ts. Absent/empty behaves exactly as before this
@@ -44,10 +57,10 @@ export interface NewIcsrPayload {
     id?: string;
     label: string;
     value?: string;
-    originalLabel?: string;
-    confidence?: number;
-    source?: "ai_extraction" | "user_added";
-    status?: "detected" | "confirmed" | "edited";
+    originalLabel?: string | undefined;
+    confidence?: number | undefined;
+    source?: "ai_extraction" | "user_added" | undefined;
+    status?: "detected" | "confirmed" | "edited" | undefined;
   }>;
   rawExtraction?: RawExtractionRecord;
 }
@@ -122,7 +135,18 @@ export function buildCaseDetail(
         batchNumber: str(payload.product["batchNumber"]),
         expiryDate: str(payload.product["expiryDate"]),
       },
-      ...(payload.additionalProducts ?? [])
+      ...(
+        (payload.additionalProducts ?? []) as Array<{
+          reportedName?: string;
+          dose?: string;
+          route?: string;
+          indication?: string;
+          therapyStart?: string;
+          action?: string;
+          batchNumber?: string;
+          expiryDate?: string;
+        }>
+      )
         .filter((p) => str(p["reportedName"]).length > 0)
         .map((p) => ({
           reportedName: str(p["reportedName"]),
@@ -135,7 +159,13 @@ export function buildCaseDetail(
           expiryDate: str(p["expiryDate"]),
         })),
     ],
-    concomitantMedicines: (payload.concomitantMedicines ?? [])
+    concomitantMedicines: (
+      (payload.concomitantMedicines ?? []) as Array<{
+        name?: string;
+        dose?: string;
+        indication?: string;
+      }>
+    )
       .filter((m) => str(m["name"]).length > 0)
       .map((m) => ({
         name: str(m["name"]),
@@ -166,7 +196,7 @@ export function buildCaseDetail(
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })),
-    rawExtraction: payload.rawExtraction,
+    ...(payload.rawExtraction ? { rawExtraction: payload.rawExtraction } : {}),
     followUpRequests: [],
     workflowState: stepStates("INTAKE"),
   };

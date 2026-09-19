@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { newId, recordAudit, toJson } from "./db";
+import { termMappings } from "./term-mappings";
 import {
   unconfiguredOrgRegulatoryConfig,
   normalizeDesignationKey,
@@ -7,7 +8,7 @@ import {
   type OrgQualificationMapping,
 } from "@/services/e2b-r3/regulatory-config";
 import { UNCONFIRMED_SENTINEL } from "@/services/e2b-r3/transmission-config";
-import type { ReactionOutcome, ReportType } from "@/services/e2b-r3/types";
+import type { ReportType } from "@/services/e2b-r3/types";
 
 /**
  * Persistence for the org-scoped NAFDAC E2B(R3) regulatory configuration
@@ -62,10 +63,6 @@ function configFromRows(
   if (!configRow) {
     return { ...unconfiguredOrgRegulatoryConfig(), reporterQualificationMappings };
   }
-  const outcomeCodes =
-    configRow.outcome_codes && typeof configRow.outcome_codes === "object"
-      ? (configRow.outcome_codes as Partial<Record<ReactionOutcome, string>>)
-      : {};
   return {
     transmission: {
       environment: configRow.environment,
@@ -83,7 +80,9 @@ function configFromRows(
       reportTypeConfirmed: configRow.report_type_confirmed === true,
       caseIdPrefix: configRow.case_id_prefix ?? undefined,
     },
-    outcomeCodes,
+    // Legacy outcome_codes rows are intentionally ignored. E.i.7 is the
+    // application-controlled ICH codelist in services/e2b-r3/outcome-codes.ts.
+    outcomeCodes: {},
     reporterQualificationMappings,
   };
 }
@@ -122,8 +121,12 @@ export const regulatoryConfig = {
    *  is an expected, common, honestly-represented state (see
    *  unconfiguredOrgRegulatoryConfig). */
   get: async (): Promise<OrgRegulatoryConfig> => {
-    const [configRow, mappingRows] = await Promise.all([fetchConfigRow(), fetchMappingRows()]);
-    return configFromRows(configRow, mappingRows);
+    const [configRow, mappingRows, terms] = await Promise.all([
+      fetchConfigRow(),
+      fetchMappingRows(),
+      termMappings.listAll(),
+    ]);
+    return { ...configFromRows(configRow, mappingRows), termMappings: terms };
   },
 
   /** Partial update — only the fields present in `patch` change. Reads
@@ -177,87 +180,6 @@ export const regulatoryConfig = {
         ? `sender=${before.sender_organization ?? "—"}/${before.sender_identifier ?? "—"}, receiver=${before.receiver_identifier ?? "—"}, reportType=${before.report_type ?? "—"} (confirmed=${before.report_type_confirmed})`
         : "not configured",
       newValue: `sender=${merged.sender_organization ?? "—"}/${merged.sender_identifier ?? "—"}, receiver=${merged.receiver_identifier ?? "—"}, reportType=${merged.report_type ?? "—"} (confirmed=${merged.report_type_confirmed})`,
-    });
-  },
-
-  /** Sets one outcome's confirmed E.i.7 code — merges into the existing
-   *  outcome_codes jsonb rather than replacing the whole object, so
-   *  configuring one outcome never clobbers another admin's earlier
-   *  entry for a different one. */
-  saveOutcomeCode: async (outcome: ReactionOutcome, code: string): Promise<void> => {
-    const before = await fetchConfigRow();
-    const previousCodes =
-      before?.outcome_codes && typeof before.outcome_codes === "object"
-        ? (before.outcome_codes as Partial<Record<ReactionOutcome, string>>)
-        : {};
-    const nextCodes = { ...previousCodes, [outcome]: code };
-    const { error } = await supabase.from("pv_regulatory_config").upsert(
-      {
-        environment: before?.environment ?? "uat",
-        sender_organization: before?.sender_organization ?? null,
-        sender_identifier: before?.sender_identifier ?? null,
-        sender_type: before?.sender_type ?? null,
-        sender_person_responsible: before?.sender_person_responsible ?? null,
-        receiver_organization: before?.receiver_organization ?? null,
-        receiver_identifier: before?.receiver_identifier ?? null,
-        report_type: before?.report_type ?? null,
-        report_type_confirmed: before?.report_type_confirmed ?? false,
-        case_id_prefix: before?.case_id_prefix ?? null,
-        outcome_codes: toJson(nextCodes),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "organization_id" },
-    );
-    if (error) throw new Error(error.message);
-    await recordAudit({
-      action: "REGULATORY_CONFIG_OUTCOME_CODE_UPDATED",
-      entity: "RegulatoryConfig",
-      entityId: `outcome:${outcome}`,
-      previousValue: previousCodes[outcome] ?? "not configured",
-      newValue: code,
-    });
-  },
-
-  /** Unsets one outcome's code, returning it to "not configured".
-   *
-   *  Saving a code was possible from the start; unsetting one was not, so
-   *  a code entered by mistake could only ever be replaced by another
-   *  wrong one. Removing the key entirely — rather than storing "" — keeps
-   *  the stored shape identical to a code that was never entered, which is
-   *  what every reader of outcomeCodes already understands. */
-  clearOutcomeCode: async (outcome: ReactionOutcome): Promise<void> => {
-    const before = await fetchConfigRow();
-    const previousCodes =
-      before?.outcome_codes && typeof before.outcome_codes === "object"
-        ? (before.outcome_codes as Partial<Record<ReactionOutcome, string>>)
-        : {};
-    if (previousCodes[outcome] === undefined) return;
-    const nextCodes = { ...previousCodes };
-    delete nextCodes[outcome];
-    const { error } = await supabase.from("pv_regulatory_config").upsert(
-      {
-        environment: before?.environment ?? "uat",
-        sender_organization: before?.sender_organization ?? null,
-        sender_identifier: before?.sender_identifier ?? null,
-        sender_type: before?.sender_type ?? null,
-        sender_person_responsible: before?.sender_person_responsible ?? null,
-        receiver_organization: before?.receiver_organization ?? null,
-        receiver_identifier: before?.receiver_identifier ?? null,
-        report_type: before?.report_type ?? null,
-        report_type_confirmed: before?.report_type_confirmed ?? false,
-        case_id_prefix: before?.case_id_prefix ?? null,
-        outcome_codes: toJson(nextCodes),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "organization_id" },
-    );
-    if (error) throw new Error(error.message);
-    await recordAudit({
-      action: "REGULATORY_CONFIG_OUTCOME_CODE_CLEARED",
-      entity: "RegulatoryConfig",
-      entityId: `outcome:${outcome}`,
-      previousValue: previousCodes[outcome] ?? null,
-      newValue: "not configured",
     });
   },
 

@@ -42,6 +42,11 @@ export interface ParsedTable {
    *  come from" precisely. discardedRowsText is kept as a plain-string
    *  convenience projection of this, not a separate source of truth. */
   discardedRows: { row: number; text: string }[];
+  /** For each entry in `rows`, its real 1-indexed row number in the
+   *  original sheet — what a person sees in Excel. Needed because blank
+   *  and sparse rows are dropped, so "the 17th case row" is usually not
+   *  sheet row 17 + header offset. */
+  sourceRowNumbers: number[];
 }
 
 /** Normalised (lowercase, alphanumeric-only) header-concept fragments used
@@ -293,12 +298,17 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
     const [headerRow, ...dataRows] = matrix;
     if (!headerRow || headerRow.length === 0) throw new Error("No header row found.");
     const headers = headerRow.map(normalizeCell);
-    const rows = dataRows
-      .filter((r) => r.some((cell) => normalizeCell(cell).length > 0))
-      .map((r) => headers.map((_, i) => normalizeCell(r[i])));
+    const rows: string[][] = [];
+    const sourceRowNumbers: number[] = [];
+    dataRows.forEach((r, i) => {
+      if (!r.some((cell) => normalizeCell(cell).length > 0)) return;
+      rows.push(headers.map((_, c) => normalizeCell(r[c])));
+      sourceRowNumbers.push(i + 2);
+    });
     return {
       headers,
       rows,
+      sourceRowNumbers,
       sheetName,
       headerRowNumber: 1,
       skippedRows: 0,
@@ -350,6 +360,7 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
   let structuralRowsDropped = 0;
   const discardedRows: { row: number; text: string }[] = [];
   const rows: string[][] = [];
+  const sourceRowNumbers: number[] = [];
   for (let i = dataStartIndex; i < matrix.length; i++) {
     const r = headers.map((_, c) => normalizeCell(matrix[i]![c]));
     const populated = r.filter((cell) => cell.length > 0).length;
@@ -368,6 +379,7 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
       continue;
     }
     rows.push(r);
+    sourceRowNumbers.push(i + 1);
   }
   if (structuralRowsDropped > 0) {
     warnings.push(
@@ -384,6 +396,7 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
     warnings,
     discardedRowsText: discardedRows.map((d) => d.text),
     discardedRows,
+    sourceRowNumbers,
   };
 }
 

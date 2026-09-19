@@ -10,8 +10,16 @@ import {
   type PreflightSummary,
   type ValidationError,
 } from "./validation";
+import {
+  applyFinalizedC17,
+  assessC17,
+  latestC17AssessmentsByCase,
+  listC17Assessments,
+  saveC17Recommendation,
+} from "./assessment";
 import { splitIntoBatches, batchFilename } from "./batching";
 import { serializeBatchToXml } from "./serializer";
+import { withOrgReactionTerms } from "./term-mappings";
 import { meddra29Provider, unavailableWhoDrugProvider } from "./coding-provider";
 import {
   isTransmissionConfigConfirmed,
@@ -24,7 +32,11 @@ import {
 import { getSourceProfile } from "./source-profiles/registry";
 import type { SourceProfile } from "./source-profiles/types";
 import { parseDiscoveredLegend, validateDiscoveredCodebook } from "./source-profiles/legend-parser";
-import { resolveRuntimeSourceProfile } from "./source-profiles/runtime-profile";
+import {
+  applyParsingOptions,
+  resolveRuntimeSourceProfile,
+} from "./source-profiles/runtime-profile";
+import type { LineListParsingOptions } from "@/types/pv";
 import {
   fieldsCovered,
   type DiscoveredSourceCodebook,
@@ -136,7 +148,75 @@ export interface ValidatedExportResult {
  *  generic Record<string, string|undefined> shape mapSourceRecordToPVCase
  *  expects, so any SourceProfile's columnMap can be applied uniformly. */
 function toSourceRecord(row: ParsedRow): Record<string, string | undefined> {
-  return { ...row } as Record<string, string | undefined>;
+  // A form that keeps its reaction only in a code column still has a
+  // reaction; without this the case would report "no reaction" instead of
+  // decoding the code.
+  const reaction = row.reaction?.trim() ? row.reaction : row.reaction_code;
+  return { ...row, reaction } as Record<string, string | undefined>;
+}
+
+/** The fields of a stored line-list job the E2B mapping needs. */
+export interface MappableJob {
+  id: string;
+  filename: string;
+  sheetName?: string | undefined;
+  sourceProfileId?: string | undefined;
+  outcomeVocabulary?: OutcomeVocabulary | undefined;
+  parsingOptions?: LineListParsingOptions | undefined;
+  discardedRows?: { row: number; text: string }[] | undefined;
+  parsedRows?: ParsedRow[] | undefined;
+}
+
+/**
+ * A line-list job's rows -> PVCases, exactly as E2B export reads them.
+ * Line-list validation calls this too, so the line-list page reports the
+ * same blockers export would hit — the two pages can never disagree about
+ * what a row means.
+ */
+export async function mapJobToCases(
+  job: MappableJob,
+  regulatoryConfig: OrgRegulatoryConfig,
+  explicitProfile?: SourceProfile,
+): Promise<{
+  cases: PVCase[];
+  mappingWarnings: MappingWarning[];
+  sourceProfile: SourceProfile;
+  runtimeProfile: SourceProfile;
+  discovered: DiscoveredSourceCodebook;
+}> {
+  const sourceProfile = explicitProfile ?? resolveProfileForJob(job);
+  const rows: ParsedRow[] = job.parsedRows ?? [];
+  const providers = {
+    meddra: withOrgReactionTerms(meddra29Provider, regulatoryConfig.termMappings),
+    whodrug: unavailableWhoDrugProvider,
+  };
+  const processedAt = new Date().toISOString();
+
+  // Discover this job's own codebook from whatever legend text its upload
+  // actually contained (see tabular-parse.ts's discardedRows), then layer
+  // the organization's own decisions on top — reporter-qualification
+  // mappings and outcome words (see mergeOrgRegulatoryConfigIntoProfile).
+  const { runtimeProfile: discoveredProfile, discovered } = discoverAndApplyCodebook(
+    sourceProfile,
+    job.discardedRows,
+    { file: job.filename, sheet: job.sheetName },
+  );
+  const runtimeProfile = mergeOrgRegulatoryConfigIntoProfile(discoveredProfile, regulatoryConfig);
+
+  const cases: PVCase[] = [];
+  const mappingWarnings: MappingWarning[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const { pvCase, warnings } = await mapSourceRecordToPVCase(
+      toSourceRecord(rows[i]!),
+      runtimeProfile,
+      regulatoryConfig.transmission,
+      { jobId: job.id, sourceFile: job.filename, sourceRow: i + 1, processedAt },
+      providers,
+    );
+    cases.push(pvCase);
+    mappingWarnings.push(...warnings);
+  }
+  return { cases, mappingWarnings, sourceProfile, runtimeProfile, discovered };
 }
 
 /** The SourceProfile a stored job should be decoded with. Falls back to
@@ -146,6 +226,7 @@ function toSourceRecord(row: ParsedRow): Record<string, string | undefined> {
 function resolveProfileForJob(job: {
   sourceProfileId?: string | undefined;
   outcomeVocabulary?: OutcomeVocabulary | undefined;
+  parsingOptions?: LineListParsingOptions | undefined;
 }): SourceProfile {
   let profile: SourceProfile;
   try {
@@ -157,7 +238,12 @@ function resolveProfileForJob(job: {
   // Without this the two disagree: a term accepted there would still
   // quarantine here, which is the exact split the runtime-profile work
   // existed to remove.
-  return withOutcomeVocabulary(profile, job.outcomeVocabulary);
+  // The line list's saved separator decisions — the same ones its
+  // line-list validation used — so the two never read the file differently.
+  return applyParsingOptions(
+    withOutcomeVocabulary(profile, job.outcomeVocabulary),
+    job.parsingOptions,
+  );
 }
 
 export async function runValidatedPreflightForJob(
@@ -169,40 +255,38 @@ export async function runValidatedPreflightForJob(
   explicitProfile?: SourceProfile,
 ): Promise<ValidatedExportResult> {
   const job = await readJob(jobId);
-  const sourceProfile = explicitProfile ?? resolveProfileForJob(job);
-  const rows: ParsedRow[] = job.parsedRows ?? [];
-  const providers = { meddra: meddra29Provider, whodrug: unavailableWhoDrugProvider };
-  const processedAt = new Date().toISOString();
-
-  // Discover this job's own codebook from whatever legend text its
-  // upload actually contained (see tabular-parse.ts's discardedRows) —
-  // never from a hand-authored mapping on the base profile — then layer
-  // the ORG's persisted reporter-qualification mappings on top (see
-  // regulatory-config.ts's mergeOrgRegulatoryConfigIntoProfile) — the
-  // profile's own hardcoded map, if any, is kept only as a seed/fallback,
-  // never the authoritative source once an org has its own mappings.
-  const { runtimeProfile: discoveredProfile, discovered } = discoverAndApplyCodebook(
-    sourceProfile,
-    job.discardedRows,
-    {
-      file: job.filename,
-      sheet: job.sheetName,
-    },
+  const { cases, mappingWarnings, sourceProfile, discovered } = await mapJobToCases(
+    job,
+    regulatoryConfig,
+    explicitProfile,
   );
-  const runtimeProfile = mergeOrgRegulatoryConfigIntoProfile(discoveredProfile, regulatoryConfig);
 
-  const cases: PVCase[] = [];
-  const mappingWarnings: MappingWarning[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const { pvCase, warnings } = await mapSourceRecordToPVCase(
-      toSourceRecord(rows[i]!),
-      runtimeProfile,
-      regulatoryConfig.transmission,
-      { jobId, sourceFile: job.filename, sourceRow: i + 1, processedAt },
-      providers,
-    );
-    cases.push(pvCase);
-    mappingWarnings.push(...warnings);
+  // Regulatory assessment is deliberately separate from source mapping.
+  // Missing assessments remain unresolved and therefore continue to block
+  // export; only a persisted human-finalized decision reaches PVCase.
+  const storedAssessments = await listC17Assessments(jobId);
+  const assessmentsByCase = new Map(
+    latestC17AssessmentsByCase(storedAssessments).map((assessment) => [
+      assessment.caseId,
+      assessment,
+    ]),
+  );
+  for (let i = 0; i < cases.length; i += 1) {
+    const current = cases[i]!;
+    let assessment = assessmentsByCase.get(current.internalCaseId);
+    const currentAssessment = assessC17(current, { jobId });
+    if (
+      !assessment ||
+      assessment.sourceSnapshot.caseHash !== currentAssessment.sourceSnapshot.caseHash
+    ) {
+      const { id: _currentAssessmentId, ...recommendation } = currentAssessment;
+      assessment = await saveC17Recommendation({
+        ...recommendation,
+        assessmentVersion: (assessment?.assessmentVersion ?? 0) + 1,
+        ...(assessment?.id ? { supersedesAssessmentId: assessment.id } : {}),
+      });
+    }
+    cases[i] = applyFinalizedC17(current, assessment);
   }
 
   // Both layers — validateSourceDecoding (codebook-unresolved/quarantined
@@ -212,10 +296,9 @@ export async function runValidatedPreflightForJob(
     ...validateSourceDecoding(c),
     ...validateBusinessRules(c),
   ]);
-  // outcomeCodes is always passed (never omitted) here — this is the one
-  // caller that actually has the org's regulatory config, so the E.i.7
-  // codelist check must always run, not silently skip.
-  const preflight = runPreflight(cases, regulatoryConfig.outcomeCodes);
+  // E.i.7 uses the application-controlled ICH codelist. It is not an
+  // organization configuration gate.
+  const preflight = runPreflight(cases);
   const readyForValidatedExport = preflight.status === "READY_FOR_VALIDATED_IMPORT";
 
   // Read the job's own recorded override (if any) — never passed in by
@@ -361,7 +444,6 @@ export async function generateValidatedExportForJob(
       senderId: regulatoryConfig.transmission.sender.identifier,
       receiverId: regulatoryConfig.transmission.receiver.identifier,
       transmissionTimestamp: now,
-      outcomeCodes: regulatoryConfig.outcomeCodes,
     }),
     caseCount: batch.cases.length,
   }));

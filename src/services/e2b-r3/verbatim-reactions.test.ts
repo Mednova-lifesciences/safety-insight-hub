@@ -3,6 +3,7 @@ import { decodeReactionField, VERBATIM_NO_CODEBOOK } from "./mapping";
 import { getSourceProfile, listSourceProfiles } from "./source-profiles/registry";
 import { DEFAULT_SOURCE_PROFILE_ID } from "@/services/api/linelist";
 import type { SourceProfile } from "./source-profiles/types";
+import { applyParsingOptions } from "./source-profiles/runtime-profile";
 
 const verbatim = getSourceProfile("generic-verbatim");
 const coded = getSourceProfile("ondo-aefi");
@@ -32,7 +33,18 @@ describe("a source that writes reactions as words needs no codebook", () => {
     ]);
     expect(
       decodeReactionField("Fever; Rash / Swelling", verbatim).map((d) => d.sourceTerm),
-    ).toEqual(["Fever", "Rash", "Swelling"]);
+    ).toEqual(["Fever", "Rash / Swelling"]);
+  });
+
+  it("keeps a slash phrase whole unless the line list opts in to slash as a separator", () => {
+    expect(decodeReactionField("Rash/Urticaria", verbatim).map((d) => d.sourceTerm)).toEqual([
+      "Rash/Urticaria",
+    ]);
+    const optedIn = applyParsingOptions(verbatim, { slashSeparatesReactions: true });
+    expect(decodeReactionField("Rash/Urticaria", optedIn).map((d) => d.sourceTerm)).toEqual([
+      "Rash",
+      "Urticaria",
+    ]);
   });
 
   it("does not split on a period, which belongs inside real terms", () => {

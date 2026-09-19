@@ -283,6 +283,25 @@ export interface IntakeConversationDetail extends IntakeConversation {
   missing: string[];
 }
 
+/** How the separators that are genuinely ambiguous in AEFI line lists are
+ *  read for ONE uploaded line list. Decided once per line list and saved on
+ *  the job, so line-list validation, E2B preflight and E2B export all read
+ *  the file the same way — and so a finalized C.1.7 decision (bound to the
+ *  exact case data) stays valid across reloads. */
+export interface LineListParsingOptions {
+  /** "Rash/Urticaria" is usually ONE source phrase (the Ondo legend itself
+   *  defines codes that way), so "/" never splits reactions unless the
+   *  source owner confirms it separates distinct reactions. */
+  slashSeparatesReactions?: boolean | undefined;
+  /** Treat the whole product cell as one medicinal product name, keeping
+   *  any commas/semicolons inside it. */
+  productCellIsOneName?: boolean | undefined;
+  /** Who last changed these options, and when — they change what reaches
+   *  the regulator, so they are attributable. */
+  setBy?: string | undefined;
+  setAt?: string | undefined;
+}
+
 export interface LineListJob {
   id: string;
   filename: string;
@@ -332,6 +351,19 @@ export interface LineListJob {
    *  E2B_NON_OVERRIDABLE_CODES in src/services/e2b-r3/validation.ts. A
    *  reason is mandatory, exactly like e2bOverride. */
   validatedE2bOverride?: { by: string; at: string; reason: string } | undefined;
+  parsingOptions?: LineListParsingOptions | undefined;
+  /** Real 1-indexed sheet row of each case row, parallel to parsedRows —
+   *  what a person sees in Excel. Absent on jobs uploaded before this was
+   *  recorded and on jobs created from cases. */
+  sourceRowNumbers?: number[] | undefined;
+  /** Cases whose own data would stop them reaching VigiFlow, as of the
+   *  last check (see linelist-e2b-checks.ts). */
+  e2bBlockedCases?: number | undefined;
+  /** Where those blockers are fixed — lets a Settings change recheck only
+   *  the line lists it can affect. */
+  openFixIn?: LineListFixLocation[] | undefined;
+  /** When the deterministic + E2B checks last ran. */
+  checkedAt?: string | undefined;
 }
 
 export type LineListSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
@@ -367,7 +399,7 @@ export interface LineListIssue {
    *  independently identified by both engines and merged, this is the
    *  primary/authoritative one (rule, when both agree) — see `sources`
    *  for the complete provenance. */
-  source?: "ai" | "rule";
+  source?: "ai" | "rule" | undefined;
   /** Complete provenance — ["rule"], ["ai"], or ["rule","ai"] when both
    *  engines independently identified the same underlying issue and were
    *  merged into one finding. Absent on issues predating this field;
@@ -378,20 +410,34 @@ export interface LineListIssue {
    *  on ones no classification was assigned to (e.g. the file-level
    *  NO_COLUMNS_MAPPED finding) — those are never merged across engines,
    *  which is the safe default. */
-  issueType?: LineListIssueType;
+  issueType?: LineListIssueType | undefined;
   /** Canonical field name(s) this finding is actually about — more than
    *  one for a cross-field finding (e.g. ["vaccination_date","onset_date"]
    *  for a chronology conflict). A field-level finding on just
    *  ["seriousness"] must never be treated as equivalent to a cross-field
    *  finding on ["seriousness","outcome"], even on the same row. */
-  affectedFields?: string[];
+  affectedFields?: string[] | undefined;
   /** LOW means the finding depended on inferring an unfamiliar column's
    *  role or a judgment call rather than an exact rule — auto-fix skips
    *  these and leaves them for a human to decide either way. Rule-engine
    *  findings are always HIGH by construction. Absent on issues persisted
    *  before this distinction existed. */
-  confidence?: "HIGH" | "LOW";
+  confidence?: "HIGH" | "LOW" | undefined;
+  /** True when this finding would stop the case reaching VigiFlow in a
+   *  validated E2B(R3) export — set for findings that come from the same
+   *  E2B engine export uses (see linelist-e2b-checks.ts). */
+  blocksE2b?: boolean | undefined;
+  /** Where a person resolves it. FILE: correct the line list itself.
+   *  OUTCOME_TERMS / REPORTER_DESIGNATIONS: decide the word once in
+   *  Settings. REACTION_TERMS: pick the MedDRA term once (line-list page).
+   *  SOURCE_CODEBOOK: the form's code legend is missing that code. */
+  fixIn?: LineListFixLocation | undefined;
+  /** The E2B(R3) element concerned, e.g. "E.i.7". */
+  e2bField?: string | undefined;
 }
+
+export type LineListFixLocation =
+  "FILE" | "OUTCOME_TERMS" | "REPORTER_DESIGNATIONS" | "REACTION_TERMS" | "SOURCE_CODEBOOK";
 
 /** The 13 sections of the NAFDAC PSUR/PBRER Evaluation Form V4
  *  (docs/NAFDAC_PSUR_Template_V4_Proposed.docx) — the authoritative
