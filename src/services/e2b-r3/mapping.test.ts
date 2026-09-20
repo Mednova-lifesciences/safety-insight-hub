@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { serializeBatchToXml } from "./serializer";
 import {
   deriveInitials,
   mapConceptToOutcome,
@@ -614,5 +617,243 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
     );
     expect(pvCase.reporter.qualificationCode).toBeUndefined();
     expect(pvCase.reporter.qualificationVerbatim).toBe("SOMETHING UNRECOGNISED");
+  });
+});
+
+/**
+ * Country, end to end through the real mapper: C.2.r.3 (reporter),
+ * E.i.9 (where the reaction happened) and C.1.1's country component are
+ * three separate questions, and one line list may answer them differently
+ * on every row.
+ */
+describe("country resolution through the mapper", () => {
+  const config: E2bTransmissionConfig = {
+    ...UNCONFIRMED_DEFAULT_CONFIG,
+    sender: { organization: "MedNova", identifier: "MEDNOVA-SND" },
+    receiver: { identifier: "NAFDAC-RCV" },
+  };
+  const genericProfile = { ...ondoAefiProfile, id: "generic-test", country: undefined };
+
+  async function caseFor(
+    row: Record<string, string | undefined>,
+    profile = genericProfile,
+    sourceRow = 1,
+  ) {
+    const { pvCase } = await mapSourceRecordToPVCase(
+      {
+        case_id: `C-${sourceRow}`,
+        patient_identifier: "A.B.",
+        product: "Penta",
+        reaction: "Fever",
+        outcome: "Recovered",
+        reporter_designation: "Nurse",
+        ...row,
+      },
+      profile,
+      config,
+      {
+        jobId: "job-1",
+        sourceFile: "t.csv",
+        sourceRow,
+        processedAt: "2026-09-19T00:00:00Z",
+      },
+      { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider },
+    );
+    return pvCase;
+  }
+
+  it.each([
+    ["Nigeria", "NG"],
+    ["Kenya", "KE"],
+    ["Ghana", "GH"],
+    ["GB", "GB"],
+    ["us", "US"],
+  ])("takes the row's own reporter country %s as C.2.r.3", async (written, code) => {
+    const pvCase = await caseFor({ reporter_country: written });
+    expect(pvCase.reporter.country).toBe(code);
+    expect(pvCase.caseSafetyReportId.startsWith(`${code}-`)).toBe(true);
+  });
+
+  it("falls back to the profile's country, then to NG, when the row is silent", async () => {
+    const fromProfile = await caseFor({}, { ...genericProfile, country: "KE" });
+    expect(fromProfile.reporter.country).toBe("KE");
+    expect(fromProfile.caseSafetyReportId.startsWith("KE-")).toBe(true);
+
+    // Neither the row nor the profile says: the application's own fallback.
+    const fallback = await caseFor({});
+    expect(fallback.reporter.country).toBe("NG");
+    expect(fallback.caseSafetyReportId.startsWith("NG-")).toBe(true);
+  });
+
+  it("treats a value that names no country as no answer at all", async () => {
+    for (const notACountry of ["XX", "ZZ", "Lagos", ""]) {
+      const pvCase = await caseFor({ reporter_country: notACountry });
+      expect(pvCase.reporter.country).toBe("NG");
+    }
+  });
+
+  it("keeps the reporter's country and the reaction's country apart", async () => {
+    // Reported from Kenya; the reaction happened in Nigeria.
+    const pvCase = await caseFor({ reporter_country: "KE", reaction_country: "NG" });
+    expect(pvCase.reporter.country).toBe("KE");
+    expect(pvCase.reactions[0]!.countryOfOccurrence).toBe("NG");
+    // C.1.1 follows the PRIMARY SOURCE, not the reaction (ICH Q&A).
+    expect(pvCase.caseSafetyReportId.startsWith("KE-")).toBe(true);
+  });
+
+  it("never invents E.i.9 from the reporter's country", async () => {
+    const pvCase = await caseFor({ reporter_country: "NG" });
+    expect(pvCase.reactions[0]!.countryOfOccurrence).toBeUndefined();
+  });
+
+  it("does not let the reaction country change C.1.1", async () => {
+    const base = await caseFor({ reporter_country: "NG" });
+    const elsewhere = await caseFor({ reporter_country: "NG", reaction_country: "GH" });
+    expect(elsewhere.caseSafetyReportId).toBe(base.caseSafetyReportId);
+  });
+
+  it("resolves country per case, so one file can carry several", async () => {
+    const rows = [
+      { reporter_country: "NG" },
+      { reporter_country: "Kenya" },
+      { reporter_country: "GH" },
+      {}, // nothing said — application fallback
+    ];
+    const cases = await Promise.all(rows.map((row, i) => caseFor(row, genericProfile, i + 1)));
+    expect(cases.map((c) => c.reporter.country)).toEqual(["NG", "KE", "GH", "NG"]);
+    expect(cases.map((c) => c.caseSafetyReportId)).toEqual([
+      "NG-MEDNOVA-C-1",
+      "KE-MEDNOVA-C-2",
+      "GH-MEDNOVA-C-3",
+      "NG-MEDNOVA-C-4",
+    ]);
+  });
+
+  it("gives the same case the same C.1.1 every time", async () => {
+    const once = await caseFor({ reporter_country: "KE" });
+    const twice = await caseFor({ reporter_country: "KE" });
+    expect(once.caseSafetyReportId).toBe(twice.caseSafetyReportId);
+    // C.1.8.1 carries the same value at first creation.
+    expect(once.worldwideUniqueId).toBe(once.caseSafetyReportId);
+  });
+});
+
+describe("E.i.7 outcome through the mapper", () => {
+  it.each([
+    ["Recovered", "RECOVERED"],
+    ["resolved", "RECOVERED"],
+    ["Fully recovered", "RECOVERED"],
+    ["Recovering", "RECOVERING"],
+    ["Resolving", "RECOVERING"],
+    ["Improving", "RECOVERING"],
+    ["Not recovered", "NOT_RECOVERED"],
+    ["Not resolved", "NOT_RECOVERED"],
+    ["Ongoing", "NOT_RECOVERED"],
+    ["Persistent", "NOT_RECOVERED"],
+    ["Recovered with sequelae", "RECOVERED_WITH_SEQUELAE"],
+    ["Resolved with residual effects", "RECOVERED_WITH_SEQUELAE"],
+    ["Fatal", "FATAL"],
+    ["Died", "FATAL"],
+    ["Unknown", "UNKNOWN"],
+    ["Outcome not reported", "UNKNOWN"],
+  ])("maps the source word %s", (word, expected) => {
+    expect(mapConceptToOutcome(word)).toBe(expected);
+  });
+
+  it("does not recognise a word nobody has decided on", () => {
+    // It goes to Settings -> Outcome terms for a person to decide once,
+    // rather than being quietly called Unknown.
+    expect(mapConceptToOutcome("Hospitalized")).toBeUndefined();
+    expect(mapConceptToOutcome("Discharged")).toBeUndefined();
+  });
+});
+
+/**
+ * One batch carrying every case shape this work had to get right, built
+ * through the real mapper and serializer and kept as an artifact so the
+ * ICH XSD can be run against it outside the test process.
+ */
+describe("mixed-country, every-outcome batch", () => {
+  it("writes an artifact whose every case is internally consistent", async () => {
+    const config: E2bTransmissionConfig = {
+      ...UNCONFIRMED_DEFAULT_CONFIG,
+      sender: { organization: "MedNova", identifier: "MEDNOVA-SND" },
+      receiver: { identifier: "NAFDAC-RCV" },
+    };
+    const profile = { ...ondoAefiProfile, id: "generic-test", country: undefined };
+    const rows = [
+      { reporter_country: "NG", outcome: "Recovered" },
+      { reporter_country: "Kenya", outcome: "Recovering", reaction_country: "NG" },
+      { reporter_country: "GH", outcome: "Not recovered" },
+      { reporter_country: "GB", outcome: "Recovered with sequelae" },
+      { reporter_country: "US", outcome: "Fatal" },
+      { reporter_country: "NG", outcome: "Unknown" },
+      { outcome: "Recovered" }, // no country at all -> application fallback
+      { reporter_country: "NG" }, // no outcome at all -> Unknown
+      { reporter_country: "NG", outcome: "Recovered", reaction: "Fever, Rash" }, // two reactions
+    ];
+    const cases = await Promise.all(
+      rows.map(async (row, i) => {
+        const { pvCase } = await mapSourceRecordToPVCase(
+          {
+            case_id: `MIX-${i + 1}`,
+            patient_identifier: "A.B.",
+            product: "Penta",
+            reaction: "Fever",
+            reporter_designation: "Nurse",
+            ...row,
+          },
+          profile,
+          config,
+          {
+            jobId: "job-mix",
+            sourceFile: "mixed.csv",
+            sourceRow: i + 1,
+            processedAt: "2026-09-19T00:00:00Z",
+          },
+          { meddra: unavailableMedDraProvider, whodrug: unavailableWhoDrugProvider },
+        );
+        return pvCase;
+      }),
+    );
+
+    const xml = serializeBatchToXml(cases, {
+      batchId: "MEDNOVA-MIXED-0001",
+      senderId: "MEDNOVA-SND",
+      receiverId: "NAFDAC-RCV",
+      transmissionTimestamp: new Date("2026-09-19T00:00:00Z"),
+    });
+    const dir = join(__dirname, "..", "..", "..", "artifacts", "e2b-r3");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "test-mixed-country-outcomes.xml"), xml, "utf-8");
+
+    // Country component of C.1.1 follows the primary source, per case.
+    expect(cases.map((c) => c.caseSafetyReportId.slice(0, 2))).toEqual([
+      "NG",
+      "KE",
+      "GH",
+      "GB",
+      "US",
+      "NG",
+      "NG",
+      "NG",
+      "NG",
+    ]);
+    // Every E.i.7 in the document is one of the six ICH values.
+    const outcomes = [
+      ...xml.matchAll(/displayName="outcome"\/><value xsi:type="CE" code="(\d+)"/g),
+    ].map((m) => m[1]);
+    expect(outcomes.length).toBeGreaterThanOrEqual(cases.length);
+    expect(outcomes.every((code) => ["0", "1", "2", "3", "4", "5"].includes(code!))).toBe(true);
+    expect(outcomes).not.toContain("6");
+    // E.i.9 only where the source gave one — exactly one case here did.
+    expect([...xml.matchAll(/<locatedPlace[^>]*><code code="(\w+)"/g)].map((m) => m[1])).toEqual([
+      "NG",
+    ]);
+    // N.2.r.1 == C.1.1 throughout.
+    const messageIds = [...xml.matchAll(/<PORR_IN049016UV><id extension="([^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    expect(messageIds).toEqual(cases.map((c) => c.caseSafetyReportId));
   });
 });

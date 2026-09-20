@@ -81,9 +81,11 @@ function configFromRows(
       reportTypeConfirmed: configRow.report_type_confirmed === true,
       caseIdPrefix: configRow.case_id_prefix ?? undefined,
     },
-    // Legacy outcome_codes rows are intentionally ignored. E.i.7 is the
-    // application-controlled ICH codelist in services/e2b-r3/outcome-codes.ts.
-    outcomeCodes: {},
+    // The legacy pv_regulatory_config.outcome_codes column is read by
+    // nothing: E.i.7 is the application-controlled ICH codelist in
+    // services/e2b-r3/outcome-codes.ts, and the field it used to populate
+    // is gone. The column itself is left in place — dropping it needs a
+    // migration this change does not require.
     reporterQualificationMappings,
   };
 }

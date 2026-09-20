@@ -18,6 +18,7 @@ import type { MedDraCodingProvider, WhoDrugCodingProvider } from "./coding-provi
 import type { DelimiterConfig, SourceProfile } from "./source-profiles/types";
 import type { E2bTransmissionConfig } from "./transmission-config";
 import { buildCaseSafetyReportId } from "./case-identifier";
+import { resolveReactionCountry, resolveReporterCountry } from "./country";
 import { parseCompoundSourceValue } from "./compound-source-parser";
 import { normalizeDesignationKey } from "./regulatory-config";
 
@@ -47,6 +48,12 @@ export interface RawLineListRow {
   dose?: string | undefined;
   reporter_designation?: string | undefined;
   reporter_phone?: string | undefined;
+  /** C.2.r.3 — the reporter's/primary source's country, when the file has
+   *  such a column. */
+  reporter_country?: string | undefined;
+  /** E.i.9 — the country the reaction occurred in, when the file says.
+   *  A different fact from reporter_country. */
+  reaction_country?: string | undefined;
   is_followup?: string | undefined;
   previous_case_id?: string | undefined;
 }
@@ -81,6 +88,8 @@ export function applyColumnMap(
     seriousness: get(profile.columnMap.seriousness),
     reporter_designation: get(profile.columnMap.reporterDesignation),
     reporter_phone: get(profile.columnMap.reporterPhone),
+    reporter_country: get(profile.columnMap.reporterCountry),
+    reaction_country: get(profile.columnMap.reactionCountry),
     is_followup: get(profile.columnMap.isFollowUp),
     previous_case_id: get(profile.columnMap.previousCaseId),
   };
@@ -229,20 +238,69 @@ export function resolveFieldConcept<T>(
  *  "Observed overnight") is never guessed into the nearest-looking entry
  *  — see resolveFieldConcept. */
 const CANONICAL_OUTCOME_CONCEPTS: Record<string, ReactionOutcome> = {
+  // 1 — recovered / resolved
   RECOVERED: "RECOVERED",
   RESOLVED: "RECOVERED",
+  FULLYRECOVERED: "RECOVERED",
+  FULLYRESOLVED: "RECOVERED",
+  RECOVEREDCOMPLETELY: "RECOVERED",
+  COMPLETELYRECOVERED: "RECOVERED",
+  RECOVERY: "RECOVERED",
+  RECOVERYCOMPLETE: "RECOVERED",
+  RESOLUTION: "RECOVERED",
+  // 2 — recovering / resolving
   RECOVERING: "RECOVERING",
   RESOLVING: "RECOVERING",
+  IMPROVING: "RECOVERING",
+  IMPROVED: "RECOVERING",
+  IMPROVEMENT: "RECOVERING",
+  GETTINGBETTER: "RECOVERING",
+  SYMPTOMSIMPROVING: "RECOVERING",
+  RECOVERYONGOING: "RECOVERING",
+  RESOLUTIONONGOING: "RECOVERING",
+  // 3 — not recovered / not resolved / ongoing
   NOTRECOVERED: "NOT_RECOVERED",
   NOTRESOLVED: "NOT_RECOVERED",
+  NOTYETRECOVERED: "NOT_RECOVERED",
   ONGOING: "NOT_RECOVERED",
+  STILLONGOING: "NOT_RECOVERED",
+  PERSISTENT: "NOT_RECOVERED",
+  PERSISTING: "NOT_RECOVERED",
+  PERSISTENTSYMPTOMS: "NOT_RECOVERED",
+  SYMPTOMSONGOING: "NOT_RECOVERED",
+  CONTINUING: "NOT_RECOVERED",
+  CONTINUES: "NOT_RECOVERED",
+  NOIMPROVEMENT: "NOT_RECOVERED",
+  UNRESOLVED: "NOT_RECOVERED",
+  // 4 — recovered / resolved with sequelae
   RECOVEREDWITHSEQUELAE: "RECOVERED_WITH_SEQUELAE",
   RESOLVEDWITHSEQUELAE: "RECOVERED_WITH_SEQUELAE",
+  RECOVEREDWITHSEQUELA: "RECOVERED_WITH_SEQUELAE",
+  RESOLVEDWITHSEQUELA: "RECOVERED_WITH_SEQUELAE",
+  WITHSEQUELAE: "RECOVERED_WITH_SEQUELAE",
+  RESIDUALEFFECTS: "RECOVERED_WITH_SEQUELAE",
+  RECOVEREDWITHRESIDUALEFFECTS: "RECOVERED_WITH_SEQUELAE",
+  RESOLVEDWITHRESIDUALEFFECTS: "RECOVERED_WITH_SEQUELAE",
+  RECOVEREDWITHPERMANENTEFFECTS: "RECOVERED_WITH_SEQUELAE",
+  // 5 — fatal. These are outcome-column words: the source itself has
+  // classified how the reaction ended. Nothing here reads a narrative, and
+  // no other field (seriousness, hospitalisation, causality, drug action)
+  // can produce this value.
   FATAL: "FATAL",
   DIED: "FATAL",
   DEATH: "FATAL",
   DECEASED: "FATAL",
+  // 0 — unknown
   UNKNOWN: "UNKNOWN",
+  UNKNOWNOUTCOME: "UNKNOWN",
+  OUTCOMEUNKNOWN: "UNKNOWN",
+  UNKNOWNSTATUS: "UNKNOWN",
+  NOTKNOWN: "UNKNOWN",
+  NOTAVAILABLE: "UNKNOWN",
+  OUTCOMENOTAVAILABLE: "UNKNOWN",
+  OUTCOMENOTREPORTED: "UNKNOWN",
+  NOTREPORTED: "UNKNOWN",
+  NOTSTATED: "UNKNOWN",
 };
 
 /** The canonical-mapping step for outcome — consults the active
@@ -521,13 +579,27 @@ export async function mapSourceRecordToPVCase(
     ? `${configuredPrefix}-${jobCaseCode(context.jobId)}`
     : context.jobId;
   const sendersCaseId = row.case_id?.trim() || `${caseIdPrefix}-${context.sourceRow}`;
-  // C.1.1 / C.1.8.1. The country comes from the case's own primary source
-  // (the same value that populates C.2.r.3 below), the organisation from
-  // the configured sender (C.3.2) — so a different organization, country
-  // or source form produces a correctly qualified identifier without any
-  // change here. See case-identifier.ts.
+  // C.2.r.3 — the reporter's/primary source's country: what the row says,
+  // else what this source form stands for, else the application's own
+  // fallback (country.ts documents that NG is MedNova's policy, not an ICH
+  // rule). Resolved per row, so one line list may carry cases from
+  // several countries.
+  const reporterCountry = resolveReporterCountry({
+    row: row.reporter_country,
+    profile: profile.country,
+  });
+  // E.i.9 — where the reaction happened. Only ever what the source says:
+  // never the reporter's country, and never a fallback. Per the ICH E2B(R3)
+  // Q&A this value must not influence C.1.1, and it does not: the
+  // identifier below is built from the reporter country alone.
+  const reactionCountry = resolveReactionCountry(row.reaction_country);
+
+  // C.1.1 / C.1.8.1. The country is the primary source's (C.2.r.3), the
+  // organisation the configured sender (C.3.2) — so a different
+  // organization, country or source form produces a correctly qualified
+  // identifier without any change here. See case-identifier.ts.
   const caseSafetyReportId = buildCaseSafetyReportId({
-    country: profile.country,
+    country: reporterCountry.code,
     organisation: transmissionConfig.sender.organization,
     caseNumber: sendersCaseId,
   });
@@ -556,8 +628,21 @@ export async function mapSourceRecordToPVCase(
     "outcome",
     mapConceptToOutcome,
   );
-  const outcome =
-    outcomeResolution?.status === "MAPPED" ? outcomeResolution.canonicalValue : undefined;
+  // E.i.7 is a required element, so there is no "no outcome" state to
+  // serialize: a source that says nothing about how the reaction ended is
+  // reported as Unknown (ICH E.i.7 = 0), which is what it means.
+  //
+  // A source value that IS present but unrecognised is deliberately not
+  // swept into Unknown here: it becomes HUMAN_REVIEW_REQUIRED, blocks
+  // export, and surfaces in Settings -> Outcome terms for the organization
+  // to decide once. Calling an unread word "Unknown" would quietly discard
+  // information the file actually carries.
+  const outcome: ReactionOutcome | undefined =
+    outcomeResolution?.status === "MAPPED"
+      ? outcomeResolution.canonicalValue
+      : outcomeResolution === undefined
+        ? "UNKNOWN"
+        : undefined;
 
   // A separate NUMERIC seriousness-criterion code (e.g. Ondo's "If serious
   // case select appropriate code below", distinct from the word-shaped
@@ -599,6 +684,7 @@ export async function mapSourceRecordToPVCase(
         // used to populate this.
         seriousnessCriteria,
         seriousnessCodeResolution,
+        ...(reactionCountry ? { countryOfOccurrence: reactionCountry } : {}),
       } satisfies PVReaction;
     }),
   );
@@ -718,7 +804,7 @@ export async function mapSourceRecordToPVCase(
       name: reporterNameValue,
       qualificationVerbatim: reporterDesignationRaw || undefined,
       qualificationCode,
-      country: profile.country || undefined,
+      country: reporterCountry.code,
     },
     senderOrganisation:
       transmissionConfig.sender.organization === "__UNCONFIRMED__"

@@ -25,6 +25,8 @@
  * a regulatory identifier is worse than a shorter identifier.
  */
 
+import { resolveCountryCode } from "./country";
+
 /** 100AN (developer spec 5.2). */
 export const MAX_CASE_SAFETY_REPORT_ID_LENGTH = 100;
 
@@ -54,14 +56,12 @@ function isUsable(value: string | undefined): value is string {
   return !!trimmed && trimmed !== UNCONFIRMED;
 }
 
-/** ISO 3166-1 alpha-2, or nothing. */
+/** An assigned ISO 3166-1 alpha-2 code, or nothing. Two letters is not
+ *  enough: "XX" and "ZZ" are user-assigned ranges and name no country, and
+ *  a regulatory identifier should not carry them. */
 function countrySegment(country: string | undefined): string | undefined {
   if (!isUsable(country)) return undefined;
-  const code = country
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z]/g, "");
-  return code.length === 2 ? code : undefined;
+  return resolveCountryCode(country);
 }
 
 /** The organisation, upper-cased with every separator removed — the spec

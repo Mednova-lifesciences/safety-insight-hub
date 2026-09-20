@@ -60,9 +60,27 @@ describe("C.1.1 — sender's case safety report identifier", () => {
     expect(buildCaseSafetyReportId({ organisation: "MedNova", caseNumber: "OG-901" })).toBe(
       "MEDNOVA-OG-901",
     );
+    // Not a country: no segment invented for it.
+    expect(
+      buildCaseSafetyReportId({ country: "Atlantis", organisation: "MedNova", caseNumber: "1" }),
+    ).toBe("MEDNOVA-1");
+  });
+
+  it("understands a country written out, and rejects two letters that name none", () => {
     expect(
       buildCaseSafetyReportId({ country: "Nigeria", organisation: "MedNova", caseNumber: "1" }),
-    ).toBe("MEDNOVA-1");
+    ).toBe("NG-MEDNOVA-1");
+    // XX and ZZ are ISO user-assigned ranges: they name no country and must
+    // not reach a regulatory identifier.
+    for (const notACountry of ["XX", "ZZ"]) {
+      expect(
+        buildCaseSafetyReportId({
+          country: notACountry,
+          organisation: "MedNova",
+          caseNumber: "1",
+        }),
+      ).toBe("MEDNOVA-1");
+    }
   });
 
   it("never lets unconfirmed configuration into a regulatory identifier", () => {

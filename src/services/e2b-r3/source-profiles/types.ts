@@ -73,6 +73,12 @@ export interface ColumnMap {
   seriousCode?: string;
   reporterDesignation?: string;
   reporterPhone?: string;
+  /** C.2.r.3 — the column naming the REPORTER's country, when the source
+   *  has one. Overrides SourceProfile.country for that row. */
+  reporterCountry?: string;
+  /** E.i.9 — the column naming the country the REACTION occurred in. A
+   *  separate fact from the reporter's country; never a substitute. */
+  reactionCountry?: string;
   isFollowUp?: string;
   previousCaseId?: string;
 }
@@ -103,9 +109,11 @@ export interface SourceProfile {
    *  version — see ReactionCodebook.version for that). */
   sourceVersion: string;
   effectiveDate: string;
-  /** ISO 3166-1 alpha-2 — feeds PVReporter.country when the source itself
-   *  doesn't supply a per-row country column. */
-  country: string;
+  /** ISO 3166-1 alpha-2 — the country this source form's reports come
+   *  from (C.2.r.3), used when the file itself has no reporter-country
+   *  column. Omitted by a profile that does not stand for one country;
+   *  the country resolver then applies the application fallback. */
+  country?: string;
   timezone: string;
   columnMap: ColumnMap;
   /**

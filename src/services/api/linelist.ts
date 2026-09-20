@@ -130,6 +130,15 @@ export const TARGET_FIELDS = [
   /** When the report was received/notified — E2B C.1.4 "date report was
    *  first received" and C.1.5 "date of most recent information". */
   "report_date",
+  /** E2B C.2.r.3 — the country the REPORTER/primary source is in. Named
+   *  for what it means: a bare "Country" column is not assumed to be this
+   *  one (see reaction_country), because the two are different facts and
+   *  C.1.1's country component is built from this one. */
+  "reporter_country",
+  /** E2B E.i.9 — the country the REACTION/EVENT occurred in. Never a
+   *  substitute for reporter_country: a reporter in one country can report
+   *  an event that happened in another. */
+  "reaction_country",
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
@@ -401,6 +410,28 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["ageatonset", 70],
     ["ageyears", 70],
     ["age", 30],
+  ],
+  // C.2.r.3. Only headers that actually say whose country it is: a bare
+  // "Country" is genuinely ambiguous between the reporter's and the
+  // event's, so it is left for the AI mapper's review step rather than
+  // guessed here (getting it wrong would put the wrong country into every
+  // case identifier).
+  reporter_country: [
+    ["reportercountry", 95],
+    ["countryofreporter", 95],
+    ["primarysourcecountry", 95],
+    ["countryofprimarysource", 95],
+    ["reportingcountry", 85],
+    ["sourcecountry", 80],
+  ],
+  // E.i.9.
+  reaction_country: [
+    ["reactioncountry", 95],
+    ["countryofreaction", 95],
+    ["eventcountry", 95],
+    ["countryofevent", 95],
+    ["countrywherereactionoccurred", 95],
+    ["countryofoccurrence", 90],
   ],
   report_date: [
     ["datereported", 90],

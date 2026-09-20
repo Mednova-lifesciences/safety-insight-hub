@@ -28,9 +28,6 @@ import { UNCONFIRMED_SENTINEL, type E2bTransmissionConfig } from "./transmission
  */
 export interface OrgRegulatoryConfig {
   transmission: E2bTransmissionConfig;
-  /** Legacy database field retained for backward compatibility only.
-   * E2B generation never reads it; E.i.7 is application-controlled. */
-  outcomeCodes: Partial<Record<ReactionOutcome, string>>;
   /** C.2.r.4 free-text designation (raw, as an admin typed it) -> Appendix
    *  I(F) qualification code, keyed by the SAME normalization
    *  mapping.ts/ondo-aefi.ts already use (trimmed, uppercased). A
@@ -85,7 +82,6 @@ export function unconfiguredOrgRegulatoryConfig(): OrgRegulatoryConfig {
       reportType: "4",
       reportTypeConfirmed: false,
     },
-    outcomeCodes: {},
     reporterQualificationMappings: [],
     termMappings: [],
   };

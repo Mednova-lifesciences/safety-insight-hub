@@ -273,8 +273,17 @@ export interface PVReaction {
   outcome?: ReactionOutcome | undefined;
   /** Full raw -> decoded -> canonical audit trail for how (or whether)
    *  the outcome was resolved. Always present when the source supplied a
-   *  non-blank outcome value at all. */
+   *  non-blank outcome value at all; absent when the source said nothing,
+   *  in which case `outcome` is UNKNOWN (E.i.7 = 0, the required
+   *  element's honest value) rather than missing. */
   outcomeResolution?: FieldMappingResolution<ReactionOutcome> | undefined;
+  /** E.i.9 — the ISO 3166-1 alpha-2 country the reaction/event occurred
+   *  in, when the source says. Distinct from the reporter's country
+   *  (C.2.r.3) and never derived from it: per the ICH E2B(R3) Q&A, E.i.9
+   *  is not an alternative to the reporter's country code, and a change
+   *  to it must never change C.1.1. Absent when unknown — a fabricated
+   *  place of occurrence is a clinical claim, not a default. */
+  countryOfOccurrence?: string | undefined;
   /** E.i.3.2a-f — six independent booleans. Left entirely empty (not
    *  guessed) when the source only provides an aggregate case-level value
    *  like "NON SERIOUS" — see PVCase.aggregateSeriousnessAsReported for

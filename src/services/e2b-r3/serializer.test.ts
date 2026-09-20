@@ -394,3 +394,150 @@ describe("serializeBatchToXml — existing behaviour", () => {
     expect(multi).toMatch(/NG-MEDNOVA-000001[\s\S]*NG-MEDNOVA-000002[\s\S]*NG-MEDNOVA-000003/);
   });
 });
+
+/**
+ * E.i.7 — Outcome of Reaction/Event at the Time of Last Observation.
+ * Required; ICH codelist OID 2.16.840.1.113883.3.989.2.1.1.11, values
+ * 0 Unknown, 1 Recovered/Resolved, 2 Recovering/Resolving, 3 Not
+ * recovered/Not resolved/Ongoing, 4 Recovered/Resolved with sequelae,
+ * 5 Fatal. There is no 6.
+ */
+describe("E.i.7 — outcome", () => {
+  const E17 = /displayName="outcome"\/><value xsi:type="CE" code="(\d+)" codeSystem="([\d.]+)"/;
+  const outcomeOf = (c: PVCase) =>
+    serializeBatchToXml([c], {
+      batchId: "B",
+      senderId: "S",
+      receiverId: "R",
+      transmissionTimestamp: new Date("2026-09-09T08:19:00Z"),
+    }).match(E17);
+
+  const withOutcome = (outcome: PVCase["reactions"][number]["outcome"]) => {
+    const c = baseCase();
+    const reaction = { ...c.reactions[0]! };
+    if (outcome) reaction.outcome = outcome;
+    else delete reaction.outcome;
+    return { ...c, reactions: [reaction] } as PVCase;
+  };
+
+  it.each([
+    ["RECOVERED", "1"],
+    ["RECOVERING", "2"],
+    ["NOT_RECOVERED", "3"],
+    ["RECOVERED_WITH_SEQUELAE", "4"],
+    ["FATAL", "5"],
+    ["UNKNOWN", "0"],
+  ] as const)("serializes %s as %s", (outcome, code) => {
+    expect(outcomeOf(withOutcome(outcome))?.[1]).toBe(code);
+  });
+
+  it("is emitted even when the case carries no outcome at all, as Unknown", () => {
+    // E.i.7 is required: a missing outcome is 0, never a missing element.
+    const match = outcomeOf(withOutcome(undefined));
+    expect(match).not.toBeNull();
+    expect(match?.[1]).toBe("0");
+  });
+
+  it("uses the ICH E.i.7 code system", () => {
+    expect(outcomeOf(withOutcome("RECOVERED"))?.[2]).toBe("2.16.840.1.113883.3.989.2.1.1.11");
+  });
+
+  it("can only ever emit one of the six ICH values", () => {
+    for (const outcome of [
+      "RECOVERED",
+      "RECOVERING",
+      "NOT_RECOVERED",
+      "RECOVERED_WITH_SEQUELAE",
+      "FATAL",
+      "UNKNOWN",
+      undefined,
+    ] as const) {
+      const code = outcomeOf(withOutcome(outcome))?.[1];
+      expect(["0", "1", "2", "3", "4", "5"]).toContain(code);
+    }
+  });
+
+  it("never emits 6 for Unknown, whatever a caller passes", () => {
+    const xml = serializeBatchToXml([withOutcome("UNKNOWN")], {
+      batchId: "B",
+      senderId: "S",
+      receiverId: "R",
+      transmissionTimestamp: new Date("2026-09-09T08:19:00Z"),
+      // The legacy per-call override is ignored: E.i.7 is ICH's codelist,
+      // not configuration.
+      outcomeCodes: { UNKNOWN: "6" },
+    });
+    expect(xml).toMatch(/displayName="outcome"\/><value xsi:type="CE" code="0"/);
+    expect(xml).not.toMatch(/displayName="outcome"\/><value xsi:type="CE" code="6"/);
+  });
+
+  it("is not decided by seriousness, hospitalisation, causality or drug action", () => {
+    const c = withOutcome(undefined);
+    const loaded = {
+      ...c,
+      aggregateSeriousnessAsReported: "Serious",
+      narrative: "Patient was hospitalised and later died; suspect drug withdrawn.",
+      reactions: [
+        {
+          ...c.reactions[0]!,
+          seriousnessCriteria: { hospitalization: true, resultsInDeath: true },
+        },
+      ],
+    } as PVCase;
+    // Every one of those would tempt an inference. None of them is an
+    // outcome, so the answer stays Unknown.
+    expect(outcomeOf(loaded)?.[1]).toBe("0");
+  });
+});
+
+/**
+ * E.i.9 — Identification of the Country Where the Reaction/Event Occurred.
+ * ICH E2B(R3) Q&A: E.i.9 is not an alternative to the reporter's country
+ * code (C.2.r.3), and a change of E.i.9 never changes C.1.1.
+ */
+describe("E.i.9 — country of occurrence", () => {
+  const batchOf = (c: PVCase) =>
+    serializeBatchToXml([c], {
+      batchId: "B",
+      senderId: "S",
+      receiverId: "R",
+      transmissionTimestamp: new Date("2026-09-09T08:19:00Z"),
+    });
+  const withReactionCountry = (country: string | undefined) => {
+    const c = baseCase();
+    const reaction = { ...c.reactions[0]! };
+    if (country) reaction.countryOfOccurrence = country;
+    return { ...c, reactions: [reaction] } as PVCase;
+  };
+
+  it("is emitted with the ISO 3166-1 code system when the source supplied it", () => {
+    expect(batchOf(withReactionCountry("GH"))).toContain(
+      '<locatedPlace classCode="COUNTRY" determinerCode="INSTANCE"><code code="GH" codeSystem="1.0.3166.1.2.2"/></locatedPlace>',
+    );
+  });
+
+  it("is absent when the source never said where the reaction happened", () => {
+    expect(batchOf(withReactionCountry(undefined))).not.toContain("locatedPlace");
+  });
+
+  it("is not copied from the reporter's country", () => {
+    // The case reports from NG (C.2.r.3) with no reaction country: nothing
+    // invents E.i.9 = NG from it.
+    const xml = batchOf(withReactionCountry(undefined));
+    expect(xml).toContain('<code code="NG" codeSystem="1.0.3166.1.2.2"/>'); // C.2.r.3
+    expect(xml).not.toContain("locatedPlace");
+  });
+
+  it("never changes C.1.1 — the ICH Q&A rule", () => {
+    const c11 = (xml: string) =>
+      xml.match(
+        /<investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="([^"]+)"/,
+      )?.[1];
+    const noCountry = c11(batchOf(withReactionCountry(undefined)));
+    const inGhana = c11(batchOf(withReactionCountry("GH")));
+    const inKenya = c11(batchOf(withReactionCountry("KE")));
+    expect(inGhana).toBe(noCountry);
+    expect(inKenya).toBe(noCountry);
+    expect(noCountry).toBe("NG-MEDNOVA-000001");
+  });
+});

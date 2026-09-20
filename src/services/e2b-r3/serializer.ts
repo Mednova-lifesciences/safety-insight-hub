@@ -154,15 +154,24 @@ function serializeReaction(r: PVReaction): string {
     return `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="${code}" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="${name}"/><value xsi:type="BL" ${val}/></observation></outboundRelationship2>`;
   };
 
-  // Every canonical ReactionOutcome has a fixed ICH code, so a resolved
-  // outcome is always emitted; an absent outcome is simply omitted.
-  const outcomeCode = r.outcome ? e2bOutcomeCode(r.outcome) : undefined;
-  const outcome = outcomeCode
-    ? `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="27" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="outcome"/><value xsi:type="CE" code="${esc(outcomeCode)}" codeSystem="2.16.840.1.113883.3.989.2.1.1.11" codeSystemVersion="1.0"/></observation></outboundRelationship2>`
+  // E.i.7 is required, so it is always emitted. Every canonical
+  // ReactionOutcome has a fixed ICH code, and a reaction that reached this
+  // point without one is Unknown (0) — the codelist's own value for "we do
+  // not know how this ended", not an excuse to drop a required element.
+  const outcomeCode = e2bOutcomeCode(r.outcome ?? "UNKNOWN");
+  const outcome = `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="27" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="outcome"/><value xsi:type="CE" code="${esc(outcomeCode)}" codeSystem="2.16.840.1.113883.3.989.2.1.1.11" codeSystemVersion="1.0"/></observation></outboundRelationship2>`;
+
+  // E.i.9 — country of occurrence, in the position the ICH reference
+  // instance puts it: immediately after the reaction's own <value>, before
+  // the criteria. Country code system 1.0.3166.1.2.2 (ISO 3166-1 alpha-2),
+  // the same code system C.2.r.3 uses for a different country. Emitted
+  // only when the source actually supplied one.
+  const countryOfOccurrence = r.countryOfOccurrence
+    ? `<location typeCode="LOC"><locatedEntity classCode="LOCE"><locatedPlace classCode="COUNTRY" determinerCode="INSTANCE"><code code="${esc(r.countryOfOccurrence)}" codeSystem="1.0.3166.1.2.2"/></locatedPlace></locatedEntity></location>`
     : "";
 
   const sc = r.seriousnessCriteria;
-  return `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><id root="${id}"/><code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="reaction"/>${onset}${value}${bool(sc.resultsInDeath, "34", "resultsInDeath")}${bool(sc.lifeThreatening, "21", "isLifeThreatening")}${bool(sc.hospitalization, "33", "requiresInpatientHospitalization")}${bool(sc.disabling, "35", "resultsInPersistentOrSignificantDisability")}${bool(sc.congenitalAnomaly, "12", "congenitalAnomalyBirthDefect")}${bool(sc.otherMedicallyImportant, "26", "otherMedicallyImportantCondition")}${outcome}</observation></subjectOf2>`;
+  return `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><id root="${id}"/><code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="reaction"/>${onset}${value}${countryOfOccurrence}${bool(sc.resultsInDeath, "34", "resultsInDeath")}${bool(sc.lifeThreatening, "21", "isLifeThreatening")}${bool(sc.hospitalization, "33", "requiresInpatientHospitalization")}${bool(sc.disabling, "35", "resultsInPersistentOrSignificantDisability")}${bool(sc.congenitalAnomaly, "12", "congenitalAnomalyBirthDefect")}${bool(sc.otherMedicallyImportant, "26", "otherMedicallyImportantCondition")}${outcome}</observation></subjectOf2>`;
 }
 
 function serializeDrugComponent(p: PVProduct): string {
