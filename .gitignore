@@ -49,3 +49,10 @@ venv/
 
 # Reference spreadsheets may contain real patient/report data — never commit
 src/types/*.xlsx
+
+# Real ICSR/line-list exports carry patient names and report ids — same rule
+# as the spreadsheets above. docs/ONDO (1).xml is one of these.
+docs/*.xml
+
+# V8 heap-dump reports (written when a process runs out of memory)
+report.*.json
