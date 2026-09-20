@@ -1,5 +1,6 @@
 import type { LineListFixLocation, LineListIssue } from "@/types/pv";
 import type { PVCase } from "@/services/e2b-r3/types";
+import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
 import {
   E2B_NON_OVERRIDABLE_CODES,
   validateBusinessRules,
@@ -153,6 +154,32 @@ export interface LineListE2bCheckResult {
   meddraUnavailable: boolean;
 }
 
+/** A value written for a person to read ("Fever", "Injection site pain")
+ *  rather than a code a legend defines ("01", "A12", "3.2"). */
+function looksLikeWrittenText(value: string): boolean {
+  return /[A-Za-z]{3,}/.test(value) && !/^[\d.\-/\s]+$/.test(value);
+}
+
+/**
+ * A file read as the wrong kind of form: the reaction column holds words,
+ * but the source form it was uploaded as expects local codes it decodes
+ * with a legend. Every row then fails to decode for one reason, so it is
+ * reported once, against the file, instead of identically on every row —
+ * and the remedy is to change how the file is read, not to edit 50 rows.
+ *
+ * Deliberately conservative: a genuinely coded file whose legend is
+ * missing has code-shaped values and is left to report per row, and so is
+ * a handful of stray words in an otherwise coded column.
+ */
+const MIN_ROWS_FOR_FORM_MISMATCH = 3;
+const WRITTEN_TEXT_SHARE_FOR_MISMATCH = 0.8;
+
+function readsAsWrittenText(values: string[]): boolean {
+  if (values.length < MIN_ROWS_FOR_FORM_MISMATCH) return false;
+  const words = values.filter(looksLikeWrittenText).length;
+  return words / values.length >= WRITTEN_TEXT_SHARE_FOR_MISMATCH;
+}
+
 /**
  * @param cases     mapJobToCases output; case i is line-list row i + 1.
  * @param mapping   the job's column mapping (original header -> field), so
@@ -171,6 +198,19 @@ export function checkCasesForE2b(
     c.reactions.some((r) => r.reaction.status === "PROVIDER_UNAVAILABLE"),
   );
 
+  const undecodedReactions = cases.flatMap((c) =>
+    c.reactions
+      .filter((r) => r.sourceDecoding.status === "UNKNOWN_CODE")
+      .map((r) => r.sourceDecoding.localCode ?? ""),
+  );
+  const formMismatch = readsAsWrittenText(undecodedReactions.filter(Boolean));
+  const sourceProfileId = cases.find((c) => c.sourceInformation?.sourceProfileId)?.sourceInformation
+    ?.sourceProfileId;
+  // Named the way the person chose it, not by its internal id.
+  const formName = sourceProfileId
+    ? (getSourceProfile(sourceProfileId)?.name ?? sourceProfileId)
+    : "the form it was uploaded as";
+
   const issues: LineListIssue[] = [];
   const seen = new Set<string>();
   cases.forEach((pvCase, index) => {
@@ -184,6 +224,7 @@ export function checkCasesForE2b(
       if (e.severity !== "BLOCKING" || NOT_A_LINELIST_CONCERN.has(e.code)) continue;
       // Reported once for the whole file rather than on every row.
       if (e.code === "VIGIFLOW-MEDDRA-MISSING" && meddraUnavailable) continue;
+      if (e.code === "E2B-REACTION-CODEBOOK-UNRESOLVED" && formMismatch) continue;
       const shown = PRESENTATION[e.code];
       const field = shown?.field ?? e.sourceField;
       const value = e.sourceValue ?? "";
@@ -209,6 +250,26 @@ export function checkCasesForE2b(
       });
     }
   });
+
+  if (formMismatch) {
+    issues.push({
+      row: 0,
+      column: columnFor("reaction"),
+      severity: "CRITICAL",
+      confidence: "HIGH",
+      code: "SOURCE_FORM_MISMATCH",
+      message: `This file's reactions are written as words ("${undecodedReactions[0]}"), but it was uploaded as "${formName}", a form whose reaction column holds local codes that a legend defines. Nothing decoded, so every case is blocked. Read this file as a line list whose reactions are written out — no re-upload needed.`,
+      value: undecodedReactions[0] ?? null,
+      source: "rule",
+      sources: ["rule"],
+      issueType: "FIELD_VALUE_INVALID",
+      affectedFields: ["reaction"],
+      fixable: false,
+      blocksE2b: true,
+      fixIn: "SOURCE_FORM",
+      e2bField: "E.i.1.1a",
+    });
+  }
 
   if (meddraUnavailable) {
     issues.push({

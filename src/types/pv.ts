@@ -437,7 +437,13 @@ export interface LineListIssue {
 }
 
 export type LineListFixLocation =
-  "FILE" | "OUTCOME_TERMS" | "REPORTER_DESIGNATIONS" | "REACTION_TERMS" | "SOURCE_CODEBOOK";
+  | "FILE"
+  | "OUTCOME_TERMS"
+  | "REPORTER_DESIGNATIONS"
+  | "REACTION_TERMS"
+  | "SOURCE_CODEBOOK"
+  /** How this file itself is read — the source form it was uploaded as. */
+  | "SOURCE_FORM";
 
 /** The 13 sections of the NAFDAC PSUR/PBRER Evaluation Form V4
  *  (docs/NAFDAC_PSUR_Template_V4_Proposed.docx) — the authoritative

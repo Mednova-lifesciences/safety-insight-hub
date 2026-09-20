@@ -12,7 +12,10 @@ import type { SourceProfile } from "./types";
  */
 export const ondoAefiProfile: SourceProfile = {
   id: "ondo-aefi",
-  name: "Ondo State AEFI Line List",
+  // Named for what it does to a file rather than for whose form it is: the
+  // choice a person makes at upload is "are my reactions codes, or words?",
+  // and picking this one for a file of words blocks every row.
+  name: "Coded line list — reactions are local codes with a codebook (Ondo State AEFI)",
   sourceVersion: "2026",
   effectiveDate: "2026-01-01",
   country: "NG",

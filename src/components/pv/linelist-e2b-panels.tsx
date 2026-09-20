@@ -4,8 +4,20 @@ import { CheckCircle2, Search, ShieldAlert, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Section, StatusPill } from "@/components/pv/primitives";
-import { linelist as linelistApi, suggestMedDraTerm } from "@/services/api/linelist";
+import {
+  DEFAULT_SOURCE_PROFILE_ID,
+  linelist as linelistApi,
+  suggestMedDraTerm,
+} from "@/services/api/linelist";
+import { listSourceProfiles } from "@/services/e2b-r3/source-profiles";
 import { termMappings } from "@/services/api/term-mappings";
 import { coding } from "@/services/api/coding";
 import { reactionTermKey, type OrgTermMapping } from "@/services/e2b-r3/term-mappings";
@@ -19,6 +31,7 @@ const FIX_IN_LABEL: Record<LineListFixLocation, string> = {
   REPORTER_DESIGNATIONS: "Settings → Reporter qualifications",
   REACTION_TERMS: "Choose MedDRA term below",
   SOURCE_CODEBOOK: "Correct the code or add the form's legend",
+  SOURCE_FORM: "Change how this file is read",
 };
 
 /** The action for one finding: a link where the fix lives, or plain text
@@ -36,10 +49,10 @@ export function FixAction({ fixIn }: { fixIn: LineListFixLocation | undefined })
       </Link>
     );
   }
-  if (fixIn === "REACTION_TERMS") {
+  if (fixIn === "REACTION_TERMS" || fixIn === "SOURCE_FORM") {
     return (
       <a
-        href="#reaction-terms"
+        href={fixIn === "REACTION_TERMS" ? "#reaction-terms" : "#how-to-read"}
         className="text-xs font-medium text-primary underline-offset-2 hover:underline"
       >
         {FIX_IN_LABEL[fixIn]} ↓
@@ -57,7 +70,24 @@ export function FixAction({ fixIn }: { fixIn: LineListFixLocation | undefined })
  */
 export function E2bReadinessBanner({ job, issues }: { job: LineListJob; issues: LineListIssue[] }) {
   const blockers = issues.filter((i) => i.blocksE2b && i.row > 0);
-  if (!job.checkedAt && blockers.length === 0) return null;
+  // A blocker against the file itself stops every case, so it is said
+  // once, in its own words, rather than counted as rows.
+  const fileBlockers = issues.filter((i) => i.blocksE2b && i.row === 0);
+  if (!job.checkedAt && blockers.length === 0 && fileBlockers.length === 0) return null;
+  if (fileBlockers.length > 0) {
+    return (
+      <div className="rounded-md border border-critical/30 bg-critical/5 px-3 py-2 text-sm">
+        {fileBlockers.map((f) => (
+          <p key={f.code} className="flex items-start gap-2">
+            <ShieldAlert className="mt-0.5 size-4 shrink-0 text-critical" />
+            <span>
+              {f.message} <FixAction fixIn={f.fixIn} />
+            </span>
+          </p>
+        ))}
+      </div>
+    );
+  }
   const blockedCases = new Set(blockers.map((i) => i.row)).size;
   const byPlace = new Map<LineListFixLocation, number>();
   for (const i of blockers) {
@@ -114,6 +144,21 @@ export function ParsingOptionsPanel({ job, onSaved }: { job: LineListJob; onSave
   const [slash, setSlash] = useState(!!job.parsingOptions?.slashSeparatesReactions);
   const [oneName, setOneName] = useState(!!job.parsingOptions?.productCellIsOneName);
   const [saving, setSaving] = useState(false);
+  const [changingForm, setChangingForm] = useState(false);
+  const profileId = job.sourceProfileId || DEFAULT_SOURCE_PROFILE_ID;
+
+  async function changeSourceForm(next: string) {
+    setChangingForm(true);
+    try {
+      await linelistApi.setSourceProfile(job.id, next);
+      toast.success("This line list has been read again as the form you chose.");
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not change how this file is read.");
+    } finally {
+      setChangingForm(false);
+    }
+  }
   useEffect(() => {
     setSlash(!!job.parsingOptions?.slashSeparatesReactions);
     setOneName(!!job.parsingOptions?.productCellIsOneName);
@@ -144,10 +189,31 @@ export function ParsingOptionsPanel({ job, onSaved }: { job: LineListJob; onSave
 
   return (
     <Section
+      id="how-to-read"
       title="How to read this file"
       description="Decided once for this line list. Line-list checks, E2B preflight and E2B export all use it."
     >
       <div className="space-y-2 text-sm">
+        <div className="space-y-1.5">
+          <p className="font-medium">Source form</p>
+          <Select value={profileId} disabled={changingForm} onValueChange={changeSourceForm}>
+            <SelectTrigger className="w-full sm:w-96">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {listSourceProfiles().map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {changingForm
+              ? "Reading this file again…"
+              : "Whether this file's reaction column holds local codes a legend defines, or reactions written out in words. Changing it re-reads the rows already uploaded — no new upload — and any C.1.7 decision on a case whose data changes is superseded."}
+          </p>
+        </div>
         <label className="flex items-start gap-2">
           <input
             type="checkbox"

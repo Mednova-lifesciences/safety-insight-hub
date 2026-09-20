@@ -31,7 +31,14 @@ import { UNCONFIRMED_SENTINEL } from "@/services/e2b-r3/transmission-config";
 import type { ReportType } from "@/services/e2b-r3/types";
 import { supabase } from "@/integrations/supabase/client";
 import { isApiConfigured } from "@/services/api/client";
-import { PageHeader, Section, StatusPill } from "@/components/pv/primitives";
+import {
+  PAGE_SIZE,
+  PageHeader,
+  Pager,
+  Section,
+  StatusPill,
+  paginate,
+} from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -676,10 +683,23 @@ function RegulatoryProfileSection() {
 
   const [editingDesignation, setEditingDesignation] = useState<string | null>(null);
   const [designationDraft, setDesignationDraft] = useState("");
+  // This list only grows — every designation any line list has ever used
+  // lives here — so it is shown ten at a time, undecided ones first.
+  const [designationPage, setDesignationPage] = useState(1);
 
   const [newDesignation, setNewDesignation] = useState("");
   const [newDesignationCode, setNewDesignationCode] = useState<"1" | "2" | "3" | "4" | "5" | "">(
     "",
+  );
+
+  const sortedDesignations = [...(config?.reporterQualificationMappings ?? [])].sort(
+    (x, y) => Number(!!x.code) - Number(!!y.code),
+  );
+  // Deciding or removing one can empty the last page; never strand the
+  // viewer on a page that no longer exists.
+  const designationShownPage = Math.min(
+    designationPage,
+    Math.max(1, Math.ceil(sortedDesignations.length / PAGE_SIZE)),
   );
 
   async function load() {
@@ -968,86 +988,85 @@ function RegulatoryProfileSection() {
               </p>
             ) : (
               // Undecided first, so a new designation is never lost among
-              // the configured ones.
-              [...config.reporterQualificationMappings]
-                .sort((x, y) => Number(!!x.code) - Number(!!y.code))
-                .map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2"
+              // the configured ones, then ten to a page.
+              paginate(sortedDesignations, designationShownPage).map((m) => (
+                <div
+                  key={m.id}
+                  className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2"
+                >
+                  {editingDesignation === m.id ? (
+                    <>
+                      <Input
+                        className="min-w-40 flex-1"
+                        aria-label={`Rename ${m.designation}`}
+                        value={designationDraft}
+                        onChange={(e) => setDesignationDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") renameMapping(m, designationDraft);
+                          if (e.key === "Escape") setEditingDesignation(null);
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          !designationDraft.trim() || designationDraft.trim() === m.designation
+                        }
+                        onClick={() => renameMapping(m, designationDraft)}
+                      >
+                        Save designation
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingDesignation(null)}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="min-w-40 flex-1 text-sm">{m.designation}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Rename ${m.designation}`}
+                        onClick={() => {
+                          setEditingDesignation(m.id);
+                          setDesignationDraft(m.designation);
+                        }}
+                      >
+                        Rename
+                      </Button>
+                    </>
+                  )}
+                  {m.code ? (
+                    <StatusPill tone="success">Configured</StatusPill>
+                  ) : (
+                    <StatusPill tone="warning">Not configured</StatusPill>
+                  )}
+                  <Select
+                    value={m.code ?? ""}
+                    onValueChange={(v) => updateMappingCode(m, v as "1" | "2" | "3" | "4" | "5")}
                   >
-                    {editingDesignation === m.id ? (
-                      <>
-                        <Input
-                          className="min-w-40 flex-1"
-                          aria-label={`Rename ${m.designation}`}
-                          value={designationDraft}
-                          onChange={(e) => setDesignationDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") renameMapping(m, designationDraft);
-                            if (e.key === "Escape") setEditingDesignation(null);
-                          }}
-                        />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            !designationDraft.trim() || designationDraft.trim() === m.designation
-                          }
-                          onClick={() => renameMapping(m, designationDraft)}
-                        >
-                          Save designation
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setEditingDesignation(null)}
-                        >
-                          Cancel
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <span className="min-w-40 flex-1 text-sm">{m.designation}</span>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          aria-label={`Rename ${m.designation}`}
-                          onClick={() => {
-                            setEditingDesignation(m.id);
-                            setDesignationDraft(m.designation);
-                          }}
-                        >
-                          Rename
-                        </Button>
-                      </>
-                    )}
-                    {m.code ? (
-                      <StatusPill tone="success">Configured</StatusPill>
-                    ) : (
-                      <StatusPill tone="warning">Not configured</StatusPill>
-                    )}
-                    <Select
-                      value={m.code ?? ""}
-                      onValueChange={(v) => updateMappingCode(m, v as "1" | "2" | "3" | "4" | "5")}
-                    >
-                      <SelectTrigger className="w-64">
-                        <SelectValue placeholder="Choose a code…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(["1", "2", "3", "4", "5"] as const).map((code) => (
-                          <SelectItem key={code} value={code}>
-                            {QUALIFICATION_CODE_LABELS[code]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button size="sm" variant="ghost" onClick={() => removeMapping(m)}>
-                      <XCircle className="size-4" />
-                    </Button>
-                  </div>
-                ))
+                    <SelectTrigger className="w-64">
+                      <SelectValue placeholder="Choose a code…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(["1", "2", "3", "4", "5"] as const).map((code) => (
+                        <SelectItem key={code} value={code}>
+                          {QUALIFICATION_CODE_LABELS[code]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" variant="ghost" onClick={() => removeMapping(m)}>
+                    <XCircle className="size-4" />
+                  </Button>
+                </div>
+              ))
             )}
+            <Pager
+              page={designationShownPage}
+              total={sortedDesignations.length}
+              onPageChange={setDesignationPage}
+            />
           </div>
           <div className="flex items-center gap-2">
             <Input
