@@ -12,8 +12,9 @@ model today.
 
 | Source field | Normalized field (`PVCase`) | E2B(R3) element | Required? | Transformation | Validation |
 |---|---|---|---|---|---|
-| `case_id` | `sendersCaseId` | C.1.1 | Yes | Trimmed; falls back to `${jobId}-${sourceRow}` if blank | `E2B-C1.1-MISSING` if still empty |
-| — (derived) | `worldwideUniqueId` | C.1.8.1 | Yes | Equal to `sendersCaseId` at first creation (spec 5.2) — no follow-up source exists yet, so this pipeline only ever creates first transmissions | `E2B-C1.8-MISSING` |
+| `case_id` | `sendersCaseId` | *(report-number segment of C.1.1)* | Yes | Trimmed; falls back to `${caseIdPrefix}-${jobCode}-${sourceRow}` if blank. This is also the identifier the application itself keys on (assessments, eligibility, what a person sees) | `E2B-C1.1-MISSING` if still empty |
+| — (derived) | `caseSafetyReportId` | C.1.1 | Yes | `buildCaseSafetyReportId` (case-identifier.ts): ISO 3166-1 alpha-2 country of the primary source (`SourceProfile.country`, the same value that feeds C.2.r.3) + configured sender organisation (C.3.2, hyphens removed) + `sendersCaseId`, e.g. `NG-MEDNOVA-OG-901` (spec 5.2). Idempotent, so a number that already carries the configured prefix is not qualified twice | `E2B-C1.1-MISSING` |
+| — (derived) | `worldwideUniqueId` | C.1.8.1 | Yes | Equal to `caseSafetyReportId` at first creation (spec 5.2: "same format as C.1.1"; identical when we are the first sender) — no follow-up source exists yet, so this pipeline only ever creates first transmissions | `E2B-C1.8-MISSING` |
 | — (constant) | `firstSenderOfCase` | C.1.8.2 | Yes | Always `"2"` (Other) — MedNova reports on behalf of the facility, not as the regulator | — |
 | Mapping config (decision D3) | `reportType` | C.1.3 | Yes | `RequiredValue`; `NASK` until `MappingConfig.reportType` is supplied | `E2B-C1.3-UNRESOLVED` (BLOCKING) while unresolved |
 | — (processing time) | `dateOfCreation`, `dateFirstReceived`, `dateMostRecentInfo` | C.1.2 / C.1.4 / C.1.5 | Yes | All set to the pipeline's processing timestamp — no source "date received" column exists (documented limitation) | `E2B-C1.5-MISSING` (should never fire from the mapper) |
@@ -42,7 +43,17 @@ model today.
 | `reaction` | `reactions[].reaction` (`CodedTerm`) | E.i.1.1a (verbatim) / E.i.2.1b (coded) | Yes (≥1) | `splitMultiValue()` splits "8,19,21" into 3 reactions, each coded independently via `MedDraCodingProvider` — today always `UNMAPPED` | `E2B-REACTION-MISSING` if none; `VIGIFLOW-MEDDRA-MISSING` (BLOCKING) if uncoded |
 | `onset_date` | `reactions[].onsetDate` | E.i.4 | No | `parseSourceDate()` → ISO 8601, or omitted (never guessed) | `E2B-REACTION-DATE-UNPARSEABLE` (WARNING) if unparseable |
 | `outcome` | `reactions[].outcome` / `.outcomeUnmapped` | E.i.7 | Recommended | Matches this app's normalized outcome vocabulary only; a raw Ondo source code is recorded as `outcomeUnmapped`, never reinterpreted | `E2B-OUTCOME-UNMAPPED` (BLOCKING) when unmapped |
-| — (not decomposable) | `reactions[].seriousnessCriteria` | E.i.3.2a-f | Yes (per reaction) | Always `{}` — the source's case-level aggregate value cannot be safely decomposed into the six specific criteria without guessing which apply | Left empty deliberately; not currently validated as a gap (see NAFDAC-VIGIFLOW doc) |
+| `serious_code` (when the form has one) | `reactions[].seriousnessCriteria` | E.i.3.2a-f | Yes (per reaction) | A separate seriousness-criterion code decodes to the criterion it names. The case-level aggregate word ("Serious"/"Non-serious") is **not** decomposed into the six — which of them applies cannot be known from it — so it stays in `aggregateSeriousnessAsReported` for audit and for the C.1.7 rule | Left empty deliberately when the form has no criterion column; not validated as a gap (see NAFDAC-VIGIFLOW doc) |
+
+### How the six criteria are written out
+
+All six are always emitted on every reaction, each in one of three states:
+
+| Case data | XML | Why |
+|---|---|---|
+| Criterion recorded as met | `<value xsi:type="BL" value="true"/>` | ICH reference and example instances |
+| Nothing in the case establishes it | `<value xsi:type="BL" nullFlavor="NI"/>` | NI ("no information") is the only null flavor these six carry in any official ICH instance (24 occurrences; NASK: none). NASK would additionally assert the question was asked and went unanswered |
+| Source positively rules it out | `<value xsi:type="BL" value="false"/>` | ICH uses `false` on other Boolean elements (F.r.7, C.1.6.1); the one field the spec singles out as forbidding `false` is C.1.9.1, not these. Nothing upstream produces an explicit `false` today |
 
 ## Product (G.k) — one `PVProduct` per split value
 

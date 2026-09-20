@@ -29,6 +29,7 @@ function pvCase(partial: Partial<PVCase> = {}): PVCase {
   return {
     internalCaseId: "job-1",
     sendersCaseId: "C-1",
+    caseSafetyReportId: "NG-MEDNOVA-C-1",
     worldwideUniqueId: "C-1",
     firstSenderOfCase: "2",
     reportType: { present: true, value: "4" },

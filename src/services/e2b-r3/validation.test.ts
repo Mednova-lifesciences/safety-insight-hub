@@ -14,6 +14,7 @@ function minimalValidCase(overrides: Partial<PVCase> = {}): PVCase {
   return {
     internalCaseId: "job-1",
     sendersCaseId: "NG-MEDNOVA-000001",
+    caseSafetyReportId: "NG-MEDNOVA-000001",
     worldwideUniqueId: "NG-MEDNOVA-000001",
     firstSenderOfCase: "2",
     reportType: { present: true, value: "1" },
@@ -278,6 +279,7 @@ describe("isOverridable / computeCaseEligibility — the validated-export overri
     const overridableBlocked = validateCase(
       minimalValidCase({
         sendersCaseId: "NG-2",
+        caseSafetyReportId: "NG-2",
         reportType: { present: false, nullFlavor: "NASK" },
       }),
       "BUSINESS_RULES",
@@ -285,6 +287,7 @@ describe("isOverridable / computeCaseEligibility — the validated-export overri
     const structurallyBlocked = validateCase(
       minimalValidCase({
         sendersCaseId: "NG-3",
+        caseSafetyReportId: "NG-3",
         patient: { identity: { present: false, nullFlavor: "UNK" } },
       }),
       "BUSINESS_RULES",
@@ -312,6 +315,7 @@ describe("isOverridable / computeCaseEligibility — the validated-export overri
     const overridableBlocked = validateCase(
       minimalValidCase({
         sendersCaseId: "NG-2",
+        caseSafetyReportId: "NG-2",
         reportType: { present: false, nullFlavor: "NASK" },
       }),
       "BUSINESS_RULES",
@@ -319,6 +323,7 @@ describe("isOverridable / computeCaseEligibility — the validated-export overri
     const structurallyBlocked = validateCase(
       minimalValidCase({
         sendersCaseId: "NG-3",
+        caseSafetyReportId: "NG-3",
         patient: { identity: { present: false, nullFlavor: "UNK" } },
       }),
       "BUSINESS_RULES",

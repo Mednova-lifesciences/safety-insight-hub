@@ -17,6 +17,7 @@ import type {
 import type { MedDraCodingProvider, WhoDrugCodingProvider } from "./coding-provider";
 import type { DelimiterConfig, SourceProfile } from "./source-profiles/types";
 import type { E2bTransmissionConfig } from "./transmission-config";
+import { buildCaseSafetyReportId } from "./case-identifier";
 import { parseCompoundSourceValue } from "./compound-source-parser";
 import { normalizeDesignationKey } from "./regulatory-config";
 
@@ -520,6 +521,16 @@ export async function mapSourceRecordToPVCase(
     ? `${configuredPrefix}-${jobCaseCode(context.jobId)}`
     : context.jobId;
   const sendersCaseId = row.case_id?.trim() || `${caseIdPrefix}-${context.sourceRow}`;
+  // C.1.1 / C.1.8.1. The country comes from the case's own primary source
+  // (the same value that populates C.2.r.3 below), the organisation from
+  // the configured sender (C.3.2) — so a different organization, country
+  // or source form produces a correctly qualified identifier without any
+  // change here. See case-identifier.ts.
+  const caseSafetyReportId = buildCaseSafetyReportId({
+    country: profile.country,
+    organisation: transmissionConfig.sender.organization,
+    caseNumber: sendersCaseId,
+  });
   const reportDate = parseSourceDate(row.report_date) ?? undefined;
 
   // --- Reactions: decode (source codebook) -> code (MedDRA), never the
@@ -669,10 +680,11 @@ export async function mapSourceRecordToPVCase(
   const pvCase: PVCase = {
     internalCaseId: `${context.jobId}-${context.sourceRow}`,
     sendersCaseId,
+    caseSafetyReportId,
     // Per spec: "When MedNova creates the first electronic ICSR for a
     // case, C.1.1 and C.1.8.1 are identical." This pipeline only ever
     // creates first-time transmissions today (no follow-up source yet).
-    worldwideUniqueId: sendersCaseId,
+    worldwideUniqueId: caseSafetyReportId,
     // MedNova/SafetyCore is the reporting organisation submitting on
     // behalf of the facility, not the regulator itself.
     firstSenderOfCase: "2",

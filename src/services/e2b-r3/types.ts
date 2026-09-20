@@ -317,12 +317,24 @@ export interface PVCase {
   /** This app's own internal case identifier — never placed in a
    *  regulatory sender/receiver identifier field. */
   internalCaseId: string;
-  /** C.1.1 — country–organisation–report-number, e.g. NG-MEDNOVA-000112
-   *  (spec 5.2). Stable across retransmission of the same case; may only
-   *  change on organisational change or a primary-source country change.
-   *  The organisation segment and exact formatting are configuration
-   *  (decision D4), not hardcoded here. */
+  /** The sender's own case/report number, exactly as the source line list
+   *  wrote it (e.g. "OG-901"). This is the identifier the application keys
+   *  on — assessments, eligibility, reaction ids, what a person sees on
+   *  screen — and the report-number segment of C.1.1 below. It is NOT
+   *  itself the E2B identifier. */
   sendersCaseId: string;
+  /** C.1.1 — Sender's (case) Safety Report Unique Identifier:
+   *  country–organisation–report-number, e.g. NG-MEDNOVA-OG-901 (spec
+   *  5.2). Built by case-identifier.ts from the case's own primary-source
+   *  country, the configured sender organisation and `sendersCaseId`, so
+   *  the organisation segment is configuration (decision D4), never
+   *  hardcoded. Stable across retransmission of the same case; may only
+   *  change on organisational change or a primary-source country change.
+   *
+   *  N.2.r.1 (Message Identifier) must equal this (spec 5.1), so the
+   *  serializer derives the message id from this field rather than
+   *  minting a second one. */
+  caseSafetyReportId: string;
   /** C.1.8.1 — distinct from sendersCaseId: this must NEVER change across
    *  any retransmission, by anyone, ever, for the life of the case. Equal
    *  to sendersCaseId only at the moment of first creation. VigiFlow's

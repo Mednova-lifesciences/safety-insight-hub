@@ -185,6 +185,42 @@ RawLineListRow  →  mapRowToPVCase()  →  PVCase  →  validateBusinessRules()
   Records an audit trail entry for every consequential step (preflight run,
   preflight blocked, batch generated, export generated, export downloaded).
 
+## Batch wrapper (N.1), message header (N.2.r) and case identifiers
+
+Three things here are easy to get wrong, and each was settled against the
+official ICH package in `regulatory-assets/e2b-r3/official-ich/` rather than
+from memory or from an E2B(R2)-era habit.
+
+**N.1.1 is coded, and it is not the string `ichicsr`.** In R2 the batch
+carried `<messagetype>ichicsr</messagetype>`. R3 has no such element: N.1.1
+"Type of Messages in Batch" is `<name code="1"
+codeSystem="2.16.840.1.113883.3.989.2.1.1.1"/>`, which is what every ICH
+example instance emits, and what the developer spec (5.1) states — "Value
+1 = ichicsr". Emitting the literal text would be an R2 shape in an R3
+document and would not survive schema validation.
+
+**The batch's own sender and receiver come after the messages.**
+`MCCI_MT200100UV.Batch`'s content model is `id, creationTime,
+securityText?, responseModeCode, versionCode?, interactionId,
+referenceControlId?, name?, batchComment*, transmissionQuantity?,
+batchTotalNumber?, choice(PORR_IN049016UV…)+, receiver, respondTo*,
+sender, attentionLine*`. Reading the document, the trailing
+`<receiver>/<sender>` pair looks misplaced; moving it ahead of the
+`<PORR_IN049016UV>` messages makes the file schema-invalid (the validator
+reports it confusingly as "expected attentionLine"). ICH's own reference
+instance has the same trailing pair. Batch sender is N.1.3 (OID
+...2.1.3.13) and batch receiver N.1.4 (...2.1.3.14); the message-level pair
+is N.2.r.2 (...2.1.3.11) and N.2.r.3 (...2.1.3.12). Both pairs are filled
+from the organization's configured transmission identifiers — never a
+hardcoded regulator or receiver.
+
+**N.2.r.1 and C.1.1 are one identifier, not two.** The spec (5.1) requires
+`N.2.r.1 = C.1.1`, and both carry namespace OID ...2.1.3.1. The serializer
+therefore reads `PVCase.caseSafetyReportId` for both; there is no separate
+message-id scheme that could drift out of step. `C.1.8.1` carries the same
+value (spec 5.2), and `C.1.8.2` — First Sender of This Case, OID
+...2.1.1.3 — is emitted on every case and always has been.
+
 ## Honest current status
 
 **Built and independently verified this session**: the HL7 v3 XML

@@ -127,8 +127,30 @@ function serializeReaction(r: PVReaction): string {
       ? `<value xsi:type="CE" code="${esc(r.reaction.code)}" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="${esc(r.reaction.dictionaryVersion ?? "")}"><originalText>${esc(r.reaction.sourceValue)}</originalText></value>`
       : `<value xsi:type="CE" nullFlavor="UNK"><originalText>${esc(r.reaction.sourceValue)}</originalText></value>`;
 
+  /**
+   * E.i.3.2a-f. Three states, and only three:
+   *
+   *  - the criterion is known to be met     -> value="true"
+   *  - the case says it is not met          -> value="false"
+   *  - nothing in the case establishes it   -> nullFlavor="NI"
+   *
+   * NI ("no information"), not NASK ("not asked"): across every official
+   * ICH reference and example instance in regulatory-assets/e2b-r3/
+   * official-ich/, the only null flavor these six ever carry is NI (24
+   * occurrences; NASK: none). NASK additionally asserts something the
+   * pipeline does not know — that the question was put to someone and
+   * went unanswered.
+   *
+   * `false` is kept for a criterion the source positively rules out: ICH's
+   * own instances use value="false" on other Boolean elements (F.r.7,
+   * C.1.6.1), and the one field the spec singles out as forbidding false
+   * is C.1.9.1, not these. Today nothing upstream produces an explicit
+   * false — a case-level "non-serious" word is deliberately not split into
+   * six per-event determinations (see mapping.ts) — so in practice this
+   * emits true or NI.
+   */
   const bool = (v: boolean | undefined, code: string, name: string): string => {
-    const val = v === undefined ? `nullFlavor="NASK"` : `value="${v ? "true" : "false"}"`;
+    const val = v === undefined ? `nullFlavor="NI"` : `value="${v ? "true" : "false"}"`;
     return `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="${code}" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="${name}"/><value xsi:type="BL" ${val}/></observation></outboundRelationship2>`;
   };
 
@@ -184,7 +206,6 @@ function serializeCausality(p: PVProduct): string {
 export function serializeCaseToMessage(
   pvCase: PVCase,
   opts: {
-    messageId: string;
     senderId: string;
     receiverId: string;
     /** @deprecated Accepted for compatibility but deliberately ignored. */
@@ -260,7 +281,7 @@ export function serializeCaseToMessage(
     pvCase.narrative && pvCase.narrative.trim() ? pvCase.narrative : "No narrative provided.",
   );
 
-  return `<PORR_IN049016UV><id extension="${esc(opts.messageId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.sendersCaseId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}</player1>${age}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${followUpBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
+  return `<PORR_IN049016UV><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}</player1>${age}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${followUpBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
 }
 
 export interface BatchOptions {
@@ -276,13 +297,25 @@ export interface BatchOptions {
  * cases -> one complete <MCCI_IN200100UV01> XML document (with declaration).
  * All messages are inserted before the batch-level receiver/sender pair —
  * see the module doc comment's finding #1 for why order matters here.
+ *
+ * The batch header carries N.1.2 (id, OID ...2.1.3.22), N.1.5 (creationTime),
+ * N.1.1 (name) and — after the messages, where the schema puts them —
+ * N.1.4 (receiver, OID ...2.1.3.14) and N.1.3 (sender, OID ...2.1.3.13).
+ *
+ * N.1.1 "Type of Messages in Batch" is a CODED element, not the literal
+ * text "ichicsr": that literal belongs to E2B(R2)'s <messagetype>. In R3
+ * it is `<name code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.1"/>`,
+ * which is what every official ICH example instance in
+ * regulatory-assets/e2b-r3/official-ich/ emits, and the developer spec
+ * (5.1) states the binding directly: "N.1.1 Type of Messages in Batch,
+ * Required. Value 1 = ichicsr." Its position — after interactionId, before
+ * the messages — is fixed by MCCI_MT200100UV.Batch's content model.
  */
 export function serializeBatchToXml(cases: PVCase[], opts: BatchOptions): string {
   const ts = toHl7Ts(opts.transmissionTimestamp.toISOString(), true);
   const messages = cases
-    .map((c, i) =>
+    .map((c) =>
       serializeCaseToMessage(c, {
-        messageId: `${opts.batchId}-MSG${i + 1}`,
         senderId: opts.senderId,
         receiverId: opts.receiverId,
       }),
@@ -290,5 +323,5 @@ export function serializeBatchToXml(cases: PVCase[], opts: BatchOptions): string
     .join("");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<MCCI_IN200100UV01 xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ITSVersion="XML_1.0" xsi:schemaLocation="urn:hl7-org:v3 MCCI_IN200100UV01.xsd"><id extension="${esc(opts.batchId)}" root="2.16.840.1.113883.3.989.2.1.3.22"/><creationTime value="${ts}"/><responseModeCode code="D"/><interactionId extension="MCCI_IN200100UV01" root="2.16.840.1.113883.1.6"/>${messages}<receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.14"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.13"/></device></sender></MCCI_IN200100UV01>`;
+<MCCI_IN200100UV01 xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ITSVersion="XML_1.0" xsi:schemaLocation="urn:hl7-org:v3 MCCI_IN200100UV01.xsd"><id extension="${esc(opts.batchId)}" root="2.16.840.1.113883.3.989.2.1.3.22"/><creationTime value="${ts}"/><responseModeCode code="D"/><interactionId extension="MCCI_IN200100UV01" root="2.16.840.1.113883.1.6"/><name code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.1"/>${messages}<receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.14"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.13"/></device></sender></MCCI_IN200100UV01>`;
 }
