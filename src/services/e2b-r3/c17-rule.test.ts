@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_C17_RULE, evaluateC17, type C17Rule } from "./c17-rule";
+import {
+  DEFAULT_C17_RULE,
+  evaluateC17,
+  normalizeMedicallyImportantTerms,
+  type C17Rule,
+} from "./c17-rule";
 import type { PVCase, PVReaction, SeriousnessCriteria } from "./types";
 
 function reaction(
@@ -143,6 +148,32 @@ describe("the rule is editable, and edits take effect", () => {
     expect(evaluateC17(pvCase({ reactions: [reaction("Anaphylaxis")] }), rule).recommendation).toBe(
       "NEEDS_REVIEW",
     );
+  });
+
+  it("keeps each medically important term once", () => {
+    expect(
+      normalizeMedicallyImportantTerms([
+        "anaphylaxis",
+        " Anaphylaxis ",
+        "",
+        "  ",
+        "convulsion",
+        "ANAPHYLAXIS",
+      ]),
+    ).toEqual(["anaphylaxis", "convulsion"]);
+  });
+
+  it("does not change a decision by tidying the list", () => {
+    const repeated: C17Rule = {
+      ...DEFAULT_C17_RULE,
+      medicallyImportantTerms: ["anaphylaxis", "anaphylaxis", "anaphylaxis"],
+    };
+    const tidied: C17Rule = {
+      ...repeated,
+      medicallyImportantTerms: normalizeMedicallyImportantTerms(repeated.medicallyImportantTerms),
+    };
+    const anaphylaxis = pvCase({ reactions: [reaction("Anaphylaxis")] });
+    expect(evaluateC17(anaphylaxis, tidied)).toEqual(evaluateC17(anaphylaxis, repeated));
   });
 
   it("records the rule version that produced the answer", () => {

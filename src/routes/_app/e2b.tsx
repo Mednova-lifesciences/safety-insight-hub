@@ -29,7 +29,7 @@ import {
   unconfiguredOrgRegulatoryConfig,
   type OrgRegulatoryConfig,
 } from "@/services/e2b-r3/regulatory-config";
-import { linelist as linelistApi, rowLabel } from "@/services/api/linelist";
+import { describeRow, linelist as linelistApi, rowLabel } from "@/services/api/linelist";
 import { demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { isNotConfigured } from "@/services/api/client";
@@ -574,141 +574,159 @@ function E2bPage() {
                                 </div>
                               ) : null}
                               <div className="mt-2 max-h-[32rem] space-y-3 overflow-y-auto pr-1">
-                                {c17Assessments[j.id]!.map((assessment) => (
-                                  <div
-                                    key={assessment.id ?? assessment.caseId}
-                                    className="rounded border bg-background p-2"
-                                  >
-                                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                                      <span className="font-mono font-medium">
-                                        {assessment.caseId}
-                                      </span>
-                                      <StatusPill
-                                        tone={
-                                          assessment.status === "FINALIZED" ? "success" : "warning"
-                                        }
-                                      >
-                                        {assessment.status}
-                                      </StatusPill>
-                                      <StatusPill
-                                        tone={
-                                          assessment.recommendation === "YES"
-                                            ? "warning"
-                                            : assessment.recommendation === "NO"
-                                              ? "neutral"
-                                              : "assist"
-                                        }
-                                      >
-                                        {assessment.recommendation === "YES"
-                                          ? "Rule: expedited"
-                                          : assessment.recommendation === "NO"
-                                            ? "Rule: not expedited"
-                                            : "Rule could not decide"}
-                                      </StatusPill>
-                                      {assessment.matchedCriteria.length > 0 ? (
-                                        <span className="text-muted-foreground">
-                                          {assessment.matchedCriteria.join("; ")}
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                    {c17AiAssessments[j.id]
-                                      ?.filter((item) => {
-                                        const currentCase = preflightResults[j.id]?.cases.find(
-                                          (itemCase) =>
-                                            itemCase.internalCaseId === assessment.caseId,
-                                        );
-                                        return (
-                                          item.caseId === assessment.caseId &&
-                                          currentCase !== undefined &&
-                                          aiAssessmentCanApplyTo(item, currentCase)
-                                        );
-                                      })
-                                      .slice(0, 1)
-                                      .map((aiAssessment) => (
-                                        <div
-                                          key={aiAssessment.id}
-                                          className="mt-2 rounded border border-primary/20 bg-primary/5 p-2 text-xs"
+                                {c17Assessments[j.id]!.map((assessment) => {
+                                  // Name the case the way its own file does, so
+                                  // a decision can be traced back to the row it
+                                  // came from. The internal id stays on hover.
+                                  const currentCase = preflightResults[j.id]?.cases.find(
+                                    (item) => item.internalCaseId === assessment.caseId,
+                                  );
+                                  const sourceRow = currentCase?.sourceInformation?.sourceRow;
+                                  const fileRow = sourceRow
+                                    ? describeRow(j, sourceRow).fileRow
+                                    : undefined;
+                                  return (
+                                    <div
+                                      key={assessment.id ?? assessment.caseId}
+                                      className="rounded border bg-background p-2"
+                                    >
+                                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                                        <span
+                                          className="font-mono font-medium"
+                                          title={assessment.caseId}
                                         >
-                                          <p className="font-medium">AI-ASSISTED ASSESSMENT</p>
-                                          <p className="text-muted-foreground">
-                                            NOT A REGULATORY DECISION
-                                          </p>
-                                          <p className="mt-1">
-                                            {AI_SUGGESTION_LABELS[aiAssessment.recommendation]}
-                                            {aiAssessment.recommendation === "NEEDS_REVIEW"
-                                              ? ""
-                                              : ` — ${Math.round(aiAssessment.confidence * 100)}% confident`}
-                                          </p>
-                                          <p className="mt-1 text-muted-foreground">
-                                            {aiAssessment.reasoningSummary}
-                                          </p>
-                                          {aiAssessment.supportingEvidence.length > 0 ? (
-                                            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted-foreground">
-                                              {aiAssessment.supportingEvidence.map((evidence) => (
-                                                <li key={evidence.statement}>
-                                                  {evidence.statement}
-                                                  {evidence.sourceFields.length > 0
-                                                    ? ` (${evidence.sourceFields.join(", ")})`
-                                                    : ""}
-                                                </li>
-                                              ))}
-                                            </ul>
-                                          ) : null}
-                                          {aiAssessment.missingInformation.length > 0 ? (
-                                            <p className="mt-1 text-muted-foreground">
-                                              Missing: {aiAssessment.missingInformation.join("; ")}
-                                            </p>
-                                          ) : null}
-                                          <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-                                            Snapshot: {aiAssessment.inputSnapshotHash}
-                                          </p>
-                                        </div>
-                                      ))}
-                                    {assessment.status !== "FINALIZED" ? (
-                                      <div className="mt-2 space-y-2">
-                                        <p className="text-xs text-muted-foreground">
-                                          {assessment.rationale}
-                                        </p>
-                                        <Textarea
-                                          value={c17Rationales[assessment.id ?? ""] ?? ""}
-                                          onChange={(event) =>
-                                            setC17Rationales((previous) => ({
-                                              ...previous,
-                                              [assessment.id ?? ""]: event.target.value,
-                                            }))
+                                          {currentCase?.sendersCaseId ?? assessment.caseId}
+                                        </span>
+                                        {fileRow ? (
+                                          <span className="text-muted-foreground">
+                                            File row {fileRow}
+                                          </span>
+                                        ) : null}
+                                        <StatusPill
+                                          tone={
+                                            assessment.status === "FINALIZED"
+                                              ? "success"
+                                              : "warning"
                                           }
-                                          placeholder="Required rationale for the qualified reviewer decision"
-                                          rows={2}
-                                        />
-                                        <div className="flex gap-2">
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => finalizeC17(j.id, assessment, "YES")}
-                                          >
-                                            Finalize YES
-                                          </Button>
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => finalizeC17(j.id, assessment, "NO")}
-                                          >
-                                            Finalize NO
-                                          </Button>
-                                        </div>
+                                        >
+                                          {assessment.status}
+                                        </StatusPill>
+                                        <StatusPill
+                                          tone={
+                                            assessment.recommendation === "YES"
+                                              ? "warning"
+                                              : assessment.recommendation === "NO"
+                                                ? "neutral"
+                                                : "assist"
+                                          }
+                                        >
+                                          {assessment.recommendation === "YES"
+                                            ? "Rule: expedited"
+                                            : assessment.recommendation === "NO"
+                                              ? "Rule: not expedited"
+                                              : "Rule could not decide"}
+                                        </StatusPill>
+                                        {assessment.matchedCriteria.length > 0 ? (
+                                          <span className="text-muted-foreground">
+                                            {assessment.matchedCriteria.join("; ")}
+                                          </span>
+                                        ) : null}
                                       </div>
-                                    ) : (
-                                      <p className="mt-1 text-xs text-muted-foreground">
-                                        Final decision: {assessment.finalDecision} by{" "}
-                                        {assessment.reviewerName ?? "a reviewer"}
-                                        {assessment.reviewedAt
-                                          ? ` on ${new Date(assessment.reviewedAt).toLocaleString()}`
-                                          : ""}{" "}
-                                        — {assessment.rationale}
-                                      </p>
-                                    )}
-                                  </div>
-                                ))}
+                                      {c17AiAssessments[j.id]
+                                        ?.filter(
+                                          (item) =>
+                                            item.caseId === assessment.caseId &&
+                                            currentCase !== undefined &&
+                                            aiAssessmentCanApplyTo(item, currentCase),
+                                        )
+                                        .slice(0, 1)
+                                        .map((aiAssessment) => (
+                                          <div
+                                            key={aiAssessment.id}
+                                            className="mt-2 rounded border border-primary/20 bg-primary/5 p-2 text-xs"
+                                          >
+                                            <p className="font-medium">AI-ASSISTED ASSESSMENT</p>
+                                            <p className="text-muted-foreground">
+                                              NOT A REGULATORY DECISION
+                                            </p>
+                                            <p className="mt-1">
+                                              {AI_SUGGESTION_LABELS[aiAssessment.recommendation]}
+                                              {aiAssessment.recommendation === "NEEDS_REVIEW"
+                                                ? ""
+                                                : ` — ${Math.round(aiAssessment.confidence * 100)}% confident`}
+                                            </p>
+                                            <p className="mt-1 text-muted-foreground">
+                                              {aiAssessment.reasoningSummary}
+                                            </p>
+                                            {aiAssessment.supportingEvidence.length > 0 ? (
+                                              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted-foreground">
+                                                {aiAssessment.supportingEvidence.map((evidence) => (
+                                                  <li key={evidence.statement}>
+                                                    {evidence.statement}
+                                                    {evidence.sourceFields.length > 0
+                                                      ? ` (${evidence.sourceFields.join(", ")})`
+                                                      : ""}
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                            ) : null}
+                                            {aiAssessment.missingInformation.length > 0 ? (
+                                              <p className="mt-1 text-muted-foreground">
+                                                Missing:{" "}
+                                                {aiAssessment.missingInformation.join("; ")}
+                                              </p>
+                                            ) : null}
+                                            <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                                              Snapshot: {aiAssessment.inputSnapshotHash}
+                                            </p>
+                                          </div>
+                                        ))}
+                                      {assessment.status !== "FINALIZED" ? (
+                                        <div className="mt-2 space-y-2">
+                                          <p className="text-xs text-muted-foreground">
+                                            {assessment.rationale}
+                                          </p>
+                                          <Textarea
+                                            value={c17Rationales[assessment.id ?? ""] ?? ""}
+                                            onChange={(event) =>
+                                              setC17Rationales((previous) => ({
+                                                ...previous,
+                                                [assessment.id ?? ""]: event.target.value,
+                                              }))
+                                            }
+                                            placeholder="Required rationale for the qualified reviewer decision"
+                                            rows={2}
+                                          />
+                                          <div className="flex gap-2">
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              onClick={() => finalizeC17(j.id, assessment, "YES")}
+                                            >
+                                              Finalize YES
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              onClick={() => finalizeC17(j.id, assessment, "NO")}
+                                            >
+                                              Finalize NO
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                          Final decision: {assessment.finalDecision} by{" "}
+                                          {assessment.reviewerName ?? "a reviewer"}
+                                          {assessment.reviewedAt
+                                            ? ` on ${new Date(assessment.reviewedAt).toLocaleString()}`
+                                            : ""}{" "}
+                                          — {assessment.rationale}
+                                        </p>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           ) : null}

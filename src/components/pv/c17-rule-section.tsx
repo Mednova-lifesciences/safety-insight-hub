@@ -12,6 +12,7 @@ import {
   C17_CRITERION_LABELS,
   C17_TRIGGER_LABELS,
   DEFAULT_C17_RULE,
+  normalizeMedicallyImportantTerms,
   type C17Criterion,
   type C17Rule,
   type C17VaccineTrigger,
@@ -46,7 +47,7 @@ export function C17RuleSection({ canEdit }: { canEdit: boolean }) {
       ]);
       setRecord(active ?? null);
       setDraft(rule);
-      setTerms(rule.medicallyImportantTerms.join(", "));
+      setTerms(normalizeMedicallyImportantTerms(rule.medicallyImportantTerms).join(", "));
       setHistory(versions);
       setError(null);
     } catch (err) {
@@ -60,12 +61,15 @@ export function C17RuleSection({ canEdit }: { canEdit: boolean }) {
   }, []);
 
   const inForce = record?.rule ?? DEFAULT_C17_RULE;
-  const parsedTerms = terms
-    .split(/[,\n]/)
-    .map((t) => t.trim())
-    .filter(Boolean);
+  const parsedTerms = normalizeMedicallyImportantTerms(terms.split(/[,\n]/));
   const next: C17Rule = { ...draft, medicallyImportantTerms: parsedTerms };
-  const changed = JSON.stringify(next) !== JSON.stringify(inForce);
+  // Compare against the rule as it would be written today, so a list that was
+  // saved with repeats does not read as an unsaved change forever.
+  const inForceTidied: C17Rule = {
+    ...inForce,
+    medicallyImportantTerms: normalizeMedicallyImportantTerms(inForce.medicallyImportantTerms),
+  };
+  const changed = JSON.stringify(next) !== JSON.stringify(inForceTidied);
   const sameVersion = next.version.trim() === inForce.version.trim();
 
   async function save() {

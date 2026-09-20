@@ -124,6 +124,22 @@ export const DEFAULT_C17_RULE: C17Rule = {
     "Every framework checked expedites a serious case: ICH E2D, EU GVP VI, US FDA, NAFDAC GVP 2021 §5.72 (serious unexpected 72 hours, serious expected 15 days) and WHO/Nigeria AEFI surveillance (serious AEFI notified within 24 hours). Unexpectedness is deliberately not judged here: it needs the product's approved labelling, which a line list does not carry.",
 };
 
+/**
+ * The medically important terms, tidied: blanks dropped, surrounding spaces
+ * removed, and the same wording kept once however it was capitalised. Listing
+ * a term twice changes no decision and only makes the list harder to read.
+ */
+export function normalizeMedicallyImportantTerms(terms: readonly string[]): string[] {
+  const byWording = new Map<string, string>();
+  for (const term of terms) {
+    const trimmed = term.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (!byWording.has(key)) byWording.set(key, trimmed);
+  }
+  return [...byWording.values()];
+}
+
 export type C17Recommendation = "YES" | "NO" | "NEEDS_REVIEW";
 
 export interface C17Evidence {
