@@ -1,24 +1,29 @@
 import type { PVCase } from "./types";
+import { DEFAULT_C17_RULE, evaluateC17, type C17Rule } from "./c17-rule";
 import {
   E2B_C17_ASSESSMENT_TYPE,
   E2B_C17_RULE_ID,
-  E2B_C17_RULE_VERSION,
   type E2bAssessmentEvidence,
   type E2bRegulatoryAssessment,
   type E2bRegulatoryRuleVersion,
 } from "./assessment-types";
 
-export const PROVISIONAL_NIGERIAN_C17_RULE: E2bRegulatoryRuleVersion = {
-  ruleSetId: "nigeria-e2b-regulatory",
-  ruleId: E2B_C17_RULE_ID,
-  version: E2B_C17_RULE_VERSION,
-  jurisdiction: "NG",
-  name: "Nigeria C.1.7 expedited reporting assessment",
-  description:
-    "Provisional assessment scaffold. Nigerian expedited-reporting criteria require regulatory confirmation; the system does not infer a YES or NO from seriousness, hospitalization, causality, or MedDRA alone.",
-  status: "PROVISIONAL",
-  sourceReference: "Regulatory confirmation pending",
-};
+/** The rule as E2B assessment metadata: what judged the case, which
+ *  version, and where it came from. Built from the organization's own rule
+ *  so every assessment can be traced to the text in force at the time. */
+export function c17RuleVersion(rule: C17Rule): E2bRegulatoryRuleVersion {
+  return {
+    ruleSetId: "e2b-c17-expedited",
+    ruleId: E2B_C17_RULE_ID,
+    version: rule.version,
+    jurisdiction: rule.jurisdiction,
+    name: rule.name,
+    description: rule.notes,
+    status: "ACTIVE",
+    sourceReference:
+      "ICH E2D; EU GVP VI; NAFDAC Good Pharmacovigilance Practice Guidelines (2021) §5.72; WHO/Nigeria AEFI surveillance",
+  };
+}
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -54,29 +59,29 @@ export function c17SourceHash(pvCase: PVCase): string {
   return (hash >>> 0).toString(16);
 }
 
-export function evaluateProvisionalC17(
+/**
+ * Applies the organization's C.1.7 rule to one case and records what it
+ * found. The recommendation is never the decision: the assessment is saved
+ * as NEEDS_REVIEW and only a qualified assessor can finalize it.
+ */
+export function evaluateC17Assessment(
   pvCase: PVCase,
-  context: { jobId: string; jurisdiction?: string; configurationRevision?: string },
+  context: { jobId: string; jurisdiction?: string; rule?: C17Rule },
 ): E2bRegulatoryAssessment {
-  const evidence: E2bAssessmentEvidence[] = [];
-  if (pvCase.aggregateSeriousnessAsReported) {
-    evidence.push({
-      field: "aggregateSeriousnessAsReported",
-      value: pvCase.aggregateSeriousnessAsReported,
-      source: "PVCase",
-      explanation: "Source seriousness text is available but is not sufficient to decide C.1.7.",
-    });
-  }
-  const missingFacts = [
-    "authoritative jurisdiction-specific expedited-reporting criteria",
-    "case facts required by the confirmed Nigerian reporting category",
-  ];
+  const rule = context.rule ?? DEFAULT_C17_RULE;
+  const evaluation = evaluateC17(pvCase, rule);
+  const evidence: E2bAssessmentEvidence[] = evaluation.matched.map((m) => ({
+    field: m.key,
+    value: m.label,
+    source: "PVCase",
+    explanation: m.detail,
+  }));
   return {
     jobId: context.jobId,
     caseId: pvCase.internalCaseId,
     assessmentType: E2B_C17_ASSESSMENT_TYPE,
-    jurisdiction: context.jurisdiction ?? "NG",
-    rule: PROVISIONAL_NIGERIAN_C17_RULE,
+    jurisdiction: context.jurisdiction ?? rule.jurisdiction,
+    rule: c17RuleVersion(rule),
     sourceSnapshot: {
       caseId: pvCase.internalCaseId,
       caseHash: c17SourceHash(pvCase),
@@ -84,12 +89,11 @@ export function evaluateProvisionalC17(
     },
     assessmentVersion: 1,
     status: "NEEDS_REVIEW",
-    recommendation: "NEEDS_REVIEW",
-    matchedCriteria: [],
-    unmetCriteria: [],
-    missingFacts,
+    recommendation: evaluation.recommendation,
+    matchedCriteria: evaluation.matched.map((m) => m.label),
+    unmetCriteria: evaluation.unmet,
+    missingFacts: evaluation.missingFacts,
     evidence,
-    rationale:
-      "Automatic determination is disabled because the Nigerian C.1.7 rule is provisional and required regulatory facts are not available. A qualified reviewer must decide YES or NO.",
+    rationale: evaluation.rationale,
   };
 }

@@ -1,6 +1,7 @@
 import type { SourceProfile } from "./source-profiles/types";
 import type { ReactionOutcome } from "./types";
 import { applyOrgOutcomeTerms, type OrgTermMapping } from "./term-mappings";
+import type { C17Rule } from "./c17-rule";
 import { UNCONFIRMED_SENTINEL, type E2bTransmissionConfig } from "./transmission-config";
 
 /**
@@ -42,6 +43,9 @@ export interface OrgRegulatoryConfig {
    *  (see term-mappings.ts). Optional so configs built before this existed
    *  still type-check; absent means none. */
   termMappings?: OrgTermMapping[] | undefined;
+  /** The C.1.7 expedited-reporting rule in force (see c17-rule.ts).
+   *  Absent means the agreed default. */
+  c17Rule?: C17Rule | undefined;
 }
 
 /** Legacy UI/test compatibility; numeric values are defined in outcome-codes.ts. */

@@ -38,6 +38,8 @@ const ALLOWED_OUTPUT_FIELDS = new Set([
   "ruleId",
   "ruleVersion",
   "inputSnapshotHash",
+  // Provenance of the answer, not part of it: which model replied.
+  "model",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -196,7 +198,16 @@ export async function runC17AiAssessment(
   }
   try {
     const output = parseStructuredAiAssessment(raw, input);
-    return { input, record: createC17AiAssessmentRecord(input, output, provider.providerId) };
+    const model = isRecord(raw) && typeof raw["model"] === "string" ? raw["model"] : undefined;
+    return {
+      input,
+      record: createC17AiAssessmentRecord(
+        input,
+        output,
+        provider.providerId,
+        model ? { model } : {},
+      ),
+    };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "AI assessment unavailable.";
     return {

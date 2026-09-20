@@ -10,11 +10,16 @@ import {
   type PreflightSummary,
   type ValidationError,
 } from "./validation";
+import { runC17AiAssessment } from "./ai-assessment";
+import { aiAssessmentFromRegulatoryAssessment } from "./ai-assessment";
+import { backendC17AiProvider, aiAssistEnabled } from "@/services/api/c17-ai";
+import type { E2bRegulatoryAssessment } from "./assessment-types";
 import {
   applyFinalizedC17,
   assessC17,
   latestC17AssessmentsByCase,
   listC17Assessments,
+  saveC17AiAssessment,
   saveC17Recommendation,
 } from "./assessment";
 import { splitIntoBatches, batchFilename } from "./batching";
@@ -246,6 +251,10 @@ function resolveProfileForJob(job: {
   );
 }
 
+/** One upload should not fan out into hundreds of AI calls; the rest keep
+ *  their place in the reviewer's list. */
+const MAX_C17_AI_ASSESSMENTS_PER_RUN = 25;
+
 export async function runValidatedPreflightForJob(
   jobId: string,
   regulatoryConfig: OrgRegulatoryConfig,
@@ -264,6 +273,7 @@ export async function runValidatedPreflightForJob(
   // Regulatory assessment is deliberately separate from source mapping.
   // Missing assessments remain unresolved and therefore continue to block
   // export; only a persisted human-finalized decision reaches PVCase.
+  const undecided: { pvCase: PVCase; assessment: E2bRegulatoryAssessment }[] = [];
   const storedAssessments = await listC17Assessments(jobId);
   const assessmentsByCase = new Map(
     latestC17AssessmentsByCase(storedAssessments).map((assessment) => [
@@ -274,7 +284,10 @@ export async function runValidatedPreflightForJob(
   for (let i = 0; i < cases.length; i += 1) {
     const current = cases[i]!;
     let assessment = assessmentsByCase.get(current.internalCaseId);
-    const currentAssessment = assessC17(current, { jobId });
+    const currentAssessment = assessC17(current, {
+      jobId,
+      ...(regulatoryConfig.c17Rule ? { rule: regulatoryConfig.c17Rule } : {}),
+    });
     if (
       !assessment ||
       assessment.sourceSnapshot.caseHash !== currentAssessment.sourceSnapshot.caseHash
@@ -287,6 +300,30 @@ export async function runValidatedPreflightForJob(
       });
     }
     cases[i] = applyFinalizedC17(current, assessment);
+    if (assessment.recommendation === "NEEDS_REVIEW" && assessment.id) {
+      undecided.push({ pvCase: current, assessment });
+    }
+  }
+
+  // The rule settles any case whose line list states seriousness. For the
+  // rest — a row that never says — the model reads that case and suggests
+  // an answer with its reasons. It is stored apart from the regulatory
+  // assessment and can finalize nothing; a qualified assessor decides.
+  // Capped so one upload cannot fan out into hundreds of calls.
+  if (aiAssistEnabled(regulatoryConfig.c17Rule) && undecided.length > 0) {
+    for (const { pvCase, assessment } of undecided.slice(0, MAX_C17_AI_ASSESSMENTS_PER_RUN)) {
+      try {
+        const { record } = await runC17AiAssessment(
+          pvCase,
+          aiAssessmentFromRegulatoryAssessment(assessment),
+          backendC17AiProvider,
+        );
+        await saveC17AiAssessment(record, assessment.id);
+      } catch {
+        // A suggestion is a convenience. Without it the case simply stays
+        // for the reviewer, which is where it already was.
+      }
+    }
   }
 
   // Both layers — validateSourceDecoding (codebook-unresolved/quarantined

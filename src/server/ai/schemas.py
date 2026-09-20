@@ -7,7 +7,7 @@ the caller falls back to deterministic behaviour.
 """
 import logging
 import re
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -914,6 +914,57 @@ class AiWhatsAppTurnResult(BaseModel):
         if isinstance(v, str) and v.strip().lower() in ("", "unknown", "n/a", "none", "null"):
             return None
         return v
+
+
+# ------------------------------------------------------------ E2B C.1.7 --
+
+_C17_RECOMMENDATIONS = {"YES", "NO", "NEEDS_REVIEW"}
+
+
+_C17_CASE_FIELDS = {"reaction", "outcome", "seriousness", "narrative"}
+
+
+class AiC17Evidence(BaseModel):
+    """One statement about the case, with the case fields it was read from.
+    A field name the model invents is dropped, so the provenance shown to an
+    assessor is either real or absent. A bare string still parses: the
+    statement survives, without provenance."""
+
+    statement: str
+    source_fields: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_plain_string(cls, value: Any) -> Any:
+        return {"statement": value} if isinstance(value, str) else value
+
+    @field_validator("source_fields")
+    @classmethod
+    def _known_fields(cls, value: list[str]) -> list[str]:
+        return [field for field in value if field in _C17_CASE_FIELDS]
+
+
+class AiC17Assessment(BaseModel):
+    """A suggestion about C.1.7, never a decision. An unrecognised
+    recommendation degrades to NEEDS_REVIEW rather than failing, so a
+    strange answer can never read as a YES."""
+
+    recommendation: str = "NEEDS_REVIEW"
+    confidence: float = 0.0
+    supporting_evidence: list[AiC17Evidence] = Field(default_factory=list)
+    contradicting_evidence: list[AiC17Evidence] = Field(default_factory=list)
+    missing_information: list[str] = Field(default_factory=list)
+    reasoning_summary: str = ""
+
+    @field_validator("recommendation")
+    @classmethod
+    def _known_recommendation(cls, value: str) -> str:
+        return value if value in _C17_RECOMMENDATIONS else "NEEDS_REVIEW"
+
+    @field_validator("confidence")
+    @classmethod
+    def _bounded_confidence(cls, value: float) -> float:
+        return min(1.0, max(0.0, value))
 
 
 # ------------------------------------------------------------------ Coding --

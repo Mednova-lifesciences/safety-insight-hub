@@ -21,6 +21,7 @@ import { whatsapp, type RequiredQuestion } from "@/services/api/whatsapp";
 import { regulatoryConfig } from "@/services/api/regulatory-config";
 import { linelist as linelistApi } from "@/services/api/linelist";
 import { OutcomeTermsSection } from "@/components/pv/outcome-terms-section";
+import { C17RuleSection } from "@/components/pv/c17-rule-section";
 import {
   type OrgQualificationMapping,
   type OrgRegulatoryConfig,
@@ -1131,6 +1132,7 @@ function SettingsPage() {
         {isManager ? <OrganizationSection /> : null}
         {canDeleteOrganization ? <DangerZone /> : null}
         {/* Last on purpose: this list only grows, one row per new word. */}
+        {isManager || isAssessor ? <C17RuleSection canEdit={isAssessor} /> : null}
         {isManager || isAssessor ? <OutcomeTermsSection /> : null}
       </div>
     </>
