@@ -61,6 +61,27 @@ import type { PVCase, PVReaction, PVProduct, DrugCharacterization } from "./type
 import { WHODRUG_GLOBAL_RID_OID } from "./coding-provider";
 import { e2bOutcomeCode } from "./outcome-codes";
 
+/**
+ * An HL7 `uid` for a local, document-internal identifier.
+ *
+ * `root` is typed `uid` — the union of oid, uuid and ruid — and ruid is
+ * `[A-Za-z][A-Za-z0-9\-]*` (coreschemas/datatypes-base.xsd). The ids the
+ * mapping layer mints for a reaction or a product are built from the
+ * source's own case number so a person can trace them, and real case
+ * numbers contain characters that pattern forbids: "OG/AEFI/2026/0413-r1"
+ * makes the whole document schema-invalid, which a realistic fixture
+ * caught. The human-readable id stays in the model; what goes on the wire
+ * is reduced to what the datatype allows, and prefixed when it would
+ * otherwise start with a digit.
+ *
+ * Deterministic, so the causality block's reference to a product still
+ * matches that product's own id.
+ */
+function localUid(value: string): string {
+  const cleaned = value.replace(/[^A-Za-z0-9-]/g, "");
+  return /^[A-Za-z]/.test(cleaned) ? cleaned : `ID-${cleaned}`;
+}
+
 function esc(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -118,7 +139,7 @@ const DRUG_CHARACTERIZATION_CODE: Record<DrugCharacterization, string> = {
  *  configuration and are never read from OrgRegulatoryConfig.outcomeCodes
  *  (a legacy field kept only for backward compatibility). */
 function serializeReaction(r: PVReaction): string {
-  const id = esc(r.id);
+  const id = esc(localUid(r.id));
   const onset = r.onsetDate
     ? `<effectiveTime xsi:type="IVL_TS"><low value="${toHl7Ts(r.onsetDate)}"/></effectiveTime>`
     : "";
@@ -175,7 +196,7 @@ function serializeReaction(r: PVReaction): string {
 }
 
 function serializeDrugComponent(p: PVProduct): string {
-  const id = esc(p.id);
+  const id = esc(localUid(p.id));
   const productValue =
     p.product.status === "MAPPED" && p.product.code
       ? `<code code="${esc(p.product.code)}" codeSystem="TBD-MPID" codeSystemVersion="${esc(p.product.dictionaryVersion ?? "")}"/>`
@@ -207,7 +228,7 @@ function serializeDrugComponent(p: PVProduct): string {
 }
 
 function serializeCausality(p: PVProduct): string {
-  return `<component typeCode="COMP"><causalityAssessment classCode="OBS" moodCode="EVN"><code code="20" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="interventionCharacterization"/><value xsi:type="CE" code="${DRUG_CHARACTERIZATION_CODE[p.characterization]}" codeSystem="2.16.840.1.113883.3.989.2.1.1.13" codeSystemVersion="1.0"/><subject2 typeCode="SUBJ"><productUseReference classCode="SBADM" moodCode="EVN"><id root="${esc(p.id)}"/></productUseReference></subject2></causalityAssessment></component>`;
+  return `<component typeCode="COMP"><causalityAssessment classCode="OBS" moodCode="EVN"><code code="20" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="interventionCharacterization"/><value xsi:type="CE" code="${DRUG_CHARACTERIZATION_CODE[p.characterization]}" codeSystem="2.16.840.1.113883.3.989.2.1.1.13" codeSystemVersion="1.0"/><subject2 typeCode="SUBJ"><productUseReference classCode="SBADM" moodCode="EVN"><id root="${esc(localUid(p.id))}"/></productUseReference></subject2></causalityAssessment></component>`;
 }
 
 /** One PVCase -> one <PORR_IN049016UV> ICSR message (no XML declaration,

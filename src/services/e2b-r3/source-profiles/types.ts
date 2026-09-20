@@ -113,7 +113,7 @@ export interface SourceProfile {
    *  from (C.2.r.3), used when the file itself has no reporter-country
    *  column. Omitted by a profile that does not stand for one country;
    *  the country resolver then applies the application fallback. */
-  country?: string;
+  country?: string | undefined;
   timezone: string;
   columnMap: ColumnMap;
   /**

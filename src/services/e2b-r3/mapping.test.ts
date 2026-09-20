@@ -15,6 +15,7 @@ import {
 } from "./mapping";
 import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
 import { ondoAefiProfile } from "./source-profiles/ondo-aefi";
+import type { SourceProfile } from "./source-profiles/types";
 import { UNCONFIRMED_DEFAULT_CONFIG, type E2bTransmissionConfig } from "./transmission-config";
 
 describe("deriveInitials", () => {
@@ -632,7 +633,11 @@ describe("country resolution through the mapper", () => {
     sender: { organization: "MedNova", identifier: "MEDNOVA-SND" },
     receiver: { identifier: "NAFDAC-RCV" },
   };
-  const genericProfile = { ...ondoAefiProfile, id: "generic-test", country: undefined };
+  const genericProfile: SourceProfile = {
+    ...ondoAefiProfile,
+    id: "generic-test",
+    country: undefined,
+  };
 
   async function caseFor(
     row: Record<string, string | undefined>,
@@ -780,7 +785,11 @@ describe("mixed-country, every-outcome batch", () => {
       sender: { organization: "MedNova", identifier: "MEDNOVA-SND" },
       receiver: { identifier: "NAFDAC-RCV" },
     };
-    const profile = { ...ondoAefiProfile, id: "generic-test", country: undefined };
+    const profile: SourceProfile = {
+      ...ondoAefiProfile,
+      id: "generic-test",
+      country: undefined,
+    };
     const rows = [
       { reporter_country: "NG", outcome: "Recovered" },
       { reporter_country: "Kenya", outcome: "Recovering", reaction_country: "NG" },
