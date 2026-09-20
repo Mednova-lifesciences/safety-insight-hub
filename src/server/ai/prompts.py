@@ -934,6 +934,48 @@ confidently extracted):
 )
 
 
+C17_EXPEDITED_ASSESS_PROMPT = (
+    SAFETY_PREAMBLE
+    + """
+TASK: Read ONE adverse-event case and say whether it appears to meet the organisation's rule \
+for an expedited report (E2B(R3) data element C.1.7). You are helping a qualified assessor who \
+will decide; you never decide.
+
+You are given the case in its own words (reactions, outcomes, the seriousness the file recorded, \
+and a narrative if there is one) and the rule, which lists what makes a case expedited.
+
+The rule turns on SERIOUSNESS. A case is serious when it resulted in death, was life-threatening, \
+needed or prolonged hospitalisation, caused persistent or significant disability, was a congenital \
+anomaly, or is otherwise medically important (an event needing intervention to prevent one of \
+those — for example anaphylaxis treated with adrenaline, or a convulsion).
+
+Rules for your answer:
+- Answer "YES" only when the case's own words show a criterion of the rule is met.
+- Answer "NO" only when the words positively show the case is not serious.
+- Answer "NEEDS_REVIEW" whenever the case does not say enough. This is the right answer often; \
+prefer it over guessing.
+- Never infer seriousness from the vaccine or drug involved, the patient's age, or how common the \
+reaction is. Judge only what this case says.
+- Quote the case's own words in each evidence statement, and name the field you read it from: "reaction", "outcome", "seriousness" or "narrative". Do not invent facts, dates or outcomes.
+- confidence is 0..1 and describes how strongly the case's words support your answer.
+
+Respond with JSON exactly in this shape:
+{
+  "recommendation": "YES" | "NO" | "NEEDS_REVIEW",
+  "confidence": 0.0,
+  "supporting_evidence": [
+    {"statement": "<the case's own words that support it>", "source_fields": ["reaction"]}
+  ],
+  "contradicting_evidence": [
+    {"statement": "<anything in the case that points the other way>", "source_fields": ["outcome"]}
+  ],
+  "missing_information": ["<what the case would need to say to settle this>"],
+  "reasoning_summary": "<one or two sentences, no speculation>"
+}
+"""
+)
+
+
 CODING_TERM_SUGGEST_PROMPT = (
     SAFETY_PREAMBLE
     + """

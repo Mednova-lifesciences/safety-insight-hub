@@ -129,6 +129,6 @@ describe("generic C.1.7 AI assessment contract", () => {
     expect(assessment.status).toBe("NEEDS_REVIEW");
     expect(assessment.recommendation).toBe("NEEDS_REVIEW");
     expect(assessment.rule.ruleId).toBe("NG-C1.7-EXPEDITED-PROVISIONAL");
-    expect(assessment.rule.version).toBe("0.1");
+    expect(assessment.rule.version).toBe("1.0");
   });
 });

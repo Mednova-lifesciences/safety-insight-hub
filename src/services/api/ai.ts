@@ -422,6 +422,13 @@ export interface AiLiteratureDocumentResponse {
   error?: string | null;
 }
 
+/** One statement the model read out of a case, with the case fields it came
+ *  from. Only field names the case actually has survive the backend. */
+export interface AiC17Evidence {
+  statement: string;
+  sourceFields: string[];
+}
+
 export const ai = {
   status: () => apiRequest<{ configured: boolean }>("/api/ai/linelist/status"),
 
@@ -500,6 +507,32 @@ export const ai = {
   icsr: {
     extractImage: (file: File) =>
       apiUpload<AiIcsrExtractionResponse>("/api/ai/icsr/extract-image", file),
+  },
+
+  e2b: {
+    /** A suggestion about C.1.7 for one case the rule could not settle. */
+    c17: (body: {
+      caseId: string;
+      reactions: string[];
+      outcomes: string[];
+      seriousnessAsReported: string | null;
+      narrative: string | null;
+      ruleName: string;
+      ruleVersion: string;
+      criteria: string[];
+    }) =>
+      apiRequest<{
+        recommendation: string;
+        confidence: number;
+        supportingEvidence: AiC17Evidence[];
+        contradictingEvidence: AiC17Evidence[];
+        missingInformation: string[];
+        reasoningSummary: string;
+        ai_used: boolean;
+        prompt_version: string;
+        model?: string;
+        error?: string;
+      }>("/api/ai/e2b/c17", { method: "POST", body }),
   },
 
   coding: {

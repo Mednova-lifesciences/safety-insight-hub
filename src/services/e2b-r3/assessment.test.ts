@@ -6,6 +6,7 @@ import {
   canFinalizeC17Assessment,
   latestC17AssessmentsByCase,
   pendingC17AssessmentIds,
+  recommendedC17AssessmentIds,
 } from "./assessment";
 import type { PVCase } from "./types";
 
@@ -37,12 +38,22 @@ function baseCase(): PVCase {
 }
 
 describe("E2B C.1.7 assessment foundation", () => {
-  it("does not invent a Nigerian expedited result", () => {
+  it("asks for a person when the case never says whether it is serious", () => {
     const assessment = assessC17(baseCase(), { jobId: "job-1" });
     expect(assessment.status).toBe("NEEDS_REVIEW");
     expect(assessment.recommendation).toBe("NEEDS_REVIEW");
-    expect(assessment.rule.status).toBe("PROVISIONAL");
     expect(assessment.missingFacts.length).toBeGreaterThan(0);
+  });
+
+  it("recommends, but never decides: a serious case is still only a recommendation", () => {
+    const serious = { ...baseCase(), aggregateSeriousnessAsReported: "Serious" };
+    const assessment = assessC17(serious, { jobId: "job-1" });
+    expect(assessment.recommendation).toBe("YES");
+    // The rule proposes; only a qualified assessor finalizes.
+    expect(assessment.status).toBe("NEEDS_REVIEW");
+    expect(assessment.finalDecision).toBeUndefined();
+    expect(assessment.matchedCriteria.length).toBeGreaterThan(0);
+    expect(applyFinalizedC17(serious, assessment).fulfilsExpeditedCriteria.present).toBe(false);
   });
 
   it("does not apply a recommendation as the final PVCase value", () => {
@@ -130,6 +141,27 @@ describe("C.1.7 latest-version selection across a line list", () => {
 
     const latest = latestC17AssessmentsByCase([v2, v1, other]);
     expect(latest.map((a) => a.id).sort()).toEqual(["a-v2", "b-v1"]);
+  });
+
+  it("offers for one-click acceptance only the cases the rule actually decided", () => {
+    const yes = withCase("job-1-1", { id: "a", assessmentVersion: 1, recommendation: "YES" });
+    const no = withCase("job-1-2", { id: "b", assessmentVersion: 1, recommendation: "NO" });
+    const undecided = withCase("job-1-3", {
+      id: "c",
+      assessmentVersion: 1,
+      recommendation: "NEEDS_REVIEW",
+    });
+    const alreadyDone = withCase("job-1-4", {
+      id: "d",
+      assessmentVersion: 1,
+      recommendation: "YES",
+      status: "FINALIZED",
+      finalDecision: "YES",
+    });
+
+    expect(recommendedC17AssessmentIds([yes, no, undecided, alreadyDone])).toEqual(["a", "b"]);
+    // A case the rule could not decide still needs the assessor.
+    expect(pendingC17AssessmentIds([yes, no, undecided, alreadyDone])).toEqual(["a", "b", "c"]);
   });
 
   it("lists as pending only unfinalized, persisted latest versions", () => {

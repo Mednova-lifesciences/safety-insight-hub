@@ -12,15 +12,18 @@ import {
 } from "@/services/e2b-r3/export";
 import {
   finalizeC17Assessment,
+  finalizeC17AsRecommended,
   finalizeC17AssessmentsBulk,
   latestC17AssessmentsByCase,
   listC17AiAssessments,
   listC17Assessments,
   pendingC17AssessmentIds,
+  recommendedC17AssessmentIds,
 } from "@/services/e2b-r3/assessment";
 import type { E2bRegulatoryAssessment } from "@/services/e2b-r3/assessment-types";
 import type { C17AiAssessmentRecord } from "@/services/e2b-r3/ai-assessment-types";
 import { aiAssessmentCanApplyTo } from "@/services/e2b-r3/ai-assessment";
+import type { AiAssessmentRecommendation } from "@/services/e2b-r3/ai-assessment-types";
 import { regulatoryConfig } from "@/services/api/regulatory-config";
 import {
   unconfiguredOrgRegulatoryConfig,
@@ -50,6 +53,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+
+/** The AI never says yes or no: it says what the case's words suggest. */
+const AI_SUGGESTION_LABELS: Record<AiAssessmentRecommendation, string> = {
+  POTENTIALLY_EXPEDITED: "Reads as an expedited report",
+  POTENTIALLY_NOT_EXPEDITED: "Reads as not expedited",
+  NEEDS_REVIEW: "Could not tell from the case",
+};
 
 export const Route = createFileRoute("/_app/e2b")({
   head: () => ({
@@ -106,6 +116,8 @@ function E2bPage() {
     {},
   );
   const [c17Rationales, setC17Rationales] = useState<Record<string, string>>({});
+  const [acceptC17JobId, setAcceptC17JobId] = useState<string | null>(null);
+  const [acceptC17Rationale, setAcceptC17Rationale] = useState("");
   const [bulkC17JobId, setBulkC17JobId] = useState<string | null>(null);
   const [bulkC17Rationale, setBulkC17Rationale] = useState("");
   const [bulkC17Busy, setBulkC17Busy] = useState(false);
@@ -231,6 +243,31 @@ function E2bPage() {
       toast.success(`C.1.7 finalized as ${decision} for ${updated.length} case(s).`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save the C.1.7 decisions.");
+    } finally {
+      setBulkC17Busy(false);
+    }
+  }
+
+  async function acceptC17Recommendations(jobId: string) {
+    const ids = recommendedC17AssessmentIds(c17Assessments[jobId] ?? []);
+    const rationale = acceptC17Rationale.trim();
+    if (ids.length === 0) {
+      toast.error("The rule has not recommended a decision for any pending case.");
+      return;
+    }
+    if (!rationale) {
+      toast.error("Enter a rationale before accepting the recommendations.");
+      return;
+    }
+    setBulkC17Busy(true);
+    try {
+      const updated = await finalizeC17AsRecommended(ids, rationale);
+      setAcceptC17JobId(null);
+      setAcceptC17Rationale("");
+      await checkValidatedPreflight(jobId);
+      toast.success(`C.1.7 finalized for ${updated.length} case(s) as the rule recommended.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not accept the recommendations.");
     } finally {
       setBulkC17Busy(false);
     }
@@ -508,8 +545,22 @@ function E2bPage() {
                                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                                   <span>
                                     {pendingC17AssessmentIds(c17Assessments[j.id]!).length} of{" "}
-                                    {c17Assessments[j.id]!.length} case(s) awaiting a decision.
+                                    {c17Assessments[j.id]!.length} case(s) awaiting a decision
+                                    {recommendedC17AssessmentIds(c17Assessments[j.id]!).length > 0
+                                      ? `; the rule recommends a decision for ${recommendedC17AssessmentIds(c17Assessments[j.id]!).length} of them.`
+                                      : "; the rule could not decide any of them from the data."}
                                   </span>
+                                  {recommendedC17AssessmentIds(c17Assessments[j.id]!).length > 0 ? (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => {
+                                        setAcceptC17JobId(j.id);
+                                        setAcceptC17Rationale("");
+                                      }}
+                                    >
+                                      Accept the recommendations…
+                                    </Button>
+                                  ) : null}
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -539,10 +590,26 @@ function E2bPage() {
                                       >
                                         {assessment.status}
                                       </StatusPill>
-                                      <span className="text-muted-foreground">
-                                        Recommendation:{" "}
-                                        {assessment.recommendation ?? "NEEDS_REVIEW"}
-                                      </span>
+                                      <StatusPill
+                                        tone={
+                                          assessment.recommendation === "YES"
+                                            ? "warning"
+                                            : assessment.recommendation === "NO"
+                                              ? "neutral"
+                                              : "assist"
+                                        }
+                                      >
+                                        {assessment.recommendation === "YES"
+                                          ? "Rule: expedited"
+                                          : assessment.recommendation === "NO"
+                                            ? "Rule: not expedited"
+                                            : "Rule could not decide"}
+                                      </StatusPill>
+                                      {assessment.matchedCriteria.length > 0 ? (
+                                        <span className="text-muted-foreground">
+                                          {assessment.matchedCriteria.join("; ")}
+                                        </span>
+                                      ) : null}
                                     </div>
                                     {c17AiAssessments[j.id]
                                       ?.filter((item) => {
@@ -567,14 +634,26 @@ function E2bPage() {
                                             NOT A REGULATORY DECISION
                                           </p>
                                           <p className="mt-1">
-                                            Recommendation: {aiAssessment.recommendation}
-                                          </p>
-                                          <p>
-                                            Confidence: {Math.round(aiAssessment.confidence * 100)}%
+                                            {AI_SUGGESTION_LABELS[aiAssessment.recommendation]}
+                                            {aiAssessment.recommendation === "NEEDS_REVIEW"
+                                              ? ""
+                                              : ` — ${Math.round(aiAssessment.confidence * 100)}% confident`}
                                           </p>
                                           <p className="mt-1 text-muted-foreground">
                                             {aiAssessment.reasoningSummary}
                                           </p>
+                                          {aiAssessment.supportingEvidence.length > 0 ? (
+                                            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted-foreground">
+                                              {aiAssessment.supportingEvidence.map((evidence) => (
+                                                <li key={evidence.statement}>
+                                                  {evidence.statement}
+                                                  {evidence.sourceFields.length > 0
+                                                    ? ` (${evidence.sourceFields.join(", ")})`
+                                                    : ""}
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          ) : null}
                                           {aiAssessment.missingInformation.length > 0 ? (
                                             <p className="mt-1 text-muted-foreground">
                                               Missing: {aiAssessment.missingInformation.join("; ")}
@@ -813,6 +892,47 @@ function E2bPage() {
                               </div>
                             </div>
                           ) : null}
+
+                          <AlertDialog
+                            open={acceptC17JobId === j.id}
+                            onOpenChange={(open) => {
+                              if (!open && !bulkC17Busy) {
+                                setAcceptC17JobId(null);
+                                setAcceptC17Rationale("");
+                              }
+                            }}
+                          >
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Accept the rule's recommendation for every case it could decide?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Finalizes{" "}
+                                  {recommendedC17AssessmentIds(c17Assessments[j.id] ?? []).length}{" "}
+                                  case(s), each with the decision the rule recommended for it — some
+                                  YES, some NO. Each case is recorded in the audit trail under your
+                                  name and cannot be changed afterwards. Cases the rule could not
+                                  decide are left for you.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <Textarea
+                                placeholder="Rationale for accepting these recommendations (required)"
+                                value={acceptC17Rationale}
+                                onChange={(e) => setAcceptC17Rationale(e.target.value)}
+                                rows={3}
+                              />
+                              <AlertDialogFooter>
+                                <AlertDialogCancel disabled={bulkC17Busy}>Cancel</AlertDialogCancel>
+                                <Button
+                                  disabled={bulkC17Busy || !acceptC17Rationale.trim()}
+                                  onClick={() => acceptC17Recommendations(j.id)}
+                                >
+                                  Accept and finalize
+                                </Button>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
 
                           <AlertDialog
                             open={bulkC17JobId === j.id}

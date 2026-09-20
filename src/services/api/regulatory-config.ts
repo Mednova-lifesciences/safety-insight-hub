@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { newId, recordAudit, toJson } from "./db";
 import { termMappings } from "./term-mappings";
+import { c17Rules } from "./c17-rules";
 import {
   unconfiguredOrgRegulatoryConfig,
   normalizeDesignationKey,
@@ -121,12 +122,17 @@ export const regulatoryConfig = {
    *  is an expected, common, honestly-represented state (see
    *  unconfiguredOrgRegulatoryConfig). */
   get: async (): Promise<OrgRegulatoryConfig> => {
-    const [configRow, mappingRows, terms] = await Promise.all([
+    const [configRow, mappingRows, terms, c17] = await Promise.all([
       fetchConfigRow(),
       fetchMappingRows(),
       termMappings.listAll(),
+      c17Rules.active(),
     ]);
-    return { ...configFromRows(configRow, mappingRows), termMappings: terms };
+    return {
+      ...configFromRows(configRow, mappingRows),
+      termMappings: terms,
+      c17Rule: c17.rule,
+    };
   },
 
   /** Partial update — only the fields present in `patch` change. Reads

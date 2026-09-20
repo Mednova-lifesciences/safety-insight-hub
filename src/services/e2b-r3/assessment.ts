@@ -6,7 +6,8 @@ import {
   type E2bAssessmentDecision,
   type E2bRegulatoryAssessment,
 } from "./assessment-types";
-import { c17SourceHash, evaluateProvisionalC17 } from "./assessment-rules";
+import { c17SourceHash, evaluateC17Assessment } from "./assessment-rules";
+import type { C17Rule } from "./c17-rule";
 import type { C17AiAssessmentRecord } from "./ai-assessment-types";
 
 export function canFinalizeC17Assessment(actor: { role?: string } | undefined): boolean {
@@ -109,9 +110,9 @@ export function pendingC17AssessmentIds(assessments: E2bRegulatoryAssessment[]):
 
 export function assessC17(
   pvCase: PVCase,
-  context: { jobId: string; jurisdiction?: string; configurationRevision?: string },
+  context: { jobId: string; jurisdiction?: string; rule?: C17Rule },
 ): E2bRegulatoryAssessment {
-  return evaluateProvisionalC17(pvCase, context);
+  return evaluateC17Assessment(pvCase, context);
 }
 
 export function applyFinalizedC17(
@@ -189,6 +190,37 @@ export async function finalizeC17AssessmentsBulk(
   const { data, error } = await supabase.rpc("finalize_e2b_c17_assessments_bulk", {
     p_assessment_ids: assessmentIds,
     p_decision: decision,
+    p_rationale: rationale.trim(),
+  });
+  if (error) throw new Error(error.message);
+  return data as unknown as E2bRegulatoryAssessment[];
+}
+
+/** Ids of the latest per-case assessments the rule could decide, and the
+ *  decision it recommends for each. */
+export function recommendedC17AssessmentIds(assessments: E2bRegulatoryAssessment[]): string[] {
+  return latestC17AssessmentsByCase(assessments)
+    .filter(
+      (a) =>
+        a.status !== "FINALIZED" &&
+        a.id &&
+        (a.recommendation === "YES" || a.recommendation === "NO"),
+    )
+    .map((a) => a.id!);
+}
+
+/** Finalizes each case with the decision the rule recommended for it —
+ *  one action by the assessor, one audited decision per case. Cases the
+ *  rule could not decide are refused by the server; they need the
+ *  assessor's own YES or NO. */
+export async function finalizeC17AsRecommended(
+  assessmentIds: string[],
+  rationale: string,
+): Promise<E2bRegulatoryAssessment[]> {
+  if (assessmentIds.length === 0) throw new Error("There are no recommendations to accept.");
+  if (!rationale.trim()) throw new Error("A rationale is required for the C.1.7 decision.");
+  const { data, error } = await supabase.rpc("finalize_e2b_c17_as_recommended", {
+    p_assessment_ids: assessmentIds,
     p_rationale: rationale.trim(),
   });
   if (error) throw new Error(error.message);

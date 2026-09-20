@@ -320,6 +320,51 @@ export type Database = {
         };
         Relationships: [];
       };
+      pv_e2b_c17_rules: {
+        Row: {
+          changed_by: string;
+          changed_by_role: string;
+          created_at: string;
+          id: string;
+          jurisdiction: string;
+          name: string;
+          note: string | null;
+          organization_id: string;
+          rule: Json;
+          status: string;
+          supersedes_id: string | null;
+          version: string;
+        };
+        Insert: {
+          changed_by: string;
+          changed_by_role: string;
+          created_at?: string;
+          id: string;
+          jurisdiction: string;
+          name: string;
+          note?: string | null;
+          organization_id?: string;
+          rule: Json;
+          status: string;
+          supersedes_id?: string | null;
+          version: string;
+        };
+        Update: {
+          changed_by?: string;
+          changed_by_role?: string;
+          created_at?: string;
+          id?: string;
+          jurisdiction?: string;
+          name?: string;
+          note?: string | null;
+          organization_id?: string;
+          rule?: Json;
+          status?: string;
+          supersedes_id?: string | null;
+          version?: string;
+        };
+        Relationships: [];
+      };
       pv_e2b_c17_ai_assessments: {
         Row: {
           assessment_id: string | null;
@@ -690,6 +735,20 @@ export type Database = {
         Args: {
           p_assessment_ids: string[];
           p_decision: string;
+          p_rationale: string;
+        };
+        Returns: Json;
+      };
+      save_e2b_c17_rule: {
+        Args: {
+          p_note?: string | null;
+          p_rule: Json;
+        };
+        Returns: Json;
+      };
+      finalize_e2b_c17_as_recommended: {
+        Args: {
+          p_assessment_ids: string[];
           p_rationale: string;
         };
         Returns: Json;
