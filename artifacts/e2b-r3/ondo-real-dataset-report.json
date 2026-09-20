@@ -58,7 +58,7 @@
       "8.19.21",
       "9"
     ],
-    "casesWithResolvedOutcome": 0,
+    "casesWithResolvedOutcome": 30,
     "casesWithSeriousnessCriteriaApplied": 0,
     "outcomeResolutionBreakdown": {
       "MAPPED": 0,
@@ -85,7 +85,7 @@
     "decodedReactions": 237,
     "unknownReactionCodeCount": 0,
     "unknownReactionCodes": [],
-    "casesWithResolvedOutcome": 179,
+    "casesWithResolvedOutcome": 209,
     "casesWithSeriousnessCriteriaApplied": 30,
     "outcomeResolutionBreakdown": {
       "MAPPED": 193,

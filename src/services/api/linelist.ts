@@ -130,6 +130,15 @@ export const TARGET_FIELDS = [
   /** When the report was received/notified — E2B C.1.4 "date report was
    *  first received" and C.1.5 "date of most recent information". */
   "report_date",
+  /** E2B C.2.r.3 — the country the REPORTER/primary source is in. Named
+   *  for what it means: a bare "Country" column is not assumed to be this
+   *  one (see reaction_country), because the two are different facts and
+   *  C.1.1's country component is built from this one. */
+  "reporter_country",
+  /** E2B E.i.9 — the country the REACTION/EVENT occurred in. Never a
+   *  substitute for reporter_country: a reporter in one country can report
+   *  an event that happened in another. */
+  "reaction_country",
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
@@ -401,6 +410,28 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["ageatonset", 70],
     ["ageyears", 70],
     ["age", 30],
+  ],
+  // C.2.r.3. Only headers that actually say whose country it is: a bare
+  // "Country" is genuinely ambiguous between the reporter's and the
+  // event's, so it is left for the AI mapper's review step rather than
+  // guessed here (getting it wrong would put the wrong country into every
+  // case identifier).
+  reporter_country: [
+    ["reportercountry", 95],
+    ["countryofreporter", 95],
+    ["primarysourcecountry", 95],
+    ["countryofprimarysource", 95],
+    ["reportingcountry", 85],
+    ["sourcecountry", 80],
+  ],
+  // E.i.9.
+  reaction_country: [
+    ["reactioncountry", 95],
+    ["countryofreaction", 95],
+    ["eventcountry", 95],
+    ["countryofevent", 95],
+    ["countrywherereactionoccurred", 95],
+    ["countryofoccurrence", 90],
   ],
   report_date: [
     ["datereported", 90],
@@ -1849,7 +1880,11 @@ async function storeIssues(
   const blocking = issues.filter((i) => i.severity === "CRITICAL" || i.severity === "HIGH");
   const advisory = issues.filter((i) => i.severity === "MEDIUM" || i.severity === "LOW");
   const invalidCases = new Set(blocking.filter((i) => i.row > 0).map((i) => i.row)).size;
-  const e2bBlocked = issues.filter((i) => i.blocksE2b && i.row > 0);
+  // A blocker recorded against the file rather than a row (the wrong
+  // source form, say) stops every case in it, so it is never counted as
+  // zero blocked cases.
+  const e2bBlocked = issues.filter((i) => i.blocksE2b);
+  const wholeFileBlocked = e2bBlocked.some((i) => i.row === 0);
   const next: LineListJobRow = {
     ...job,
     ...extra,
@@ -1861,7 +1896,7 @@ async function storeIssues(
     mediumCount: issues.filter((i) => i.severity === "MEDIUM").length,
     lowCount: issues.filter((i) => i.severity === "LOW").length,
     validCases: Math.max(job.rows - invalidCases, 0),
-    e2bBlockedCases: new Set(e2bBlocked.map((i) => i.row)).size,
+    e2bBlockedCases: wholeFileBlocked ? job.rows : new Set(e2bBlocked.map((i) => i.row)).size,
     openFixIn: [...new Set(e2bBlocked.map((i) => i.fixIn ?? "FILE"))],
     checkedAt: new Date().toISOString(),
   };
@@ -2210,6 +2245,29 @@ export const linelist = {
         ? `slash separates reactions: ${!!previous.slashSeparatesReactions}; product cell is one name: ${!!previous.productCellIsOneName}`
         : "defaults",
       newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}`,
+    });
+    return linelist.recheck(jobId);
+  },
+
+  /** Reads an already-uploaded file as a different source form. The form
+   *  decides whether the reaction column holds local codes or reactions
+   *  written out, so choosing wrongly at upload blocked every row with no
+   *  way back but a re-upload. Re-reads the rows from the file already
+   *  stored: nothing is uploaded again, and the change is audited.
+   *
+   *  Cases are rebuilt, so a C.1.7 decision taken against the old reading
+   *  is superseded exactly as it is for any other change to the data. */
+  setSourceProfile: async (jobId: string, sourceProfileId: string): Promise<LineListJob> => {
+    const job = await readJob(jobId);
+    const previous = job.sourceProfileId || DEFAULT_SOURCE_PROFILE_ID;
+    if (previous === sourceProfileId) return job;
+    await saveJob({ ...job, sourceProfileId });
+    await recordAudit({
+      action: "LINELIST_SOURCE_PROFILE_CHANGED",
+      entity: "LineListJob",
+      entityId: jobId,
+      previousValue: previous,
+      newValue: sourceProfileId,
     });
     return linelist.recheck(jobId);
   },
@@ -2628,6 +2686,7 @@ export const linelist = {
     }
 
     const e2bBlockers = issues.filter((i) => i.blocksE2b && i.row > 0);
+    const fileBlockers = issues.filter((i) => i.blocksE2b && i.row === 0);
     lines.push("E2B(R3) / VIGIFLOW READINESS");
     lines.push(rule);
     if (e2bCheckIncomplete(issues)) {
@@ -2635,9 +2694,12 @@ export const linelist = {
         "Not fully checked: a service needed for the E2B check could not be reached. Re-run validation before relying on this section.",
       );
     }
-    if (e2bBlockers.length === 0) {
+    for (const f of fileBlockers) {
+      lines.push(`WHOLE FILE — ${f.message}`);
+    }
+    if (e2bBlockers.length === 0 && fileBlockers.length === 0) {
       lines.push("No case in this file has data that would block a validated E2B(R3) export.");
-    } else {
+    } else if (e2bBlockers.length > 0) {
       const blockedRows = new Set(e2bBlockers.map((i) => i.row));
       lines.push(
         `${blockedRows.size} case(s) have data that would block a validated E2B(R3) export:`,

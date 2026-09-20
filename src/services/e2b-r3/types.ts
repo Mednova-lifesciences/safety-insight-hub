@@ -273,8 +273,17 @@ export interface PVReaction {
   outcome?: ReactionOutcome | undefined;
   /** Full raw -> decoded -> canonical audit trail for how (or whether)
    *  the outcome was resolved. Always present when the source supplied a
-   *  non-blank outcome value at all. */
+   *  non-blank outcome value at all; absent when the source said nothing,
+   *  in which case `outcome` is UNKNOWN (E.i.7 = 0, the required
+   *  element's honest value) rather than missing. */
   outcomeResolution?: FieldMappingResolution<ReactionOutcome> | undefined;
+  /** E.i.9 — the ISO 3166-1 alpha-2 country the reaction/event occurred
+   *  in, when the source says. Distinct from the reporter's country
+   *  (C.2.r.3) and never derived from it: per the ICH E2B(R3) Q&A, E.i.9
+   *  is not an alternative to the reporter's country code, and a change
+   *  to it must never change C.1.1. Absent when unknown — a fabricated
+   *  place of occurrence is a clinical claim, not a default. */
+  countryOfOccurrence?: string | undefined;
   /** E.i.3.2a-f — six independent booleans. Left entirely empty (not
    *  guessed) when the source only provides an aggregate case-level value
    *  like "NON SERIOUS" — see PVCase.aggregateSeriousnessAsReported for
@@ -317,12 +326,24 @@ export interface PVCase {
   /** This app's own internal case identifier — never placed in a
    *  regulatory sender/receiver identifier field. */
   internalCaseId: string;
-  /** C.1.1 — country–organisation–report-number, e.g. NG-MEDNOVA-000112
-   *  (spec 5.2). Stable across retransmission of the same case; may only
-   *  change on organisational change or a primary-source country change.
-   *  The organisation segment and exact formatting are configuration
-   *  (decision D4), not hardcoded here. */
+  /** The sender's own case/report number, exactly as the source line list
+   *  wrote it (e.g. "OG-901"). This is the identifier the application keys
+   *  on — assessments, eligibility, reaction ids, what a person sees on
+   *  screen — and the report-number segment of C.1.1 below. It is NOT
+   *  itself the E2B identifier. */
   sendersCaseId: string;
+  /** C.1.1 — Sender's (case) Safety Report Unique Identifier:
+   *  country–organisation–report-number, e.g. NG-MEDNOVA-OG-901 (spec
+   *  5.2). Built by case-identifier.ts from the case's own primary-source
+   *  country, the configured sender organisation and `sendersCaseId`, so
+   *  the organisation segment is configuration (decision D4), never
+   *  hardcoded. Stable across retransmission of the same case; may only
+   *  change on organisational change or a primary-source country change.
+   *
+   *  N.2.r.1 (Message Identifier) must equal this (spec 5.1), so the
+   *  serializer derives the message id from this field rather than
+   *  minting a second one. */
+  caseSafetyReportId: string;
   /** C.1.8.1 — distinct from sendersCaseId: this must NEVER change across
    *  any retransmission, by anyone, ever, for the life of the case. Equal
    *  to sendersCaseId only at the moment of first creation. VigiFlow's

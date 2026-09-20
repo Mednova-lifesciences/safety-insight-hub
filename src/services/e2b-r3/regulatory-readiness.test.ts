@@ -12,10 +12,6 @@ import {
 import type { CaseValidationResult, ValidationError } from "./validation";
 
 function fullyConfiguredConfig(): OrgRegulatoryConfig {
-  const outcomeCodes: OrgRegulatoryConfig["outcomeCodes"] = {};
-  ALL_REACTION_OUTCOMES.forEach((o, i) => {
-    outcomeCodes[o] = String(i + 1);
-  });
   return {
     transmission: {
       environment: "production",
@@ -24,7 +20,6 @@ function fullyConfiguredConfig(): OrgRegulatoryConfig {
       reportType: "1",
       reportTypeConfirmed: true,
     },
-    outcomeCodes,
     reporterQualificationMappings: [],
   };
 }

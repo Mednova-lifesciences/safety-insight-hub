@@ -6,6 +6,7 @@ function fakeCase(id: string): PVCase {
   return {
     internalCaseId: id,
     sendersCaseId: id,
+    caseSafetyReportId: `NG-MEDNOVA-${id}`,
     worldwideUniqueId: id,
     firstSenderOfCase: "2",
     reportType: { present: true, value: "1" },

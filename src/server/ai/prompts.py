@@ -93,14 +93,22 @@ CANONICAL FIELDS (use these exact names, or null):
   serious_code          a numeric code identifying WHICH seriousness criterion applies
   reporter_designation  the reporter's role or job title
   reporter_phone        the reporter's telephone number
+  reporter_country      the country the REPORTER / primary source is in (E2B C.2.r.3)
+  reaction_country      the country the REACTION/EVENT occurred in (E2B E.i.9)
 
 DISTINCTIONS THAT ARE ROUTINELY GOT WRONG. Each of these has actually occurred on a real file:
 
 1. SEVERITY IS NOT SERIOUSNESS. "Severity" (mild / moderate / severe) is the intensity of the    reaction. "Seriousness" is the regulatory criterion (death, hospitalisation, disability,    ...). A severe reaction is very often not serious, and a serious one is often not severe.    NEVER map a severity column to seriousness. If a column holds mild/moderate/severe, return    null for it.
 2. "Adverse Drug Reaction" / "ADR" IS THE REACTION, not the product. It names the event, even    though the word "drug" appears in it.
 3. reaction vs reaction_code: decide from the SAMPLE VALUES, not the header. Words ("Fever",    "Abscess") mean `reaction`. Bare local codes ("19", "7") mean `reaction_code`, even where    the header says "Reaction". A header like "Reaction type (Codes - see 1 below)" whose values    are words is still `reaction`.
-4. onset_date vs onset_interval: "3 days" is an interval, "2026-08-11" is a date. Forms often    label both "Onset".
-5. If a file has ONE reaction-ish column only, it must map to `reaction` (or `reaction_code`),    never left unmapped in favour of a lesser field.
+4. reporter_country vs reaction_country: these are DIFFERENT facts and must not be merged. A
+   header naming the reporter ("Reporter Country", "Country of primary source") is
+   reporter_country. A header naming the event ("Country of event", "Where reaction occurred")
+   is reaction_country. A bare "Country" or "State"/"LGA"/"District" column does NOT establish
+   either one - return null for it rather than guessing, since the reporter's country becomes
+   part of every case identifier.
+5. onset_date vs onset_interval: "3 days" is an interval, "2026-08-11" is a date. Forms often    label both "Onset".
+6. If a file has ONE reaction-ish column only, it must map to `reaction` (or `reaction_code`),    never left unmapped in favour of a lesser field.
 
 RULES:
 - Return one proposal per column you were given, in the order given.

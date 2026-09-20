@@ -38,11 +38,12 @@ export const genericVerbatimProfile: SourceProfile = {
   name: "Generic line list (reactions written as text)",
   sourceVersion: "1.0.0",
   effectiveDate: "2026-09-13",
-  // No country is asserted. A generic profile cannot know where its source
-  // sits, and inventing one would put a fabricated country on every
-  // reporter. "NG" is this deployment's own jurisdiction, which is a fact
-  // about the installation rather than about the data.
-  country: "NG",
+  // No country is asserted, and the code now matches: a generic profile
+  // cannot know where its source sits, and inventing one would put a
+  // fabricated country on every reporter. Where the file itself names a
+  // reporter country, that is used; otherwise country.ts applies the
+  // application's own NG fallback, which is visible and testable there
+  // rather than hidden in this profile.
   timezone: "Africa/Lagos",
   columnMap: {
     caseId: "case_id",
@@ -60,6 +61,8 @@ export const genericVerbatimProfile: SourceProfile = {
     seriousness: "seriousness",
     seriousCode: "serious_code",
     reporterDesignation: "reporter_designation",
+    reporterCountry: "reporter_country",
+    reactionCountry: "reaction_country",
     reporterPhone: "reporter_phone",
   },
   reactionEncoding: "VERBATIM",

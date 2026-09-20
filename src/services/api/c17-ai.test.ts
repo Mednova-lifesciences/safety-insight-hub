@@ -39,6 +39,7 @@ function pvCase(): PVCase {
   return {
     internalCaseId: "job-1-1",
     sendersCaseId: "NG-1",
+    caseSafetyReportId: "NG-1",
     worldwideUniqueId: "NG-1",
     firstSenderOfCase: "2",
     reportType: { present: true, value: "4" },

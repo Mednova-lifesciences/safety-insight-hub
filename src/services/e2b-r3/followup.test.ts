@@ -13,6 +13,7 @@ function baseCase(overrides: Partial<PVCase> = {}): PVCase {
   return {
     internalCaseId: "job-followup",
     sendersCaseId: "NG-MEDNOVA-000010",
+    caseSafetyReportId: "NG-MEDNOVA-000010",
     worldwideUniqueId: "NG-MEDNOVA-000010",
     firstSenderOfCase: "2",
     reportType: { present: true, value: "1" },
@@ -117,10 +118,12 @@ describe("C.1.10 follow-up — end to end (mapping -> validation -> serializer -
   it("B. a batch containing both an initial report and a follow-up report serializes both correctly, independently", () => {
     const initial = baseCase({
       sendersCaseId: "NG-MEDNOVA-000011",
+      caseSafetyReportId: "NG-MEDNOVA-000011",
       worldwideUniqueId: "NG-MEDNOVA-000011",
     });
     const followUp = baseCase({
       sendersCaseId: "NG-MEDNOVA-000012",
+      caseSafetyReportId: "NG-MEDNOVA-000012",
       worldwideUniqueId: "NG-MEDNOVA-000012",
       followUp: { isFollowUp: true, previousTransmissionRef: "NG-MEDNOVA-000012-MSG1" },
     });

@@ -14,6 +14,7 @@ function baseCase(): PVCase {
   return {
     internalCaseId: "job-1-1",
     sendersCaseId: "NG-TEST-1",
+    caseSafetyReportId: "NG-TEST-1",
     worldwideUniqueId: "NG-TEST-1",
     firstSenderOfCase: "2",
     reportType: { present: true, value: "4" },

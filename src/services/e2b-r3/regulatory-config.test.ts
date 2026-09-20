@@ -17,15 +17,14 @@ describe("unconfiguredOrgRegulatoryConfig", () => {
     expect(c.transmission.sender.identifier).toBe(UNCONFIRMED_SENTINEL);
     expect(c.transmission.receiver.identifier).toBe(UNCONFIRMED_SENTINEL);
     expect(c.transmission.reportTypeConfirmed).toBe(false);
-    expect(c.outcomeCodes).toEqual({});
     expect(c.reporterQualificationMappings).toEqual([]);
   });
 
-  it("never claims a code for any of the six outcomes", () => {
+  it("offers no way to configure an ICH outcome code", () => {
+    // E.i.7's numbers are ICH's, not an organization's: the config that
+    // once carried them is gone, so no deployment can set E.i.7 = 6.
     const c = unconfiguredOrgRegulatoryConfig();
-    for (const outcome of ALL_REACTION_OUTCOMES) {
-      expect(c.outcomeCodes[outcome]).toBeUndefined();
-    }
+    expect(c).not.toHaveProperty("outcomeCodes");
   });
 });
 

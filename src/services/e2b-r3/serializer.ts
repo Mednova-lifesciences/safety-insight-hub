@@ -61,6 +61,27 @@ import type { PVCase, PVReaction, PVProduct, DrugCharacterization } from "./type
 import { WHODRUG_GLOBAL_RID_OID } from "./coding-provider";
 import { e2bOutcomeCode } from "./outcome-codes";
 
+/**
+ * An HL7 `uid` for a local, document-internal identifier.
+ *
+ * `root` is typed `uid` — the union of oid, uuid and ruid — and ruid is
+ * `[A-Za-z][A-Za-z0-9\-]*` (coreschemas/datatypes-base.xsd). The ids the
+ * mapping layer mints for a reaction or a product are built from the
+ * source's own case number so a person can trace them, and real case
+ * numbers contain characters that pattern forbids: "OG/AEFI/2026/0413-r1"
+ * makes the whole document schema-invalid, which a realistic fixture
+ * caught. The human-readable id stays in the model; what goes on the wire
+ * is reduced to what the datatype allows, and prefixed when it would
+ * otherwise start with a digit.
+ *
+ * Deterministic, so the causality block's reference to a product still
+ * matches that product's own id.
+ */
+function localUid(value: string): string {
+  const cleaned = value.replace(/[^A-Za-z0-9-]/g, "");
+  return /^[A-Za-z]/.test(cleaned) ? cleaned : `ID-${cleaned}`;
+}
+
 function esc(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -118,7 +139,7 @@ const DRUG_CHARACTERIZATION_CODE: Record<DrugCharacterization, string> = {
  *  configuration and are never read from OrgRegulatoryConfig.outcomeCodes
  *  (a legacy field kept only for backward compatibility). */
 function serializeReaction(r: PVReaction): string {
-  const id = esc(r.id);
+  const id = esc(localUid(r.id));
   const onset = r.onsetDate
     ? `<effectiveTime xsi:type="IVL_TS"><low value="${toHl7Ts(r.onsetDate)}"/></effectiveTime>`
     : "";
@@ -127,24 +148,55 @@ function serializeReaction(r: PVReaction): string {
       ? `<value xsi:type="CE" code="${esc(r.reaction.code)}" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="${esc(r.reaction.dictionaryVersion ?? "")}"><originalText>${esc(r.reaction.sourceValue)}</originalText></value>`
       : `<value xsi:type="CE" nullFlavor="UNK"><originalText>${esc(r.reaction.sourceValue)}</originalText></value>`;
 
+  /**
+   * E.i.3.2a-f. Three states, and only three:
+   *
+   *  - the criterion is known to be met     -> value="true"
+   *  - the case says it is not met          -> value="false"
+   *  - nothing in the case establishes it   -> nullFlavor="NI"
+   *
+   * NI ("no information"), not NASK ("not asked"): across every official
+   * ICH reference and example instance in regulatory-assets/e2b-r3/
+   * official-ich/, the only null flavor these six ever carry is NI (24
+   * occurrences; NASK: none). NASK additionally asserts something the
+   * pipeline does not know — that the question was put to someone and
+   * went unanswered.
+   *
+   * `false` is kept for a criterion the source positively rules out: ICH's
+   * own instances use value="false" on other Boolean elements (F.r.7,
+   * C.1.6.1), and the one field the spec singles out as forbidding false
+   * is C.1.9.1, not these. Today nothing upstream produces an explicit
+   * false — a case-level "non-serious" word is deliberately not split into
+   * six per-event determinations (see mapping.ts) — so in practice this
+   * emits true or NI.
+   */
   const bool = (v: boolean | undefined, code: string, name: string): string => {
-    const val = v === undefined ? `nullFlavor="NASK"` : `value="${v ? "true" : "false"}"`;
+    const val = v === undefined ? `nullFlavor="NI"` : `value="${v ? "true" : "false"}"`;
     return `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="${code}" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="${name}"/><value xsi:type="BL" ${val}/></observation></outboundRelationship2>`;
   };
 
-  // Every canonical ReactionOutcome has a fixed ICH code, so a resolved
-  // outcome is always emitted; an absent outcome is simply omitted.
-  const outcomeCode = r.outcome ? e2bOutcomeCode(r.outcome) : undefined;
-  const outcome = outcomeCode
-    ? `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="27" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="outcome"/><value xsi:type="CE" code="${esc(outcomeCode)}" codeSystem="2.16.840.1.113883.3.989.2.1.1.11" codeSystemVersion="1.0"/></observation></outboundRelationship2>`
+  // E.i.7 is required, so it is always emitted. Every canonical
+  // ReactionOutcome has a fixed ICH code, and a reaction that reached this
+  // point without one is Unknown (0) — the codelist's own value for "we do
+  // not know how this ended", not an excuse to drop a required element.
+  const outcomeCode = e2bOutcomeCode(r.outcome ?? "UNKNOWN");
+  const outcome = `<outboundRelationship2 typeCode="PERT"><observation classCode="OBS" moodCode="EVN"><code code="27" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="outcome"/><value xsi:type="CE" code="${esc(outcomeCode)}" codeSystem="2.16.840.1.113883.3.989.2.1.1.11" codeSystemVersion="1.0"/></observation></outboundRelationship2>`;
+
+  // E.i.9 — country of occurrence, in the position the ICH reference
+  // instance puts it: immediately after the reaction's own <value>, before
+  // the criteria. Country code system 1.0.3166.1.2.2 (ISO 3166-1 alpha-2),
+  // the same code system C.2.r.3 uses for a different country. Emitted
+  // only when the source actually supplied one.
+  const countryOfOccurrence = r.countryOfOccurrence
+    ? `<location typeCode="LOC"><locatedEntity classCode="LOCE"><locatedPlace classCode="COUNTRY" determinerCode="INSTANCE"><code code="${esc(r.countryOfOccurrence)}" codeSystem="1.0.3166.1.2.2"/></locatedPlace></locatedEntity></location>`
     : "";
 
   const sc = r.seriousnessCriteria;
-  return `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><id root="${id}"/><code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="reaction"/>${onset}${value}${bool(sc.resultsInDeath, "34", "resultsInDeath")}${bool(sc.lifeThreatening, "21", "isLifeThreatening")}${bool(sc.hospitalization, "33", "requiresInpatientHospitalization")}${bool(sc.disabling, "35", "resultsInPersistentOrSignificantDisability")}${bool(sc.congenitalAnomaly, "12", "congenitalAnomalyBirthDefect")}${bool(sc.otherMedicallyImportant, "26", "otherMedicallyImportantCondition")}${outcome}</observation></subjectOf2>`;
+  return `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><id root="${id}"/><code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="reaction"/>${onset}${value}${countryOfOccurrence}${bool(sc.resultsInDeath, "34", "resultsInDeath")}${bool(sc.lifeThreatening, "21", "isLifeThreatening")}${bool(sc.hospitalization, "33", "requiresInpatientHospitalization")}${bool(sc.disabling, "35", "resultsInPersistentOrSignificantDisability")}${bool(sc.congenitalAnomaly, "12", "congenitalAnomalyBirthDefect")}${bool(sc.otherMedicallyImportant, "26", "otherMedicallyImportantCondition")}${outcome}</observation></subjectOf2>`;
 }
 
 function serializeDrugComponent(p: PVProduct): string {
-  const id = esc(p.id);
+  const id = esc(localUid(p.id));
   const productValue =
     p.product.status === "MAPPED" && p.product.code
       ? `<code code="${esc(p.product.code)}" codeSystem="TBD-MPID" codeSystemVersion="${esc(p.product.dictionaryVersion ?? "")}"/>`
@@ -176,7 +228,7 @@ function serializeDrugComponent(p: PVProduct): string {
 }
 
 function serializeCausality(p: PVProduct): string {
-  return `<component typeCode="COMP"><causalityAssessment classCode="OBS" moodCode="EVN"><code code="20" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="interventionCharacterization"/><value xsi:type="CE" code="${DRUG_CHARACTERIZATION_CODE[p.characterization]}" codeSystem="2.16.840.1.113883.3.989.2.1.1.13" codeSystemVersion="1.0"/><subject2 typeCode="SUBJ"><productUseReference classCode="SBADM" moodCode="EVN"><id root="${esc(p.id)}"/></productUseReference></subject2></causalityAssessment></component>`;
+  return `<component typeCode="COMP"><causalityAssessment classCode="OBS" moodCode="EVN"><code code="20" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="interventionCharacterization"/><value xsi:type="CE" code="${DRUG_CHARACTERIZATION_CODE[p.characterization]}" codeSystem="2.16.840.1.113883.3.989.2.1.1.13" codeSystemVersion="1.0"/><subject2 typeCode="SUBJ"><productUseReference classCode="SBADM" moodCode="EVN"><id root="${esc(localUid(p.id))}"/></productUseReference></subject2></causalityAssessment></component>`;
 }
 
 /** One PVCase -> one <PORR_IN049016UV> ICSR message (no XML declaration,
@@ -184,7 +236,6 @@ function serializeCausality(p: PVProduct): string {
 export function serializeCaseToMessage(
   pvCase: PVCase,
   opts: {
-    messageId: string;
     senderId: string;
     receiverId: string;
     /** @deprecated Accepted for compatibility but deliberately ignored. */
@@ -260,7 +311,7 @@ export function serializeCaseToMessage(
     pvCase.narrative && pvCase.narrative.trim() ? pvCase.narrative : "No narrative provided.",
   );
 
-  return `<PORR_IN049016UV><id extension="${esc(opts.messageId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.sendersCaseId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}</player1>${age}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${followUpBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
+  return `<PORR_IN049016UV><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}</player1>${age}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${followUpBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
 }
 
 export interface BatchOptions {
@@ -276,13 +327,25 @@ export interface BatchOptions {
  * cases -> one complete <MCCI_IN200100UV01> XML document (with declaration).
  * All messages are inserted before the batch-level receiver/sender pair —
  * see the module doc comment's finding #1 for why order matters here.
+ *
+ * The batch header carries N.1.2 (id, OID ...2.1.3.22), N.1.5 (creationTime),
+ * N.1.1 (name) and — after the messages, where the schema puts them —
+ * N.1.4 (receiver, OID ...2.1.3.14) and N.1.3 (sender, OID ...2.1.3.13).
+ *
+ * N.1.1 "Type of Messages in Batch" is a CODED element, not the literal
+ * text "ichicsr": that literal belongs to E2B(R2)'s <messagetype>. In R3
+ * it is `<name code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.1"/>`,
+ * which is what every official ICH example instance in
+ * regulatory-assets/e2b-r3/official-ich/ emits, and the developer spec
+ * (5.1) states the binding directly: "N.1.1 Type of Messages in Batch,
+ * Required. Value 1 = ichicsr." Its position — after interactionId, before
+ * the messages — is fixed by MCCI_MT200100UV.Batch's content model.
  */
 export function serializeBatchToXml(cases: PVCase[], opts: BatchOptions): string {
   const ts = toHl7Ts(opts.transmissionTimestamp.toISOString(), true);
   const messages = cases
-    .map((c, i) =>
+    .map((c) =>
       serializeCaseToMessage(c, {
-        messageId: `${opts.batchId}-MSG${i + 1}`,
         senderId: opts.senderId,
         receiverId: opts.receiverId,
       }),
@@ -290,5 +353,5 @@ export function serializeBatchToXml(cases: PVCase[], opts: BatchOptions): string
     .join("");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<MCCI_IN200100UV01 xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ITSVersion="XML_1.0" xsi:schemaLocation="urn:hl7-org:v3 MCCI_IN200100UV01.xsd"><id extension="${esc(opts.batchId)}" root="2.16.840.1.113883.3.989.2.1.3.22"/><creationTime value="${ts}"/><responseModeCode code="D"/><interactionId extension="MCCI_IN200100UV01" root="2.16.840.1.113883.1.6"/>${messages}<receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.14"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.13"/></device></sender></MCCI_IN200100UV01>`;
+<MCCI_IN200100UV01 xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ITSVersion="XML_1.0" xsi:schemaLocation="urn:hl7-org:v3 MCCI_IN200100UV01.xsd"><id extension="${esc(opts.batchId)}" root="2.16.840.1.113883.3.989.2.1.3.22"/><creationTime value="${ts}"/><responseModeCode code="D"/><interactionId extension="MCCI_IN200100UV01" root="2.16.840.1.113883.1.6"/><name code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.1"/>${messages}<receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.14"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.13"/></device></sender></MCCI_IN200100UV01>`;
 }

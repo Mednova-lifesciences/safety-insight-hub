@@ -3,8 +3,11 @@ Authentication and authorization dependencies
 """
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import hashlib
 import httpx
 import os
+import time
+from collections import OrderedDict
 from typing import Optional
 import logging
 
@@ -30,6 +33,51 @@ class AuthenticatedUser:
 # the user the whole request.
 _VERIFY_TIMEOUT = httpx.Timeout(3.0, connect=3.0)
 _VERIFY_ATTEMPTS = 2
+
+# One line list means one request per row — coding 50 reactions fires 50
+# authenticated requests at once, each of which used to verify the token
+# upstream and load the profile again. That burst is what times out, and a
+# timed-out verification is reported as "temporarily unavailable", so a
+# whole file came back "not fully checked" over nothing.
+#
+# A verified identity is therefore remembered for a minute, keyed by the
+# token. The cost is bounded and stated plainly: a session revoked upstream
+# keeps working here for at most _IDENTITY_TTL_SECONDS. Nothing is cached
+# unless Supabase accepted the token, and a failure is never cached.
+_IDENTITY_TTL_SECONDS = 60.0
+_IDENTITY_CACHE_MAX = 512
+_identity_cache: "OrderedDict[str, tuple[float, AuthenticatedUser]]" = OrderedDict()
+
+
+def _token_key(token: str) -> str:
+    """The cache is keyed by a digest, so a bearer token is never held in
+    memory as a dictionary key."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _cached_identity(token: str) -> Optional[AuthenticatedUser]:
+    entry = _identity_cache.get(_token_key(token))
+    if not entry:
+        return None
+    expires_at, user = entry
+    if expires_at <= time.monotonic():
+        _identity_cache.pop(_token_key(token), None)
+        return None
+    return user
+
+
+def _remember_identity(token: str, user: AuthenticatedUser) -> None:
+    key = _token_key(token)
+    _identity_cache[key] = (time.monotonic() + _IDENTITY_TTL_SECONDS, user)
+    _identity_cache.move_to_end(key)
+    while len(_identity_cache) > _IDENTITY_CACHE_MAX:
+        _identity_cache.popitem(last=False)
+
+
+def forget_cached_identities() -> None:
+    """Drops every remembered identity. For tests, and for a sign-out that
+    should not leave a minute of grace behind it."""
+    _identity_cache.clear()
 
 
 async def _verify_token_with_supabase(token: str) -> httpx.Response:
@@ -67,6 +115,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     Verify JWT token from Supabase and return authenticated user
     """
     token = credentials.credentials
+
+    remembered = _cached_identity(token)
+    if remembered is not None:
+        return remembered
 
     # Verify token with Supabase
     try:
@@ -119,13 +171,15 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             logger.error("Invalid role for user %s: %s", user_id, error)
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid user role") from error
 
-        return AuthenticatedUser(
+        user = AuthenticatedUser(
             user_id=user_id,
             email=email,
             organization_id=profile.get("organization_id"),
             role=role,
         )
-    
+        _remember_identity(token, user)
+        return user
+
     except HTTPException:
         raise
     except httpx.HTTPError as e:
