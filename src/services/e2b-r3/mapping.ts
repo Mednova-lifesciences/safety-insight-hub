@@ -5,6 +5,7 @@ import type {
   NullFlavor,
   OtherCaseIdentifiers,
   PVCase,
+  PatientRecordNumber,
   PVProduct,
   PVReaction,
   ReactionOutcome,
@@ -54,6 +55,11 @@ export interface RawLineListRow {
   /** E.i.9 — the country the reaction occurred in, when the file says.
    *  A different fact from reporter_country. */
   reaction_country?: string | undefined;
+  /** D.1.1.1-D.1.1.4 — the patient's medical record number, when the file
+   *  has one. Never the same column as patient_identifier. */
+  patient_id?: string | undefined;
+  /** C.2.r.1 — the reporter's own name, when the file has one. */
+  reporter_name?: string | undefined;
   is_followup?: string | undefined;
   previous_case_id?: string | undefined;
 }
@@ -90,6 +96,8 @@ export function applyColumnMap(
     reporter_phone: get(profile.columnMap.reporterPhone),
     reporter_country: get(profile.columnMap.reporterCountry),
     reaction_country: get(profile.columnMap.reactionCountry),
+    patient_id: get(profile.columnMap.patientId),
+    reporter_name: get(profile.columnMap.reporterName),
     is_followup: get(profile.columnMap.isFollowUp),
     previous_case_id: get(profile.columnMap.previousCaseId),
   };
@@ -594,6 +602,18 @@ export async function mapSourceRecordToPVCase(
   // identifier below is built from the reporter country alone.
   const reactionCountry = resolveReactionCountry(row.reaction_country);
 
+  // D.1.1.1-D.1.1.4. Kept exactly as the source wrote it — record numbers
+  // are strings, so "0012345" stays "0012345" and "PAT/2026/0413" keeps its
+  // separators. Which facility's record it is comes from the profile,
+  // because ICH makes the source of the number part of the element; a
+  // profile that maps the column without saying which record it is keeps
+  // the number in the model but exports no provenance nobody stated.
+  const patientRecordNumberRaw = row.patient_id?.trim();
+  const recordNumbers: PatientRecordNumber[] =
+    patientRecordNumberRaw && profile.patientRecordNumberSource
+      ? [{ number: patientRecordNumberRaw, source: profile.patientRecordNumberSource }]
+      : [];
+
   // C.1.1 / C.1.8.1. The country is the primary source's (C.2.r.3), the
   // organisation the configured sender (C.3.2) — so a different
   // organization, country or source form produces a correctly qualified
@@ -734,7 +754,14 @@ export async function mapSourceRecordToPVCase(
   // D2 (who the reporter is) isn't decided — this dataset's designation
   // column is a qualification, not a name, so C.2.r.1 genuinely has no
   // source here regardless of D2.
-  const reporterNameValue: RequiredValue<string> = { present: false, nullFlavor: "NASK" };
+  // C.2.r.1. Decision D2 (who the reporter is on an AEFI form — the
+  // signatory, the vaccinator, the surveillance officer) is still open, so
+  // nothing infers a reporter; but a file that names one is no longer
+  // ignored, which it was: this value never reached the serializer at all.
+  const reporterNameRaw = row.reporter_name?.trim();
+  const reporterNameValue: RequiredValue<string> = reporterNameRaw
+    ? { present: true, value: reporterNameRaw }
+    : { present: false, nullFlavor: "NASK" };
   // C.2.r.4 — only set when this exact designation string has an entry in
   // the active profile's reporterQualificationMap. No entry means
   // genuinely unresolved, never guessed.
@@ -796,6 +823,7 @@ export async function mapSourceRecordToPVCase(
       : { isFollowUp: false },
     patient: {
       identity,
+      ...(recordNumbers.length ? { recordNumbers } : {}),
       sex: mapSex(row.sex, profile),
       age: row.age?.trim() || undefined,
       // Deliberately no ageUnit — see PVPatient.ageUnit doc comment.

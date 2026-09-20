@@ -58,6 +58,7 @@
  *    data for them — never populated with placeholder text.
  */
 import type { PVCase, PVReaction, PVProduct, DrugCharacterization } from "./types";
+import { PATIENT_RECORD_NUMBER_OIDS } from "./types";
 import { WHODRUG_GLOBAL_RID_OID } from "./coding-provider";
 import { e2bOutcomeCode } from "./outcome-codes";
 
@@ -242,10 +243,47 @@ export function serializeCaseToMessage(
     outcomeCodes?: Partial<Record<NonNullable<PVReaction["outcome"]>, string>>;
   },
 ): string {
+  const identity = pvCase.patient.identity;
   const name =
-    pvCase.patient.identity.present && pvCase.patient.identity.value.kind === "INITIALS"
-      ? `<name>${esc(pvCase.patient.identity.value.initials)}</name>`
-      : `<name nullFlavor="${pvCase.patient.identity.present ? "MSK" : pvCase.patient.identity.nullFlavor}"/>`;
+    identity.present && identity.value.kind === "INITIALS"
+      ? `<name>${esc(identity.value.initials)}</name>`
+      : `<name nullFlavor="${identity.present ? "MSK" : identity.nullFlavor}"/>`;
+
+  /**
+   * D.1.1.1-D.1.1.4 — Patient Medical Record Number(s) and Source(s) of the
+   * Record Number, as <asIdentifiedEntity> inside player1, exactly where
+   * the ICH reference instance puts it: an <id> on the namespace OID for
+   * that record source, then a <code> naming the source on codeSystem
+   * ...2.1.1.4.
+   *
+   * These sit ALONGSIDE D.1, not instead of it — ICH's own instance carries
+   * a patient name and a record number together. Before this, the only way
+   * the model could express a record number was the identity union's
+   * MEDICAL_RECORD_NUMBER variant, and this function silently reduced that
+   * to <name nullFlavor="MSK"/>: the number never reached the XML at all.
+   * Both routes now emit, and a number is never invented — no record
+   * number, no element.
+   */
+  const recordNumbers = [
+    ...(identity.present && identity.value.kind === "MEDICAL_RECORD_NUMBER"
+      ? [{ number: identity.value.number, oid: identity.value.sourceOid, code: undefined }]
+      : []),
+    ...(pvCase.patient.recordNumbers ?? []).map((record) => ({
+      number: record.number,
+      oid: PATIENT_RECORD_NUMBER_OIDS[record.source].oid,
+      code: PATIENT_RECORD_NUMBER_OIDS[record.source],
+    })),
+  ];
+  const patientIds = recordNumbers
+    .map(
+      (record) =>
+        `<asIdentifiedEntity classCode="IDENT"><id extension="${esc(record.number)}" root="${esc(record.oid)}"/>${
+          record.code
+            ? `<code code="${record.code.code}" codeSystem="2.16.840.1.113883.3.989.2.1.1.4" codeSystemVersion="1.0" displayName="${record.code.displayName}"/>`
+            : ""
+        }</asIdentifiedEntity>`,
+    )
+    .join("");
   const sexCode =
     pvCase.patient.sex === "MALE" ? "1" : pvCase.patient.sex === "FEMALE" ? "2" : undefined;
   const sex = sexCode ? `<administrativeGenderCode code="${sexCode}" codeSystem="1.0.5218"/>` : "";
@@ -266,6 +304,22 @@ export function serializeCaseToMessage(
     ? `value="${pvCase.fulfilsExpeditedCriteria.value ? "true" : "false"}"`
     : `nullFlavor="${pvCase.fulfilsExpeditedCriteria.nullFlavor}"`;
 
+  /**
+   * C.2.r.1 — the reporter's own name. The model has carried this field all
+   * along and the serializer never read it, so a source that named its
+   * reporter produced a message with nothing identifying the reporter in
+   * it: only a qualification (C.2.r.4) and a country (C.2.r.3).
+   *
+   * ICH splits the name into title/given/middle/family. A line list gives
+   * one string, so it goes in <family> — the part that is always a name —
+   * rather than being split on whitespace, which would guess at which word
+   * is a surname. Absent when the source named nobody: E2B(R3) defines no
+   * reporter identifier element, so there is nothing else to fall back on
+   * and nothing is invented.
+   */
+  const reporterName = pvCase.reporter.name.present
+    ? `<name><family>${esc(pvCase.reporter.name.value)}</family></name>`
+    : "";
   const reporterQual = pvCase.reporter.qualificationCode
     ? `<asQualifiedEntity classCode="QUAL"><code code="${pvCase.reporter.qualificationCode}" codeSystem="2.16.840.1.113883.3.989.2.1.1.6" codeSystemVersion="1.0"/></asQualifiedEntity>`
     : "";
@@ -273,8 +327,8 @@ export function serializeCaseToMessage(
     ? `<asLocatedEntity classCode="LOCE"><location classCode="COUNTRY" determinerCode="INSTANCE"><code code="${esc(pvCase.reporter.country)}" codeSystem="1.0.3166.1.2.2"/></location></asLocatedEntity>`
     : "";
   const reporterBlock =
-    reporterQual || reporterCountry
-      ? `<outboundRelationship typeCode="SPRT"><priorityNumber value="1"/><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="sourceReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><assignedPerson classCode="PSN" determinerCode="INSTANCE">${reporterQual}${reporterCountry}</assignedPerson></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>`
+    reporterName || reporterQual || reporterCountry
+      ? `<outboundRelationship typeCode="SPRT"><priorityNumber value="1"/><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="sourceReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><assignedPerson classCode="PSN" determinerCode="INSTANCE">${reporterName}${reporterQual}${reporterCountry}</assignedPerson></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>`
       : "";
 
   const senderBlock = pvCase.senderOrganisation
@@ -311,7 +365,7 @@ export function serializeCaseToMessage(
     pvCase.narrative && pvCase.narrative.trim() ? pvCase.narrative : "No narrative provided.",
   );
 
-  return `<PORR_IN049016UV><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}</player1>${age}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${followUpBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
+  return `<PORR_IN049016UV><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}${patientIds}</player1>${age}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${followUpBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
 }
 
 export interface BatchOptions {

@@ -49,6 +49,9 @@ export interface DelimiterConfig {
  *  a SourceProfile's columnMap. Every source profile maps its own raw
  *  column headers to these, so mapping.ts never has to know a source's
  *  actual column names. */
+/** The four record sources D.1.1.1-D.1.1.4 distinguish. */
+export type PatientRecordNumberSource = "GP" | "SPECIALIST" | "HOSPITAL" | "INVESTIGATION";
+
 export interface ColumnMap {
   caseId?: string;
   patientIdentifier?: string;
@@ -79,6 +82,14 @@ export interface ColumnMap {
   /** E.i.9 — the column naming the country the REACTION occurred in. A
    *  separate fact from the reporter's country; never a substitute. */
   reactionCountry?: string;
+  /** D.1.1.1-D.1.1.4 — the column holding the patient's medical record
+   *  number. Distinct from `patientIdentifier`, which is the patient's
+   *  name or initials (D.1). Which facility's record it is comes from
+   *  SourceProfile.patientRecordNumberSource. */
+  patientId?: string;
+  /** C.2.r.1 — the column holding the reporter's own name. Distinct from
+   *  `reporterDesignation` (C.2.r.4), which is their role. */
+  reporterName?: string;
   isFollowUp?: string;
   previousCaseId?: string;
 }
@@ -114,6 +125,13 @@ export interface SourceProfile {
    *  column. Omitted by a profile that does not stand for one country;
    *  the country resolver then applies the application fallback. */
   country?: string | undefined;
+  /** Which of the four D.1.1 record numbers `columnMap.patientId` holds.
+   *  ICH makes the source of the number part of the data element — GP,
+   *  specialist, hospital or investigation each have their own namespace
+   *  OID — so a profile that maps a patient-id column says which one it
+   *  is. Without it the number is imported and kept, but not exported as
+   *  a record number of a provenance nobody stated. */
+  patientRecordNumberSource?: PatientRecordNumberSource | undefined;
   timezone: string;
   columnMap: ColumnMap;
   /**

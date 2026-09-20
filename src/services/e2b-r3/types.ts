@@ -106,6 +106,37 @@ export interface WhoDrugCodedProduct extends CodedTerm {
 
 export type SexCode = "MALE" | "FEMALE" | "UNKNOWN_NOT_SPECIFIED";
 
+/** D.1.1.1-D.1.1.4 — a medical record number and whose record it is. ICH
+ *  gives each record source its own namespace OID and its own code, so the
+ *  provenance travels with the number rather than being assumed. */
+export interface PatientRecordNumber {
+  number: string;
+  source: "GP" | "SPECIALIST" | "HOSPITAL" | "INVESTIGATION";
+}
+
+/** The namespace OID and D.1.1 code for each record source, from the ICH
+ *  reference instance (asIdentifiedEntity/id/@root and the accompanying
+ *  code on codeSystem ...2.1.1.4) and the developer spec, section 5.4:
+ *  "Four separate namespace OIDs by record source: GP ...2.1.3.7,
+ *  specialist ...2.1.3.8, hospital ...2.1.3.9, investigation ...2.1.3.10.
+ *  Use the OID matching the actual source of the number." */
+export const PATIENT_RECORD_NUMBER_OIDS: Readonly<
+  Record<PatientRecordNumber["source"], { oid: string; code: string; displayName: string }>
+> = {
+  GP: { oid: "2.16.840.1.113883.3.989.2.1.3.7", code: "1", displayName: "GP" },
+  SPECIALIST: {
+    oid: "2.16.840.1.113883.3.989.2.1.3.8",
+    code: "2",
+    displayName: "Specialist",
+  },
+  HOSPITAL: { oid: "2.16.840.1.113883.3.989.2.1.3.9", code: "3", displayName: "Hospital" },
+  INVESTIGATION: {
+    oid: "2.16.840.1.113883.3.989.2.1.3.10",
+    code: "4",
+    displayName: "Investigation",
+  },
+};
+
 export interface PVPatient {
   /** D.1 — at least one element in this section must be populated; full
    *  names must not be carried here (spec 5.4 / decision D1). Which of
@@ -117,6 +148,12 @@ export interface PVPatient {
     | { kind: "INITIALS"; initials: string }
     | { kind: "MEDICAL_RECORD_NUMBER"; number: string; sourceOid: string }
   >;
+  /** D.1.1.1-D.1.1.4 — medical record numbers, which ICH carries ALONGSIDE
+   *  D.1 rather than instead of it: a case can have both the patient's
+   *  initials and a hospital number. Empty when the source has no such
+   *  column, and never derived from the case id, which identifies the
+   *  report rather than the patient. */
+  recordNumbers?: PatientRecordNumber[] | undefined;
   sex?: SexCode | undefined;
   /** Raw age value as captured — see ageUnit for why this isn't coded
    *  further without a confirmed unit. */

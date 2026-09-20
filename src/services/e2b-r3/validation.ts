@@ -472,6 +472,40 @@ export function validateVigiFlowPreflight(pvCase: PVCase): ValidationError[] {
     );
   }
 
+  // Identification of the people in the case, as UMC's validated import
+  // asks for it. Both are INFO, deliberately: neither is required by ICH —
+  // D.1.1 is optional and E2B(R3) defines no reporter identifier element at
+  // all — so a case without them is a valid ICSR and must still export.
+  // What they do is tell a person, in the file's own terms, what a
+  // validated VigiFlow import will look for and where it would come from.
+  if (!pvCase.patient.recordNumbers?.length) {
+    errors.push(
+      err(
+        id,
+        "VIGIFLOW-PATIENT-RECORD-NUMBER-ABSENT",
+        "INFO",
+        L,
+        "No patient medical record number (D.1.1) — the patient is identified by D.1 alone.",
+        'Optional under ICH, and D.1 is populated, so this does not block export. To carry a record number, give the line list a patient-id column (a header such as "Patient ID", "Hospital number" or "Medical record number") and set the source profile\'s patientRecordNumberSource to say whose record it is (GP, specialist, hospital or investigation). A number is never invented for a row that has none.',
+        { e2bField: "D.1.1" },
+      ),
+    );
+  }
+
+  if (!pvCase.reporter.name.present) {
+    errors.push(
+      err(
+        id,
+        "VIGIFLOW-REPORTER-NAME-ABSENT",
+        "INFO",
+        L,
+        "The reporter is described (qualification/country) but not named (C.2.r.1).",
+        'E2B(R3) has no reporter identifier element, so an identifiable reporter means a named one. To carry the name, give the line list a reporter-name column (a header such as "Reporter name" or "Reported by"); it maps to C.2.r.1 automatically. Who counts as the reporter on an AEFI form — the signatory, the vaccinator, the surveillance officer — is decision D2 and is not inferred here.',
+        { e2bField: "C.2.r.1" },
+      ),
+    );
+  }
+
   if (!pvCase.reporter.qualificationVerbatim && !pvCase.reporter.qualificationCode) {
     errors.push(
       err(

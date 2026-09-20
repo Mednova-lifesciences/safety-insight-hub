@@ -139,6 +139,15 @@ export const TARGET_FIELDS = [
    *  substitute for reporter_country: a reporter in one country can report
    *  an event that happened in another. */
   "reaction_country",
+  /** E2B D.1.1.1-D.1.1.4 — the patient's MEDICAL RECORD NUMBER at the
+   *  facility that holds the record. A different thing from
+   *  `patient_identifier`, which carries the patient's name or initials
+   *  (D.1) and is run through deriveInitials: a record number put there
+   *  would be exported as if it were the patient's name. */
+  "patient_id",
+  /** E2B C.2.r.1 — the REPORTER's own name. Distinct from
+   *  `reporter_designation` (C.2.r.4), which is their role. */
+  "reporter_name",
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
@@ -295,16 +304,44 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     // of AEFI (Non-serious or Serious) case") — a generic substring match
     // there mapped a seriousness-code column to case_id on a real file.
   ],
+  // D.1 — the patient's NAME or INITIALS. Headers that name an identifier
+  // ("Patient ID", "Subject ID", "Hospital number") deliberately do NOT
+  // match here any more: they used to, and a real record number was then
+  // exported as the patient's name. They belong to patient_id below.
   patient_identifier: [
-    ["patientidentifier", 95],
-    ["patientinitials", 90],
+    ["patientinitials", 95],
+    ["patientname", 95],
     ["initials", 80],
-    ["patientid", 85],
-    ["subjectid", 80],
-    ["specialistrecordnumber", 60],
-    ["patientno", 70],
+    ["nameofpatient", 90],
+    ["patientidentifier", 60],
     ["patient", 20],
     ["subject", 20],
+  ],
+  // D.1.1.1-D.1.1.4 — a record number held by a facility.
+  patient_id: [
+    ["patientid", 95],
+    ["patientno", 95],
+    ["patientnumber", 95],
+    ["subjectid", 90],
+    ["subjectnumber", 90],
+    ["hospitalnumber", 95],
+    ["hospitalrecordnumber", 95],
+    ["medicalrecordnumber", 95],
+    ["recordnumber", 85],
+    ["specialistrecordnumber", 85],
+    ["gprecordnumber", 85],
+    ["folionumber", 80],
+    ["cardnumber", 75],
+  ],
+  // C.2.r.1 — who the reporter is, as opposed to what they are.
+  reporter_name: [
+    ["reportername", 95],
+    ["nameofreporter", 95],
+    ["reportersname", 95],
+    ["reportedby", 85],
+    ["notifiedby", 80],
+    ["healthworkername", 85],
+    ["officername", 75],
   ],
   product: [
     ["drugnamewhodrug", 95],
