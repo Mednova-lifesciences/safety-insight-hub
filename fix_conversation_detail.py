@@ -1,9 +1,15 @@
 import requests
 import json
 
-# Supabase credentials
-SUPABASE_URL = 'https://ioxwfubcexnplusdhuab.supabase.co'
-SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlveHdmdWJjZXhucGx1c2RodWFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjQwODc1NzgsImV4cCI6MTczOTY0NzU3OH0.YJYvIxIQWLW7LXBptqpXc9LZz4v64xVqhXLwNvCxdxw'
+# Supabase credentials come from the environment, like everything else that
+# talks to the project. Nothing is hardcoded here: the key that used to be
+# was the anon/publishable one (public by design, gated by RLS) and had
+# expired, but a script that hardcodes a credential invites the next one to
+# hardcode a real one.
+import os
+
+SUPABASE_URL = os.environ["SUPABASE_URL"]
+SUPABASE_KEY = os.environ["SUPABASE_ANON_KEY"]
 
 # Enhanced conversation data with detail fields
 updated_data = {
