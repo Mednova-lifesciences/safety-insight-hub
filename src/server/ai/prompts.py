@@ -76,7 +76,12 @@ A deterministic keyword matcher runs before you and will run again if you are un
 
 CANONICAL FIELDS (use these exact names, or null):
   case_id               the line list's own case/report reference
-  patient_identifier    patient code, initials, or study/enrolment number
+  patient_identifier    the patient's NAME or INITIALS (D.1) - who the patient is, not a
+                        number issued to them
+  patient_id            a RECORD NUMBER a facility issued for this patient (D.1.1): a medical
+                        record, hospital, clinic, registration, folio or card number, or the
+                        equivalent under whatever name this form uses. Judge it by the VALUES:
+                        a record number is an issued reference, not a person's name
   sex                   sex or gender
   age                   patient age
   product               the medicine or vaccine given (the SUSPECT PRODUCT)
@@ -93,6 +98,8 @@ CANONICAL FIELDS (use these exact names, or null):
   serious_code          a numeric code identifying WHICH seriousness criterion applies
   reporter_designation  the reporter's role or job title
   reporter_phone        the reporter's telephone number
+  reporter_name         the REPORTER's own name (E2B C.2.r.1) - who reported it, as opposed
+                        to reporter_designation, which is their role
   reporter_country      the country the REPORTER / primary source is in (E2B C.2.r.3)
   reaction_country      the country the REACTION/EVENT occurred in (E2B E.i.9)
 
@@ -101,14 +108,28 @@ DISTINCTIONS THAT ARE ROUTINELY GOT WRONG. Each of these has actually occurred o
 1. SEVERITY IS NOT SERIOUSNESS. "Severity" (mild / moderate / severe) is the intensity of the    reaction. "Seriousness" is the regulatory criterion (death, hospitalisation, disability,    ...). A severe reaction is very often not serious, and a serious one is often not severe.    NEVER map a severity column to seriousness. If a column holds mild/moderate/severe, return    null for it.
 2. "Adverse Drug Reaction" / "ADR" IS THE REACTION, not the product. It names the event, even    though the word "drug" appears in it.
 3. reaction vs reaction_code: decide from the SAMPLE VALUES, not the header. Words ("Fever",    "Abscess") mean `reaction`. Bare local codes ("19", "7") mean `reaction_code`, even where    the header says "Reaction". A header like "Reaction type (Codes - see 1 below)" whose values    are words is still `reaction`.
-4. reporter_country vs reaction_country: these are DIFFERENT facts and must not be merged. A
+4. patient_identifier vs patient_id. Both name the patient, and the headers are no help:
+   a column called "Patient ID" can hold "A.A." (initials, so patient_identifier) and a
+   column called "Patient" can hold "HOSP-00981" (a record number, so patient_id). Decide
+   from the sample values, not the header. Initials and names -> patient_identifier. An
+   issued reference -> patient_id.
+   Four things are NOT a patient record number, however much they look like an id:
+     - the case/report number (it identifies the REPORT: it usually repeats the form's own
+       numbering, e.g. "OG/AEFI/2026/0413") -> case_id
+     - anything identifying the REPORTER -> reporter_name or reporter_designation, and if it
+       is a code for the reporter, return null: there is no field for it
+     - a vaccine batch or lot number -> vaccine_batch
+     - a product code -> product
+   If you cannot tell whether a column is the patient's record number or one of those,
+   return null for it. A wrong patient identifier is worse than none.
+5. reporter_country vs reaction_country: these are DIFFERENT facts and must not be merged. A
    header naming the reporter ("Reporter Country", "Country of primary source") is
    reporter_country. A header naming the event ("Country of event", "Where reaction occurred")
    is reaction_country. A bare "Country" or "State"/"LGA"/"District" column does NOT establish
    either one - return null for it rather than guessing, since the reporter's country becomes
    part of every case identifier.
-5. onset_date vs onset_interval: "3 days" is an interval, "2026-08-11" is a date. Forms often    label both "Onset".
-6. If a file has ONE reaction-ish column only, it must map to `reaction` (or `reaction_code`),    never left unmapped in favour of a lesser field.
+6. onset_date vs onset_interval: "3 days" is an interval, "2026-08-11" is a date. Forms often    label both "Onset".
+7. If a file has ONE reaction-ish column only, it must map to `reaction` (or `reaction_code`),    never left unmapped in favour of a lesser field.
 
 RULES:
 - Return one proposal per column you were given, in the order given.

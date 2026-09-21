@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { mapSourceRecordToPVCase } from "./mapping";
 import { serializeBatchToXml } from "./serializer";
 import { genericVerbatimProfile } from "./source-profiles/generic-verbatim";
+import { inferPatientRecordNumberSource } from "@/services/api/linelist";
 import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
 import { UNCONFIRMED_DEFAULT_CONFIG, type E2bTransmissionConfig } from "./transmission-config";
 import type { SourceProfile } from "./source-profiles/types";
@@ -228,5 +229,52 @@ describe("a batch carrying both identifiers, end to end", () => {
       expect(patientIdIn(xml).map((p) => p.number)).not.toContain(id);
       expect(reporterNameIn(xml)).not.toContain(id);
     }
+  });
+});
+
+/**
+ * The whole chain for a line list that names its record-number column
+ * something nobody configured: header -> column mapping -> source profile
+ * -> mapper -> PVCase -> serializer -> D.1.1 in the XML.
+ *
+ * The column is chosen by the existing mapping layer; the VALUE always
+ * comes from the row.
+ */
+describe("a line list whose record-number column nobody configured", () => {
+  it("carries the row's own value into D.1.1, and only that value", async () => {
+    // What the upload path produces for this file: the header is read as
+    // patient_id, and "Hospital Number" says whose record it is.
+    const recordSource = inferPatientRecordNumberSource("Hospital Number");
+    expect(recordSource).toBe("HOSPITAL");
+
+    const discovered: SourceProfile = {
+      ...genericVerbatimProfile,
+      id: "test-discovered",
+      country: "NG",
+      patientRecordNumberSource: recordSource,
+    };
+
+    const pvCase = await caseFor(
+      { patient_id: "OGH/2026/04130", patient_identifier: "A.A." },
+      discovered,
+    );
+    // The value is the row's, character for character.
+    expect(pvCase.patient.recordNumbers).toEqual([
+      { number: "OGH/2026/04130", source: "HOSPITAL" },
+    ]);
+
+    const xml = xmlFor([pvCase]);
+    expect(patientIdIn(xml)).toEqual([
+      { number: "OGH/2026/04130", oid: "2.16.840.1.113883.3.989.2.1.3.9" },
+    ]);
+    // D.1 still holds who the patient is; C.1.1 still identifies the report.
+    expect(xml).toContain("<name>A.A.</name>");
+    expect(pvCase.caseSafetyReportId).not.toBe("OGH/2026/04130");
+  });
+
+  it("exports nothing when the file has no such column", async () => {
+    const pvCase = await caseFor({ patient_identifier: "A.A." }, genericVerbatimProfile);
+    expect(pvCase.patient.recordNumbers).toBeUndefined();
+    expect(patientIdIn(xmlFor([pvCase]))).toEqual([]);
   });
 });
