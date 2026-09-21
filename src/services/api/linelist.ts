@@ -20,6 +20,10 @@ import {
   type OrgRegulatoryConfig,
 } from "@/services/e2b-r3/regulatory-config";
 import type { PatientRecordNumberSource } from "@/services/e2b-r3/source-profiles/types";
+import {
+  inferPatientRecordNumberSource,
+  resolvePatientRecordNumberSource,
+} from "@/services/e2b-r3/source-profiles/patient-record-number";
 import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
 import {
   resolveFieldConcept,
@@ -61,27 +65,7 @@ import type {
  *  defaulting to it keeps them decoding exactly as they always have. */
 export const DEFAULT_SOURCE_PROFILE_ID = "ondo-aefi";
 
-/**
- * D.1.1.1-D.1.1.4 distinguish WHOSE record a patient's number is: a GP's,
- * a specialist's, a hospital's, or an investigation's. ICH makes that part
- * of the data element — each source has its own namespace OID — so a number
- * cannot be exported without saying which it is.
- *
- * A line list usually says in the header it wrote: "Hospital number",
- * "GP record no". This reads that, and only that: it never guesses from
- * the values, and a header that names no record source leaves the decision
- * to the profile (or to the documented fallback below).
- */
-export function inferPatientRecordNumberSource(
-  header: string,
-): PatientRecordNumberSource | undefined {
-  const h = header.toLowerCase();
-  if (/\b(gp|general\s*practitioner|family\s*(doctor|physician))\b/.test(h)) return "GP";
-  if (/specialist|consultant/.test(h)) return "SPECIALIST";
-  if (/hospital|clinic|facility|ward|admission/.test(h)) return "HOSPITAL";
-  if (/investigation|study|trial|protocol/.test(h)) return "INVESTIGATION";
-  return undefined;
-}
+export { inferPatientRecordNumberSource };
 
 function resolveJobRuntimeProfile(job: {
   discardedRows?: { row: number; text: string }[];
@@ -123,10 +107,12 @@ function resolveJobRuntimeProfile(job: {
   const patientIdHeader = Object.entries(job.mapping ?? {}).find(
     ([, field]) => field === "patient_id",
   )?.[0];
-  const recordNumberSource =
-    job.parsingOptions?.patientRecordNumberSource ??
-    runtimeProfile.patientRecordNumberSource ??
-    (patientIdHeader ? inferPatientRecordNumberSource(patientIdHeader) : undefined);
+  const recordNumberSource = resolvePatientRecordNumberSource({
+    decided: job.parsingOptions?.patientRecordNumberSource,
+    declined: job.parsingOptions?.patientRecordNumberDeclined,
+    profile: runtimeProfile.patientRecordNumberSource,
+    header: patientIdHeader,
+  });
 
   return applyParsingOptions(
     withOutcomeVocabulary(
@@ -2387,14 +2373,20 @@ export const linelist = {
     const job = await readJob(jobId);
     const previous = job.parsingOptions;
     const { patientRecordNumberSource, ...reading } = options;
-    // undefined means "leave whatever was decided before"; null clears it.
-    const decided =
-      patientRecordNumberSource === undefined
-        ? previous?.patientRecordNumberSource
-        : (patientRecordNumberSource ?? undefined);
+    // undefined means "leave whatever was decided before"; null is a person
+    // saying not to export one, which is itself a decision and is recorded
+    // as one so the column's name stops answering for them.
+    const untouched = patientRecordNumberSource === undefined;
+    const decided = untouched
+      ? previous?.patientRecordNumberSource
+      : (patientRecordNumberSource ?? undefined);
+    const declined = untouched
+      ? previous?.patientRecordNumberDeclined
+      : patientRecordNumberSource === null;
     const parsingOptions = {
       ...reading,
       ...(decided ? { patientRecordNumberSource: decided } : {}),
+      ...(declined ? { patientRecordNumberDeclined: true } : {}),
       setBy: actor.name,
       setAt: new Date().toISOString(),
     };
@@ -2406,7 +2398,7 @@ export const linelist = {
       previousValue: previous
         ? `slash separates reactions: ${!!previous.slashSeparatesReactions}; product cell is one name: ${!!previous.productCellIsOneName}`
         : "defaults",
-      newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}; patient record number source: ${decided ?? "undecided"}`,
+      newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}; patient record number source: ${declined ? "declined — not exported" : (decided ?? "undecided")}`,
     });
     return linelist.recheck(jobId);
   },

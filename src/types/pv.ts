@@ -307,6 +307,11 @@ export interface LineListParsingOptions {
    *  means undecided, and an undecided category exports no record number
    *  rather than a guessed one. */
   patientRecordNumberSource?: PatientRecordNumberSource | undefined;
+  /** Set when a person has explicitly said this file's record number is not
+   *  to be exported. Distinct from simply having no answer yet: without it,
+   *  clearing a choice would fall straight back to what the column's name
+   *  suggests, which is not what they asked for. */
+  patientRecordNumberDeclined?: boolean | undefined;
   /** Who last changed these options, and when — they change what reaches
    *  the regulator, so they are attributable. */
   setBy?: string | undefined;

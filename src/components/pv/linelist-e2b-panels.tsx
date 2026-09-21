@@ -37,6 +37,12 @@ const RECORD_SOURCE_LABELS: Record<PatientRecordNumberSource, string> = {
   HOSPITAL: "Hospital record number (D.1.1.3)",
   INVESTIGATION: "Investigation number (D.1.1.4)",
 };
+const RECORD_SOURCE_NAMES: Record<PatientRecordNumberSource, string> = {
+  GP: "GP medical record number",
+  SPECIALIST: "specialist record number",
+  HOSPITAL: "hospital record number",
+  INVESTIGATION: "investigation number",
+};
 const RECORD_SOURCE_UNDECIDED = "UNDECIDED";
 
 /** Where a person goes to clear each kind of E2B blocker. */
@@ -169,10 +175,13 @@ export function ParsingOptionsPanel({ job, onSaved }: { job: LineListJob; onSave
     ([, field]) => field === "patient_id",
   )?.[0];
   const decidedRecordSource = job.parsingOptions?.patientRecordNumberSource;
+  const declinedRecordSource = !!job.parsingOptions?.patientRecordNumberDeclined;
   const readFromHeader = patientIdHeader
     ? inferPatientRecordNumberSource(patientIdHeader)
     : undefined;
-  const recordSource = decidedRecordSource ?? readFromHeader;
+  // A person who said "do not export one" has answered; the column's own
+  // name does not get to answer over them.
+  const recordSource = declinedRecordSource ? undefined : (decidedRecordSource ?? readFromHeader);
 
   async function chooseRecordSource(next: string) {
     setSavingRecordSource(true);
@@ -290,11 +299,15 @@ export function ParsingOptionsPanel({ job, onSaved }: { job: LineListJob; onSave
             <p className="text-xs text-muted-foreground">
               {savingRecordSource ? (
                 "Saving…"
+              ) : declinedRecordSource ? (
+                <>
+                  Set to not export a record number for this line list. The numbers are still in the
+                  file and still read; choose a record above to include them.
+                </>
               ) : readFromHeader && !decidedRecordSource ? (
                 <>
                   Read from the column&rsquo;s own name: &ldquo;{patientIdHeader}&rdquo; says this
-                  is {RECORD_SOURCE_LABELS[readFromHeader].toLowerCase()}. Change it if that is
-                  wrong.
+                  is a {RECORD_SOURCE_NAMES[readFromHeader]}. Change it if that is wrong.
                 </>
               ) : decidedRecordSource ? (
                 <>
