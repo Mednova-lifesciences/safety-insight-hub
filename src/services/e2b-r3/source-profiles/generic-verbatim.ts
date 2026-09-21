@@ -61,6 +61,8 @@ export const genericVerbatimProfile: SourceProfile = {
     seriousness: "seriousness",
     seriousCode: "serious_code",
     reporterDesignation: "reporter_designation",
+    patientId: "patient_id",
+    reporterName: "reporter_name",
     reporterCountry: "reporter_country",
     reactionCountry: "reaction_country",
     reporterPhone: "reporter_phone",

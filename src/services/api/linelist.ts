@@ -19,6 +19,7 @@ import {
   mergeOrgRegulatoryConfigIntoProfile,
   type OrgRegulatoryConfig,
 } from "@/services/e2b-r3/regulatory-config";
+import type { PatientRecordNumberSource } from "@/services/e2b-r3/source-profiles/types";
 import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
 import {
   resolveFieldConcept,
@@ -60,12 +61,48 @@ import type {
  *  defaulting to it keeps them decoding exactly as they always have. */
 export const DEFAULT_SOURCE_PROFILE_ID = "ondo-aefi";
 
+/**
+ * D.1.1.1-D.1.1.4 distinguish WHOSE record a patient's number is: a GP's,
+ * a specialist's, a hospital's, or an investigation's. ICH makes that part
+ * of the data element — each source has its own namespace OID — so a number
+ * cannot be exported without saying which it is.
+ *
+ * A line list usually says in the header it wrote: "Hospital number",
+ * "GP record no". This reads that, and only that: it never guesses from
+ * the values, and a header that names no record source leaves the decision
+ * to the profile (or to the documented fallback below).
+ */
+export function inferPatientRecordNumberSource(
+  header: string,
+): PatientRecordNumberSource | undefined {
+  const h = header.toLowerCase();
+  if (/\b(gp|general\s*practitioner|family\s*(doctor|physician))\b/.test(h)) return "GP";
+  if (/specialist|consultant/.test(h)) return "SPECIALIST";
+  if (/hospital|clinic|facility|ward|admission/.test(h)) return "HOSPITAL";
+  if (/investigation|study|trial|protocol/.test(h)) return "INVESTIGATION";
+  return undefined;
+}
+
+/**
+ * Where a patient record number is taken to come from when nothing says.
+ *
+ * A line list is collected by the reporting facility, so a bare "Patient
+ * ID" column on an AEFI form is that facility's own record number. Calling
+ * it the hospital record (D.1.1.3) is a judgement about provenance, not
+ * about the identifier itself: the NUMBER always comes from the row and is
+ * never invented. It is recorded as assumed, surfaced in validation, and
+ * overridden by SourceProfile.patientRecordNumberSource or by a header
+ * that names the record source.
+ */
+export const ASSUMED_PATIENT_RECORD_NUMBER_SOURCE: PatientRecordNumberSource = "HOSPITAL";
+
 function resolveJobRuntimeProfile(job: {
   discardedRows?: { row: number; text: string }[];
   filename: string;
   sheetName?: string;
   sourceProfileId?: string | undefined;
   outcomeVocabulary?: OutcomeVocabulary | undefined;
+  mapping?: Record<string, TargetField> | undefined;
   parsingOptions?: LineListJob["parsingOptions"];
 }): SourceProfile {
   // An unregistered id would throw from getSourceProfile and take the whole
@@ -84,8 +121,24 @@ function resolveJobRuntimeProfile(job: {
   // Layered last so it can only fill outcome words nothing else resolved —
   // the profile's own configured outcomeMap still wins inside
   // withOutcomeVocabulary.
+  // The profile's own setting is an administrator's decision and always
+  // wins; otherwise the file's own header is read; otherwise the assumption
+  // above, which validation reports.
+  const patientIdHeader = Object.entries(job.mapping ?? {}).find(
+    ([, field]) => field === "patient_id",
+  )?.[0];
+  const recordNumberSource =
+    runtimeProfile.patientRecordNumberSource ??
+    (patientIdHeader ? inferPatientRecordNumberSource(patientIdHeader) : undefined) ??
+    (patientIdHeader ? ASSUMED_PATIENT_RECORD_NUMBER_SOURCE : undefined);
+
   return applyParsingOptions(
-    withOutcomeVocabulary(runtimeProfile, job.outcomeVocabulary),
+    withOutcomeVocabulary(
+      recordNumberSource
+        ? { ...runtimeProfile, patientRecordNumberSource: recordNumberSource }
+        : runtimeProfile,
+      job.outcomeVocabulary,
+    ),
     job.parsingOptions,
   );
 }
@@ -139,6 +192,15 @@ export const TARGET_FIELDS = [
    *  substitute for reporter_country: a reporter in one country can report
    *  an event that happened in another. */
   "reaction_country",
+  /** E2B D.1.1.1-D.1.1.4 — the patient's MEDICAL RECORD NUMBER at the
+   *  facility that holds the record. A different thing from
+   *  `patient_identifier`, which carries the patient's name or initials
+   *  (D.1) and is run through deriveInitials: a record number put there
+   *  would be exported as if it were the patient's name. */
+  "patient_id",
+  /** E2B C.2.r.1 — the REPORTER's own name. Distinct from
+   *  `reporter_designation` (C.2.r.4), which is their role. */
+  "reporter_name",
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
@@ -295,16 +357,57 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     // of AEFI (Non-serious or Serious) case") — a generic substring match
     // there mapped a seriousness-code column to case_id on a real file.
   ],
+  // D.1 — the patient's NAME or INITIALS. Headers that name an identifier
+  // ("Patient ID", "Subject ID", "Hospital number") deliberately do NOT
+  // match here any more: they used to, and a real record number was then
+  // exported as the patient's name. They belong to patient_id below.
   patient_identifier: [
-    ["patientidentifier", 95],
-    ["patientinitials", 90],
+    ["patientinitials", 95],
+    ["patientname", 95],
     ["initials", 80],
-    ["patientid", 85],
-    ["subjectid", 80],
-    ["specialistrecordnumber", 60],
-    ["patientno", 70],
+    ["nameofpatient", 90],
+    ["patientidentifier", 60],
     ["patient", 20],
     ["subject", 20],
+  ],
+  // D.1.1.1-D.1.1.4 — a record number held by a facility.
+  patient_id: [
+    ["patientid", 95],
+    ["patientno", 95],
+    ["patientnumber", 95],
+    ["subjectid", 90],
+    ["subjectnumber", 90],
+    ["hospitalnumber", 95],
+    ["hospitalrecordnumber", 95],
+    ["medicalrecordnumber", 95],
+    ["recordnumber", 85],
+    ["specialistrecordnumber", 85],
+    ["gprecordnumber", 85],
+    ["folionumber", 80],
+    ["cardnumber", 75],
+    // "No"/"Nos" is as common as "Number" on a real form.
+    ["hospitalno", 95],
+    ["hospitalrecordno", 95],
+    ["medicalrecordno", 95],
+    ["recordno", 85],
+    ["mrn", 95],
+    ["registrationnumber", 75],
+    ["registrationno", 75],
+    // Only ever patient-qualified: a bare "File No" on an AEFI form is
+    // usually the case file, which is case_id's business, not the
+    // patient's record number.
+    ["patientfilenumber", 90],
+    ["patientfileno", 90],
+  ],
+  // C.2.r.1 — who the reporter is, as opposed to what they are.
+  reporter_name: [
+    ["reportername", 95],
+    ["nameofreporter", 95],
+    ["reportersname", 95],
+    ["reportedby", 85],
+    ["notifiedby", 80],
+    ["healthworkername", 85],
+    ["officername", 75],
   ],
   product: [
     ["drugnamewhodrug", 95],
@@ -607,6 +710,20 @@ export function mergeColumnMapping(
       if (p.confidence < AI_MAPPING_CONFIDENCE_FLOOR) return false;
       const header = p.column.toLowerCase().replace(/[^a-z]/g, "");
       if (p.field === "seriousness" && header.includes("severity")) return false;
+      // The patient's record number (D.1.1) is the identifier most easily
+      // confused with three others that also look like ids. The prompt
+      // warns about them; these are the rules. A header that names the
+      // report, the reporter, or a batch/lot may not be read as the
+      // patient's record number however sure the model is — a wrong
+      // patient identifier is worse than none, and the column is left to
+      // the field it actually belongs to.
+      if (
+        p.field === "patient_id" &&
+        /(^|[^a-z])(case|report|reporter|batch|lot)/.test(header) &&
+        !header.includes("patient")
+      ) {
+        return false;
+      }
       return true;
     })
     // Highest confidence first, so the contested field goes to the column

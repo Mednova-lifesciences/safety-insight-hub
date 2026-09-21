@@ -47,6 +47,8 @@ export const ondoAefiProfile: SourceProfile = {
     // See docs/E2B-R3-SOURCE-PROFILES.md.
     seriousCode: "serious_code",
     reporterDesignation: "reporter_designation",
+    patientId: "patient_id",
+    reporterName: "reporter_name",
     reporterCountry: "reporter_country",
     reactionCountry: "reaction_country",
     reporterPhone: "reporter_phone",
