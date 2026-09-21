@@ -667,6 +667,16 @@ const TARGET_FIELD_SET = new Set<string>(TARGET_FIELDS);
  * upload path, and an OpenAI outage must degrade the mapping's reach, not
  * stop people uploading files.
  */
+/** Letters only, so "Reporter / Designation" and "reporter" compare equal. */
+function headerKey(header: string): string {
+  return header.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+/** Headers that name the reporter and nothing more specific. Anchored on
+ *  purpose: "Reporter ID" and "Reporter Country" are different columns and
+ *  must not be swept up by this. */
+const REPORTER_FALLBACK_HEADERS = /^(reporter|reporters|reportedby|notifiedby)$/;
+
 export function mergeColumnMapping(
   keywordMapping: Record<string, TargetField>,
   proposals: {
@@ -676,12 +686,39 @@ export function mergeColumnMapping(
     reason: string;
   }[],
   aiUsed: boolean,
+  /** Every header in the file, so a column nothing mapped can still be
+   *  seen. Optional for callers that only have the two mappings. */
+  headers: string[] = [],
 ): ColumnMappingDecision {
   if (!aiUsed || proposals.length === 0) {
+    const mapping = { ...keywordMapping };
+    const notes: Record<string, string> = {};
+    // Only here, and only because the model did not run. A column called
+    // exactly "Reporter" is genuinely ambiguous — it holds a role on most
+    // AEFI forms and a name on some — which is why the keyword list does
+    // not claim it and the model is asked to read the values instead. But
+    // when the model is unavailable (a cold start, an outage, no key),
+    // leaving it unmapped costs every case its reporter and fails the whole
+    // file on VIGIFLOW/E2B-REPORTER-MISSING. A named reporter that turns
+    // out to be a person rather than a role surfaces as an unrecognised
+    // designation in Settings, which someone can see and correct; an
+    // unmapped column shows up as fifty identical errors that name no
+    // cause. So it is taken as the designation, and said so.
+    const claimed = new Set(Object.values(mapping));
+    if (!claimed.has("reporter_designation")) {
+      for (const column of headers) {
+        if (mapping[column]) continue;
+        if (!REPORTER_FALLBACK_HEADERS.test(headerKey(column))) continue;
+        mapping[column] = "reporter_designation";
+        notes[column] =
+          "Matched by name only: AI column mapping was unavailable for this upload. Check it reads the reporter's role, not their name.";
+        break;
+      }
+    }
     return {
-      mapping: { ...keywordMapping },
-      source: Object.fromEntries(Object.keys(keywordMapping).map((c) => [c, "rule" as const])),
-      notes: {},
+      mapping,
+      source: Object.fromEntries(Object.keys(mapping).map((c) => [c, "rule" as const])),
+      notes,
       aiUsed: false,
     };
   }
@@ -2111,7 +2148,7 @@ export const linelist = {
           aiMappingUsed = false;
         }
       }
-      const decision = mergeColumnMapping(keywordMapping, proposals, aiMappingUsed);
+      const decision = mergeColumnMapping(keywordMapping, proposals, aiMappingUsed, headers);
       const mapping = decision.mapping;
       const parsedRows = toParsedRows(headers, rows, mapping);
       job = {
