@@ -277,4 +277,74 @@ describe("a line list whose record-number column nobody configured", () => {
     expect(pvCase.patient.recordNumbers).toBeUndefined();
     expect(patientIdIn(xmlFor([pvCase]))).toEqual([]);
   });
+
+  it.each(["Patient ID", "Record Number", "Reference"])(
+    "keeps the number but exports no D.1.1 while %s leaves the category undecided",
+    async (header) => {
+      // The column IS the patient's record number; what nobody has said is
+      // whether it is a GP's, a specialist's, a hospital's or an
+      // investigation's record. Four different elements, so: no guess.
+      const undecided: SourceProfile = {
+        ...genericVerbatimProfile,
+        id: "test-undecided",
+        country: "NG",
+        patientRecordNumberSource: inferPatientRecordNumberSource(header),
+      };
+      expect(undecided.patientRecordNumberSource).toBeUndefined();
+
+      const pvCase = await caseFor({ patient_id: "OGH/2026/04130" }, undecided);
+      expect(pvCase.patient.recordNumbers).toBeUndefined();
+      const xml = xmlFor([pvCase]);
+      expect(patientIdIn(xml)).toEqual([]);
+      expect(xml).not.toContain("asIdentifiedEntity");
+      // ...and nothing else about the case is affected.
+      expect(xml).toContain("<name>A.B.</name>");
+    },
+  );
+
+  it("exports it as soon as someone says which record it is", async () => {
+    const decided: SourceProfile = {
+      ...genericVerbatimProfile,
+      id: "test-decided",
+      country: "NG",
+      // What the line-list panel writes when a person chooses.
+      patientRecordNumberSource: "SPECIALIST",
+    };
+    const xml = xmlFor([await caseFor({ patient_id: "OGH/2026/04130" }, decided)]);
+    expect(patientIdIn(xml)).toEqual([
+      { number: "OGH/2026/04130", oid: "2.16.840.1.113883.3.989.2.1.3.8" },
+    ]);
+    expect(xml).toContain('displayName="Specialist"');
+  });
+
+  it.each([
+    ["GP", "2.16.840.1.113883.3.989.2.1.3.7", "1"],
+    ["SPECIALIST", "2.16.840.1.113883.3.989.2.1.3.8", "2"],
+    ["HOSPITAL", "2.16.840.1.113883.3.989.2.1.3.9", "3"],
+    ["INVESTIGATION", "2.16.840.1.113883.3.989.2.1.3.10", "4"],
+  ])("puts a %s record on its own element", async (source, oid, code) => {
+    const profile: SourceProfile = {
+      ...genericVerbatimProfile,
+      id: `test-${source}`,
+      country: "NG",
+      patientRecordNumberSource: source as SourceProfile["patientRecordNumberSource"],
+    };
+    const xml = xmlFor([await caseFor({ patient_id: "REC-1" }, profile)]);
+    expect(patientIdIn(xml)[0]!.oid).toBe(oid);
+    expect(xml).toContain(`<code code="${code}" codeSystem="2.16.840.1.113883.3.989.2.1.1.4"`);
+  });
+
+  it("lets an explicit configuration outrank what the header suggests", async () => {
+    // The header says hospital; the profile says investigation. The
+    // configured answer wins — a person outranks a guess from a word.
+    expect(inferPatientRecordNumberSource("Hospital Number")).toBe("HOSPITAL");
+    const configured: SourceProfile = {
+      ...genericVerbatimProfile,
+      id: "test-configured",
+      country: "NG",
+      patientRecordNumberSource: "INVESTIGATION",
+    };
+    const xml = xmlFor([await caseFor({ patient_id: "OGH/2026/04130" }, configured)]);
+    expect(patientIdIn(xml)[0]!.oid).toBe("2.16.840.1.113883.3.989.2.1.3.10");
+  });
 });

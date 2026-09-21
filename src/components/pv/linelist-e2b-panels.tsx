@@ -18,11 +18,26 @@ import {
   suggestMedDraTerm,
 } from "@/services/api/linelist";
 import { listSourceProfiles } from "@/services/e2b-r3/source-profiles";
+import { inferPatientRecordNumberSource } from "@/services/api/linelist";
 import { termMappings } from "@/services/api/term-mappings";
 import { coding } from "@/services/api/coding";
 import { reactionTermKey, type OrgTermMapping } from "@/services/e2b-r3/term-mappings";
 import { e2bCheckIncomplete } from "@/services/api/linelist-e2b-checks";
-import type { LineListFixLocation, LineListIssue, LineListJob } from "@/types/pv";
+import type {
+  LineListFixLocation,
+  LineListIssue,
+  LineListJob,
+  PatientRecordNumberSource,
+} from "@/types/pv";
+
+/** The four records ICH distinguishes (D.1.1.1-D.1.1.4), in its order. */
+const RECORD_SOURCE_LABELS: Record<PatientRecordNumberSource, string> = {
+  GP: "GP medical record number (D.1.1.1)",
+  SPECIALIST: "Specialist record number (D.1.1.2)",
+  HOSPITAL: "Hospital record number (D.1.1.3)",
+  INVESTIGATION: "Investigation number (D.1.1.4)",
+};
+const RECORD_SOURCE_UNDECIDED = "UNDECIDED";
 
 /** Where a person goes to clear each kind of E2B blocker. */
 const FIX_IN_LABEL: Record<LineListFixLocation, string> = {
@@ -32,6 +47,7 @@ const FIX_IN_LABEL: Record<LineListFixLocation, string> = {
   REACTION_TERMS: "Choose MedDRA term below",
   SOURCE_CODEBOOK: "Correct the code or add the form's legend",
   SOURCE_FORM: "Change how this file is read",
+  PATIENT_RECORD_NUMBER: "Say which record this number is",
 };
 
 /** The action for one finding: a link where the fix lives, or plain text
@@ -49,7 +65,7 @@ export function FixAction({ fixIn }: { fixIn: LineListFixLocation | undefined })
       </Link>
     );
   }
-  if (fixIn === "REACTION_TERMS" || fixIn === "SOURCE_FORM") {
+  if (fixIn === "REACTION_TERMS" || fixIn === "SOURCE_FORM" || fixIn === "PATIENT_RECORD_NUMBER") {
     return (
       <a
         href={fixIn === "REACTION_TERMS" ? "#reaction-terms" : "#how-to-read"}
@@ -145,7 +161,40 @@ export function ParsingOptionsPanel({ job, onSaved }: { job: LineListJob; onSave
   const [oneName, setOneName] = useState(!!job.parsingOptions?.productCellIsOneName);
   const [saving, setSaving] = useState(false);
   const [changingForm, setChangingForm] = useState(false);
+  const [savingRecordSource, setSavingRecordSource] = useState(false);
   const profileId = job.sourceProfileId || DEFAULT_SOURCE_PROFILE_ID;
+
+  // Only asked when the file actually has a patient-record-number column.
+  const patientIdHeader = Object.entries(job.mapping ?? {}).find(
+    ([, field]) => field === "patient_id",
+  )?.[0];
+  const decidedRecordSource = job.parsingOptions?.patientRecordNumberSource;
+  const readFromHeader = patientIdHeader
+    ? inferPatientRecordNumberSource(patientIdHeader)
+    : undefined;
+  const recordSource = decidedRecordSource ?? readFromHeader;
+
+  async function chooseRecordSource(next: string) {
+    setSavingRecordSource(true);
+    try {
+      await linelistApi.setParsingOptions(job.id, {
+        slashSeparatesReactions: slash,
+        productCellIsOneName: oneName,
+        patientRecordNumberSource:
+          next === RECORD_SOURCE_UNDECIDED ? null : (next as PatientRecordNumberSource),
+      });
+      toast.success(
+        next === RECORD_SOURCE_UNDECIDED
+          ? "Left undecided. No patient record number will be exported until it is."
+          : `Saved. The patient record number will be exported as ${RECORD_SOURCE_LABELS[next as PatientRecordNumberSource]}.`,
+      );
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save.");
+    } finally {
+      setSavingRecordSource(false);
+    }
+  }
 
   async function changeSourceForm(next: string) {
     setChangingForm(true);
@@ -214,6 +263,54 @@ export function ParsingOptionsPanel({ job, onSaved }: { job: LineListJob; onSave
               : "Whether this file's reaction column holds local codes a legend defines, or reactions written out in words. Changing it re-reads the rows already uploaded — no new upload — and any C.1.7 decision on a case whose data changes is superseded."}
           </p>
         </div>
+        {patientIdHeader ? (
+          <div className="space-y-1.5 border-t border-border pt-3">
+            <p className="font-medium">
+              Patient record number — which record is &ldquo;{patientIdHeader}&rdquo;?
+            </p>
+            <Select
+              value={recordSource ?? RECORD_SOURCE_UNDECIDED}
+              disabled={savingRecordSource}
+              onValueChange={chooseRecordSource}
+            >
+              <SelectTrigger className="w-full sm:w-96">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={RECORD_SOURCE_UNDECIDED}>
+                  Not decided — do not export a record number
+                </SelectItem>
+                {(Object.keys(RECORD_SOURCE_LABELS) as PatientRecordNumberSource[]).map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {RECORD_SOURCE_LABELS[key]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {savingRecordSource ? (
+                "Saving…"
+              ) : readFromHeader && !decidedRecordSource ? (
+                <>
+                  Read from the column&rsquo;s own name: &ldquo;{patientIdHeader}&rdquo; says this
+                  is {RECORD_SOURCE_LABELS[readFromHeader].toLowerCase()}. Change it if that is
+                  wrong.
+                </>
+              ) : decidedRecordSource ? (
+                <>
+                  Chosen for this line list. E2B(R3) has a separate element for each kind of record,
+                  so this decides which one the number is exported in.
+                </>
+              ) : (
+                <>
+                  &ldquo;{patientIdHeader}&rdquo; does not say whose record the number is, and
+                  E2B(R3) has a separate element for each kind. Until you choose, the number is kept
+                  but not exported — it is never guessed.
+                </>
+              )}
+            </p>
+          </div>
+        ) : null}
         <label className="flex items-start gap-2">
           <input
             type="checkbox"

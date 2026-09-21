@@ -83,19 +83,6 @@ export function inferPatientRecordNumberSource(
   return undefined;
 }
 
-/**
- * Where a patient record number is taken to come from when nothing says.
- *
- * A line list is collected by the reporting facility, so a bare "Patient
- * ID" column on an AEFI form is that facility's own record number. Calling
- * it the hospital record (D.1.1.3) is a judgement about provenance, not
- * about the identifier itself: the NUMBER always comes from the row and is
- * never invented. It is recorded as assumed, surfaced in validation, and
- * overridden by SourceProfile.patientRecordNumberSource or by a header
- * that names the record source.
- */
-export const ASSUMED_PATIENT_RECORD_NUMBER_SOURCE: PatientRecordNumberSource = "HOSPITAL";
-
 function resolveJobRuntimeProfile(job: {
   discardedRows?: { row: number; text: string }[];
   filename: string;
@@ -121,16 +108,25 @@ function resolveJobRuntimeProfile(job: {
   // Layered last so it can only fill outcome words nothing else resolved —
   // the profile's own configured outcomeMap still wins inside
   // withOutcomeVocabulary.
-  // The profile's own setting is an administrator's decision and always
-  // wins; otherwise the file's own header is read; otherwise the assumption
-  // above, which validation reports.
+  // Whose record the patient-id column holds, in the order of who is best
+  // placed to know:
+  //
+  //   1. the person who looked at THIS file and said so;
+  //   2. the source profile, where an administrator configured the form;
+  //   3. the file's own header, where it names a record source.
+  //
+  // There is no fourth step. A header like "Patient ID" names no record
+  // source, and D.1.1.1-D.1.1.4 are four different data elements, so an
+  // undecided category exports no record number at all rather than
+  // claiming the number came from a record nobody named. The number is
+  // still read, still kept, and still waiting for that one decision.
   const patientIdHeader = Object.entries(job.mapping ?? {}).find(
     ([, field]) => field === "patient_id",
   )?.[0];
   const recordNumberSource =
+    job.parsingOptions?.patientRecordNumberSource ??
     runtimeProfile.patientRecordNumberSource ??
-    (patientIdHeader ? inferPatientRecordNumberSource(patientIdHeader) : undefined) ??
-    (patientIdHeader ? ASSUMED_PATIENT_RECORD_NUMBER_SOURCE : undefined);
+    (patientIdHeader ? inferPatientRecordNumberSource(patientIdHeader) : undefined);
 
   return applyParsingOptions(
     withOutcomeVocabulary(
@@ -1897,6 +1893,39 @@ async function recordDiscoveries(
   await Promise.allSettled(tasks);
 }
 
+/**
+ * The file has a patient record number and nobody has said which record it
+ * is. Reported once, against the file, because it is one decision for the
+ * whole line list — and not as a blocker: D.1.1 is optional under ICH, so
+ * the export is valid without it. What it is NOT is silent: the number is
+ * sitting in the file, and one choice releases it.
+ */
+function undecidedRecordNumberIssue(
+  job: { mapping?: Record<string, TargetField> | undefined },
+  profile: SourceProfile,
+): LineListIssue[] {
+  const header = Object.entries(job.mapping ?? {}).find(([, f]) => f === "patient_id")?.[0];
+  if (!header || profile.patientRecordNumberSource) return [];
+  return [
+    {
+      row: 0,
+      column: header,
+      severity: "MEDIUM",
+      confidence: "HIGH",
+      code: "PATIENT_RECORD_NUMBER_SOURCE_UNDECIDED",
+      message: `"${header}" holds a patient record number, but nothing says which record it is. E2B(R3) has a separate element for a GP's, a specialist's, a hospital's and an investigation's record, so the number is kept and not exported until someone chooses — it is never guessed.`,
+      value: header,
+      source: "rule",
+      sources: ["rule"],
+      issueType: "FIELD_VALUE_INVALID",
+      affectedFields: ["patient_id"],
+      fixable: false,
+      fixIn: "PATIENT_RECORD_NUMBER",
+      e2bField: "D.1.1",
+    },
+  ];
+}
+
 /** A model's reading of a verbatim reaction, kept only if it lands on a
  *  real MedDRA 29.1 LLT — never a free-text guess. */
 export async function suggestMedDraTerm(
@@ -1961,7 +1990,10 @@ async function computeDeterministicIssues(job: LineListJobRow): Promise<LineList
     const { cases } = await mapJobToCases(job, orgConfig);
     const check = checkCasesForE2b(cases, job.mapping ?? {});
     await recordDiscoveries(check.discovered, job.filename);
-    return mergeE2bIssues(ruleIssues, check.issues);
+    return [
+      ...mergeE2bIssues(ruleIssues, check.issues),
+      ...undecidedRecordNumberIssue(job, profile),
+    ];
   } catch (err) {
     return [
       ...ruleIssues,
@@ -2343,13 +2375,26 @@ export const linelist = {
    *  — so cases (and any C.1.7 decision bound to them) stay stable. */
   setParsingOptions: async (
     jobId: string,
-    options: { slashSeparatesReactions: boolean; productCellIsOneName: boolean },
+    options: {
+      slashSeparatesReactions: boolean;
+      productCellIsOneName: boolean;
+      /** D.1.1.1-D.1.1.4 — whose record the patient-id column holds.
+       *  `null` clears a previous decision back to undecided. */
+      patientRecordNumberSource?: PatientRecordNumberSource | null | undefined;
+    },
   ): Promise<LineListJob> => {
     const actor = currentActor();
     const job = await readJob(jobId);
     const previous = job.parsingOptions;
+    const { patientRecordNumberSource, ...reading } = options;
+    // undefined means "leave whatever was decided before"; null clears it.
+    const decided =
+      patientRecordNumberSource === undefined
+        ? previous?.patientRecordNumberSource
+        : (patientRecordNumberSource ?? undefined);
     const parsingOptions = {
-      ...options,
+      ...reading,
+      ...(decided ? { patientRecordNumberSource: decided } : {}),
       setBy: actor.name,
       setAt: new Date().toISOString(),
     };
@@ -2361,7 +2406,7 @@ export const linelist = {
       previousValue: previous
         ? `slash separates reactions: ${!!previous.slashSeparatesReactions}; product cell is one name: ${!!previous.productCellIsOneName}`
         : "defaults",
-      newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}`,
+      newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}; patient record number source: ${decided ?? "undecided"}`,
     });
     return linelist.recheck(jobId);
   },
