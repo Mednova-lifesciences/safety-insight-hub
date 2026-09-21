@@ -20,6 +20,10 @@ import {
   type OrgRegulatoryConfig,
 } from "@/services/e2b-r3/regulatory-config";
 import type { PatientRecordNumberSource } from "@/services/e2b-r3/source-profiles/types";
+import {
+  inferPatientRecordNumberSource,
+  resolvePatientRecordNumberSource,
+} from "@/services/e2b-r3/source-profiles/patient-record-number";
 import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
 import {
   resolveFieldConcept,
@@ -61,40 +65,7 @@ import type {
  *  defaulting to it keeps them decoding exactly as they always have. */
 export const DEFAULT_SOURCE_PROFILE_ID = "ondo-aefi";
 
-/**
- * D.1.1.1-D.1.1.4 distinguish WHOSE record a patient's number is: a GP's,
- * a specialist's, a hospital's, or an investigation's. ICH makes that part
- * of the data element — each source has its own namespace OID — so a number
- * cannot be exported without saying which it is.
- *
- * A line list usually says in the header it wrote: "Hospital number",
- * "GP record no". This reads that, and only that: it never guesses from
- * the values, and a header that names no record source leaves the decision
- * to the profile (or to the documented fallback below).
- */
-export function inferPatientRecordNumberSource(
-  header: string,
-): PatientRecordNumberSource | undefined {
-  const h = header.toLowerCase();
-  if (/\b(gp|general\s*practitioner|family\s*(doctor|physician))\b/.test(h)) return "GP";
-  if (/specialist|consultant/.test(h)) return "SPECIALIST";
-  if (/hospital|clinic|facility|ward|admission/.test(h)) return "HOSPITAL";
-  if (/investigation|study|trial|protocol/.test(h)) return "INVESTIGATION";
-  return undefined;
-}
-
-/**
- * Where a patient record number is taken to come from when nothing says.
- *
- * A line list is collected by the reporting facility, so a bare "Patient
- * ID" column on an AEFI form is that facility's own record number. Calling
- * it the hospital record (D.1.1.3) is a judgement about provenance, not
- * about the identifier itself: the NUMBER always comes from the row and is
- * never invented. It is recorded as assumed, surfaced in validation, and
- * overridden by SourceProfile.patientRecordNumberSource or by a header
- * that names the record source.
- */
-export const ASSUMED_PATIENT_RECORD_NUMBER_SOURCE: PatientRecordNumberSource = "HOSPITAL";
+export { inferPatientRecordNumberSource };
 
 function resolveJobRuntimeProfile(job: {
   discardedRows?: { row: number; text: string }[];
@@ -121,16 +92,27 @@ function resolveJobRuntimeProfile(job: {
   // Layered last so it can only fill outcome words nothing else resolved —
   // the profile's own configured outcomeMap still wins inside
   // withOutcomeVocabulary.
-  // The profile's own setting is an administrator's decision and always
-  // wins; otherwise the file's own header is read; otherwise the assumption
-  // above, which validation reports.
+  // Whose record the patient-id column holds, in the order of who is best
+  // placed to know:
+  //
+  //   1. the person who looked at THIS file and said so;
+  //   2. the source profile, where an administrator configured the form;
+  //   3. the file's own header, where it names a record source.
+  //
+  // There is no fourth step. A header like "Patient ID" names no record
+  // source, and D.1.1.1-D.1.1.4 are four different data elements, so an
+  // undecided category exports no record number at all rather than
+  // claiming the number came from a record nobody named. The number is
+  // still read, still kept, and still waiting for that one decision.
   const patientIdHeader = Object.entries(job.mapping ?? {}).find(
     ([, field]) => field === "patient_id",
   )?.[0];
-  const recordNumberSource =
-    runtimeProfile.patientRecordNumberSource ??
-    (patientIdHeader ? inferPatientRecordNumberSource(patientIdHeader) : undefined) ??
-    (patientIdHeader ? ASSUMED_PATIENT_RECORD_NUMBER_SOURCE : undefined);
+  const recordNumberSource = resolvePatientRecordNumberSource({
+    decided: job.parsingOptions?.patientRecordNumberSource,
+    declined: job.parsingOptions?.patientRecordNumberDeclined,
+    profile: runtimeProfile.patientRecordNumberSource,
+    header: patientIdHeader,
+  });
 
   return applyParsingOptions(
     withOutcomeVocabulary(
@@ -685,6 +667,16 @@ const TARGET_FIELD_SET = new Set<string>(TARGET_FIELDS);
  * upload path, and an OpenAI outage must degrade the mapping's reach, not
  * stop people uploading files.
  */
+/** Letters only, so "Reporter / Designation" and "reporter" compare equal. */
+function headerKey(header: string): string {
+  return header.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+/** Headers that name the reporter and nothing more specific. Anchored on
+ *  purpose: "Reporter ID" and "Reporter Country" are different columns and
+ *  must not be swept up by this. */
+const REPORTER_FALLBACK_HEADERS = /^(reporter|reporters|reportedby|notifiedby)$/;
+
 export function mergeColumnMapping(
   keywordMapping: Record<string, TargetField>,
   proposals: {
@@ -694,12 +686,39 @@ export function mergeColumnMapping(
     reason: string;
   }[],
   aiUsed: boolean,
+  /** Every header in the file, so a column nothing mapped can still be
+   *  seen. Optional for callers that only have the two mappings. */
+  headers: string[] = [],
 ): ColumnMappingDecision {
   if (!aiUsed || proposals.length === 0) {
+    const mapping = { ...keywordMapping };
+    const notes: Record<string, string> = {};
+    // Only here, and only because the model did not run. A column called
+    // exactly "Reporter" is genuinely ambiguous — it holds a role on most
+    // AEFI forms and a name on some — which is why the keyword list does
+    // not claim it and the model is asked to read the values instead. But
+    // when the model is unavailable (a cold start, an outage, no key),
+    // leaving it unmapped costs every case its reporter and fails the whole
+    // file on VIGIFLOW/E2B-REPORTER-MISSING. A named reporter that turns
+    // out to be a person rather than a role surfaces as an unrecognised
+    // designation in Settings, which someone can see and correct; an
+    // unmapped column shows up as fifty identical errors that name no
+    // cause. So it is taken as the designation, and said so.
+    const claimed = new Set(Object.values(mapping));
+    if (!claimed.has("reporter_designation")) {
+      for (const column of headers) {
+        if (mapping[column]) continue;
+        if (!REPORTER_FALLBACK_HEADERS.test(headerKey(column))) continue;
+        mapping[column] = "reporter_designation";
+        notes[column] =
+          "Matched by name only: AI column mapping was unavailable for this upload. Check it reads the reporter's role, not their name.";
+        break;
+      }
+    }
     return {
-      mapping: { ...keywordMapping },
-      source: Object.fromEntries(Object.keys(keywordMapping).map((c) => [c, "rule" as const])),
-      notes: {},
+      mapping,
+      source: Object.fromEntries(Object.keys(mapping).map((c) => [c, "rule" as const])),
+      notes,
       aiUsed: false,
     };
   }
@@ -1897,6 +1916,39 @@ async function recordDiscoveries(
   await Promise.allSettled(tasks);
 }
 
+/**
+ * The file has a patient record number and nobody has said which record it
+ * is. Reported once, against the file, because it is one decision for the
+ * whole line list — and not as a blocker: D.1.1 is optional under ICH, so
+ * the export is valid without it. What it is NOT is silent: the number is
+ * sitting in the file, and one choice releases it.
+ */
+function undecidedRecordNumberIssue(
+  job: { mapping?: Record<string, TargetField> | undefined },
+  profile: SourceProfile,
+): LineListIssue[] {
+  const header = Object.entries(job.mapping ?? {}).find(([, f]) => f === "patient_id")?.[0];
+  if (!header || profile.patientRecordNumberSource) return [];
+  return [
+    {
+      row: 0,
+      column: header,
+      severity: "MEDIUM",
+      confidence: "HIGH",
+      code: "PATIENT_RECORD_NUMBER_SOURCE_UNDECIDED",
+      message: `"${header}" holds a patient record number, but nothing says which record it is. E2B(R3) has a separate element for a GP's, a specialist's, a hospital's and an investigation's record, so the number is kept and not exported until someone chooses — it is never guessed.`,
+      value: header,
+      source: "rule",
+      sources: ["rule"],
+      issueType: "FIELD_VALUE_INVALID",
+      affectedFields: ["patient_id"],
+      fixable: false,
+      fixIn: "PATIENT_RECORD_NUMBER",
+      e2bField: "D.1.1",
+    },
+  ];
+}
+
 /** A model's reading of a verbatim reaction, kept only if it lands on a
  *  real MedDRA 29.1 LLT — never a free-text guess. */
 export async function suggestMedDraTerm(
@@ -1961,7 +2013,10 @@ async function computeDeterministicIssues(job: LineListJobRow): Promise<LineList
     const { cases } = await mapJobToCases(job, orgConfig);
     const check = checkCasesForE2b(cases, job.mapping ?? {});
     await recordDiscoveries(check.discovered, job.filename);
-    return mergeE2bIssues(ruleIssues, check.issues);
+    return [
+      ...mergeE2bIssues(ruleIssues, check.issues),
+      ...undecidedRecordNumberIssue(job, profile),
+    ];
   } catch (err) {
     return [
       ...ruleIssues,
@@ -2093,7 +2148,7 @@ export const linelist = {
           aiMappingUsed = false;
         }
       }
-      const decision = mergeColumnMapping(keywordMapping, proposals, aiMappingUsed);
+      const decision = mergeColumnMapping(keywordMapping, proposals, aiMappingUsed, headers);
       const mapping = decision.mapping;
       const parsedRows = toParsedRows(headers, rows, mapping);
       job = {
@@ -2343,13 +2398,32 @@ export const linelist = {
    *  — so cases (and any C.1.7 decision bound to them) stay stable. */
   setParsingOptions: async (
     jobId: string,
-    options: { slashSeparatesReactions: boolean; productCellIsOneName: boolean },
+    options: {
+      slashSeparatesReactions: boolean;
+      productCellIsOneName: boolean;
+      /** D.1.1.1-D.1.1.4 — whose record the patient-id column holds.
+       *  `null` clears a previous decision back to undecided. */
+      patientRecordNumberSource?: PatientRecordNumberSource | null | undefined;
+    },
   ): Promise<LineListJob> => {
     const actor = currentActor();
     const job = await readJob(jobId);
     const previous = job.parsingOptions;
+    const { patientRecordNumberSource, ...reading } = options;
+    // undefined means "leave whatever was decided before"; null is a person
+    // saying not to export one, which is itself a decision and is recorded
+    // as one so the column's name stops answering for them.
+    const untouched = patientRecordNumberSource === undefined;
+    const decided = untouched
+      ? previous?.patientRecordNumberSource
+      : (patientRecordNumberSource ?? undefined);
+    const declined = untouched
+      ? previous?.patientRecordNumberDeclined
+      : patientRecordNumberSource === null;
     const parsingOptions = {
-      ...options,
+      ...reading,
+      ...(decided ? { patientRecordNumberSource: decided } : {}),
+      ...(declined ? { patientRecordNumberDeclined: true } : {}),
       setBy: actor.name,
       setAt: new Date().toISOString(),
     };
@@ -2361,7 +2435,7 @@ export const linelist = {
       previousValue: previous
         ? `slash separates reactions: ${!!previous.slashSeparatesReactions}; product cell is one name: ${!!previous.productCellIsOneName}`
         : "defaults",
-      newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}`,
+      newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}; patient record number source: ${declined ? "declined — not exported" : (decided ?? "undecided")}`,
     });
     return linelist.recheck(jobId);
   },

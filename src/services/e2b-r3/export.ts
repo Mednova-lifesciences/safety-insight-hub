@@ -34,6 +34,7 @@ import {
   withOutcomeVocabulary,
   type OutcomeVocabulary,
 } from "./source-profiles/outcome-vocabulary";
+import { withPatientRecordNumberSource } from "./source-profiles/patient-record-number";
 import { getSourceProfile } from "./source-profiles/registry";
 import type { SourceProfile } from "./source-profiles/types";
 import { parseDiscoveredLegend, validateDiscoveredCodebook } from "./source-profiles/legend-parser";
@@ -170,6 +171,9 @@ export interface MappableJob {
   parsingOptions?: LineListParsingOptions | undefined;
   discardedRows?: { row: number; text: string }[] | undefined;
   parsedRows?: ParsedRow[] | undefined;
+  /** Column header -> canonical field. Needed here because which record a
+   *  patient number came from can be read from the column's own name. */
+  mapping?: Record<string, string> | undefined;
 }
 
 /**
@@ -232,6 +236,7 @@ function resolveProfileForJob(job: {
   sourceProfileId?: string | undefined;
   outcomeVocabulary?: OutcomeVocabulary | undefined;
   parsingOptions?: LineListParsingOptions | undefined;
+  mapping?: Record<string, string> | undefined;
 }): SourceProfile {
   let profile: SourceProfile;
   try {
@@ -245,8 +250,11 @@ function resolveProfileForJob(job: {
   // existed to remove.
   // The line list's saved separator decisions — the same ones its
   // line-list validation used — so the two never read the file differently.
+  // ...and whose record this file's patient numbers are (D.1.1.1-D.1.1.4),
+  // from the same shared resolver the line-list checks use, so the page and
+  // the file can never disagree about what is being sent.
   return applyParsingOptions(
-    withOutcomeVocabulary(profile, job.outcomeVocabulary),
+    withPatientRecordNumberSource(withOutcomeVocabulary(profile, job.outcomeVocabulary), job),
     job.parsingOptions,
   );
 }

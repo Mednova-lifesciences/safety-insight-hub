@@ -288,6 +288,10 @@ export interface IntakeConversationDetail extends IntakeConversation {
  *  the job, so line-list validation, E2B preflight and E2B export all read
  *  the file the same way — and so a finalized C.1.7 decision (bound to the
  *  exact case data) stays valid across reloads. */
+/** Re-exported so a job's own reading can name one without importing
+ *  the E2B layer here. */
+export type PatientRecordNumberSource = "GP" | "SPECIALIST" | "HOSPITAL" | "INVESTIGATION";
+
 export interface LineListParsingOptions {
   /** "Rash/Urticaria" is usually ONE source phrase (the Ondo legend itself
    *  defines codes that way), so "/" never splits reactions unless the
@@ -296,6 +300,18 @@ export interface LineListParsingOptions {
   /** Treat the whole product cell as one medicinal product name, keeping
    *  any commas/semicolons inside it. */
   productCellIsOneName?: boolean | undefined;
+  /** D.1.1.1-D.1.1.4 — whose record the patient-id column holds: a GP's,
+   *  a specialist's, a hospital's, or an investigation's. ICH makes the
+   *  source of the number part of the element, and a header like "Patient
+   *  ID" does not say which, so a person decides it for this file. Absent
+   *  means undecided, and an undecided category exports no record number
+   *  rather than a guessed one. */
+  patientRecordNumberSource?: PatientRecordNumberSource | undefined;
+  /** Set when a person has explicitly said this file's record number is not
+   *  to be exported. Distinct from simply having no answer yet: without it,
+   *  clearing a choice would fall straight back to what the column's name
+   *  suggests, which is not what they asked for. */
+  patientRecordNumberDeclined?: boolean | undefined;
   /** Who last changed these options, and when — they change what reaches
    *  the regulator, so they are attributable. */
   setBy?: string | undefined;
@@ -318,6 +334,9 @@ export interface LineListJob {
    *  "ondo-aefi": the only profile those jobs were ever processed against,
    *  so reading them back keeps producing exactly what it always did. */
   sourceProfileId?: string | undefined;
+  /** Column header -> canonical field, as decided at upload by the keyword
+   *  matcher and the AI column mapper together. */
+  mapping?: Record<string, string> | undefined;
   /** Set once AI-assisted "Fix Issues" has actually applied at least one
    *  correction to this job's data. Absent until then — gates whether a
    *  "Download Fixed CSV" download has anything genuinely fixed to offer. */
@@ -443,7 +462,9 @@ export type LineListFixLocation =
   | "REACTION_TERMS"
   | "SOURCE_CODEBOOK"
   /** How this file itself is read — the source form it was uploaded as. */
-  | "SOURCE_FORM";
+  | "SOURCE_FORM"
+  /** Which of the four D.1.1 records the patient-id column holds. */
+  | "PATIENT_RECORD_NUMBER";
 
 /** The 13 sections of the NAFDAC PSUR/PBRER Evaluation Form V4
  *  (docs/NAFDAC_PSUR_Template_V4_Proposed.docx) — the authoritative

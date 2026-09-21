@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  ASSUMED_PATIENT_RECORD_NUMBER_SOURCE,
   AI_MAPPING_CONFIDENCE_FLOOR,
   FIELD_KEYWORDS,
   inferPatientRecordNumberSource,
@@ -152,29 +151,111 @@ describe("what the AI mapper is allowed to decide", () => {
   });
 });
 
+/**
+ * D.1.1.1-D.1.1.4 are four different data elements, and which one a number
+ * belongs to is part of what the message asserts. So the category is a
+ * second question, asked separately from "which column holds the number":
+ * a column can be certainly the patient's record number and still not say
+ * whose record it is.
+ */
 describe("whose record the number is (D.1.1.1-D.1.1.4)", () => {
   it.each([
     ["Hospital Number", "HOSPITAL"],
+    ["Hospital Record Number", "HOSPITAL"],
+    ["Hospital MRN", "HOSPITAL"],
     ["Clinic record no", "HOSPITAL"],
     ["Admission number", "HOSPITAL"],
-    ["GP record number", "GP"],
+    ["GP Medical Record Number", "GP"],
+    ["GP MRN", "GP"],
     ["Family doctor number", "GP"],
-    ["Specialist record number", "SPECIALIST"],
+    ["Specialist Record Number", "SPECIALIST"],
+    ["Specialist MRN", "SPECIALIST"],
     ["Consultant ref", "SPECIALIST"],
+    ["Investigation Number", "INVESTIGATION"],
     ["Study number", "INVESTIGATION"],
     ["Trial subject no", "INVESTIGATION"],
-  ])("reads it from the header %s", (header, source) => {
+  ])("reads %s as a %s record", (header, source) => {
     expect(inferPatientRecordNumberSource(header)).toBe(source);
   });
 
-  it.each(["Patient ID", "Registration No", "Folio number", "MRN"])(
-    "says nothing when the header %s names no record source",
-    (header) => {
-      expect(inferPatientRecordNumberSource(header)).toBeUndefined();
-    },
-  );
+  it.each([
+    "Patient ID",
+    "Patient Number",
+    "Record Number",
+    "Reference",
+    "ID",
+    "Registration No",
+    "Folio number",
+    "MRN",
+  ])("leaves %s undecided rather than guessing a category", (header) => {
+    // The column may well BE the patient's record number — that is a
+    // different question, answered above. What this header does not say is
+    // whose record it is, and there is no default: no category, no
+    // D.1.1.x. A person decides, in the line list's own panel.
+    expect(inferPatientRecordNumberSource(header)).toBeUndefined();
+  });
 
-  it("falls back to the reporting facility's own record, which validation reports", () => {
-    expect(ASSUMED_PATIENT_RECORD_NUMBER_SOURCE).toBe("HOSPITAL");
+  it("asks the two questions separately", () => {
+    // Certainly a record number...
+    expect(mapColumnsByKeywords(["Patient ID"])["Patient ID"]).toBe("patient_id");
+    // ...and certainly not a statement about whose record it is.
+    expect(inferPatientRecordNumberSource("Patient ID")).toBeUndefined();
+  });
+});
+
+/**
+ * A column called exactly "Reporter" is ambiguous — a role on most AEFI
+ * forms, a name on some — so the keyword list does not claim it and the
+ * model is asked to read the values instead. When the model did not run,
+ * leaving it unmapped costs every case its reporter and fails the whole
+ * file, so it is taken as the designation and said so. Only then.
+ */
+describe("the reporter column when the AI mapper did not run", () => {
+  const headers = ["Case ID", "Patient", "Hospital Number", "Reporter", "Outcome"];
+
+  it("is read as the reporter's role, and flagged as matched by name only", () => {
+    const merged = mergeColumnMapping(mapColumnsByKeywords(headers), [], false, headers);
+    expect(merged.mapping["Reporter"]).toBe("reporter_designation");
+    expect(merged.notes["Reporter"]).toMatch(/unavailable/i);
+    expect(merged.source["Reporter"]).toBe("rule");
+  });
+
+  it("does not fire when the model did run — its reading wins", () => {
+    const merged = mergeColumnMapping(
+      mapColumnsByKeywords(headers),
+      [proposal("Reporter", "reporter_name", 0.91)],
+      true,
+      headers,
+    );
+    expect(merged.mapping["Reporter"]).toBe("reporter_name");
+  });
+
+  it("does not fire when the model ran and declined the column", () => {
+    // aiUsed with proposals present: the merge is in its normal path, and
+    // a column the model left alone is simply unmapped.
+    const merged = mergeColumnMapping(
+      mapColumnsByKeywords(headers),
+      [proposal("Outcome", "outcome", 0.95)],
+      true,
+      headers,
+    );
+    expect(merged.mapping["Reporter"]).toBeUndefined();
+  });
+
+  it("never claims a more specific reporter column", () => {
+    for (const header of ["Reporter ID", "Reporter Country", "Reporter Name", "Reporter Phone"]) {
+      const withHeader = [...headers.filter((h) => h !== "Reporter"), header];
+      const merged = mergeColumnMapping(mapColumnsByKeywords(withHeader), [], false, withHeader);
+      expect(merged.mapping[header]).not.toBe("reporter_designation");
+    }
+  });
+
+  it("leaves a file that already has a designation column alone", () => {
+    const withBoth = [...headers, "Designation"];
+    const keywords = mapColumnsByKeywords(withBoth);
+    expect(keywords["Designation"]).toBe("reporter_designation");
+    const merged = mergeColumnMapping(keywords, [], false, withBoth);
+    expect(merged.mapping["Designation"]).toBe("reporter_designation");
+    expect(merged.mapping["Reporter"]).toBeUndefined();
   });
 });
