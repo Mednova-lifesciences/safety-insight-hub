@@ -57,6 +57,18 @@ export interface ColumnMap {
   patientIdentifier?: string;
   sex?: string;
   age?: string;
+  /** D.2.2b — a column stating the unit the age is in ("Age Unit",
+   *  "Years/Months"). Separate from `age` because most line lists put the
+   *  number in one column and either state the unit in another or not at
+   *  all. */
+  ageUnit?: string;
+  /** D.2.1 — the patient's date of birth, when the source has one. Never
+   *  a substitute for `age` and never derived from it. */
+  dateOfBirth?: string;
+  /** D.2.3 — a column the source itself uses for an age GROUP (infant,
+   *  child, adult). Distinct from `age`: a group is not a number, and a
+   *  number is not a group. */
+  ageGroup?: string;
   reaction?: string;
   onsetDate?: string;
   product?: string;
@@ -76,6 +88,13 @@ export interface ColumnMap {
   seriousCode?: string;
   reporterDesignation?: string;
   reporterPhone?: string;
+  /** C.2.r.2.1 — the reporting facility/organisation. */
+  reporterOrganization?: string;
+  /** C.2.r.2.4 / C.2.r.2.5 — the reporter's city and state/province. */
+  reporterCity?: string;
+  reporterState?: string;
+  /** G.k.4.r.10 — how the product was administered. */
+  route?: string;
   /** C.2.r.3 — the column naming the REPORTER's country, when the source
    *  has one. Overrides SourceProfile.country for that row. */
   reporterCountry?: string;
@@ -132,6 +151,17 @@ export interface SourceProfile {
    *  is. Without it the number is imported and kept, but not exported as
    *  a record number of a provenance nobody stated. */
   patientRecordNumberSource?: PatientRecordNumberSource | undefined;
+  /**
+   * D.2.2b — the unit this source's age column is always in, when the
+   * FORM itself settles the question (a column headed "Age (years)", or a
+   * register whose instructions require months under two). Declared here,
+   * never inferred from the values.
+   *
+   * Ranks below a unit the row itself states and above the application's
+   * years default, so a source that knows its own unit never has an
+   * assumption recorded against every one of its cases.
+   */
+  ageUnit?: "800" | "801" | "802" | "803" | "804" | "805" | undefined;
   timezone: string;
   columnMap: ColumnMap;
   /**

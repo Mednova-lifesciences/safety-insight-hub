@@ -128,3 +128,51 @@ export function buildCaseSafetyReportId(parts: CaseSafetyReportIdParts): string 
   const shortened = organisation && room > 0 ? organisation.slice(0, room) : undefined;
   return [country, shortened, number].filter(Boolean).join("-");
 }
+
+/**
+ * C.1.1 for one case, given what the source actually supplied.
+ *
+ * The organisation's rule, which overrides the shape described at the top
+ * of this file for the case where the source has its own identifier:
+ *
+ *   A case identifier the SOURCE wrote is C.1.1 exactly as written.
+ *
+ * So a line list row saying `OG-901` exports `OG-901`, never
+ * `NG-MEDNOVA-OG-901`. The reason is traceability: the number in the
+ * regulator's system has to be the number in the reporting facility's own
+ * register, and a prefix this application adds is a number nobody at the
+ * source can look up. A transformation also silently breaks follow-up
+ * matching for anyone who submitted the case under its plain identifier
+ * before this pipeline existed.
+ *
+ * The country/organisation qualification in buildCaseSafetyReportId is
+ * therefore reserved for the case it was always genuinely needed for: a
+ * row with NO case identifier of its own, where the number this
+ * application generates would otherwise be unique only within one upload.
+ * There is no source value to preserve in that case, so there is nothing
+ * to distort.
+ *
+ * Note for anyone revisiting this: a bare source identifier is unique
+ * within its own facility, not worldwide, which is what C.1.1 and C.1.8.1
+ * are nominally for. That trade is the organisation's decision, recorded
+ * here rather than argued in code.
+ */
+export function resolveCaseSafetyReportId(input: {
+  /** row.case_id — exactly what the source cell held, if anything. */
+  sourceCaseId: string | undefined;
+  /** The identifier this application generated for a row that had none. */
+  generatedCaseNumber: string;
+  country?: string | undefined;
+  organisation?: string | undefined;
+}): { id: string; from: "source" | "generated" } {
+  const supplied = input.sourceCaseId?.trim();
+  if (supplied) return { id: supplied, from: "source" };
+  return {
+    id: buildCaseSafetyReportId({
+      country: input.country,
+      organisation: input.organisation,
+      caseNumber: input.generatedCaseNumber,
+    }),
+    from: "generated",
+  };
+}

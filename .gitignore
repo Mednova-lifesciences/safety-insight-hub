@@ -56,3 +56,6 @@ docs/*.xml
 
 # V8 heap-dump reports (written when a process runs out of memory)
 report.*.json
+
+# graphify knowledge-graph build output (large, regenerable)
+graphify-out/

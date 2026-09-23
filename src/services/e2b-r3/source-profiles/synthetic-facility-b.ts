@@ -24,6 +24,9 @@ export const syntheticFacilityBProfile: SourceProfile = {
   effectiveDate: "2026-01-01",
   country: "NG",
   timezone: "Africa/Lagos",
+  // The form's own age column is headed "age_years", so the unit is a
+  // property of this source rather than an assumption about it.
+  ageUnit: "801",
   columnMap: {
     caseId: "record_id",
     patientIdentifier: "subject_name",

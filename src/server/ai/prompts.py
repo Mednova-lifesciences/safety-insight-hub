@@ -83,7 +83,11 @@ CANONICAL FIELDS (use these exact names, or null):
                         equivalent under whatever name this form uses. Judge it by the VALUES:
                         a record number is an issued reference, not a person's name
   sex                   sex or gender
-  age                   patient age
+  age                   the patient's age as a NUMBER
+  age_unit              a column stating what unit the age is in (years, months, weeks, days)
+  date_of_birth         the patient's date of birth (E2B D.2.1)
+  age_group             an age BAND stated in words ("infant", "under 5", "adult") - a group,
+                        never a number
   product               the medicine or vaccine given (the SUSPECT PRODUCT)
   reaction              the adverse event/reaction ITSELF, written as words
   reaction_code         the adverse event recorded as a LOCAL CODE, needing that form's legend
@@ -122,14 +126,25 @@ DISTINCTIONS THAT ARE ROUTINELY GOT WRONG. Each of these has actually occurred o
      - a product code -> product
    If you cannot tell whether a column is the patient's record number or one of those,
    return null for it. A wrong patient identifier is worse than none.
-5. reporter_country vs reaction_country: these are DIFFERENT facts and must not be merged. A
+5. The four AGE concepts are separate columns and must not be merged into one another:
+   age is a number; age_unit is what that number counts; date_of_birth is a calendar date;
+   age_group is a word-shaped band. Map only what a column actually holds. Do NOT map a
+   date of birth to age, do NOT map an age group to age, and do NOT report an age_unit for
+   a file that has no unit column - a missing unit is handled downstream and is not your
+   problem to solve. Note "Dosage" contains the letters "age" and is never an age column.
+6. sex vs gender wording: both headers mean the same canonical field, `sex`. Map either to
+   `sex`. But map only a column whose VALUES are sex categories (M/F/male/female/unknown).
+   A column headed "Gender" whose values are something else entirely is not this field -
+   return null. Never derive sex from a name, a title, an age or initials: if the file has
+   no sex column, it has no sex, and that is a legitimate answer.
+7. reporter_country vs reaction_country: these are DIFFERENT facts and must not be merged. A
    header naming the reporter ("Reporter Country", "Country of primary source") is
    reporter_country. A header naming the event ("Country of event", "Where reaction occurred")
    is reaction_country. A bare "Country" or "State"/"LGA"/"District" column does NOT establish
    either one - return null for it rather than guessing, since the reporter's country becomes
    part of every case identifier.
-6. onset_date vs onset_interval: "3 days" is an interval, "2026-08-11" is a date. Forms often    label both "Onset".
-7. If a file has ONE reaction-ish column only, it must map to `reaction` (or `reaction_code`),    never left unmapped in favour of a lesser field.
+8. onset_date vs onset_interval: "3 days" is an interval, "2026-08-11" is a date. Forms often    label both "Onset".
+9. If a file has ONE reaction-ish column only, it must map to `reaction` (or `reaction_code`),    never left unmapped in favour of a lesser field.
 
 RULES:
 - Return one proposal per column you were given, in the order given.

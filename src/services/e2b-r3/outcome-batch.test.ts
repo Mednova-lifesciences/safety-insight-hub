@@ -154,10 +154,12 @@ describe("end-to-end: a realistic batch carrying all six E.i.7 outcomes", () => 
         `<investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${id}" root="2.16.840.1.113883.3.989.2.1.3.1"/>`,
       );
     });
-    // The Kenyan row reports from KE about an event in NG: the identifier
-    // follows the primary source, and E.i.9 records the other fact.
+    // The Kenyan row reports from KE about an event in NG. C.2.r.3 and
+    // E.i.9 record those two separate facts; C.1.1 records neither of
+    // them, because it is the identifier the source itself issued —
+    // slashes and all.
     expect(cases[8]!.reporter.country).toBe("KE");
-    expect(cases[8]!.caseSafetyReportId.startsWith("KE-")).toBe(true);
+    expect(cases[8]!.caseSafetyReportId).toBe("KE/AEFI/2026/0088");
     expect(msgs[8]).toContain('<code code="NG" codeSystem="1.0.3166.1.2.2"/>');
   });
 
