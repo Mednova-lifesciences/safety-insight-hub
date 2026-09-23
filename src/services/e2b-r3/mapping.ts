@@ -11,6 +11,7 @@ import type {
   ReactionOutcome,
   RequiredValue,
   SeriousnessCriteria,
+  PVPatient,
   SexCode,
   SourceReactionDecoding,
   WhoDrugCodedProduct,
@@ -18,7 +19,7 @@ import type {
 import type { MedDraCodingProvider, WhoDrugCodingProvider } from "./coding-provider";
 import type { DelimiterConfig, SourceProfile } from "./source-profiles/types";
 import type { E2bTransmissionConfig } from "./transmission-config";
-import { buildCaseSafetyReportId } from "./case-identifier";
+import { MAX_CASE_SAFETY_REPORT_ID_LENGTH, resolveCaseSafetyReportId } from "./case-identifier";
 import { resolveReactionCountry, resolveReporterCountry } from "./country";
 import { parseCompoundSourceValue } from "./compound-source-parser";
 import { normalizeDesignationKey } from "./regulatory-config";
@@ -39,6 +40,12 @@ export interface RawLineListRow {
   outcome?: string | undefined;
   sex?: string | undefined;
   age?: string | undefined;
+  /** D.2.2b — the unit the age is expressed in, when the file says. */
+  age_unit?: string | undefined;
+  /** D.2.1 — the patient's date of birth, when the file has one. */
+  date_of_birth?: string | undefined;
+  /** D.2.3 — an age GROUP the source stated in its own words. */
+  age_group?: string | undefined;
   vaccination_date?: string | undefined;
   report_date?: string | undefined;
   vaccine_batch?: string | undefined;
@@ -82,6 +89,9 @@ export function applyColumnMap(
     patient_identifier: get(profile.columnMap.patientIdentifier),
     sex: get(profile.columnMap.sex),
     age: get(profile.columnMap.age),
+    age_unit: get(profile.columnMap.ageUnit),
+    date_of_birth: get(profile.columnMap.dateOfBirth),
+    age_group: get(profile.columnMap.ageGroup),
     reaction: get(profile.columnMap.reaction),
     onset_date: get(profile.columnMap.onsetDate),
     product: get(profile.columnMap.product),
@@ -132,21 +142,143 @@ export function parseSourceDate(raw: string | undefined): string | null {
   return null;
 }
 
+/** Keys are matched after upper-casing and removing every separator, so
+ *  "not known", "NOT_KNOWN" and "Not-Known" are one key. Deliberately
+ *  small: each entry is a value whose meaning is unambiguous in isolation.
+ *  Anything else is left unrecognised for a human rather than guessed —
+ *  "I" could be a code, an initial or a typo, and sex is not a field to be
+ *  clever about. */
 const DEFAULT_SEX_WORDS: Record<string, SexCode> = {
   M: "MALE",
   MALE: "MALE",
+  MAN: "MALE",
+  BOY: "MALE",
   F: "FEMALE",
   FEMALE: "FEMALE",
+  WOMAN: "FEMALE",
+  GIRL: "FEMALE",
+  // D.5 is optional, so "the source asked and was not told" is a real,
+  // reportable answer and not the same as the column being absent. ISO
+  // 5218 gives it code 0, which is what UNKNOWN_NOT_SPECIFIED serializes
+  // to; see serializer.ts.
+  U: "UNKNOWN_NOT_SPECIFIED",
+  UNK: "UNKNOWN_NOT_SPECIFIED",
+  UNKNOWN: "UNKNOWN_NOT_SPECIFIED",
+  UNSPECIFIED: "UNKNOWN_NOT_SPECIFIED",
+  NOTSPECIFIED: "UNKNOWN_NOT_SPECIFIED",
+  NOTKNOWN: "UNKNOWN_NOT_SPECIFIED",
+  NOTREPORTED: "UNKNOWN_NOT_SPECIFIED",
+  NOTSTATED: "UNKNOWN_NOT_SPECIFIED",
+  NOTRECORDED: "UNKNOWN_NOT_SPECIFIED",
+  NA: "UNKNOWN_NOT_SPECIFIED",
 };
 
+function sexKey(raw: string): string {
+  return raw
+    .trim()
+    .toUpperCase()
+    .replace(/[\s._-]+/g, "");
+}
+
 /** Consults the active profile's sexMap first (a source can use its own
- *  vocabulary), falling back to this engine's built-in M/F/MALE/FEMALE
- *  recognition when the profile doesn't override that exact value. Never
- *  guesses beyond either of those two sources. */
+ *  vocabulary), falling back to this engine's built-in recognition when
+ *  the profile doesn't override that exact value. Never guesses beyond
+ *  either of those two sources, and in particular never infers sex from a
+ *  patient's name, initials, title, age or reporter.
+ *
+ *  The profile is consulted on the RAW upper-cased value first, so an
+ *  existing profile whose sexMap is keyed on a value containing a
+ *  separator keeps working, then on the separator-stripped key. */
 export function mapSex(raw: string | undefined, profile?: SourceProfile): SexCode | undefined {
   const v = (raw ?? "").trim().toUpperCase();
   if (!v) return undefined;
-  return profile?.sexMap?.[v] ?? DEFAULT_SEX_WORDS[v];
+  const key = sexKey(v);
+  return profile?.sexMap?.[v] ?? profile?.sexMap?.[key] ?? DEFAULT_SEX_WORDS[key];
+}
+
+/** The E2B age-unit code for a unit the source stated in words, or
+ *  nothing when it stated something this engine does not recognise. Only
+ *  deterministic spellings: a unit is never inferred from the age's
+ *  magnitude ("0.5 must be years"), because that is exactly the reasoning
+ *  that turns a two-month-old into a two-year-old. */
+const AGE_UNIT_WORDS: Record<string, NonNullable<PVPatient["ageUnit"]>> = {
+  DECADE: "800",
+  DECADES: "800",
+  Y: "801",
+  YR: "801",
+  YRS: "801",
+  YEAR: "801",
+  YEARS: "801",
+  YEAROLD: "801",
+  YEARSOLD: "801",
+  A: "801",
+  M: "802",
+  MO: "802",
+  MOS: "802",
+  MTH: "802",
+  MTHS: "802",
+  MONTH: "802",
+  MONTHS: "802",
+  W: "803",
+  WK: "803",
+  WKS: "803",
+  WEEK: "803",
+  WEEKS: "803",
+  D: "804",
+  DY: "804",
+  DAY: "804",
+  DAYS: "804",
+  H: "805",
+  HR: "805",
+  HRS: "805",
+  HOUR: "805",
+  HOURS: "805",
+};
+
+/**
+ * D.2.2b — the unit applied to an age the source stated WITHOUT one.
+ *
+ * Years. This is the organisation's decision, not an ICH rule: ICH is
+ * content for D.2.2 to be absent altogether. The alternative — which this
+ * code did until now — was to emit no age at all, and that silently
+ * dropped every age from every line list whose age column is headed
+ * plainly "Age", which is most of them.
+ *
+ * Every age carrying this default is flagged (PVPatient.ageUnitAssumed)
+ * and raises a review warning, so an assumed unit is visible rather than
+ * invisible. It is deliberately NOT applied when the source states a unit
+ * anywhere, including inside the age cell.
+ */
+const DEFAULT_AGE_UNIT: NonNullable<PVPatient["ageUnit"]> = "801";
+
+export function mapAgeUnit(raw: string | undefined): NonNullable<PVPatient["ageUnit"]> | undefined {
+  const v = (raw ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s._-]+/g, "");
+  if (!v) return undefined;
+  return AGE_UNIT_WORDS[v];
+}
+
+/** An age cell that carries its own unit ("18 months", "6/12", "3 yrs").
+ *  Returns the number and unit separately so the caller can treat a unit
+ *  found here exactly like one found in a dedicated column. Returns
+ *  nothing for a bare number — that is the no-unit case, and it is the
+ *  caller's decision what to do about it, not this function's. */
+export function splitAgeValue(
+  raw: string | undefined,
+): { value: string; unit?: NonNullable<PVPatient["ageUnit"]> | undefined } | undefined {
+  const v = raw?.trim();
+  if (!v) return undefined;
+  const m = /^(\d+(?:[.,]\d+)?)\s*([A-Za-z]+)?$/.exec(v);
+  if (!m) return { value: v };
+  const number = m[1]!.replace(",", ".");
+  const unit = m[2] ? mapAgeUnit(m[2]) : undefined;
+  // A trailing word that is not a recognised unit ("2 kids") is not
+  // silently discarded: the whole cell is handed back untouched so the
+  // value a reviewer sees is the value the source wrote.
+  if (m[2] && !unit) return { value: v };
+  return unit ? { value: number, unit } : { value: number };
 }
 
 // Keys here are matched AFTER whitespace/underscore/hyphen stripping (see
@@ -532,7 +664,13 @@ async function codeProductTerm(
 }
 
 export interface MappingWarning {
-  field: "reaction" | "product";
+  /** Which canonical concept the warning is about. Not every warning is
+   *  about a value the source wrote — "case_id" reports an identifier
+   *  that is too long for C.1.1, "age" an age whose unit the source never
+   *  stated — so the set is wider than the two coded fields it began as. */
+  field: "reaction" | "product" | "case_id" | "age" | "sex";
+  /** What the source actually held, so a reviewer can see the value the
+   *  warning is about without opening the file. */
   sourceValue: string;
   message: string;
 }
@@ -586,7 +724,8 @@ export async function mapSourceRecordToPVCase(
   const caseIdPrefix = configuredPrefix
     ? `${configuredPrefix}-${jobCaseCode(context.jobId)}`
     : context.jobId;
-  const sendersCaseId = row.case_id?.trim() || `${caseIdPrefix}-${context.sourceRow}`;
+  const sourceCaseId = row.case_id?.trim() || undefined;
+  const sendersCaseId = sourceCaseId ?? `${caseIdPrefix}-${context.sourceRow}`;
   // C.2.r.3 — the reporter's/primary source's country: what the row says,
   // else what this source form stands for, else the application's own
   // fallback (country.ts documents that NG is MedNova's policy, not an ICH
@@ -614,15 +753,31 @@ export async function mapSourceRecordToPVCase(
       ? [{ number: patientRecordNumberRaw, source: profile.patientRecordNumberSource }]
       : [];
 
-  // C.1.1 / C.1.8.1. The country is the primary source's (C.2.r.3), the
-  // organisation the configured sender (C.3.2) — so a different
-  // organization, country or source form produces a correctly qualified
-  // identifier without any change here. See case-identifier.ts.
-  const caseSafetyReportId = buildCaseSafetyReportId({
+  // C.1.1 / C.1.8.1. A case identifier the SOURCE supplied is used exactly
+  // as written — see resolveCaseSafetyReportId. Only a row with no case
+  // identifier of its own gets the country/organisation qualification, so
+  // that the number this application had to invent is unique beyond one
+  // upload. See case-identifier.ts for why the trade is made that way.
+  const caseId = resolveCaseSafetyReportId({
+    sourceCaseId,
+    generatedCaseNumber: sendersCaseId,
     country: reporterCountry.code,
     organisation: transmissionConfig.sender.organization,
-    caseNumber: sendersCaseId,
   });
+  const caseSafetyReportId = caseId.id;
+  // 100AN is the element's own limit (developer spec 5.2). A source
+  // identifier longer than that is reported rather than truncated: a
+  // silently shortened case number is a wrong case number.
+  if (caseId.from === "source" && caseSafetyReportId.length > MAX_CASE_SAFETY_REPORT_ID_LENGTH) {
+    warnings.push({
+      field: "case_id",
+      sourceValue: caseSafetyReportId,
+      message:
+        `The source case identifier is ${caseSafetyReportId.length} characters; ` +
+        `C.1.1 allows ${MAX_CASE_SAFETY_REPORT_ID_LENGTH}. It is exported unchanged — ` +
+        `shorten it at the source rather than here.`,
+    });
+  }
   const reportDate = parseSourceDate(row.report_date) ?? undefined;
 
   // --- Reactions: decode (source codebook) -> code (MedDRA), never the
@@ -788,6 +943,59 @@ export async function mapSourceRecordToPVCase(
       ? { present: true, value: transmissionConfig.reportType }
       : { present: false, nullFlavor: "NASK" };
 
+  // --- D.2 / D.5: patient demographics.
+  //
+  // Each concept is resolved from its OWN column. None of them is ever
+  // derived from another: a date of birth is not computed from an age, an
+  // age is not computed from a date of birth, a sex is not read off a
+  // name, and an age group is not invented from a number.
+  const sexRaw = row.sex?.trim() || undefined;
+  const sex = mapSex(sexRaw, profile);
+  if (sexRaw && !sex) {
+    warnings.push({
+      field: "sex",
+      sourceValue: sexRaw,
+      message:
+        `"${sexRaw}" is not a sex value this engine recognises, so D.5 is left empty ` +
+        `rather than guessed. Map it in the source profile's sexMap if it is a ` +
+        `vocabulary this source uses.`,
+    });
+  }
+
+  // The unit may be in its own column, or inside the age cell itself
+  // ("18 months"). A unit stated anywhere beats the default.
+  const parsedAge = splitAgeValue(row.age);
+  const statedAgeUnit = mapAgeUnit(row.age_unit) ?? parsedAge?.unit ?? profile.ageUnit;
+  const age = parsedAge?.value;
+  const ageUnit = age ? (statedAgeUnit ?? DEFAULT_AGE_UNIT) : undefined;
+  const ageUnitAssumed = !!age && !statedAgeUnit;
+  if (ageUnitAssumed) {
+    warnings.push({
+      field: "age",
+      sourceValue: row.age?.trim() ?? "",
+      message:
+        `The source gives an age but never says what unit it is in. It is exported ` +
+        `as years so the age is not lost; confirm the unit if this line list ` +
+        `records infants in months.`,
+    });
+  }
+
+  // D.2.1 — only a date the source actually wrote, in a format
+  // parseSourceDate is confident about. An unparseable cell is reported
+  // rather than dropped or guessed at.
+  const dateOfBirthRaw = row.date_of_birth?.trim() || undefined;
+  const dateOfBirth = parseSourceDate(dateOfBirthRaw) ?? undefined;
+
+  const patient: PVCase["patient"] = {
+    identity,
+    ...(recordNumbers.length ? { recordNumbers } : {}),
+    ...(sex ? { sex } : {}),
+    ...(sexRaw && !sex ? { sexVerbatim: sexRaw } : {}),
+    ...(age ? { age, ageUnit, ...(ageUnitAssumed ? { ageUnitAssumed: true } : {}) } : {}),
+    ...(dateOfBirth ? { dateOfBirth } : {}),
+    ...(row.age_group?.trim() ? { ageGroupVerbatim: row.age_group.trim() } : {}),
+  };
+
   const otherCaseIdentifiers: OtherCaseIdentifiers = { present: false, nullFlavor: "NI" };
 
   const pvCase: PVCase = {
@@ -821,13 +1029,7 @@ export async function mapSourceRecordToPVCase(
         ? { isFollowUp: true, previousTransmissionRef }
         : { isFollowUp: true }
       : { isFollowUp: false },
-    patient: {
-      identity,
-      ...(recordNumbers.length ? { recordNumbers } : {}),
-      sex: mapSex(row.sex, profile),
-      age: row.age?.trim() || undefined,
-      // Deliberately no ageUnit — see PVPatient.ageUnit doc comment.
-    },
+    patient,
     reporter: {
       name: reporterNameValue,
       qualificationVerbatim: reporterDesignationRaw || undefined,

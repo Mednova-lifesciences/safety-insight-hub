@@ -183,6 +183,18 @@ export const TARGET_FIELDS = [
   /** E2B C.2.r.1 — the REPORTER's own name. Distinct from
    *  `reporter_designation` (C.2.r.4), which is their role. */
   "reporter_name",
+  /** E2B D.2.2b — the unit the age column is expressed in, when the file
+   *  states it in a column of its own. Without this the age number alone
+   *  is ambiguous, and an AEFI line list's "2" is as likely to be months
+   *  as years. */
+  "age_unit",
+  /** E2B D.2.1 — the patient's date of birth. Never derived from `age`
+   *  and never used to derive it. */
+  "date_of_birth",
+  /** E2B D.2.3 — an age GROUP the source states in its own words
+   *  (infant, child, adult). Kept separate from `age`: a group is not a
+   *  number and must not be matched by the age keywords. */
+  "age_group",
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
@@ -491,10 +503,48 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["sex", 90],
     ["gender", 85],
   ],
+  // D.2.2a — the age NUMBER. The header normalizer has already removed
+  // case, spaces and punctuation by the time these are matched, so the
+  // bare "age" substring covers "AGE", "Patient Age", "Pt. Age",
+  // "Patient's Age" and "PATIENT_AGE" without an entry each. The higher
+  // weights exist to beat the generic substring when a file has more than
+  // one age-ish column. A misspelling that does not contain "age" at all
+  // ("AEG") is left to the AI mapper — that is what it is for, and a
+  // typo table would never end.
   age: [
     ["ageatonset", 70],
+    ["ageatreaction", 70],
+    ["ageatevent", 70],
     ["ageyears", 70],
     ["age", 30],
+  ],
+  // D.2.2b. Every keyword requires a unit word as well as "age", so a
+  // plain age column can never be claimed here.
+  age_unit: [
+    ["ageunit", 95],
+    ["ageunits", 95],
+    ["unitofage", 95],
+    ["agein", 60],
+    [["age", "measure"], 70],
+  ],
+  // D.2.1. "dateofbirth" and "birthdate" are separate literals because
+  // neither contains the other.
+  date_of_birth: [
+    ["dateofbirth", 95],
+    ["birthdate", 90],
+    ["dateborn", 85],
+    ["patientdob", 95],
+    ["dob", 90],
+  ],
+  // D.2.3. Requires the word "group"/"band"/"category" alongside "age",
+  // so it cannot take the age number's column.
+  age_group: [
+    ["agegroup", 95],
+    ["agegrp", 90],
+    ["ageband", 90],
+    ["agecategory", 90],
+    ["agerange", 85],
+    ["agebracket", 85],
   ],
   // C.2.r.3. Only headers that actually say whose country it is: a bare
   // "Country" is genuinely ambiguous between the reporter's and the
@@ -590,6 +640,11 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["doseno", 85],
     ["dosenumber", 85],
     ["doseadministered", 70],
+    // "Dosage" contains BOTH "dose" and "age". At equal weight the tie
+    // went to whichever field is declared first, and age is declared
+    // first — so a column headed "Dosage" was read as the patient's age.
+    // An explicit keyword above the generic tier settles it.
+    ["dosage", 70],
     ["dose", 30],
   ],
   reporter_designation: [

@@ -154,17 +154,73 @@ export interface PVPatient {
    *  column, and never derived from the case id, which identifies the
    *  report rather than the patient. */
   recordNumbers?: PatientRecordNumber[] | undefined;
+  /** D.5 — coded sex. Undefined when the source said nothing, or said
+   *  something this engine does not recognise; in the latter case the
+   *  source's own words survive in sexVerbatim so a reviewer can see what
+   *  was not understood. Never inferred from a name, an age or a title. */
   sex?: SexCode | undefined;
-  /** Raw age value as captured — see ageUnit for why this isn't coded
-   *  further without a confirmed unit. */
+  /** What the source's sex/gender cell actually held, kept whenever it
+   *  could NOT be resolved to a SexCode. A recognised value needs no
+   *  verbatim copy; an unrecognised one must not vanish silently. */
+  sexVerbatim?: string | undefined;
+  /** D.2.2a — raw age value as captured. Paired with ageUnit; see there. */
   age?: string | undefined;
-  /** Explicit E2B(R3) age-unit code (800=Decade,801=Year,802=Month,
-   *  803=Week,804=Day,805=Hour) — left undefined, not guessed, when the
-   *  source doesn't state a unit. An age value present with ageUnit
-   *  undefined must render as a REQUIRES_REVIEW item, never silently
-   *  assumed to be years — this matters especially for pediatric AEFI data. */
+  /** D.2.2b — the age's unit, held as the E2B code (800=Decade, 801=Year,
+   *  802=Month, 803=Week, 804=Day, 805=Hour) and serialized as the
+   *  ICH-constrained UCUM symbol the PQ datatype actually requires (see
+   *  AGE_UNIT_UCUM).
+   *
+   *  A source that states a unit always wins. A source that gives an age
+   *  and no unit gets years, with ageUnitAssumed set and a review warning
+   *  raised — the organisation's decision, so that a stated age is not
+   *  dropped from the export merely because the column said "Age" rather
+   *  than "Age (years)". Before that decision the field stayed undefined
+   *  and the serializer emitted no age at all, which lost every age in
+   *  every line list that had no unit column. */
   ageUnit?: "800" | "801" | "802" | "803" | "804" | "805" | undefined;
+  /** True when ageUnit was NOT stated by the source and the years default
+   *  was applied. Provenance, not decoration: an age carrying this flag is
+   *  an assumption on a clinical value and a reviewer is entitled to see
+   *  which ages are assumed — it matters most for paediatric AEFI data,
+   *  where "2" may well mean months. */
+  ageUnitAssumed?: boolean | undefined;
+  /** D.2.1 — date of birth, ISO 8601 (YYYY-MM-DD). Only ever what the
+   *  source stated: never computed backwards from an age, because an age
+   *  in whole years names a 365-day range of possible birth dates and
+   *  picking one of them is fabrication. */
+  dateOfBirth?: string | undefined;
+  /** D.2.3 — patient age group, as the SOURCE stated it, verbatim.
+   *
+   *  Not coded, and not currently serialized. ICH gives D.2.3 a numeric
+   *  codelist on OID 2.16.840.1.113883.3.989.2.1.1.9 (confirmed present in
+   *  the ICH reference instance), but that codelist's values and the age
+   *  boundaries between its groups are not in this repository — not in the
+   *  official ICH package under regulatory-assets/, not in the XML schema
+   *  set, and not in the developer spec, which records only that D.2.3 is
+   *  Optional. Deriving a group from age would therefore mean inventing
+   *  both the boundaries and the codes, so the source's own words are kept
+   *  for review and nothing is emitted. See deriveAgeGroup for the
+   *  derivation that is ready to switch on once the codelist is supplied. */
+  ageGroupVerbatim?: string | undefined;
 }
+
+/** D.2.2b — the ICH-constrained UCUM symbol for each E2B age-unit code.
+ *
+ *  The E2B codes 800-805 are E2B(R2)'s numbering and are kept as this
+ *  model's internal representation. They must NOT go on the wire: in
+ *  E2B(R3) the age is an HL7 PQ, whose @unit attribute the ICH schema set
+ *  (coreschemas/datatypes-base.xsd) types as `cs` and documents as "The
+ *  unit of measure specified in the Unified Code for Units of Measure
+ *  (UCUM)", and the project's developer spec section 5.4 says "Age unit
+ *  codes come from the ICH-constrained UCUM list, OID ...2.1.1.26". */
+export const AGE_UNIT_UCUM: Readonly<Record<NonNullable<PVPatient["ageUnit"]>, string>> = {
+  "800": "10.a",
+  "801": "a",
+  "802": "mo",
+  "803": "wk",
+  "804": "d",
+  "805": "h",
+};
 
 /** C.1.3 — 1=Spontaneous report, 2=Report from study, 3=Other,
  *  4=Not available to sender. Which value routine AEFI surveillance uses

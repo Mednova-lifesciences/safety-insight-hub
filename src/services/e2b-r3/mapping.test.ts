@@ -77,11 +77,37 @@ describe("mapSex", () => {
     expect(mapSex("FEMALE")).toBe("FEMALE");
     expect(mapSex("F")).toBe("FEMALE");
   });
+  it("recognises the ways a source says the sex is not known", () => {
+    // D.5 is optional, so "asked and not told" is a real reported answer,
+    // distinct from the file having no sex column at all. ISO 5218 gives
+    // it code 0; see SEX_CODE in serializer.ts.
+    for (const raw of [
+      "unknown",
+      "Unknown",
+      "UNK",
+      "U",
+      "unspecified",
+      "Not specified",
+      "not known",
+      "Not_Reported",
+      "not stated",
+    ]) {
+      expect(mapSex(raw)).toBe("UNKNOWN_NOT_SPECIFIED");
+    }
+  });
+
   it("returns undefined (never guesses) for anything else", () => {
-    expect(mapSex("unknown")).toBeUndefined();
     expect(mapSex("")).toBeUndefined();
     expect(mapSex(undefined)).toBeUndefined();
+    // A bare digit is not a sex word. ISO 5218 numbers exist, but a "1"
+    // in a source cell is just as likely to be a count or a code from
+    // some other list, and guessing which is how a patient's sex gets
+    // inverted.
     expect(mapSex("1")).toBeUndefined();
+    expect(mapSex("2")).toBeUndefined();
+    // Never inferred from anything that merely correlates with sex.
+    expect(mapSex("Mrs")).toBeUndefined();
+    expect(mapSex("A.A.")).toBeUndefined();
   });
 });
 
@@ -291,7 +317,13 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
     // Source provenance is recorded, not inferred by the engine elsewhere.
     expect(pvCase.sourceInformation.sourceProfileId).toBe("ondo-aefi");
 
-    expect(warnings).toEqual([]);
+    // The only warning is the one this row genuinely earns: its age
+    // column says "1" and the file never says whether that is years or
+    // months. Nothing else about the row is uncertain.
+    expect(warnings.map((w) => w.field)).toEqual(["age"]);
+    expect(pvCase.patient.age).toBe("1");
+    expect(pvCase.patient.ageUnit).toBe("801");
+    expect(pvCase.patient.ageUnitAssumed).toBe(true);
   });
 
   it("resolves report type and sender organisation once transmission config is confirmed (decisions D3/D4)", async () => {
@@ -543,8 +575,13 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
     expect(pvCase.patient.identity).toEqual({ present: false, nullFlavor: "UNK" });
   });
 
-  it("leaves patient.ageUnit undefined even when age is present (never guesses years vs months)", async () => {
-    const { pvCase } = await mapSourceRecordToPVCase(
+  it("applies the years default to an age whose unit the source never states, and says so", async () => {
+    // The organisation's decision: an age with no stated unit is exported
+    // as years rather than dropped, WITH the assumption recorded and a
+    // warning raised. Before this, ageUnit stayed undefined and the
+    // serializer emitted no age at all, which silently lost every age in
+    // every line list whose column is headed plainly "Age".
+    const { pvCase, warnings } = await mapSourceRecordToPVCase(
       { age: "8", patient_identifier: "A B" },
       ondoAefiProfile,
       UNCONFIRMED_DEFAULT_CONFIG,
@@ -552,7 +589,49 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
       providers,
     );
     expect(pvCase.patient.age).toBe("8");
+    expect(pvCase.patient.ageUnit).toBe("801");
+    expect(pvCase.patient.ageUnitAssumed).toBe(true);
+    expect(warnings.some((w) => w.field === "age")).toBe(true);
+  });
+
+  it("never records an assumption when the source states the unit itself", async () => {
+    const { pvCase, warnings } = await mapSourceRecordToPVCase(
+      { age: "8", age_unit: "months", patient_identifier: "A B" },
+      ondoAefiProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.patient.ageUnit).toBe("802");
+    expect(pvCase.patient.ageUnitAssumed).toBeUndefined();
+    expect(warnings.some((w) => w.field === "age")).toBe(false);
+  });
+
+  it("reads a unit written inside the age cell itself", async () => {
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { age: "18 months", patient_identifier: "A B" },
+      ondoAefiProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.patient.age).toBe("18");
+    expect(pvCase.patient.ageUnit).toBe("802");
+    expect(pvCase.patient.ageUnitAssumed).toBeUndefined();
+  });
+
+  it("carries no age at all when the source has none", async () => {
+    const { pvCase, warnings } = await mapSourceRecordToPVCase(
+      { patient_identifier: "A B" },
+      ondoAefiProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.patient.age).toBeUndefined();
     expect(pvCase.patient.ageUnit).toBeUndefined();
+    // An absent optional field is not a warning.
+    expect(warnings.some((w) => w.field === "age")).toBe(false);
   });
 
   it("never records reporter name as present (only qualification is available from this source)", async () => {
@@ -676,18 +755,23 @@ describe("country resolution through the mapper", () => {
   ])("takes the row's own reporter country %s as C.2.r.3", async (written, code) => {
     const pvCase = await caseFor({ reporter_country: written });
     expect(pvCase.reporter.country).toBe(code);
-    expect(pvCase.caseSafetyReportId.startsWith(`${code}-`)).toBe(true);
+    // The country is C.2.r.3 and stops there. It no longer prefixes
+    // C.1.1: a case identifier the source supplied is exported exactly as
+    // the source wrote it (see resolveCaseSafetyReportId).
+    expect(pvCase.caseSafetyReportId).toBe("C-1");
   });
 
   it("falls back to the profile's country, then to NG, when the row is silent", async () => {
     const fromProfile = await caseFor({}, { ...genericProfile, country: "KE" });
     expect(fromProfile.reporter.country).toBe("KE");
-    expect(fromProfile.caseSafetyReportId.startsWith("KE-")).toBe(true);
 
     // Neither the row nor the profile says: the application's own fallback.
     const fallback = await caseFor({});
     expect(fallback.reporter.country).toBe("NG");
-    expect(fallback.caseSafetyReportId.startsWith("NG-")).toBe(true);
+
+    // Neither resolution reaches the source's own case identifier.
+    expect(fromProfile.caseSafetyReportId).toBe("C-1");
+    expect(fallback.caseSafetyReportId).toBe("C-1");
   });
 
   it("treats a value that names no country as no answer at all", async () => {
@@ -702,8 +786,11 @@ describe("country resolution through the mapper", () => {
     const pvCase = await caseFor({ reporter_country: "KE", reaction_country: "NG" });
     expect(pvCase.reporter.country).toBe("KE");
     expect(pvCase.reactions[0]!.countryOfOccurrence).toBe("NG");
-    // C.1.1 follows the PRIMARY SOURCE, not the reaction (ICH Q&A).
-    expect(pvCase.caseSafetyReportId.startsWith("KE-")).toBe(true);
+    // Neither country reaches C.1.1, which is the source's own value.
+    // The ICH Q&A rule this used to check — that E.i.9 must never change
+    // C.1.1 — now holds trivially, and is still checked directly by
+    // "does not let the reaction country change C.1.1" below.
+    expect(pvCase.caseSafetyReportId).toBe("C-1");
   });
 
   it("never invents E.i.9 from the reporter's country", async () => {
@@ -726,12 +813,8 @@ describe("country resolution through the mapper", () => {
     ];
     const cases = await Promise.all(rows.map((row, i) => caseFor(row, genericProfile, i + 1)));
     expect(cases.map((c) => c.reporter.country)).toEqual(["NG", "KE", "GH", "NG"]);
-    expect(cases.map((c) => c.caseSafetyReportId)).toEqual([
-      "NG-MEDNOVA-C-1",
-      "KE-MEDNOVA-C-2",
-      "GH-MEDNOVA-C-3",
-      "NG-MEDNOVA-C-4",
-    ]);
+    // Four different reporter countries, four untouched source case ids.
+    expect(cases.map((c) => c.caseSafetyReportId)).toEqual(["C-1", "C-2", "C-3", "C-4"]);
   });
 
   it("gives the same case the same C.1.1 every time", async () => {
@@ -836,8 +919,10 @@ describe("mixed-country, every-outcome batch", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "test-mixed-country-outcomes.xml"), xml, "utf-8");
 
-    // Country component of C.1.1 follows the primary source, per case.
-    expect(cases.map((c) => c.caseSafetyReportId.slice(0, 2))).toEqual([
+    // Nine cases, five reporter countries, nine untouched source case
+    // identifiers: the primary source's country is C.2.r.3 and nothing
+    // else. C.1.1 is what the file said.
+    expect(cases.map((c) => c.reporter.country)).toEqual([
       "NG",
       "KE",
       "GH",
@@ -848,6 +933,9 @@ describe("mixed-country, every-outcome batch", () => {
       "NG",
       "NG",
     ]);
+    expect(cases.map((c) => c.caseSafetyReportId)).toEqual(
+      Array.from({ length: 9 }, (_, i) => `MIX-${i + 1}`),
+    );
     // Every E.i.7 in the document is one of the six ICH values.
     const outcomes = [
       ...xml.matchAll(/displayName="outcome"\/><value xsi:type="CE" code="(\d+)"/g),

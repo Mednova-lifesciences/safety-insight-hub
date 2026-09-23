@@ -121,6 +121,43 @@ export function validateBusinessRules(pvCase: PVCase): ValidationError[] {
       ),
     );
   }
+  // D.2.2b — an age whose unit the source never stated. WARNING, never
+  // BLOCKING: the organisation's decision is that a stated age is worth
+  // exporting under a declared assumption rather than dropping, so this
+  // has to be visible without standing in the way of the export.
+  if (pvCase.patient.ageUnitAssumed) {
+    errors.push(
+      err(
+        id,
+        "E2B-D2.2B-UNIT-ASSUMED",
+        "WARNING",
+        L,
+        `The source gives an age of ${pvCase.patient.age} but never states its unit; it is exported as years.`,
+        'If this line list records infants in months, add an age-unit column to the source or state the unit in the age cell ("18 months"), then re-upload.',
+        {
+          e2bField: "D.2.2b",
+          sourceField: "age",
+          ...(pvCase.patient.age ? { sourceValue: pvCase.patient.age } : {}),
+        },
+      ),
+    );
+  }
+  // D.5 — a sex value nobody could resolve. Also a WARNING: D.5 is
+  // optional, so an unresolved sex costs the export nothing except the
+  // element, and guessing would cost it correctness.
+  if (pvCase.patient.sexVerbatim) {
+    errors.push(
+      err(
+        id,
+        "E2B-D5-UNRECOGNISED",
+        "WARNING",
+        L,
+        `"${pvCase.patient.sexVerbatim}" was not recognised as a sex, so D.5 is omitted rather than guessed.`,
+        "Add this spelling to the source profile's sexMap if it is a value this source uses, or correct it at the source.",
+        { e2bField: "D.5", sourceField: "sex", sourceValue: pvCase.patient.sexVerbatim },
+      ),
+    );
+  }
   // C.1.3 — gated on decision D3 (via transmission configuration)
   if (!pvCase.reportType.present) {
     errors.push(
