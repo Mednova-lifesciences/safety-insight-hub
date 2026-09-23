@@ -69,6 +69,10 @@ export const genericVerbatimProfile: SourceProfile = {
     reporterCountry: "reporter_country",
     reactionCountry: "reaction_country",
     reporterPhone: "reporter_phone",
+    reporterOrganization: "reporter_organization",
+    reporterCity: "reporter_city",
+    reporterState: "reporter_state",
+    route: "route",
   },
   reactionEncoding: "VERBATIM",
   // Only separators that cannot plausibly occur inside a reaction term.

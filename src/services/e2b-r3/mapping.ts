@@ -56,6 +56,13 @@ export interface RawLineListRow {
   dose?: string | undefined;
   reporter_designation?: string | undefined;
   reporter_phone?: string | undefined;
+  /** C.2.r.2.1 — the reporting facility/organisation. */
+  reporter_organization?: string | undefined;
+  /** C.2.r.2.4 / C.2.r.2.5. */
+  reporter_city?: string | undefined;
+  reporter_state?: string | undefined;
+  /** G.k.4.r.10 — route of administration, verbatim. */
+  route?: string | undefined;
   /** C.2.r.3 — the reporter's/primary source's country, when the file has
    *  such a column. */
   reporter_country?: string | undefined;
@@ -104,6 +111,10 @@ export function applyColumnMap(
     seriousness: get(profile.columnMap.seriousness),
     reporter_designation: get(profile.columnMap.reporterDesignation),
     reporter_phone: get(profile.columnMap.reporterPhone),
+    reporter_organization: get(profile.columnMap.reporterOrganization),
+    reporter_city: get(profile.columnMap.reporterCity),
+    reporter_state: get(profile.columnMap.reporterState),
+    route: get(profile.columnMap.route),
     reporter_country: get(profile.columnMap.reporterCountry),
     reaction_country: get(profile.columnMap.reactionCountry),
     patient_id: get(profile.columnMap.patientId),
@@ -894,6 +905,12 @@ export async function mapSourceRecordToPVCase(
           product: coded,
           batchNumber: row.vaccine_batch?.trim() || undefined,
           dose: row.dose?.trim() || undefined,
+          // G.k.4.r.10. Verbatim: the ICH route codelist is not in this
+          // repository, so the serializer emits the words under a
+          // nullFlavor rather than a code nobody can verify. Carrying the
+          // words is still strictly better than dropping them, which is
+          // what happened while this field went unpopulated.
+          route: row.route?.trim() || undefined,
           startDate: drugStartDate,
         } satisfies PVProduct;
       },
@@ -1035,6 +1052,14 @@ export async function mapSourceRecordToPVCase(
       qualificationVerbatim: reporterDesignationRaw || undefined,
       qualificationCode,
       country: reporterCountry.code,
+      // C.2.r.2.x — only ever what the source stated. Each is optional
+      // and simply absent when the file has no such column.
+      ...(row.reporter_organization?.trim()
+        ? { organization: row.reporter_organization.trim() }
+        : {}),
+      ...(row.reporter_city?.trim() ? { city: row.reporter_city.trim() } : {}),
+      ...(row.reporter_state?.trim() ? { state: row.reporter_state.trim() } : {}),
+      ...(row.reporter_phone?.trim() ? { phone: row.reporter_phone.trim() } : {}),
     },
     senderOrganisation:
       transmissionConfig.sender.organization === "__UNCONFIRMED__"

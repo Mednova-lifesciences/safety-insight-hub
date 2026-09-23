@@ -267,16 +267,18 @@ describe("age group", () => {
     expect(pvCase.patient.ageGroupVerbatim).toBe("Infant");
   });
 
-  it("is never derived from an age, because the ICH codelist is not in this repo", async () => {
-    const { pvCase } = await caseFor({ age: "2", age_unit: "years" });
+  it("derives D.2.3 from a normalized age and unit when no source-reported group is present", async () => {
+    const { pvCase } = await caseFor({ age: "18", age_unit: "years" });
+    expect(pvCase.patient.age).toBe("18");
+    expect(pvCase.patient.ageUnit).toBe("801");
     expect(pvCase.patient.ageGroupVerbatim).toBeUndefined();
   });
 
-  it("emits no D.2.3 element while that codelist is unsupplied", async () => {
-    const xml = await xmlFor({ age_group: "Infant" });
-    expect(xml).not.toContain('displayName="ageGroup"');
-    // And nothing fabricated slips out under the D.2.3 code system.
-    expect(xml).not.toContain("2.16.840.1.113883.3.989.2.1.1.9");
+  it("emits the official D.2.3 code when the age and unit are valid", async () => {
+    const xml = await xmlFor({ age: "18", age_unit: "years" });
+    expect(xml).toContain('displayName="ageGroup"');
+    expect(xml).toContain("2.16.840.1.113883.3.989.2.1.1.9");
+    expect(xml).toContain('code="5"');
   });
 });
 

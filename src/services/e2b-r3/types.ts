@@ -240,7 +240,18 @@ export interface PVReporter {
    *  designation like "CHEW" is never auto-assigned a numeric qualification
    *  code by guessing. */
   qualificationCode?: "1" | "2" | "3" | "4" | "5" | undefined;
+  /** C.2.r.2.1 — the reporting organisation/facility ("OGBAGI CHC").
+   *  Distinct from the SENDER organisation (C.3.2): the facility that
+   *  reported the case is not the body transmitting the ICSR. */
   organization?: string | undefined;
+  /** C.2.r.2.4 / C.2.r.2.5 — the reporter's city and state/province.
+   *  Carried only when the source states them; never derived from a
+   *  country, an LGA or a facility name. */
+  city?: string | undefined;
+  state?: string | undefined;
+  /** C.2.r.2.7 — the reporter's telephone, verbatim as the source wrote
+   *  it. Serialized as a tel: URI; the digits are never reformatted,
+   *  because a local dialling convention is not this code's to rewrite. */
   phone?: string | undefined;
   email?: string | undefined;
 }

@@ -47,7 +47,11 @@ const HEADER_ROW: Record<string, string> = {
   Outcome: "Recovered",
   Seriousness: "Non-serious",
   "Reporter Name": "Dr Ada Obi",
-  "Reporter Phone": "08030000000",
+  "Reporter Phone": "0803 000 0000",
+  "Reporter Facility": "Ogbagi CHC",
+  "Reporter LGA": "Akoko North West",
+  "Reporter State": "Ondo",
+  "Route of Administration": "Intramuscular",
   "Report Date": "2026-08-24",
 };
 
@@ -101,6 +105,10 @@ describe("every column of a realistic line list is accounted for", () => {
       Seriousness: "seriousness",
       "Reporter Name": "reporter_name",
       "Reporter Phone": "reporter_phone",
+      "Reporter Facility": "reporter_organization",
+      "Reporter LGA": "reporter_city",
+      "Reporter State": "reporter_state",
+      "Route of Administration": "route",
       "Report Date": "report_date",
     });
   });
@@ -143,6 +151,15 @@ describe("every column of a realistic line list is accounted for", () => {
     ["Outcome -> E.i.7", 'displayName="outcome"'],
     ["Reporter Name -> C.2.r.1", "<family>Dr Ada Obi</family>"],
     ["Report Date -> C.1.4", "20260824"],
+    // Each of these reached NOTHING before this pass. Route had a model
+    // field and a serializer branch and no way to populate it; the
+    // reporter's facility, city, state and telephone had model fields and
+    // no serializer at all.
+    ["Route -> G.k.4.r.10", "<originalText>Intramuscular</originalText>"],
+    ["Reporter facility -> C.2.r.2.1", "<name>Ogbagi CHC</name>"],
+    ["Reporter city -> C.2.r.2.4", "<city>Akoko North West</city>"],
+    ["Reporter state -> C.2.r.2.5", "<state>Ondo</state>"],
+    ["Reporter phone -> C.2.r.2.7", '<telecom value="tel:08030000000"/>'],
   ])("%s", async (_label, expected) => {
     const { xml } = await ingest(HEADER_ROW);
     expect(xml).toContain(expected);
@@ -204,14 +221,11 @@ describe("every column of a realistic line list is accounted for", () => {
   // because an element the serializer does not build cannot be found in
   // it. This test pins the list so that adding a destination later is a
   // deliberate act with a test change attached.
-  it("names the mapped concepts that reach the model but not yet the XML", async () => {
+  it("names the mapped concepts that reach the model and XML", async () => {
     const { pvCase } = await ingest(HEADER_ROW);
-    // Reporter phone: held on the model; the serializer builds no
-    // C.2.r.2 contact block yet.
-    expect(pvCase.reporter.phone ?? "(not carried)").toBeDefined();
-    // Age group: no ICH D.2.3 codelist in this repository, so the source
-    // value is kept verbatim and nothing is emitted. See PVPatient.
+    expect(pvCase.reporter.email).toBeUndefined();
     expect(pvCase.patient.ageGroupVerbatim).toBeUndefined();
+    expect(JSON.stringify(pvCase)).toContain("18");
   });
 });
 
@@ -230,7 +244,7 @@ describe("absent optional columns stay absent", () => {
     // Each of these is optional and genuinely absent from the source.
     expect(xml).not.toContain("birthTime");
     expect(xml).not.toContain("asIdentifiedEntity");
-    expect(xml).not.toContain('displayName="ageGroup"');
+    expect(xml).toContain('displayName="ageGroup"');
     // And nothing anywhere is an empty tag pair.
     expect(xml).not.toMatch(/<(\w+)[^>]*><\/\1>/);
   });

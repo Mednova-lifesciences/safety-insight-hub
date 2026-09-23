@@ -195,6 +195,19 @@ export const TARGET_FIELDS = [
    *  (infant, child, adult). Kept separate from `age`: a group is not a
    *  number and must not be matched by the age keywords. */
   "age_group",
+  /** E2B G.k.4.r.10 — how the product was administered (IM, oral, SC).
+   *  The model and serializer have always supported this; until now no
+   *  source column could reach them. */
+  "route",
+  /** E2B C.2.r.2.1 — the reporting facility/organisation. Distinct from
+   *  the SENDER organisation (C.3.2), which is configuration, not data. */
+  "reporter_organization",
+  /** E2B C.2.r.2.4 / C.2.r.2.5 — the reporter's city and state. Only
+   *  matched from headers that say whose they are: a bare "City" or
+   *  "State" column is as likely to be the patient's residence, and that
+   *  is a different fact. */
+  "reporter_city",
+  "reporter_state",
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
@@ -396,6 +409,9 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
   // C.2.r.1 — who the reporter is, as opposed to what they are.
   reporter_name: [
     ["reportername", 95],
+    ["reporterfullname", 95],
+    ["primaryreporter", 88],
+    ["reporterinitials", 90],
     ["nameofreporter", 95],
     ["reportersname", 95],
     ["reportedby", 85],
@@ -405,6 +421,10 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
   ],
   product: [
     ["drugnamewhodrug", 95],
+    ["suspectvaccine", 92],
+    ["suspectedvaccine", 92],
+    ["primarysuspectvaccine", 95],
+    ["medicinalproduct", 90],
     ["drugname", 90],
     ["suspectproduct", 90],
     ["vaccinename", 90],
@@ -473,6 +493,11 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     // duration column the note below is about.
     ["dateofonset", 90],
     ["dateofsymptomonset", 90],
+    ["reactiononset", 88],
+    ["eventonset", 88],
+    ["aeonsetdate", 90],
+    ["datereactionstarted", 90],
+    ["dateofevent", 70],
     ["eventdate", 60],
     ["datestarted", 60],
     ["startdate", 30],
@@ -649,6 +674,12 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
   ],
   reporter_designation: [
     ["reporterdesignation", 90],
+    ["reporterqualification", 92],
+    ["reporterprofession", 90],
+    ["reportertype", 85],
+    ["healthcareprofessional", 80],
+    ["hcptype", 85],
+    ["qualification", 55],
     ["designationofreporter", 90],
     ["reporterrole", 80],
     ["designation", 40],
@@ -667,6 +698,50 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["reportercontact", 60],
     ["telephone", 60],
     ["phone", 30],
+  ],
+  // G.k.4.r.10.
+  route: [
+    ["routeofadministration", 95],
+    ["administrationroute", 95],
+    ["routeadministered", 90],
+    ["route", 60],
+  ],
+  // C.2.r.2.1. "facility" alone sits low because a real AEFI form's
+  // "Address of reporting health facility" is an ADDRESS, not the
+  // facility's name — that exact header already caused a wrong mapping
+  // once (see the note on `reaction`'s missing "adr" keyword).
+  reporter_organization: [
+    ["reporterorganization", 95],
+    ["reporterorganisation", 95],
+    ["reporterfacility", 95],
+    ["reportingfacility", 92],
+    ["reportinginstitution", 90],
+    ["healthfacility", 80],
+    ["facilityname", 85],
+    ["institutionname", 85],
+    ["nameoffacility", 85],
+  ],
+  // C.2.r.2.4 / C.2.r.2.5 — reporter-qualified spellings only. A bare
+  // "City", "State" or "LGA" column is deliberately left to the AI
+  // mapper: on a real AEFI form it is as often the patient's residence
+  // as the reporting facility's location, and putting a patient's home
+  // town into the reporter's address is a wrong fact in a regulatory
+  // file, not a harmless approximation. Same rule the bare "Country"
+  // column already follows.
+  reporter_city: [
+    ["reportercity", 95],
+    ["reportertown", 90],
+    ["reporterlga", 90],
+    ["facilitycity", 88],
+    ["facilitylga", 88],
+    ["cityofreporter", 95],
+  ],
+  reporter_state: [
+    ["reporterstate", 95],
+    ["reporterprovince", 92],
+    ["reporterregion", 88],
+    ["facilitystate", 88],
+    ["stateofreporter", 95],
   ],
 };
 

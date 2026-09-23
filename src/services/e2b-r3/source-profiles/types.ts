@@ -88,6 +88,13 @@ export interface ColumnMap {
   seriousCode?: string;
   reporterDesignation?: string;
   reporterPhone?: string;
+  /** C.2.r.2.1 — the reporting facility/organisation. */
+  reporterOrganization?: string;
+  /** C.2.r.2.4 / C.2.r.2.5 — the reporter's city and state/province. */
+  reporterCity?: string;
+  reporterState?: string;
+  /** G.k.4.r.10 — how the product was administered. */
+  route?: string;
   /** C.2.r.3 — the column naming the REPORTER's country, when the source
    *  has one. Overrides SourceProfile.country for that row. */
   reporterCountry?: string;

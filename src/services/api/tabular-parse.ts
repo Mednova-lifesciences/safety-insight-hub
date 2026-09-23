@@ -438,7 +438,17 @@ export function mapColumnsByKeywords<TField extends string>(
       .normalize("NFD")
       .replace(/[̀-ͯ]/g, "")
       .replace(/[^a-z0-9]/g, "");
+    const isAddressLikeHeader =
+      h.includes("address") ||
+      h.startsWith("adr") ||
+      h.includes("addressof") ||
+      h.includes("address") ||
+      h.includes("facilityaddress");
     for (const field of fields) {
+      // A header such as "Address of reporting health facility" is an
+      // address, not the facility name. It should never be claimed as
+      // reporter_organization just because it mentions "health facility".
+      if (field === "reporter_organization" && isAddressLikeHeader) continue;
       let best = 0;
       for (const [keyword, weight] of fieldKeywords[field]) {
         if (keywordMatches(h, keyword)) best = Math.max(best, weight);
