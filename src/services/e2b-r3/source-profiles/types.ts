@@ -77,6 +77,7 @@ export interface ColumnMap {
   reportDate?: string;
   batchNumber?: string;
   dose?: string;
+  doseUnit?: string;
   outcome?: string;
   seriousness?: string;
   /** A separate NUMERIC seriousness-criterion code, distinct from the

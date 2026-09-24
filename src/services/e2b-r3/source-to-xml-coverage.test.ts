@@ -41,6 +41,7 @@ const HEADER_ROW: Record<string, string> = {
   "Date of Birth": "2025-03-07",
   Vaccine: "Pentavalent",
   Batch: "PEN2601",
+  Dose: "1",
   "Date of Vaccination": "2026-08-22",
   "Date of Onset": "2026-08-23",
   Reaction: "Fever",
@@ -98,6 +99,7 @@ describe("every column of a realistic line list is accounted for", () => {
       "Date of Birth": "date_of_birth",
       Vaccine: "product",
       Batch: "vaccine_batch",
+      Dose: "dose",
       "Date of Vaccination": "vaccination_date",
       "Date of Onset": "onset_date",
       Reaction: "reaction",
@@ -151,11 +153,8 @@ describe("every column of a realistic line list is accounted for", () => {
     ["Outcome -> E.i.7", 'displayName="outcome"'],
     ["Reporter Name -> C.2.r.1", "<family>Dr Ada Obi</family>"],
     ["Report Date -> C.1.4", "20260824"],
-    // Each of these reached NOTHING before this pass. Route had a model
-    // field and a serializer branch and no way to populate it; the
-    // reporter's facility, city, state and telephone had model fields and
-    // no serializer at all.
-    ["Route -> G.k.4.r.10", "<originalText>Intramuscular</originalText>"],
+    ["Route -> G.k.4.r.10", "<routeCode><originalText>Intramuscular</originalText></routeCode>"],
+    ["Dose -> G.k.4.r.9", '<doseQuantity value="1"'],
     ["Reporter facility -> C.2.r.2.1", "<name>Ogbagi CHC</name>"],
     ["Reporter city -> C.2.r.2.4", "<city>Akoko North West</city>"],
     ["Reporter state -> C.2.r.2.5", "<state>Ondo</state>"],
