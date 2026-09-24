@@ -100,6 +100,25 @@ describe("serializeBatchToXml", () => {
       if (outcome === "UNKNOWN") expect(xml).not.toContain('code="6"');
     },
   );
+
+  it("omits doseQuantity when the source dose is nonnumeric text", () => {
+    const xml = serializeBatchToXml(
+      [
+        baseCase({
+          products: [{ ...baseCase().products[0]!, dose: "booster" }],
+        }),
+      ],
+      {
+        batchId: "B",
+        senderId: "S",
+        receiverId: "R",
+        transmissionTimestamp: new Date("2026-09-09T08:19:00Z"),
+      },
+    );
+
+    expect(xml).not.toContain("<doseQuantity");
+    expect(xml).not.toContain("<originalText>booster</originalText>");
+  });
 });
 
 /**

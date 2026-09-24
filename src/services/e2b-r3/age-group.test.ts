@@ -134,6 +134,17 @@ describe("what the reporter said outranks what the age implies", () => {
     expect(out).toEqual({ band: FIXTURE.bands[4], from: "reported" });
   });
 
+  it("prefers an explicitly reported age group over the mathematically derived age", () => {
+    const out = resolveAgeGroup({
+      reportedVerbatim: "Adult",
+      age: "17",
+      ageUnit: "801",
+      codelist: FIXTURE,
+      allowDerivation: true,
+    });
+    expect(out).toEqual({ band: FIXTURE.bands[4], from: "reported" });
+  });
+
   it("resolves nothing when the reporter said something the codelist lacks", () => {
     expect(
       resolveAgeGroup({

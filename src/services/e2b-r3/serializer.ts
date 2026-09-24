@@ -197,6 +197,29 @@ function serializeReaction(r: PVReaction): string {
   return `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><id root="${id}"/><code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="reaction"/>${onset}${value}${countryOfOccurrence}${bool(sc.resultsInDeath, "34", "resultsInDeath")}${bool(sc.lifeThreatening, "21", "isLifeThreatening")}${bool(sc.hospitalization, "33", "requiresInpatientHospitalization")}${bool(sc.disabling, "35", "resultsInPersistentOrSignificantDisability")}${bool(sc.congenitalAnomaly, "12", "congenitalAnomalyBirthDefect")}${bool(sc.otherMedicallyImportant, "26", "otherMedicallyImportantCondition")}${outcome}</observation></subjectOf2>`;
 }
 
+function parseDoseQuantity(value: string): { value: string; unit?: string } | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const match = trimmed.match(/^([-+]?\d+(?:\.\d+)?)\s*(.*)$/);
+  if (!match) return undefined;
+
+  const numeric = match[1] ?? "";
+  const rawUnit = match[2] ?? "";
+  const unit = rawUnit.trim();
+  const normalizedUnit: string | undefined = unit
+    ? unit.toLowerCase() === "ml"
+      ? "mL"
+      : unit.toLowerCase() === "mcg"
+        ? "ug"
+        : unit.toLowerCase() === "µg"
+          ? "ug"
+          : unit
+    : undefined;
+
+  return { value: numeric, ...(normalizedUnit ? { unit: normalizedUnit } : {}) };
+}
+
 function serializeDrugComponent(p: PVProduct): string {
   const id = esc(localUid(p.id));
   const productValue =
@@ -211,10 +234,11 @@ function serializeDrugComponent(p: PVProduct): string {
       ? `<id root="${WHODRUG_GLOBAL_RID_OID}" extension="${esc(p.product.rid)}"/>`
       : "";
   const route = p.route
-    ? `<routeCode nullFlavor="UNK"><originalText>${esc(p.route)}</originalText></routeCode>`
+    ? `<routeCode><originalText>${esc(p.route)}</originalText></routeCode>`
     : "";
-  const dose = p.dose
-    ? `<doseQuantity nullFlavor="UNK"/><!-- dose (free text, no PQ unit known): ${esc(p.dose)} -->`
+  const parsedDose = p.dose ? parseDoseQuantity(p.dose) : undefined;
+  const dose = parsedDose
+    ? `<doseQuantity value="${esc(parsedDose.value)}"${parsedDose.unit ? ` unit="${esc(parsedDose.unit)}"` : ""}/>`
     : "";
   const batch = p.batchNumber
     ? `<consumable typeCode="CSM"><instanceOfKind classCode="INST"><productInstanceInstance classCode="MMAT" determinerCode="INSTANCE"><lotNumberText>${esc(p.batchNumber)}</lotNumberText></productInstanceInstance></instanceOfKind></consumable>`
