@@ -403,6 +403,22 @@ export interface PVReaction {
 /** G.k.1 — 1=Suspect, 2=Concomitant, 3=Interacting, 4=Drug not administered. */
 export type DrugCharacterization = "SUSPECT" | "CONCOMITANT" | "INTERACTING" | "NOT_ADMINISTERED";
 
+export interface NormalizedDosage {
+  /** A structured dosage, when both the numeric quantity and the unit can
+   *  be determined with no guesswork. */
+  quantity?: string | number | undefined;
+  unit?: string | undefined;
+  /** G.k.4.r.8 dosage text, when the source is free text or the value is
+   *  numeric but intentionally unitless. */
+  dosageText?: string | undefined;
+  /** Optional provenance for a reviewer, without exposing arbitrary source
+   *  header semantics in the serializer. */
+  source?: "structured" | "embedded-unit" | "explicit-unit" | "text" | undefined;
+  /** True when explicit and embedded units disagree, or the parser cannot
+   *  safely determine one side of the value. */
+  ambiguous?: boolean | undefined;
+}
+
 export interface PVProduct {
   id: string;
   characterization: DrugCharacterization;
@@ -412,7 +428,11 @@ export interface PVProduct {
   /** G.k.4.r.7 — high value for AEFI signal detection; recovered verbatim
    *  from source, never invented. */
   batchNumber?: string | undefined;
+  /** Raw source cell, kept as provenance while the normalized form captures
+   *  the actual E2B representation. */
   dose?: string | undefined;
+  /** Normalized dosage representation used by the E2B serializer. */
+  doseNormalized?: NormalizedDosage | undefined;
   route?: string | undefined;
   /** G.k.4.r.4 — vaccination date, where recorded. */
   startDate?: string | undefined;

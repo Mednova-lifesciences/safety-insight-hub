@@ -101,7 +101,46 @@ describe("serializeBatchToXml", () => {
     },
   );
 
-  it("omits doseQuantity when the source dose is nonnumeric text", () => {
+  it("serializes a structured numeric dose as doseQuantity when a known unit is present", () => {
+    const xml = serializeBatchToXml(
+      [
+        baseCase({
+          products: [{ ...baseCase().products[0]!, dose: "1 mL" }],
+        }),
+      ],
+      {
+        batchId: "B",
+        senderId: "S",
+        receiverId: "R",
+        transmissionTimestamp: new Date("2026-09-09T08:19:00Z"),
+      },
+    );
+
+    expect(xml).toContain('<doseQuantity value="1" unit="mL"/>');
+    expect(xml).not.toContain("<text>1 mL</text>");
+  });
+
+  it("serializes unitless numeric dose as G.k.4.r.8 text instead of doseQuantity", () => {
+    const xml = serializeBatchToXml(
+      [
+        baseCase({
+          products: [{ ...baseCase().products[0]!, dose: "1" }],
+        }),
+      ],
+      {
+        batchId: "B",
+        senderId: "S",
+        receiverId: "R",
+        transmissionTimestamp: new Date("2026-09-09T08:19:00Z"),
+      },
+    );
+
+    expect(xml).toContain("<text>1</text>");
+    expect(xml).not.toContain('<doseQuantity value="1"');
+    expect(xml).not.toContain('<doseQuantity nullFlavor="UNK"');
+  });
+
+  it("serializes nonnumeric dose text as G.k.4.r.8 text and never inside doseQuantity", () => {
     const xml = serializeBatchToXml(
       [
         baseCase({
@@ -116,8 +155,9 @@ describe("serializeBatchToXml", () => {
       },
     );
 
-    expect(xml).not.toContain("<doseQuantity");
-    expect(xml).not.toContain("<originalText>booster</originalText>");
+    expect(xml).toContain("<text>booster</text>");
+    expect(xml).not.toContain('<doseQuantity nullFlavor="UNK"');
+    expect(xml).not.toContain('<doseQuantity value="booster"');
   });
 });
 

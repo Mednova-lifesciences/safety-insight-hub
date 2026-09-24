@@ -3,6 +3,7 @@ import type {
   DrugCharacterization,
   FieldMappingResolution,
   NullFlavor,
+  NormalizedDosage,
   OtherCaseIdentifiers,
   PVCase,
   PatientRecordNumber,
@@ -42,6 +43,9 @@ export interface RawLineListRow {
   age?: string | undefined;
   /** D.2.2b — the unit the age is expressed in, when the file says. */
   age_unit?: string | undefined;
+  /** G.k.4.r.1b / G.k.4.r.8 — a separately mapped unit column when the
+   *  source provides dosage and unit in distinct cells. */
+  dose_unit?: string | undefined;
   /** D.2.1 — the patient's date of birth, when the file has one. */
   date_of_birth?: string | undefined;
   /** D.2.3 — an age GROUP the source stated in its own words. */
@@ -97,6 +101,7 @@ export function applyColumnMap(
     sex: get(profile.columnMap.sex),
     age: get(profile.columnMap.age),
     age_unit: get(profile.columnMap.ageUnit),
+    dose_unit: get(profile.columnMap.doseUnit),
     date_of_birth: get(profile.columnMap.dateOfBirth),
     age_group: get(profile.columnMap.ageGroup),
     reaction: get(profile.columnMap.reaction),
@@ -205,6 +210,74 @@ export function mapSex(raw: string | undefined, profile?: SourceProfile): SexCod
   if (!v) return undefined;
   const key = sexKey(v);
   return profile?.sexMap?.[v] ?? profile?.sexMap?.[key] ?? DEFAULT_SEX_WORDS[key];
+}
+
+function normalizeDoseUnit(raw: string): string | undefined {
+  const candidate = raw.trim();
+  if (!candidate) return undefined;
+  const normalized = candidate.toLowerCase();
+  const unitMap: Record<string, string> = {
+    ml: "mL",
+    milliliter: "mL",
+    millilitre: "mL",
+    l: "L",
+    liter: "L",
+    litre: "L",
+    mg: "mg",
+    gram: "g",
+    grams: "g",
+    g: "g",
+    microgram: "ug",
+    micrograms: "ug",
+    mcg: "ug",
+    mu: "ug",
+    "μg": "ug",
+    "µg": "ug",
+    iu: "IU",
+    iud: "IU",
+    tablet: "tablet",
+    tablets: "tablet",
+    capsule: "capsule",
+    capsules: "capsule",
+    drop: "drop",
+    drops: "drop",
+    dose: "dose",
+    doses: "dose",
+  };
+  return unitMap[normalized] ?? (candidate.length <= 12 && /^[A-Za-zµμ./-]+$/.test(candidate) ? candidate : undefined);
+}
+
+export function normalizeDosage(value?: string, explicitUnit?: string): NormalizedDosage | undefined {
+  const rawValue = (value ?? "").trim();
+  const rawUnit = (explicitUnit ?? "").trim();
+  const explicit = rawUnit ? normalizeDoseUnit(rawUnit) : undefined;
+  if (!rawValue && !explicit) return undefined;
+
+  const valueMatch = rawValue.match(/^([-+]?\d+(?:\.\d+)?)\s*(.*)$/);
+  const valueNumber = valueMatch?.[1];
+  const embeddedUnit = valueMatch?.[2] ? normalizeDoseUnit(valueMatch[2]) : undefined;
+
+  if (valueNumber) {
+    if (explicit && embeddedUnit && explicit !== embeddedUnit) {
+      return { quantity: valueNumber, unit: explicit, ambiguous: true, dosageText: rawValue, source: "explicit-unit" };
+    }
+    if (explicit) return { quantity: valueNumber, unit: explicit, source: "explicit-unit" };
+    if (embeddedUnit) return { quantity: valueNumber, unit: embeddedUnit, source: "embedded-unit" };
+    return { dosageText: rawValue, source: "text" };
+  }
+
+  if (rawValue && !valueMatch) {
+    if (explicit) {
+      return { dosageText: rawValue, source: "text" };
+    }
+    return { dosageText: rawValue, source: "text" };
+  }
+
+  if (explicit && rawValue) {
+    return { dosageText: rawValue, source: "text" };
+  }
+
+  return undefined;
 }
 
 /** The E2B age-unit code for a unit the source stated in words, or
@@ -899,12 +972,14 @@ export async function mapSourceRecordToPVCase(
       async (value, i) => {
         const coded = await codeProductTerm(providers.whodrug, value);
         const characterization: DrugCharacterization = "SUSPECT";
+        const normalizedDose = normalizeDosage(row.dose?.trim() || undefined, row.dose_unit?.trim() || undefined);
         return {
           id: `${sendersCaseId}-p${i + 1}`,
           characterization,
           product: coded,
           batchNumber: row.vaccine_batch?.trim() || undefined,
           dose: row.dose?.trim() || undefined,
+          doseNormalized: normalizedDose,
           // G.k.4.r.10. Verbatim: the ICH route codelist is not in this
           // repository, so the serializer emits the words under a
           // nullFlavor rather than a code nobody can verify. Carrying the

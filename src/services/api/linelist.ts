@@ -155,6 +155,7 @@ export const TARGET_FIELDS = [
   "serious_code",
   "vaccine_batch",
   "dose",
+  "dose_unit",
   "reporter_designation",
   "reporter_phone",
   /** Time from vaccination to symptom onset, as AEFI forms actually record
@@ -665,12 +666,31 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["doseno", 85],
     ["dosenumber", 85],
     ["doseadministered", 70],
+    ["doseamount", 80],
+    ["dosageamount", 80],
+    ["dosequantity", 80],
+    ["dosagequantity", 80],
+    ["quantity", 25],
+    ["qty", 25],
+    ["amount", 20],
     // "Dosage" contains BOTH "dose" and "age". At equal weight the tie
     // went to whichever field is declared first, and age is declared
     // first — so a column headed "Dosage" was read as the patient's age.
     // An explicit keyword above the generic tier settles it.
     ["dosage", 70],
     ["dose", 30],
+  ],
+  dose_unit: [
+    ["doseunit", 95],
+    ["dosageunit", 95],
+    ["quantityunit", 90],
+    ["doseuom", 90],
+    ["dosageuom", 90],
+    ["uom", 85],
+    ["unitofmeasure", 80],
+    ["unit", 50],
+    ["dose ml", 90],
+    ["dose mg", 90],
   ],
   reporter_designation: [
     ["reporterdesignation", 90],

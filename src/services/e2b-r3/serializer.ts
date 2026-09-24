@@ -59,6 +59,7 @@
  */
 import type { PVCase, PVReaction, PVProduct, DrugCharacterization } from "./types";
 import { AGE_UNIT_UCUM, PATIENT_RECORD_NUMBER_OIDS } from "./types";
+import { normalizeDosage } from "./mapping";
 import { WHODRUG_GLOBAL_RID_OID } from "./coding-provider";
 import { e2bOutcomeCode } from "./outcome-codes";
 import { AGE_GROUP_CODE_SYSTEM, resolveAgeGroup } from "./age-group";
@@ -197,27 +198,36 @@ function serializeReaction(r: PVReaction): string {
   return `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><id root="${id}"/><code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="reaction"/>${onset}${value}${countryOfOccurrence}${bool(sc.resultsInDeath, "34", "resultsInDeath")}${bool(sc.lifeThreatening, "21", "isLifeThreatening")}${bool(sc.hospitalization, "33", "requiresInpatientHospitalization")}${bool(sc.disabling, "35", "resultsInPersistentOrSignificantDisability")}${bool(sc.congenitalAnomaly, "12", "congenitalAnomalyBirthDefect")}${bool(sc.otherMedicallyImportant, "26", "otherMedicallyImportantCondition")}${outcome}</observation></subjectOf2>`;
 }
 
-function parseDoseQuantity(value: string): { value: string; unit?: string } | undefined {
+function normalizeDoseUnit(unit: string): string | undefined {
+  const cleaned = unit.trim();
+  if (!cleaned) return undefined;
+
+  const lower = cleaned.toLowerCase();
+  if (lower === "ml" || lower === "milliliter" || lower === "millilitre") return "mL";
+  if (lower === "mcg" || lower === "μg" || lower === "µg" || lower === "microgram") return "ug";
+  if (lower === "mg" || lower === "g") return lower;
+  if (lower === "iu" || lower === "u") return lower;
+
+  return cleaned;
+}
+
+function parseDoseQuantity(
+  value: string,
+): { value: string; unit?: string } | { nullFlavor: "UNK"; originalText: string } | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
 
-  const match = trimmed.match(/^([-+]?\d+(?:\.\d+)?)\s*(.*)$/);
-  if (!match) return undefined;
-
-  const numeric = match[1] ?? "";
-  const rawUnit = match[2] ?? "";
-  const unit = rawUnit.trim();
-  const normalizedUnit: string | undefined = unit
-    ? unit.toLowerCase() === "ml"
-      ? "mL"
-      : unit.toLowerCase() === "mcg"
-        ? "ug"
-        : unit.toLowerCase() === "µg"
-          ? "ug"
-          : unit
-    : undefined;
-
-  return { value: numeric, ...(normalizedUnit ? { unit: normalizedUnit } : {}) };
+  const normalized = normalizeDosage(trimmed);
+  if (!normalized) return undefined;
+  if (normalized.dosageText) {
+    return { nullFlavor: "UNK", originalText: normalized.dosageText };
+  }
+  if (typeof normalized.quantity === "number" || typeof normalized.quantity === "string") {
+    const parsed = { value: String(normalized.quantity) } as { value: string; unit?: string };
+    if (normalized.unit) parsed.unit = normalized.unit;
+    return parsed;
+  }
+  return undefined;
 }
 
 function serializeDrugComponent(p: PVProduct): string {
@@ -236,10 +246,22 @@ function serializeDrugComponent(p: PVProduct): string {
   const route = p.route
     ? `<routeCode><originalText>${esc(p.route)}</originalText></routeCode>`
     : "";
-  const parsedDose = p.dose ? parseDoseQuantity(p.dose) : undefined;
-  const dose = parsedDose
-    ? `<doseQuantity value="${esc(parsedDose.value)}"${parsedDose.unit ? ` unit="${esc(parsedDose.unit)}"` : ""}/>`
-    : "";
+  const normalizedDose = p.doseNormalized ?? (p.dose ? normalizeDosage(p.dose) : undefined);
+  const dose =
+    normalizedDose && normalizedDose.quantity !== undefined && normalizedDose.unit
+      ? `<doseQuantity value="${esc(String(normalizedDose.quantity))}" unit="${esc(normalizedDose.unit)}"/>`
+      : normalizedDose && normalizedDose.dosageText
+        ? `<text>${esc(normalizedDose.dosageText)}</text>`
+        : p.dose
+          ? (() => {
+              const parsedDose = parseDoseQuantity(p.dose);
+              return parsedDose && "value" in parsedDose
+                ? `<doseQuantity value="${esc(parsedDose.value)}"${parsedDose.unit ? ` unit="${esc(parsedDose.unit)}"` : ""}/>`
+                : parsedDose && "nullFlavor" in parsedDose
+                  ? `<text>${esc(parsedDose.originalText)}</text>`
+                  : "";
+            })()
+          : "";
   const batch = p.batchNumber
     ? `<consumable typeCode="CSM"><instanceOfKind classCode="INST"><productInstanceInstance classCode="MMAT" determinerCode="INSTANCE"><lotNumberText>${esc(p.batchNumber)}</lotNumberText></productInstanceInstance></instanceOfKind></consumable>`
     : "";
