@@ -1,3 +1,4 @@
+import { normalizeDosage } from "./mapping";
 import { describe, expect, it } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -598,5 +599,38 @@ describe("E.i.9 — country of occurrence", () => {
     expect(inGhana).toBe(noCountry);
     expect(inKenya).toBe(noCountry);
     expect(noCountry).toBe("NG-MEDNOVA-000001");
+  });
+});
+
+describe("G.k.4.r.1 — a dose NUMBER is never asserted as a dose QUANTITY", () => {
+  // The canonical `dose` concept in this pipeline is the dose's position
+  // in a schedule (its keywords are doseno/dosenumber, its documented
+  // examples "1st" and "booster"), not an amount. A permissive unit
+  // fallback once turned those into quantities: "1st" serialized as
+  // `<doseQuantity value="1" unit="st"/>`, asserting a dose of one "st",
+  // and "1 of 3" produced `unit="of 3"` — which the ICH `cs` type, being
+  // `[^\s]+`, does not even permit.
+  it.each(["1st", "2nd", "3rd", "1 of 3", "2 doses", "booster", "2"])(
+    "does not invent a unit from %s",
+    (dose) => {
+      const normalized = normalizeDosage(dose);
+      expect(normalized?.unit).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ["0.5 mL", "0.5", "mL"],
+    ["5 mcg", "5", "ug"],
+    ["10 mg", "10", "mg"],
+    ["1 IU", "1", "IU"],
+  ])("still reads a real measured dose: %s", (dose, value, unit) => {
+    const normalized = normalizeDosage(dose);
+    expect(normalized?.quantity).toBe(value);
+    expect(normalized?.unit).toBe(unit);
+  });
+
+  it("keeps an unrecognised dose as text rather than dropping it", () => {
+    expect(normalizeDosage("1st")?.dosageText).toBe("1st");
+    expect(normalizeDosage("booster")?.dosageText).toBe("booster");
   });
 });

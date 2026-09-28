@@ -4,6 +4,7 @@ import { mapColumnsByKeywords, parseTabularFile, type KeywordEntry } from "./tab
 import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import { discoverAndApplyCodebook, mapJobToCases } from "@/services/e2b-r3/export";
+import { generateRecoveryProposal } from "./linelist-recovery";
 import {
   checkCasesForE2b,
   e2bCheckIncomplete,
@@ -726,17 +727,19 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["routeadministered", 90],
     ["route", 60],
   ],
-  // C.2.r.2.1. "facility" alone sits low because a real AEFI form's
-  // "Address of reporting health facility" is an ADDRESS, not the
-  // facility's name — that exact header already caused a wrong mapping
-  // once (see the note on `reaction`'s missing "adr" keyword).
+  // C.2.r.2.1. Deliberately NO bare "healthfacility" keyword: a real AEFI
+  // form's "Adress of reporting health facility" (the source's own typo)
+  // contains it, and that column is an ADDRESS, not the facility's name.
+  // linelist-validation.test.ts pins that exact header. Every keyword
+  // below therefore names the facility's NAME or ties it to the reporter,
+  // and a bare "Health Facility" column is left to the AI mapper — the
+  // same treatment a bare "Country" or "Reporter" column already gets.
   reporter_organization: [
     ["reporterorganization", 95],
     ["reporterorganisation", 95],
     ["reporterfacility", 95],
     ["reportingfacility", 92],
     ["reportinginstitution", 90],
-    ["healthfacility", 80],
     ["facilityname", 85],
     ["institutionname", 85],
     ["nameoffacility", 85],
@@ -2241,6 +2244,44 @@ export function safeCorrections<C extends { row: number; column: string }>(
   );
 }
 
+function buildRecoveryCorrections(
+  job: LineListJobRow,
+): { row: number; column: string; new_value: string; reason: string }[] {
+  const rows = job.rawRows ?? job.parsedRows ?? [];
+  const mapping = job.mapping ?? {};
+  if (rows.length === 0 || Object.keys(mapping).length === 0) return [];
+
+  const corrections: { row: number; column: string; new_value: string; reason: string }[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = (rows[i] ?? {}) as Record<string, string>;
+    const proposal = generateRecoveryProposal(row, mapping);
+    if (!proposal || proposal.overallConfidence !== "high") continue;
+
+    for (const move of proposal.moves) {
+      const targetHeader = Object.entries(mapping).find(
+        ([, field]) => field === move.targetField,
+      )?.[0];
+      if (!targetHeader) continue;
+      if (!move.sourceValue) continue;
+      const current = row[targetHeader] ?? "";
+      if (normalizeLeftRightValue(current) === normalizeLeftRightValue(move.sourceValue)) continue;
+      corrections.push({
+        row: i + 1,
+        column: targetHeader,
+        new_value: move.sourceValue,
+        reason: move.reason,
+      });
+    }
+  }
+
+  return corrections;
+}
+
+function normalizeLeftRightValue(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 export const linelist = {
   jobs: async (): Promise<LineListJob[]> => {
     const { data, error } = await supabase.from("pv_linelist_jobs").select("data");
@@ -2698,6 +2739,7 @@ export const linelist = {
     }
 
     const fixRows = (job.rawRows ?? job.parsedRows) as Record<string, string>[];
+    const deterministicRecovery = buildRecoveryCorrections(job);
     const fixResult = await ai.linelist.fix({
       headers: job.columns,
       mapping: job.mapping,
@@ -2707,9 +2749,20 @@ export const linelist = {
     const combinedUnresolved = [...fixResult.unresolved, ...needsReviewUnresolved];
 
     let updatedJob: LineListJobRow;
-    const corrections = fixResult.ai_used
-      ? safeCorrections(fixResult.corrections, autoFixable, job.mapping)
-      : [];
+    const recoveredCorrections = deterministicRecovery.map((c) => ({
+      row: c.row,
+      column: c.column,
+      new_value: c.new_value,
+      reason: c.reason,
+    }));
+    const corrections = safeCorrections(
+      [...recoveredCorrections, ...(fixResult.ai_used ? fixResult.corrections : [])],
+      [
+        ...autoFixable.map((i) => ({ row: i.row, column: i.column })),
+        ...recoveredCorrections.map((c) => ({ row: c.row, column: c.column })),
+      ],
+      job.mapping,
+    );
     if (corrections.length > 0) {
       const parsedRows = [...job.parsedRows];
       const rawRows = job.rawRows ? [...job.rawRows] : undefined;

@@ -231,23 +231,33 @@ function normalizeDoseUnit(raw: string): string | undefined {
     micrograms: "ug",
     mcg: "ug",
     mu: "ug",
-    "μg": "ug",
-    "µg": "ug",
+    μg: "ug",
+    µg: "ug",
     iu: "IU",
     iud: "IU",
-    tablet: "tablet",
-    tablets: "tablet",
-    capsule: "capsule",
-    capsules: "capsule",
-    drop: "drop",
-    drops: "drop",
-    dose: "dose",
-    doses: "dose",
   };
-  return unitMap[normalized] ?? (candidate.length <= 12 && /^[A-Za-zµμ./-]+$/.test(candidate) ? candidate : undefined);
+  // Anything not in the map above is NOT a unit of measure, and is not
+  // treated as one. The permissive fallback this replaced accepted any
+  // short alphabetic token, which turned an ordinal into a unit: a dose
+  // column reading "1st" — the commonest value in this field, since the
+  // canonical `dose` concept is the dose NUMBER and its keywords are
+  // doseno/dosenumber — produced `<doseQuantity value="1" unit="st"/>`,
+  // asserting a dose of one "st". "2nd" and "3rd" did the same.
+  //
+  // Dosage FORMS (tablet, capsule, drop, "dose") are deliberately absent
+  // too: they describe what was given, not how much, and emitting them in
+  // @unit would put a non-UCUM token in an attribute the ICH schema types
+  // as `cs` and documents as UCUM.
+  //
+  // A value that reaches here unrecognised is not lost — normalizeDosage
+  // keeps it as dosageText and the serializer emits it as G.k.4.r.8 text.
+  return unitMap[normalized];
 }
 
-export function normalizeDosage(value?: string, explicitUnit?: string): NormalizedDosage | undefined {
+export function normalizeDosage(
+  value?: string,
+  explicitUnit?: string,
+): NormalizedDosage | undefined {
   const rawValue = (value ?? "").trim();
   const rawUnit = (explicitUnit ?? "").trim();
   const explicit = rawUnit ? normalizeDoseUnit(rawUnit) : undefined;
@@ -259,7 +269,13 @@ export function normalizeDosage(value?: string, explicitUnit?: string): Normaliz
 
   if (valueNumber) {
     if (explicit && embeddedUnit && explicit !== embeddedUnit) {
-      return { quantity: valueNumber, unit: explicit, ambiguous: true, dosageText: rawValue, source: "explicit-unit" };
+      return {
+        quantity: valueNumber,
+        unit: explicit,
+        ambiguous: true,
+        dosageText: rawValue,
+        source: "explicit-unit",
+      };
     }
     if (explicit) return { quantity: valueNumber, unit: explicit, source: "explicit-unit" };
     if (embeddedUnit) return { quantity: valueNumber, unit: embeddedUnit, source: "embedded-unit" };
@@ -972,7 +988,10 @@ export async function mapSourceRecordToPVCase(
       async (value, i) => {
         const coded = await codeProductTerm(providers.whodrug, value);
         const characterization: DrugCharacterization = "SUSPECT";
-        const normalizedDose = normalizeDosage(row.dose?.trim() || undefined, row.dose_unit?.trim() || undefined);
+        const normalizedDose = normalizeDosage(
+          row.dose?.trim() || undefined,
+          row.dose_unit?.trim() || undefined,
+        );
         return {
           id: `${sendersCaseId}-p${i + 1}`,
           characterization,

@@ -153,8 +153,16 @@ describe("every column of a realistic line list is accounted for", () => {
     ["Outcome -> E.i.7", 'displayName="outcome"'],
     ["Reporter Name -> C.2.r.1", "<family>Dr Ada Obi</family>"],
     ["Report Date -> C.1.4", "20260824"],
-    ["Route -> G.k.4.r.10", "<routeCode><originalText>Intramuscular</originalText></routeCode>"],
-    ["Dose -> G.k.4.r.9", '<doseQuantity value="1"'],
+    // nullFlavor + originalText is this file's established pattern for a
+    // term no configured codelist can code — the reaction value uses the
+    // same shape. Both forms validate against the ICH XSD; this one also
+    // says WHY the code is absent instead of leaving a coded element
+    // silently uncoded.
+    [
+      "Route -> G.k.4.r.10",
+      '<routeCode nullFlavor="UNK"><originalText>Intramuscular</originalText></routeCode>',
+    ],
+    ["Dose -> G.k.4.r.9", "<text>1</text>"],
     ["Reporter facility -> C.2.r.2.1", "<name>Ogbagi CHC</name>"],
     ["Reporter city -> C.2.r.2.4", "<city>Akoko North West</city>"],
     ["Reporter state -> C.2.r.2.5", "<state>Ondo</state>"],

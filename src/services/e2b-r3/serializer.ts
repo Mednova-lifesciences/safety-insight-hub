@@ -211,25 +211,6 @@ function normalizeDoseUnit(unit: string): string | undefined {
   return cleaned;
 }
 
-function parseDoseQuantity(
-  value: string,
-): { value: string; unit?: string } | { nullFlavor: "UNK"; originalText: string } | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-
-  const normalized = normalizeDosage(trimmed);
-  if (!normalized) return undefined;
-  if (normalized.dosageText) {
-    return { nullFlavor: "UNK", originalText: normalized.dosageText };
-  }
-  if (typeof normalized.quantity === "number" || typeof normalized.quantity === "string") {
-    const parsed = { value: String(normalized.quantity) } as { value: string; unit?: string };
-    if (normalized.unit) parsed.unit = normalized.unit;
-    return parsed;
-  }
-  return undefined;
-}
-
 function serializeDrugComponent(p: PVProduct): string {
   const id = esc(localUid(p.id));
   const productValue =
@@ -243,25 +224,32 @@ function serializeDrugComponent(p: PVProduct): string {
     p.product.status === "MAPPED" && p.product.rid
       ? `<id root="${WHODRUG_GLOBAL_RID_OID}" extension="${esc(p.product.rid)}"/>`
       : "";
+  // G.k.4.r.10. The ICH route-of-administration codelist is not in this
+  // repository, so the element carries the reporter's own words and says
+  // plainly that the code is unknown. Without the nullFlavor this is a
+  // coded element asserting a code it does not have, which is a different
+  // and stronger claim than the source supports.
   const route = p.route
-    ? `<routeCode><originalText>${esc(p.route)}</originalText></routeCode>`
+    ? `<routeCode nullFlavor="UNK"><originalText>${esc(p.route)}</originalText></routeCode>`
     : "";
+  // G.k.4.r.1 (amount) and G.k.4.r.8 (dosage text) are two different
+  // elements in two different places in the HL7 Act sequence: `text`
+  // comes early, doseQuantity comes late. Emitting the text where the
+  // quantity goes is a schema violation, and did produce one — two
+  // artifacts failed ICH XSD validation on
+  // "Element text: This element is not expected. Expected is one of
+  // doseQuantity, rateQuantity, doseCheckQuantity..." — so the two are
+  // built separately here and placed separately below.
   const normalizedDose = p.doseNormalized ?? (p.dose ? normalizeDosage(p.dose) : undefined);
-  const dose =
+  const doseQuantity =
     normalizedDose && normalizedDose.quantity !== undefined && normalizedDose.unit
       ? `<doseQuantity value="${esc(String(normalizedDose.quantity))}" unit="${esc(normalizedDose.unit)}"/>`
-      : normalizedDose && normalizedDose.dosageText
-        ? `<text>${esc(normalizedDose.dosageText)}</text>`
-        : p.dose
-          ? (() => {
-              const parsedDose = parseDoseQuantity(p.dose);
-              return parsedDose && "value" in parsedDose
-                ? `<doseQuantity value="${esc(parsedDose.value)}"${parsedDose.unit ? ` unit="${esc(parsedDose.unit)}"` : ""}/>`
-                : parsedDose && "nullFlavor" in parsedDose
-                  ? `<text>${esc(parsedDose.originalText)}</text>`
-                  : "";
-            })()
-          : "";
+      : "";
+  // Anything the source said that is not a measured amount — "1st",
+  // "booster", "1 of 3" — is preserved verbatim as dosage text rather
+  // than being forced into a quantity it is not.
+  const doseTextValue = doseQuantity ? undefined : (normalizedDose?.dosageText ?? p.dose);
+  const doseText = doseTextValue ? `<text>${esc(doseTextValue)}</text>` : "";
   const batch = p.batchNumber
     ? `<consumable typeCode="CSM"><instanceOfKind classCode="INST"><productInstanceInstance classCode="MMAT" determinerCode="INSTANCE"><lotNumberText>${esc(p.batchNumber)}</lotNumberText></productInstanceInstance></instanceOfKind></consumable>`
     : "";
@@ -269,8 +257,8 @@ function serializeDrugComponent(p: PVProduct): string {
     ? `<effectiveTime xsi:type="IVL_TS"><low value="${toHl7Ts(p.startDate)}"/></effectiveTime>`
     : "";
   return `<component typeCode="COMP"><substanceAdministration classCode="SBADM" moodCode="EVN"><id root="${id}"/><consumable typeCode="CSM"><instanceOfKind classCode="INST"><kindOfProduct classCode="MMAT" determinerCode="KIND">${ridEl}${productValue}<name>${esc(p.product.sourceValue)}</name></kindOfProduct></instanceOfKind></consumable>${
-    route || dose || batch || startDate
-      ? `<outboundRelationship2 typeCode="COMP"><substanceAdministration classCode="SBADM" moodCode="EVN">${startDate}${route}${dose}${batch}</substanceAdministration></outboundRelationship2>`
+    route || doseQuantity || doseText || batch || startDate
+      ? `<outboundRelationship2 typeCode="COMP"><substanceAdministration classCode="SBADM" moodCode="EVN">${doseText}${startDate}${route}${doseQuantity}${batch}</substanceAdministration></outboundRelationship2>`
       : ""
   }</substanceAdministration></component>`;
 }
