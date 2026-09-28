@@ -75,18 +75,34 @@ export interface AgeGroupCodelist {
 }
 
 /**
- * The application normalises the MedNova D.2.3 age-group derivation using
- * the official ICH D.2.3 OID and the code values listed in the ICH
- * reference material. The boundaries themselves are not ICH-defined in the
- * repository; they are the MedNova application normalization rule used to
- * keep a deterministic age-group classification from a normalized age + age
- * unit without asking the source to state a second, separate group.
+ * D.2.3 — Patient Age Group. ICH E2B(R3) Implementation Guide v5.03.
+ *
+ * PROVENANCE, stated plainly because it matters for a regulatory value:
+ * these seven codes were supplied by the organisation, citing ICH
+ * E2B(R3) IG v5.03 for D.2.3 on OID 2.16.840.1.113883.3.989.2.1.1.9. The
+ * IG itself is not in this repository, so this code has NOT independently
+ * verified them against it. What IS independently confirmed from the
+ * material under regulatory-assets/e2b-r3/official-ich/ is the OID, the
+ * element's position, and one data point from the ICH clinical-trial
+ * example instance — a patient of value="50" unit="a" carrying code "5",
+ * which agrees with "5 = Adult" below.
+ *
+ * The day boundaries are NOT from the IG. ICH defines the code meanings,
+ * not the ages that separate them, so the bands are this application's
+ * own convention and are used only by `deriveAgeGroup`, which — see
+ * `resolveAgeGroupForExport` — is deliberately NOT part of the export
+ * path.
  */
 export const AGE_GROUP_CODELIST: AgeGroupCodelist | undefined = {
-  provenance: "MedNova application normalization rule based on the official ICH D.2.3 OID and code values",
+  provenance:
+    "ICH E2B(R3) Implementation Guide v5.03, D.2.3 codelist — supplied by the organisation; " +
+    "boundaries are a MedNova convention and are not used for export",
   codeSystem: "2.16.840.1.113883.3.989.2.1.1.9",
   bands: [
-    { code: "0", label: "Foetus", minDays: 0, maxDaysExclusive: 0 },
+    // A foetus has no positive post-natal age, so no age band can select
+    // this code. It exists so a REPORTER who states "foetus" can be
+    // mapped to it, which is the only route by which it is ever emitted.
+    { code: "0", label: "Foetus", minDays: -1, maxDaysExclusive: -1 },
     { code: "1", label: "Neonate", minDays: 0, maxDaysExclusive: 28 },
     { code: "2", label: "Infant", minDays: 28, maxDaysExclusive: 12 * 30.4375 },
     { code: "3", label: "Child", minDays: 12 * 30.4375, maxDaysExclusive: 12 * 365.25 },
@@ -95,6 +111,113 @@ export const AGE_GROUP_CODELIST: AgeGroupCodelist | undefined = {
     { code: "6", label: "Elderly", minDays: 65 * 365.25 },
   ],
 };
+
+/**
+ * The words reporters actually write, mapped to the D.2.3 code they mean.
+ * Matching is on letters only, so case, spacing and punctuation do not
+ * matter ("New-born", "NEWBORN", "new born" are one key).
+ *
+ * Deliberately conservative. "Paediatric" is absent: it spans neonate
+ * through adolescent and names no single D.2.3 group, so a reporter who
+ * writes it has not told us which one — that is a review item, not a
+ * mapping. Same for "minor" and "young".
+ */
+const AGE_GROUP_SYNONYMS: Readonly<Record<string, string>> = {
+  // 0 Foetus
+  foetus: "0",
+  fetus: "0",
+  foetal: "0",
+  fetal: "0",
+  unborn: "0",
+  // 1 Neonate
+  neonate: "1",
+  neonatal: "1",
+  newborn: "1",
+  newlyborn: "1",
+  // 2 Infant
+  infant: "2",
+  infancy: "2",
+  baby: "2",
+  toddler: "2",
+  // 3 Child
+  child: "3",
+  children: "3",
+  childhood: "3",
+  // 4 Adolescent
+  adolescent: "4",
+  adolescence: "4",
+  teenager: "4",
+  teen: "4",
+  youth: "4",
+  // 5 Adult
+  adult: "5",
+  adulthood: "5",
+  // 6 Elderly
+  elderly: "6",
+  elder: "6",
+  senior: "6",
+  geriatric: "6",
+  aged: "6",
+  oldage: "6",
+};
+
+/**
+ * A reporter's own words (or a bare D.2.3 code) resolved to a band.
+ * Returns nothing when the words name no single group — which is the
+ * correct outcome for "paediatric" or anything unrecognised, since D.2.3
+ * carries what the reporter said and there is nothing here to say.
+ */
+export function normalizeReportedAgeGroup(
+  value: string | undefined,
+  codelist: AgeGroupCodelist | undefined = AGE_GROUP_CODELIST,
+): AgeGroupBand | undefined {
+  if (!codelist) return undefined;
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  // A bare code, as a source that already speaks E2B may write.
+  const byCode = codelist.bands.find((b) => b.code === raw);
+  if (byCode) return byCode;
+  const letters = raw.toLowerCase().replace(/[^a-z]/g, "");
+  if (!letters) return undefined;
+  const code =
+    codelist.bands.find((b) => b.label.toLowerCase() === letters)?.code ??
+    AGE_GROUP_SYNONYMS[letters];
+  return code ? codelist.bands.find((b) => b.code === code) : undefined;
+}
+
+/**
+ * The ONLY path by which D.2.3 reaches the XML.
+ *
+ * Two rules from ICH, and both are restrictions rather than permissions:
+ *
+ *  1. D.2.3 is the age group "as per reporter". It is what a reporter
+ *     stated, so it is never computed here. `deriveAgeGroup` exists and is
+ *     tested, but is not called from the export path.
+ *
+ *  2. D.2.3 is the LEAST precise of the three age elements. Where D.2.1
+ *     (date of birth) or D.2.2 (age at onset) is available, the precise
+ *     value is what should be transmitted, and the group is redundant. So
+ *     a case carrying either of those emits no D.2.3 even when the
+ *     reporter also stated a group.
+ *
+ * The reporter's words are never lost either way: they stay on
+ * PVPatient.ageGroupVerbatim and remain visible for review.
+ */
+export function resolveAgeGroupForExport(input: {
+  reportedVerbatim?: string | undefined;
+  /** D.2.1 — a date of birth on the case. */
+  hasDateOfBirth?: boolean | undefined;
+  /** D.2.2 — a numeric age WITH a unit, i.e. an actually usable age. */
+  hasPreciseAge?: boolean | undefined;
+  codelist?: AgeGroupCodelist | undefined;
+}): { band: AgeGroupBand; from: "reported" } | undefined {
+  if (input.hasDateOfBirth || input.hasPreciseAge) return undefined;
+  const band = normalizeReportedAgeGroup(
+    input.reportedVerbatim,
+    input.codelist ?? AGE_GROUP_CODELIST,
+  );
+  return band ? { band, from: "reported" } : undefined;
+}
 
 /** The OID D.2.3 codes are asserted against, confirmed from the ICH
  *  reference instance. Known independently of the codelist's contents. */
@@ -143,7 +266,8 @@ export function deriveAgeGroup(
   const days = ageInDays(age, unit);
   if (days === undefined || days === 0) return undefined;
   return codelist.bands.find(
-    (band) => days >= band.minDays && (band.maxDaysExclusive === undefined || days < band.maxDaysExclusive),
+    (band) =>
+      days >= band.minDays && (band.maxDaysExclusive === undefined || days < band.maxDaysExclusive),
   );
 }
 

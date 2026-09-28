@@ -251,7 +251,10 @@ describe("absent optional columns stay absent", () => {
     // Each of these is optional and genuinely absent from the source.
     expect(xml).not.toContain("birthTime");
     expect(xml).not.toContain("asIdentifiedEntity");
-    expect(xml).toContain('displayName="ageGroup"');
+    // No age-group column, and the row carries a usable age — so D.2.3 is
+    // doubly absent: nothing was reported, and a precise age outranks it
+    // anyway. It is never derived from the age (see age-group.ts).
+    expect(xml).not.toContain('displayName="ageGroup"');
     // And nothing anywhere is an empty tag pair.
     expect(xml).not.toMatch(/<(\w+)[^>]*><\/\1>/);
   });

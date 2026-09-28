@@ -62,7 +62,7 @@ import { AGE_UNIT_UCUM, PATIENT_RECORD_NUMBER_OIDS } from "./types";
 import { normalizeDosage } from "./mapping";
 import { WHODRUG_GLOBAL_RID_OID } from "./coding-provider";
 import { e2bOutcomeCode } from "./outcome-codes";
-import { AGE_GROUP_CODE_SYSTEM, resolveAgeGroup } from "./age-group";
+import { AGE_GROUP_CODE_SYSTEM, resolveAgeGroupForExport } from "./age-group";
 
 /**
  * An HL7 `uid` for a local, document-internal identifier.
@@ -341,14 +341,13 @@ export function serializeCaseToMessage(
   const birthTime = pvCase.patient.dateOfBirth
     ? `<birthTime value="${toHl7Ts(pvCase.patient.dateOfBirth)}"/>`
     : "";
-  // D.2.3 — emitted only when a configured codelist resolves a group.
-  // Ships unresolved: see age-group.ts for the codelist that is missing
-  // and why nothing is invented in its place.
-  const ageGroupBand = resolveAgeGroup({
+  // D.2.3 — what the REPORTER said, and only when neither D.2.1 nor
+  // D.2.2 carries something more precise. Never computed from the age:
+  // see resolveAgeGroupForExport for both rules and where they come from.
+  const ageGroupBand = resolveAgeGroupForExport({
     reportedVerbatim: pvCase.patient.ageGroupVerbatim,
-    age: pvCase.patient.age,
-    ageUnit: pvCase.patient.ageUnit,
-    allowDerivation: true,
+    hasDateOfBirth: !!pvCase.patient.dateOfBirth,
+    hasPreciseAge: !!(pvCase.patient.age && pvCase.patient.ageUnit),
   });
   const ageGroup = ageGroupBand
     ? `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><code code="4" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="ageGroup"/><value xsi:type="CE" code="${esc(ageGroupBand.band.code)}" codeSystem="${AGE_GROUP_CODE_SYSTEM}" codeSystemVersion="1.0"/></observation></subjectOf2>`

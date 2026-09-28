@@ -1076,10 +1076,45 @@ export async function mapSourceRecordToPVCase(
   // The unit may be in its own column, or inside the age cell itself
   // ("18 months"). A unit stated anywhere beats the default.
   const parsedAge = splitAgeValue(row.age);
-  const statedAgeUnit = mapAgeUnit(row.age_unit) ?? parsedAge?.unit ?? profile.ageUnit;
+  // Resolution order, most authoritative first. Each branch records WHERE
+  // the unit came from, because "the file said months" and "we assumed
+  // years" are different claims and the export has to be able to tell
+  // them apart (PVPatient.ageUnitCorrection).
+  const unitFromColumn = mapAgeUnit(row.age_unit);
+  const unitFromAgeCell = parsedAge?.unit;
+  const statedAgeUnit = unitFromColumn ?? unitFromAgeCell ?? profile.ageUnit;
   const age = parsedAge?.value;
   const ageUnit = age ? (statedAgeUnit ?? DEFAULT_AGE_UNIT) : undefined;
   const ageUnitAssumed = !!age && !statedAgeUnit;
+  const ageUnitBasis: NonNullable<PVPatient["ageUnitCorrection"]>["basis"] = unitFromColumn
+    ? "source"
+    : unitFromAgeCell
+      ? "age-cell"
+      : profile.ageUnit
+        ? "profile"
+        : "default";
+  const ageUnitCorrection: PVPatient["ageUnitCorrection"] =
+    age && ageUnit
+      ? {
+          ...(row.age_unit?.trim() ? { original: row.age_unit.trim() } : {}),
+          proposed: ageUnit,
+          final: ageUnit,
+          basis: ageUnitBasis,
+          reason: {
+            source: "The source states the age unit in its own column.",
+            "age-cell": "The unit was written inside the age value itself.",
+            profile: "This source form always records ages in this unit.",
+            default:
+              "The source gives no unit anywhere, so the organisation's years default was applied.",
+            user: "A person chose this unit.",
+          }[ageUnitBasis],
+          confidence: ageUnitAssumed ? "low" : "high",
+          // Nothing here was confirmed by a person. The correction path
+          // sets this; until it does, an assumed unit travels marked as
+          // an assumption rather than as a fact.
+          confirmedByUser: false,
+        }
+      : undefined;
   if (ageUnitAssumed) {
     warnings.push({
       field: "age",
@@ -1102,7 +1137,14 @@ export async function mapSourceRecordToPVCase(
     ...(recordNumbers.length ? { recordNumbers } : {}),
     ...(sex ? { sex } : {}),
     ...(sexRaw && !sex ? { sexVerbatim: sexRaw } : {}),
-    ...(age ? { age, ageUnit, ...(ageUnitAssumed ? { ageUnitAssumed: true } : {}) } : {}),
+    ...(age
+      ? {
+          age,
+          ageUnit,
+          ...(ageUnitAssumed ? { ageUnitAssumed: true } : {}),
+          ...(ageUnitCorrection ? { ageUnitCorrection } : {}),
+        }
+      : {}),
     ...(dateOfBirth ? { dateOfBirth } : {}),
     ...(row.age_group?.trim() ? { ageGroupVerbatim: row.age_group.trim() } : {}),
   };
