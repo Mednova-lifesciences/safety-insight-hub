@@ -134,6 +134,61 @@ function recoverMove(
   };
 }
 
+/**
+ * Where a displaced value actually BELONGS — the push half of recovery.
+ *
+ * The pull half below asks "what in this row fits this broken column?".
+ * On its own that loses data: a date sitting in Age, with Date of Onset
+ * empty, is never rescued, and worse, if something else can be pulled
+ * into Age the date is overwritten and gone — while its own column sat
+ * empty the whole time. A fix that destroys a value the file contained
+ * is worse than no fix.
+ *
+ * So this asks the opposite question, and answers it only when there is
+ * exactly ONE sensible answer:
+ *
+ *  - the value must fit exactly one mapped field. A bare date fits
+ *    onset_date, vaccination_date, report_date and date_of_birth equally,
+ *    so in a file carrying several of those it is genuinely ambiguous and
+ *    nothing is proposed — that belongs in review, not in a guess.
+ *  - that field's column must be empty, or itself hold something that
+ *    does not belong there. A column already holding a valid value is
+ *    never overwritten by a push.
+ *  - identifiers are barred, exactly as they are for pulls.
+ */
+function pushMoves(
+  row: RowObject,
+  mapping: Record<string, string>,
+  sourceColumn: string,
+  displacedValue: string,
+): RecoveryMove[] {
+  const fits = Object.entries(mapping).filter(([header, field]) => {
+    if (header === sourceColumn) return false;
+    if (isProtectedIdentifier(field)) return false;
+    return compatibleWithField(displacedValue, field);
+  });
+  // Ambiguous, or nowhere to go.
+  if (fits.length !== 1) return [];
+
+  const [targetHeader, targetField] = fits[0]!;
+  const occupant = normalizeWhitespace(row[targetHeader] ?? "");
+  // Never displace a value that is already where it should be.
+  if (occupant && compatibleWithField(occupant, targetField)) return [];
+
+  return [
+    {
+      sourceColumn,
+      sourceValue: displacedValue,
+      targetField,
+      reason:
+        `Value "${displacedValue}" does not belong in ${mapping[sourceColumn]} and fits only ` +
+        `${targetField}, whose column is ${occupant ? "also holding a value that does not belong there" : "empty"}.`,
+      confidence: "high",
+      fixerType: "deterministic",
+    },
+  ];
+}
+
 export function generateRecoveryProposal(
   row: RowObject,
   mapping: Record<string, string>,
@@ -147,14 +202,25 @@ export function generateRecoveryProposal(
     const currentValue = normalizeWhitespace(row[sourceColumn]!);
     if (!currentValue || compatibleWithField(currentValue, currentField)) continue;
 
+    // Pull: fill this broken column from elsewhere in the row.
     for (const [candidateHeader, candidateField] of Object.entries(mapping)) {
       if (candidateHeader === sourceColumn) continue;
       const candidateValue = normalizeWhitespace(row[candidateHeader] ?? "");
       if (!candidateValue || !compatibleWithField(candidateValue, currentField)) continue;
-      const move = recoverMove(candidateHeader, candidateValue, currentField, currentField, currentValue);
+      const move = recoverMove(
+        candidateHeader,
+        candidateValue,
+        currentField,
+        currentField,
+        currentValue,
+      );
       if (!move) continue;
       moves.push(move);
     }
+
+    // Push: send this column's own misplaced value where it belongs, so
+    // it is not simply overwritten by the pull above.
+    moves.push(...pushMoves(row, mapping, sourceColumn, currentValue));
   }
 
   if (moves.length === 0) return null;
@@ -191,7 +257,10 @@ export function applyRecoveryProposal(
   for (const move of proposal.moves) {
     const sourceColumn = move.sourceColumn;
     const sourceValue = move.sourceValue;
-    if (!(sourceColumn in working) || normalizeWhitespace(working[sourceColumn] ?? "") !== sourceValue) {
+    if (
+      !(sourceColumn in working) ||
+      normalizeWhitespace(working[sourceColumn] ?? "") !== sourceValue
+    ) {
       return null;
     }
     if (isProtectedIdentifier(move.targetField)) {

@@ -2258,19 +2258,51 @@ function buildRecoveryCorrections(
     const proposal = generateRecoveryProposal(row, mapping);
     if (!proposal || proposal.overallConfidence !== "high") continue;
 
+    // A move RELOCATES a value; it does not copy it. Targets are written
+    // first, then any source column that did not itself receive a value
+    // is emptied — otherwise a date rescued out of the age column into
+    // the onset column would still be sitting in the age column too,
+    // leaving the row invalid for the same reason as before. In a
+    // straight swap both columns receive a value, so neither is cleared.
+    const targetWrites = new Map<string, { value: string; reason: string }>();
+    const sourceColumns = new Set<string>();
+
     for (const move of proposal.moves) {
       const targetHeader = Object.entries(mapping).find(
         ([, field]) => field === move.targetField,
       )?.[0];
       if (!targetHeader) continue;
       if (!move.sourceValue) continue;
+      // Two moves fighting over one column is a proposal nobody should
+      // act on automatically; drop the whole row to human review.
+      if (targetWrites.has(targetHeader)) {
+        targetWrites.clear();
+        sourceColumns.clear();
+        break;
+      }
+      targetWrites.set(targetHeader, { value: move.sourceValue, reason: move.reason });
+      sourceColumns.add(move.sourceColumn);
+    }
+
+    for (const [targetHeader, write] of targetWrites) {
       const current = row[targetHeader] ?? "";
-      if (normalizeLeftRightValue(current) === normalizeLeftRightValue(move.sourceValue)) continue;
+      if (normalizeLeftRightValue(current) === normalizeLeftRightValue(write.value)) continue;
       corrections.push({
         row: i + 1,
         column: targetHeader,
-        new_value: move.sourceValue,
-        reason: move.reason,
+        new_value: write.value,
+        reason: write.reason,
+      });
+    }
+
+    for (const sourceColumn of sourceColumns) {
+      if (targetWrites.has(sourceColumn)) continue;
+      if (!normalizeLeftRightValue(row[sourceColumn] ?? "")) continue;
+      corrections.push({
+        row: i + 1,
+        column: sourceColumn,
+        new_value: "",
+        reason: `Value moved to the column it belongs in; cleared here so it is not counted twice.`,
       });
     }
   }
