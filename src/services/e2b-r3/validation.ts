@@ -1,4 +1,5 @@
 import type { PVCase, ReactionOutcome } from "./types";
+import { MAX_ICSRS_PER_BATCH } from "./batching";
 
 export type ValidationSeverity = "BLOCKING" | "WARNING" | "INFO";
 
@@ -572,7 +573,79 @@ export function validateVigiFlowPreflight(pvCase: PVCase): ValidationError[] {
     );
   }
 
+  // C.1.3 — report type. Already BLOCKING in validateBusinessRules; noted
+  // again here because this layer is what a person reads before a
+  // VigiFlow import, and "which of the prerequisites is missing" is the
+  // question they are asking.
+  if (!pvCase.reportType.present) {
+    errors.push(
+      err(
+        id,
+        "VIGIFLOW-REPORT-TYPE-MISSING",
+        "BLOCKING",
+        L,
+        "No report type (C.1.3) — VigiFlow's validated import requires one.",
+        "Confirm decision D3 (the report type for routine AEFI surveillance) with NAFDAC and set it in the transmission configuration. It is configuration, not line-list data, so it applies to every case at once.",
+        { e2bField: "C.1.3" },
+      ),
+    );
+  }
+
+  // G.k.1 — at least one suspect drug. A case with products, none of them
+  // suspect, is a real and different problem from a case with no products
+  // at all, so the two are reported separately.
+  const hasSuspect = pvCase.products.some(
+    (p) => p.characterization === "SUSPECT" || p.characterization === "INTERACTING",
+  );
+  if (!hasSuspect) {
+    errors.push(
+      err(
+        id,
+        "VIGIFLOW-SUSPECT-DRUG-MISSING",
+        "BLOCKING",
+        L,
+        pvCase.products.length === 0
+          ? "No product on the case at all — VigiFlow's validated import requires at least one suspect drug."
+          : `The case has ${pvCase.products.length} product(s), but none is characterised as suspect or interacting.`,
+        pvCase.products.length === 0
+          ? 'Give the line list a product column (a header such as "Vaccine", "Product" or "Suspect product"). A product is never invented for a row that names none.'
+          : "Set the drug characterization (G.k.1) to suspect for the product being reported on.",
+        { e2bField: "G.k.1" },
+      ),
+    );
+  }
+
   return errors;
+}
+
+/**
+ * VigiFlow preflight at the level of a whole FILE rather than a case.
+ *
+ * Separate from XSD validation on purpose: a file can be perfectly
+ * schema-valid and still be rejected by a validated import. The only
+ * file-level prerequisite this pipeline can check today is the size
+ * limit — UMC's validated import accepts at most 100 ICSRs per XML file,
+ * which is why batching.ts splits at MAX_ICSRS_PER_BATCH.
+ *
+ * Returns errors against a synthetic "file" scope rather than any one
+ * case, since no single case is at fault for a file being too long.
+ */
+export function validateVigiFlowBatch(
+  cases: PVCase[],
+  options?: { fileName?: string | undefined },
+): ValidationError[] {
+  const scope = options?.fileName ?? "(batch)";
+  if (cases.length <= MAX_ICSRS_PER_BATCH) return [];
+  return [
+    err(
+      scope,
+      "VIGIFLOW-BATCH-TOO-LARGE",
+      "BLOCKING",
+      "VIGIFLOW_PREFLIGHT",
+      `This file carries ${cases.length} ICSRs; a validated VigiFlow import accepts at most ${MAX_ICSRS_PER_BATCH}.`,
+      `Split the export into files of at most ${MAX_ICSRS_PER_BATCH} cases. splitIntoBatches() in batching.ts already does this; a file this long means it was bypassed.`,
+    ),
+  ];
 }
 
 /**

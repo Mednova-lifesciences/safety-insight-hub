@@ -184,6 +184,9 @@ export interface PVPatient {
    *  which ages are assumed — it matters most for paediatric AEFI data,
    *  where "2" may well mean months. */
   ageUnitAssumed?: boolean | undefined;
+  /** D.2.2b provenance — the full trail behind whatever ageUnit now holds.
+   *  Present whenever the unit was not simply read from the source. */
+  ageUnitCorrection?: AgeUnitCorrection | undefined;
   /** D.2.1 — date of birth, ISO 8601 (YYYY-MM-DD). Only ever what the
    *  source stated: never computed backwards from an age, because an age
    *  in whole years names a 365-day range of possible birth dates and
@@ -202,6 +205,44 @@ export interface PVPatient {
    *  for review and nothing is emitted. See deriveAgeGroup for the
    *  derivation that is ready to switch on once the codelist is supplied. */
   ageGroupVerbatim?: string | undefined;
+}
+
+/**
+ * D.2.2b — the audit trail for an age unit the source did not state.
+ *
+ * The rule this exists to enforce: the source's own value is never
+ * overwritten. `original` is what the file said (often nothing at all),
+ * `proposed` is what the application suggested, `final` is what will be
+ * exported, and `confirmedByUser` records whether a person actually
+ * agreed. An export carrying `confirmedByUser: false` is carrying an
+ * assumption, and says so.
+ */
+export interface AgeUnitCorrection {
+  /** Exactly what the source's age-unit cell held. Undefined when the
+   *  file had no such column — which is the common case, and is different
+   *  from a cell that was present and empty. */
+  original?: string | undefined;
+  /** What the application put forward, as an E2B age-unit code. */
+  proposed: NonNullable<PVPatient["ageUnit"]>;
+  /** What is actually exported. Equals `proposed` unless a person chose
+   *  something else. */
+  final: NonNullable<PVPatient["ageUnit"]>;
+  /** Where `final` came from:
+   *   - "source"    the file stated it in its own column
+   *   - "age-cell"  the unit was written inside the age value itself
+   *   - "profile"   the source profile declares this form's unit
+   *   - "default"   nothing stated it; the years default applied
+   *   - "user"      a person corrected it */
+  basis: "source" | "age-cell" | "profile" | "default" | "user";
+  /** Plain-language reason, shown next to the value for review. */
+  reason: string;
+  /** How much weight the basis deserves. "low" is correct for the years
+   *  default: it is a policy, not evidence. */
+  confidence: "high" | "medium" | "low";
+  /** True only when a person actually confirmed or chose this value. */
+  confirmedByUser: boolean;
+  /** When the person confirmed it, ISO 8601. */
+  confirmedAt?: string | undefined;
 }
 
 /** D.2.2b — the ICH-constrained UCUM symbol for each E2B age-unit code.

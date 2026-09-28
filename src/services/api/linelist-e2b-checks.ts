@@ -24,12 +24,23 @@ import {
 /** Decided on the E2B page or in Settings, never by editing a line list. */
 const NOT_A_LINELIST_CONCERN = new Set([
   "E2B-C1.3-UNRESOLVED", // report type — Settings
+  // The VigiFlow preflight reports the same missing report type from its
+  // own layer. It is the same configuration gap as E2B-C1.3-UNRESOLVED
+  // above and is fixed in the same place, so it does not belong on the
+  // line-list page either: no edit to any row can supply it.
+  "VIGIFLOW-REPORT-TYPE-MISSING",
   "E2B-C1.7-UNRESOLVED", // expedited-criteria decision — E2B page
   "E2B-C3.2-UNRESOLVED", // sender organisation — Settings
   // Same root cause already reported by E2B-REPORTER-MISSING /
   // E2B-REPORTER-QUALIFICATION-UNRESOLVED; one finding per problem.
   "VIGIFLOW-REPORTER-QUALIFICATION-MISSING",
   "VIGIFLOW-REPORTER-QUALIFICATION-UNRESOLVED",
+  // Same root cause as E2B-PRODUCT-MISSING, which already reports it in
+  // the words of the person fixing the file. The other half of this
+  // check — products present but none characterised as suspect — cannot
+  // arise from a line list at all, since the mapper characterises every
+  // mapped product as suspect; it exists for cases built by other means.
+  "VIGIFLOW-SUSPECT-DRUG-MISSING",
 ]);
 
 interface Presentation {

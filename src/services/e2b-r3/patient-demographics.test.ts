@@ -267,18 +267,20 @@ describe("age group", () => {
     expect(pvCase.patient.ageGroupVerbatim).toBe("Infant");
   });
 
-  it("derives D.2.3 from a normalized age and unit when no source-reported group is present", async () => {
+  it("holds no age group when the source reported none", async () => {
     const { pvCase } = await caseFor({ age: "18", age_unit: "years" });
     expect(pvCase.patient.age).toBe("18");
     expect(pvCase.patient.ageUnit).toBe("801");
     expect(pvCase.patient.ageGroupVerbatim).toBeUndefined();
   });
 
-  it("emits the official D.2.3 code when the age and unit are valid", async () => {
+  it("emits no D.2.3 for a precise age, because it is the reporter's to state", async () => {
+    // Two independent reasons this element is absent: no reporter stated
+    // a group, and a precise age (D.2.2) outranks the group anyway.
     const xml = await xmlFor({ age: "18", age_unit: "years" });
-    expect(xml).toContain('displayName="ageGroup"');
-    expect(xml).toContain("2.16.840.1.113883.3.989.2.1.1.9");
-    expect(xml).toContain('code="5"');
+    expect(xml).not.toContain('displayName="ageGroup"');
+    expect(xml).not.toContain("2.16.840.1.113883.3.989.2.1.1.9");
+    expect(xml).toContain('<value xsi:type="PQ" value="18" unit="a"/>');
   });
 });
 

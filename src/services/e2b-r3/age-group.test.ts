@@ -11,6 +11,7 @@ import { serializeBatchToXml } from "./serializer";
 import { genericVerbatimProfile } from "./source-profiles/generic-verbatim";
 import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
 import { UNCONFIRMED_DEFAULT_CONFIG, type E2bTransmissionConfig } from "./transmission-config";
+import type { PVPatient } from "./types";
 
 /**
  * D.2.3.
@@ -46,7 +47,9 @@ describe("the application ships with the official D.2.3 codelist and MedNova bou
   });
 
   it("derives the correct group from a normalized age and unit", () => {
-    expect(resolveAgeGroup({ age: "50", ageUnit: "801", allowDerivation: true })?.band.code).toBe("5");
+    expect(resolveAgeGroup({ age: "50", ageUnit: "801", allowDerivation: true })?.band.code).toBe(
+      "5",
+    );
     expect(resolveAgeGroup({ reportedVerbatim: "Adult" })?.band.code).toBe("5");
   });
 });
@@ -186,7 +189,9 @@ describe("the official MedNova D.2.3 boundary rules", () => {
     ["216", "802", "5"],
     ["780", "802", "6"],
   ])("age %s in unit %s resolves to code %s", (age, unit, code) => {
-    expect(deriveAgeGroup(age, unit as any, AGE_GROUP_CODELIST)?.code).toBe(code);
+    expect(
+      deriveAgeGroup(age, unit as NonNullable<PVPatient["ageUnit"]>, AGE_GROUP_CODELIST)?.code,
+    ).toBe(code);
   });
 
   it("does not infer Foetus from a positive age", () => {
@@ -195,14 +200,14 @@ describe("the official MedNova D.2.3 boundary rules", () => {
   });
 });
 
-describe("the serializer emits D.2.3 when the age and unit are valid", () => {
+describe("the serializer does NOT derive D.2.3 from a precise age", () => {
   const CONFIG: E2bTransmissionConfig = {
     ...UNCONFIRMED_DEFAULT_CONFIG,
     sender: { organization: "MedNova", identifier: "MEDNOVA-SND" },
     receiver: { identifier: "NAFDAC-RCV" },
   };
 
-  it("serializes the derived D.2.3 value for an 18-year-old", async () => {
+  it("emits the age but no age group for an 18-year-old", async () => {
     const { pvCase } = await mapSourceRecordToPVCase(
       {
         case_id: "OG-STRESS-001",
@@ -224,8 +229,12 @@ describe("the serializer emits D.2.3 when the age and unit are valid", () => {
       receiverId: "NAFDAC-RCV",
       transmissionTimestamp: new Date("2026-09-23T00:00:00Z"),
     });
-    expect(xml).toContain('codeSystem="2.16.840.1.113883.3.989.2.1.1.9"');
-    expect(xml).toContain('code="5"');
+    // D.2.3 is "as per reporter" and is the LEAST precise of the three
+    // age elements. This row states a precise age and no group, so the
+    // age travels and the group does not — computing "Adult" from 18
+    // years would put a statement in the reporter's mouth.
     expect(xml).toContain('<value xsi:type="PQ" value="18" unit="a"/>');
+    expect(xml).not.toContain('displayName="ageGroup"');
+    expect(xml).not.toContain('codeSystem="2.16.840.1.113883.3.989.2.1.1.9"');
   });
 });

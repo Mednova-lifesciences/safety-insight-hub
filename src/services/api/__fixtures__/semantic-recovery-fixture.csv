@@ -1,0 +1,6 @@
+Case ID,Patient Name,Patient Age,Sex,Date of Birth,Product,Vaccine Batch,Outcome,Reporter Name,Report Date
+CASE-A,23,ADEOLA TEST,Female,2003-01-01,Test Vaccine A,BATCH-A001,Recovered,Dr Ada Okafor,2026-09-20
+CASE-B,CHUKWU TEST,Female,23,1999-02-02,Test Vaccine B,BATCH-B002,Recovered,Nurse Grace Bello,2026-09-20
+CASE-C,23,Female,ADEOLA TEST,2003-01-01,Test Vaccine C,BATCH-C003,Recovered,Dr Ada Okafor,2026-09-20
+CASE-D,ADEOLA TEST,23,Female,2003-01-01,Test Vaccine D,BATCH-D004,Recovered,Dr Ada Okafor,2026-09-20
+CASE-E,23,Female,23,2003-01-01,Test Vaccine E,BATCH-E005,Recovered,Dr Ada Okafor,2026-09-20

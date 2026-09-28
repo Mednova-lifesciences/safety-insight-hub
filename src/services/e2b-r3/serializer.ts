@@ -62,7 +62,7 @@ import { AGE_UNIT_UCUM, PATIENT_RECORD_NUMBER_OIDS } from "./types";
 import { normalizeDosage } from "./mapping";
 import { WHODRUG_GLOBAL_RID_OID } from "./coding-provider";
 import { e2bOutcomeCode } from "./outcome-codes";
-import { AGE_GROUP_CODE_SYSTEM, resolveAgeGroup } from "./age-group";
+import { AGE_GROUP_CODE_SYSTEM, resolveAgeGroupForExport } from "./age-group";
 
 /**
  * An HL7 `uid` for a local, document-internal identifier.
@@ -211,25 +211,6 @@ function normalizeDoseUnit(unit: string): string | undefined {
   return cleaned;
 }
 
-function parseDoseQuantity(
-  value: string,
-): { value: string; unit?: string } | { nullFlavor: "UNK"; originalText: string } | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-
-  const normalized = normalizeDosage(trimmed);
-  if (!normalized) return undefined;
-  if (normalized.dosageText) {
-    return { nullFlavor: "UNK", originalText: normalized.dosageText };
-  }
-  if (typeof normalized.quantity === "number" || typeof normalized.quantity === "string") {
-    const parsed = { value: String(normalized.quantity) } as { value: string; unit?: string };
-    if (normalized.unit) parsed.unit = normalized.unit;
-    return parsed;
-  }
-  return undefined;
-}
-
 function serializeDrugComponent(p: PVProduct): string {
   const id = esc(localUid(p.id));
   const productValue =
@@ -243,25 +224,32 @@ function serializeDrugComponent(p: PVProduct): string {
     p.product.status === "MAPPED" && p.product.rid
       ? `<id root="${WHODRUG_GLOBAL_RID_OID}" extension="${esc(p.product.rid)}"/>`
       : "";
+  // G.k.4.r.10. The ICH route-of-administration codelist is not in this
+  // repository, so the element carries the reporter's own words and says
+  // plainly that the code is unknown. Without the nullFlavor this is a
+  // coded element asserting a code it does not have, which is a different
+  // and stronger claim than the source supports.
   const route = p.route
-    ? `<routeCode><originalText>${esc(p.route)}</originalText></routeCode>`
+    ? `<routeCode nullFlavor="UNK"><originalText>${esc(p.route)}</originalText></routeCode>`
     : "";
+  // G.k.4.r.1 (amount) and G.k.4.r.8 (dosage text) are two different
+  // elements in two different places in the HL7 Act sequence: `text`
+  // comes early, doseQuantity comes late. Emitting the text where the
+  // quantity goes is a schema violation, and did produce one — two
+  // artifacts failed ICH XSD validation on
+  // "Element text: This element is not expected. Expected is one of
+  // doseQuantity, rateQuantity, doseCheckQuantity..." — so the two are
+  // built separately here and placed separately below.
   const normalizedDose = p.doseNormalized ?? (p.dose ? normalizeDosage(p.dose) : undefined);
-  const dose =
+  const doseQuantity =
     normalizedDose && normalizedDose.quantity !== undefined && normalizedDose.unit
       ? `<doseQuantity value="${esc(String(normalizedDose.quantity))}" unit="${esc(normalizedDose.unit)}"/>`
-      : normalizedDose && normalizedDose.dosageText
-        ? `<text>${esc(normalizedDose.dosageText)}</text>`
-        : p.dose
-          ? (() => {
-              const parsedDose = parseDoseQuantity(p.dose);
-              return parsedDose && "value" in parsedDose
-                ? `<doseQuantity value="${esc(parsedDose.value)}"${parsedDose.unit ? ` unit="${esc(parsedDose.unit)}"` : ""}/>`
-                : parsedDose && "nullFlavor" in parsedDose
-                  ? `<text>${esc(parsedDose.originalText)}</text>`
-                  : "";
-            })()
-          : "";
+      : "";
+  // Anything the source said that is not a measured amount — "1st",
+  // "booster", "1 of 3" — is preserved verbatim as dosage text rather
+  // than being forced into a quantity it is not.
+  const doseTextValue = doseQuantity ? undefined : (normalizedDose?.dosageText ?? p.dose);
+  const doseText = doseTextValue ? `<text>${esc(doseTextValue)}</text>` : "";
   const batch = p.batchNumber
     ? `<consumable typeCode="CSM"><instanceOfKind classCode="INST"><productInstanceInstance classCode="MMAT" determinerCode="INSTANCE"><lotNumberText>${esc(p.batchNumber)}</lotNumberText></productInstanceInstance></instanceOfKind></consumable>`
     : "";
@@ -269,8 +257,8 @@ function serializeDrugComponent(p: PVProduct): string {
     ? `<effectiveTime xsi:type="IVL_TS"><low value="${toHl7Ts(p.startDate)}"/></effectiveTime>`
     : "";
   return `<component typeCode="COMP"><substanceAdministration classCode="SBADM" moodCode="EVN"><id root="${id}"/><consumable typeCode="CSM"><instanceOfKind classCode="INST"><kindOfProduct classCode="MMAT" determinerCode="KIND">${ridEl}${productValue}<name>${esc(p.product.sourceValue)}</name></kindOfProduct></instanceOfKind></consumable>${
-    route || dose || batch || startDate
-      ? `<outboundRelationship2 typeCode="COMP"><substanceAdministration classCode="SBADM" moodCode="EVN">${startDate}${route}${dose}${batch}</substanceAdministration></outboundRelationship2>`
+    route || doseQuantity || doseText || batch || startDate
+      ? `<outboundRelationship2 typeCode="COMP"><substanceAdministration classCode="SBADM" moodCode="EVN">${doseText}${startDate}${route}${doseQuantity}${batch}</substanceAdministration></outboundRelationship2>`
       : ""
   }</substanceAdministration></component>`;
 }
@@ -353,14 +341,13 @@ export function serializeCaseToMessage(
   const birthTime = pvCase.patient.dateOfBirth
     ? `<birthTime value="${toHl7Ts(pvCase.patient.dateOfBirth)}"/>`
     : "";
-  // D.2.3 — emitted only when a configured codelist resolves a group.
-  // Ships unresolved: see age-group.ts for the codelist that is missing
-  // and why nothing is invented in its place.
-  const ageGroupBand = resolveAgeGroup({
+  // D.2.3 — what the REPORTER said, and only when neither D.2.1 nor
+  // D.2.2 carries something more precise. Never computed from the age:
+  // see resolveAgeGroupForExport for both rules and where they come from.
+  const ageGroupBand = resolveAgeGroupForExport({
     reportedVerbatim: pvCase.patient.ageGroupVerbatim,
-    age: pvCase.patient.age,
-    ageUnit: pvCase.patient.ageUnit,
-    allowDerivation: true,
+    hasDateOfBirth: !!pvCase.patient.dateOfBirth,
+    hasPreciseAge: !!(pvCase.patient.age && pvCase.patient.ageUnit),
   });
   const ageGroup = ageGroupBand
     ? `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><code code="4" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="ageGroup"/><value xsi:type="CE" code="${esc(ageGroupBand.band.code)}" codeSystem="${AGE_GROUP_CODE_SYSTEM}" codeSystemVersion="1.0"/></observation></subjectOf2>`
