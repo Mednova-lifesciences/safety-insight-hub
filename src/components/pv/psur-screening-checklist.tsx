@@ -24,6 +24,7 @@ import {
   returnsToMah,
   screeningCheck,
 } from "@/services/psur/screening-checklist";
+import { missingSubmissionDetails } from "@/services/psur/screening-directive";
 import type {
   PsurAdministrativeScreening,
   PsurDocument,
@@ -70,6 +71,10 @@ export function PsurScreeningChecklist({
     stored?.outcome?.mahResponseDeadline ?? "",
   );
   const [nextDue, setNextDue] = useState(stored?.outcome?.nextPsurDueDate ?? "");
+  // Recomputed as the officer types, so filling a field in above makes it
+  // disappear from the warning immediately — the same list the directive
+  // will carry.
+  const missingDetails = missingSubmissionDetails(details);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState<PsurScreeningOutcomeDecision | null>(null);
 
@@ -387,6 +392,40 @@ export function PsurScreeningChecklist({
                 automatically.
               </p>
             </div>
+
+            {/* Section A gaps, surfaced where the decision is made rather
+                than only at the top of the form. An officer scrolling
+                straight to the outcome buttons would otherwise sign a
+                directive whose header reads "Not stated in the submission"
+                without having registered it. These now appear in the
+                letter too, so this is a preview of what the MAH will be
+                asked for — not a blocker: a detail may legitimately be
+                absent, and the decision stays the officer's. */}
+            {missingDetails.length > 0 ? (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                  <AlertTriangle className="size-3.5 text-amber-600" />
+                  {missingDetails.length} submission detail
+                  {missingDetails.length === 1 ? " was" : "s were"} not found in the document
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  These are section A particulars, not checklist items, so they do not affect the
+                  count of failing checks. Each will be listed in the directive under
+                  &ldquo;Submission details not stated&rdquo; with a request to supply it. Fill any
+                  in above if you can read them off the paperwork.
+                </p>
+                <ul className="mt-2 flex flex-wrap gap-1.5">
+                  {missingDetails.map((f) => (
+                    <li
+                      key={f.key}
+                      className="rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+                    >
+                      {f.label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
             {/* Labelled with what the decision DOES, with the form's own
                 wording underneath. An officer looking for "proceed to

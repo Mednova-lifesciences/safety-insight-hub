@@ -1,4 +1,9 @@
-import type { PsurDocument, PsurScreeningCheckId, PsurScreeningCheckItem } from "@/types/pv";
+import type {
+  PsurDocument,
+  PsurScreeningCheckId,
+  PsurScreeningCheckItem,
+  PsurSubmissionDetails,
+} from "@/types/pv";
 import {
   OUTCOME_LABELS,
   STATUS_LABELS,
@@ -71,6 +76,12 @@ export interface ScreeningDirectiveModel {
    *  because "we could not tell" is often itself a request for
    *  information, and the MAH should know which. */
   unresolvedRows: ScreeningDirectiveRow[];
+  /** Section A details the submission never stated, each with what the MAH
+   *  must do to supply it. Separate from the checklist rows because these
+   *  are not checklist items: they are the identifying particulars the
+   *  letter's own header is built from, and a header reading "Not stated in
+   *  the submission" seven times told the MAH nothing about what to send. */
+  missingDetailRows: { label: string; action: string }[];
 
   officerName: string;
   signedAt: string;
@@ -120,6 +131,104 @@ const REQUIRED_ACTION: Record<PsurScreeningCheckId, string> = {
   PREVIOUS_QUERIES_ADDRESSED:
     "Address each query and commitment raised in NAFDAC's previous assessment of this product, stating where in the report the response appears.",
 };
+
+/**
+ * Section A of the checklist — the submission's identifying details — and
+ * what the MAH must do when one of them is blank.
+ *
+ * These are NOT the sixteen checks. A field here is something that should
+ * have been readable off the submitted document; blank means it was not
+ * found. Until this existed, a blank one appeared in the directive's header
+ * as "Not stated in the submission" and nowhere else: the MAH could see
+ * that NAFDAC had not found their QPPV's telephone number, but was never
+ * asked to supply it, and four of the fields (QPPV, QPPV contact, IBD and
+ * the first registration date) did not reach the letter at all.
+ *
+ * The actions are fixed per field for the same reason the checklist's are:
+ * a directive is acted on, and the same gap should ask for the same thing
+ * in every letter.
+ */
+const SUBMISSION_DETAIL_REQUIREMENTS: {
+  key: keyof PsurSubmissionDetails;
+  label: string;
+  action: string;
+}[] = [
+  {
+    key: "productName",
+    label: "Product name (including strength and dosage form)",
+    action:
+      "State the product name, strength(s) and dosage form(s) on the cover letter and title page, written exactly as they appear on the NAFDAC certificate.",
+  },
+  {
+    key: "activeSubstance",
+    label: "Active substance",
+    action:
+      "State the active substance (INN) on the title page. One PSUR is required per active substance.",
+  },
+  {
+    key: "nafdacRegNo",
+    label: "NAFDAC Registration Number",
+    action:
+      "State the NAFDAC Registration Number for each registered presentation on the cover letter and title page.",
+  },
+  {
+    key: "mah",
+    label: "Marketing Authorisation Holder",
+    action: "State the full name and address of the Marketing Authorisation Holder.",
+  },
+  {
+    key: "qppv",
+    label: "Qualified Person for Pharmacovigilance",
+    action:
+      "Name the Nigerian QPPV (and Deputy QPPV where appointed) on the cover letter and title page.",
+  },
+  {
+    key: "qppvContact",
+    label: "QPPV telephone and e-mail",
+    action:
+      "State the QPPV's telephone number and e-mail address, and confirm they match the details held on NAFDAC's record.",
+  },
+  {
+    key: "ibd",
+    label: "International Birth Date",
+    action: "State the International Birth Date on the title page.",
+  },
+  {
+    key: "firstNafdacRegistrationDate",
+    label: "Date of first NAFDAC registration",
+    action: "State the date of first registration in Nigeria on the title page.",
+  },
+  {
+    key: "dlp",
+    label: "Data Lock Point",
+    action:
+      "State the Data Lock Point for this reporting interval. Without it neither the interval nor the submission's timeliness can be verified.",
+  },
+  {
+    key: "intervalCovered",
+    label: "Reporting interval covered",
+    action:
+      "State the reporting interval covered by this PSUR, and confirm it follows on from the previous one without gap or overlap.",
+  },
+];
+
+/**
+ * The Section A fields this submission did not supply.
+ *
+ * Read-only: it reports what is blank, and never fills anything in. A
+ * detail nobody could find is a finding, and inventing a plausible NAFDAC
+ * registration number to fill a gap would be far worse than the gap.
+ *
+ * dateReceived is deliberately excluded — the system took the upload, so it
+ * always knows that one, and it is not something an MAH can supply.
+ */
+export function missingSubmissionDetails(
+  details: PsurSubmissionDetails,
+): { key: string; label: string; action: string }[] {
+  return SUBMISSION_DETAIL_REQUIREMENTS.filter((f) => !String(details[f.key] ?? "").trim()).map(
+    (f) => ({ key: String(f.key), label: f.label, action: f.action }),
+  );
+}
 
 function rowsFor(
   checks: PsurScreeningCheckItem[],
@@ -176,6 +285,10 @@ export function buildScreeningDirectiveModel(doc: PsurDocument): ScreeningDirect
 
     failedRows: rowsFor(checks, "NO"),
     unresolvedRows: rowsFor(checks, "NOT_ASSESSABLE"),
+    missingDetailRows: missingSubmissionDetails(details).map((f) => ({
+      label: f.label,
+      action: f.action,
+    })),
 
     officerName: outcome?.officerName || outcome?.by || "",
     signedAt: outcome?.at ?? "",
