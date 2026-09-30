@@ -1172,6 +1172,24 @@ function renderScreeningDirectiveText(m: ScreeningDirectiveModel): string {
     }
   }
 
+  // Section A gaps. Placed with the other things the MAH must act on,
+  // because that is what they are: the header above says "Not stated in
+  // the submission" for each of these, and on its own that told the MAH
+  // what NAFDAC could not find without ever asking them to supply it.
+  if (m.missingDetailRows.length > 0) {
+    lines.push("SUBMISSION DETAILS NOT STATED");
+    lines.push("-".repeat(72));
+    lines.push("The following particulars could not be found in the submission as received.");
+    lines.push("Each must be supplied with your response.");
+    lines.push("");
+    for (const r of m.missingDetailRows) {
+      lines.push(`NOT STATED — ${r.label}`);
+      lines.push("  ACTION REQUIRED");
+      lines.push(indent(r.action, 4));
+      lines.push("");
+    }
+  }
+
   lines.push("SCREENING OFFICER");
   lines.push("-".repeat(72));
   lines.push(`Name:   ${m.officerName || "Not recorded"}`);
@@ -1236,6 +1254,36 @@ function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
           deficiencyTable(m.unresolvedRows, "What was looked for"),
         ];
 
+  // Section A gaps, as their own two-column table. Not folded into the
+  // checklist tables above: these are not checklist items and have no item
+  // number, and giving them a fabricated one would misrepresent the form.
+  const missingDetailParagraphs =
+    m.missingDetailRows.length === 0
+      ? []
+      : [
+          docxHeading("Submission details not stated"),
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: "The following particulars could not be found in the submission as received. Each must be supplied with your response.",
+                italics: true,
+              }),
+            ],
+          }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+              new TableRow({
+                tableHeader: true,
+                children: [headerCell("Detail not stated"), headerCell("Action required")],
+              }),
+              ...m.missingDetailRows.map(
+                (r) => new TableRow({ children: [cell(r.label), cell(r.action)] }),
+              ),
+            ],
+          }),
+        ];
+
   return new Document({
     sections: [
       {
@@ -1286,6 +1334,7 @@ function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
           new Paragraph({ text: "" }),
 
           ...unresolvedParagraphs,
+          ...missingDetailParagraphs,
           new Paragraph({ text: "" }),
 
           docxHeading("Screening officer"),
