@@ -1,10 +1,14 @@
 import type {
+  AssessmentMemoModel,
   AssessmentSection,
+  CiomsMatrix,
+  CiomsRubric,
   MemoCriterion,
   MemoCriterionId,
   PsurSubmissionDetails,
   PsurV4SectionId,
 } from "@/types/pv";
+import { matrixTotals, PROVISIONAL_CIOMS_RUBRIC } from "./cioms";
 import { renderableEvidence } from "./evidence";
 
 /**
@@ -159,4 +163,66 @@ export function evidenceCriteria(sections: AssessmentSection[]): MemoCriterion[]
       unestablished: entries.length === 0,
     };
   });
+}
+
+export interface AssessmentMemoInput {
+  referenceNumber: string;
+  memoDate: string;
+  to: string;
+  from: string;
+  signatory: string;
+  productNameAndStrength: string;
+  therapeuticCategory: string;
+  details: PsurSubmissionDetails;
+  sections: AssessmentSection[];
+  matrix: CiomsMatrix;
+  /** The band the assessor confirmed. Empty until they do. */
+  confirmedBandLabel: string;
+  /** The verdict the assessor confirmed. Empty until they do. */
+  confirmedVerdict: string;
+  analysisOfMatrix: string;
+  conclusion: string;
+  rubric?: CiomsRubric | undefined;
+}
+
+/**
+ * The whole memo, ready to render.
+ *
+ * Returns null when the matrix cannot be totalled: the memo compares the
+ * three totals to reach a benefit-risk conclusion, so a document missing
+ * one of them invites a comparison against a blank.
+ *
+ * `bandLabel` and `benefitRiskVerdict` are the assessor's CONFIRMED
+ * values and nothing else. The rubric's proposals (bandFor, proposeVerdict)
+ * are offered in the UI; they never reach the document on their own. See
+ * the spec's section 6.
+ */
+export function buildAssessmentMemoModel(
+  input: AssessmentMemoInput,
+): AssessmentMemoModel | null {
+  const totals = matrixTotals(input.matrix);
+  if (!totals) return null;
+  const rubric = input.rubric ?? PROVISIONAL_CIOMS_RUBRIC;
+  return {
+    referenceNumber: input.referenceNumber,
+    memoDate: input.memoDate,
+    to: input.to,
+    from: input.from,
+    subject:
+      "Submission of Periodic Safety Update Report (PSUR) for " +
+      input.productNameAndStrength,
+    productNameAndStrength: input.productNameAndStrength,
+    signatory: input.signatory,
+    criteria: [
+      ...factualCriteria(input.details, input.therapeuticCategory),
+      ...evidenceCriteria(input.sections),
+    ],
+    matrix: input.matrix,
+    totals,
+    bandLabel: input.confirmedBandLabel.trim(),
+    benefitRiskVerdict: input.confirmedVerdict.trim(),
+    analysisOfMatrix: input.analysisOfMatrix,
+    conclusion: input.conclusion,
+    provisionalRubricUsed: rubric.provisional,
+  };
 }

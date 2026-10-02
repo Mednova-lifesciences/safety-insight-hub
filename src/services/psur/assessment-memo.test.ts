@@ -180,3 +180,76 @@ describe("the evidence criteria", () => {
     ]);
   });
 });
+
+import { buildAssessmentMemoModel } from "./assessment-memo";
+import type { CiomsMatrix } from "@/types/pv";
+
+function matrix(): CiomsMatrix {
+  return {
+    epidemiologyOfDisease: { seriousness: 2, duration: 2, incidence: 2 },
+    effectivenessOfProduct: { seriousness: 3, duration: 3, incidence: 0 },
+    adrs: [{ reaction: "Seizures", scores: { seriousness: 2, duration: 1, incidence: 1 } }],
+  };
+}
+
+function input(overrides: Record<string, unknown> = {}) {
+  return {
+    referenceNumber: "NAFDAC/PV/GCIOMS/455/III",
+    memoDate: "2026-09-17",
+    to: "D (Drug R&R)",
+    from: "D (PV)",
+    signatory: "Director (PV)",
+    productNameAndStrength: "Tramadol-50 (Tramadol 50mg) Capsule",
+    therapeuticCategory: "Narcotic Analgesic",
+    details: details(),
+    sections: [] as AssessmentSection[],
+    matrix: matrix(),
+    confirmedBandLabel: "",
+    confirmedVerdict: "",
+    analysisOfMatrix: "",
+    conclusion: "",
+    ...overrides,
+  };
+}
+
+describe("the assembled memo", () => {
+  it("carries all eleven criteria in form order", () => {
+    const m = buildAssessmentMemoModel(input())!;
+    expect(m.criteria).toHaveLength(11);
+    expect(m.criteria.map((c) => c.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  });
+
+  it("computes the totals rather than taking them", () => {
+    const m = buildAssessmentMemoModel(input())!;
+    expect(m.totals).toEqual({ epidemiology: 6, effectiveness: 6, adrs: [4] });
+  });
+
+  it("records that a provisional rubric was used", () => {
+    expect(buildAssessmentMemoModel(input())!.provisionalRubricUsed).toBe(true);
+  });
+
+  it("leaves band and verdict EMPTY until the assessor confirms them", () => {
+    const m = buildAssessmentMemoModel(input())!;
+    expect(m.bandLabel).toBe("");
+    expect(m.benefitRiskVerdict).toBe("");
+  });
+
+  it("uses the assessor's confirmed band and verdict when given", () => {
+    const m = buildAssessmentMemoModel(
+      input({ confirmedBandLabel: "Medium", confirmedVerdict: "Positive Benefit-Risk Balance" }),
+    )!;
+    expect(m.bandLabel).toBe("Medium");
+    expect(m.benefitRiskVerdict).toBe("Positive Benefit-Risk Balance");
+  });
+
+  it("refuses to build when a score is invalid", () => {
+    const bad = matrix();
+    bad.adrs[0]!.scores.seriousness = -1;
+    expect(buildAssessmentMemoModel(input({ matrix: bad }))).toBeNull();
+  });
+
+  it("keeps the reference number exactly as the assessor completed it", () => {
+    const m = buildAssessmentMemoModel(input())!;
+    expect(m.referenceNumber).toBe("NAFDAC/PV/GCIOMS/455/III");
+  });
+});
