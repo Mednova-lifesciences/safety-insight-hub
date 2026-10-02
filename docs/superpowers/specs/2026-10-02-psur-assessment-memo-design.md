@@ -168,6 +168,14 @@ The render. Carries the memo header fields (reference number, date, To,
 From, signatory) plus the projected criteria, matrix, analysis and
 conclusion.
 
+**Reference number.** Pre-filled with the fixed prefix `NAFDAC/PV/GCIOMS/`
+and completed by the assessor at generation time — in the supplied example
+they would type `455/III`. The number itself is **never generated**: it
+belongs to NAFDAC's own registry sequence, and a system-invented reference
+on a signed memo would be worse than an unfilled one. The prefix is
+configuration, not a literal, so a directorate with a different prefix
+changes a setting rather than the code.
+
 ## 6. The CIOMS rubric — provisional by design
 
 Two statements in the example depend on a rubric nobody has supplied:
@@ -292,13 +300,20 @@ MAH feedback. That line inverts.
 1. The real CIOMS rubric — scale meaning, band boundaries, verdict rule.
    Until then §6 applies.
 2. Programmatic VigiFlow access (§7).
-3. Whether the memo reference number (`NAFDAC/PV/GCIOMS/455/III`) is
-   system-generated or assigned by the registry.
-4. Timeliness calibration: the example's interval ends 12 Nov 2024 and was
-   received 3 Sep 2026 — about 660 days after the data lock point, which
-   our screening item 8 fails hard against the 70/90-day rule. Either the
-   rule is applied differently on this route, or that submission was very
-   late. Worth confirming before item 8 blocks real work.
+3. Timeliness calibration. The example's interval ends 12 Nov 2024 and it
+   was received 3 Sep 2026 — about 660 days after the data lock point, so
+   screening item 8 computes NO against the 70/90-day rule. Either the rule
+   is applied differently on this route, or that submission was very late;
+   NAFDAC has not said which.
+
+   **This does not block anything**, and an earlier draft of this document
+   wrongly implied it might. Item 8 is one of the sixteen screening checks:
+   a NO makes it one of the "N of 16 failing", and the screening outcome
+   remains the Review Officer's explicit decision, never defaulted from the
+   count (see `PsurAdministrativeScreening.outcome` — "Undefined until the
+   officer actually decides"). So a late submission shows as a failing item
+   and the officer still chooses whether it proceeds. Nothing needs
+   changing unless NAFDAC says the window differs for this route.
 
 ## 14. Testing
 
