@@ -63,3 +63,15 @@ graphify-out/
 # Temporary extraction of the ICH schema set for XSD validation.
 # The authoritative copy is the zip under regulatory-assets/e2b-r3/official-ich/.
 .tmp-ich-schema/
+
+# Real PSUR/PBRER submissions and NAFDAC assessment memos. Same rule as the
+# line lists and ICSR exports above: these carry a real product, a real MAH
+# and named officials, and a signed internal memo carries a registry
+# reference number too. Put received submissions in submissions/ so they
+# are ignored by default rather than by remembering to add each filename.
+#
+# NOT a blanket *.docx rule: the templates and specs in this repo
+# (docs/NAFDAC_PSUR_Template_V4_Proposed.docx, the developer spec, the
+# screening checklist) are legitimately tracked and must stay that way.
+/submissions/
+JUSTEEN TRAMADOL 50 CAPSULE PSUR REPORT BY JUSTEEN PHARM R..docx
