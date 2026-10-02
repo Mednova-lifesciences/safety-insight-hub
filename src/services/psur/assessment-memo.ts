@@ -1,4 +1,11 @@
-import type { MemoCriterion, MemoCriterionId, PsurSubmissionDetails } from "@/types/pv";
+import type {
+  AssessmentSection,
+  MemoCriterion,
+  MemoCriterionId,
+  PsurSubmissionDetails,
+  PsurV4SectionId,
+} from "@/types/pv";
+import { renderableEvidence } from "./evidence";
 
 /**
  * The memo's review-criteria table.
@@ -90,4 +97,66 @@ export function factualCriteria(
     criterion("INTERNATIONAL_BIRTH_DATE", details.ibd),
     criterion("NIGERIA_BIRTH_DATE", details.firstNafdacRegistrationDate),
   ];
+}
+
+/**
+ * Which working sections feed which memo criterion.
+ *
+ * This mapping IS the projection the spec's section 4 describes: the 14
+ * PsurV4SectionId sections remain the surface where evidence is gathered,
+ * and the memo's narrower table is rendered from them. A criterion may
+ * draw on more than one section.
+ *
+ * ADMIN_SCREENING appears nowhere: it is the screening step's own record,
+ * not assessment evidence, and the memo must not quote a screening note
+ * as though an assessor had researched it.
+ */
+export const CRITERION_SECTIONS: Record<MemoCriterionId, PsurV4SectionId[]> = {
+  PRODUCT_IDENTITY: [],
+  REPORTING_INTERVAL: [],
+  THERAPEUTIC_CATEGORY: [],
+  DATE_RECEIVED: [],
+  INTERNATIONAL_BIRTH_DATE: [],
+  NIGERIA_BIRTH_DATE: [],
+  RSI_CHANGES: ["S4_RSI"],
+  WORLDWIDE_ACTIONS: ["S2_WORLDWIDE_STATUS", "S5_EXPOSURE_ACTIONS"],
+  PATIENT_EXPOSURE: ["S5_EXPOSURE_ACTIONS", "S7_AGGREGATE_SAFETY_DATA"],
+  RELEVANT_STUDIES: ["S6_LITERATURE", "S3_THERAPEUTIC_CONTEXT"],
+  OVERALL_SAFETY_EVALUATION: ["S8_SIGNAL_EVALUATION", "S10_BENEFIT_RISK", "S11_UNCERTAINTIES"],
+};
+
+const EVIDENCE_CRITERIA: MemoCriterionId[] = [
+  "RSI_CHANGES",
+  "WORLDWIDE_ACTIONS",
+  "PATIENT_EXPOSURE",
+  "RELEVANT_STUDIES",
+  "OVERALL_SAFETY_EVALUATION",
+];
+
+/**
+ * Criteria 7-11, projected from the evidence accepted under their
+ * sections.
+ *
+ * Only accepted, cited entries contribute (renderableEvidence). An entry
+ * that passes those gates but carries no actual text contributes nothing
+ * either — a row reading as established while saying nothing is worse
+ * than one that admits it is empty.
+ */
+export function evidenceCriteria(sections: AssessmentSection[]): MemoCriterion[] {
+  const byId = new Map(sections.map((s) => [s.section, s]));
+  return EVIDENCE_CRITERIA.map((id) => {
+    const entries = CRITERION_SECTIONS[id]
+      .flatMap((sectionId) => renderableEvidence(byId.get(sectionId)?.evidence ?? []))
+      .filter((e) => e.content.trim().length > 0);
+    const remarks = entries.map((e) => e.content.trim()).join("\n\n");
+    const def = MEMO_CRITERIA.find((c) => c.id === id)!;
+    return {
+      id,
+      number: def.number,
+      label: def.label,
+      remarks: remarks || NOT_ESTABLISHED,
+      citations: entries.map((e) => e.citation.trim()),
+      unestablished: entries.length === 0,
+    };
+  });
 }
