@@ -61,3 +61,70 @@ describe("matrix totals", () => {
     expect(matrixTotals(m)).toEqual({ epidemiology: 6, effectiveness: 6, adrs: [] });
   });
 });
+
+import { bandFor, PROVISIONAL_CIOMS_RUBRIC, proposeVerdict } from "./cioms";
+import type { CiomsRubric } from "@/types/pv";
+
+describe("the provisional rubric", () => {
+  it("is marked provisional and says where it came from", () => {
+    expect(PROVISIONAL_CIOMS_RUBRIC.provisional).toBe(true);
+    expect(PROVISIONAL_CIOMS_RUBRIC.provenance.toLowerCase()).toContain("provisional");
+    expect(PROVISIONAL_CIOMS_RUBRIC.provenance).toContain("Tramadol");
+  });
+
+  it("labels the supplied memo's total of 6 as medium", () => {
+    // The memo reads "a medium efficacy score of 6".
+    expect(bandFor(6)?.label.toLowerCase()).toBe("medium");
+  });
+
+  // Review Focus 4.
+  it("returns no label for a total in no band, rather than the nearest", () => {
+    const narrow: CiomsRubric = {
+      provenance: "test",
+      provisional: true,
+      bands: [{ label: "Low", min: 0, max: 2 }],
+    };
+    expect(bandFor(9, narrow)).toBeUndefined();
+  });
+
+  it("returns no label when no rubric is configured at all", () => {
+    const none: CiomsRubric = { provenance: "test", provisional: true, bands: [] };
+    expect(bandFor(6, none)).toBeUndefined();
+  });
+
+  it("treats band bounds as inclusive", () => {
+    const r: CiomsRubric = {
+      provenance: "test",
+      provisional: true,
+      bands: [
+        { label: "Low", min: 0, max: 3 },
+        { label: "High", min: 4 },
+      ],
+    };
+    expect(bandFor(3, r)?.label).toBe("Low");
+    expect(bandFor(4, r)?.label).toBe("High");
+  });
+});
+
+describe("proposing a verdict", () => {
+  it("proposes positive when every ADR total is below the epidemiology total", () => {
+    // The memo's own reasoning: 5 & 4 & 5 against 6.
+    const out = proposeVerdict({ epidemiology: 6, effectiveness: 6, adrs: [5, 4, 5] });
+    expect(out?.verdict).toBe("Positive Benefit-Risk Balance");
+    expect(out?.reasoning).toContain("6");
+  });
+
+  it("does not propose positive when an ADR total reaches the epidemiology total", () => {
+    const out = proposeVerdict({ epidemiology: 6, effectiveness: 6, adrs: [5, 6] });
+    expect(out?.verdict).not.toBe("Positive Benefit-Risk Balance");
+  });
+
+  it("proposes nothing when no ADR has been scored", () => {
+    expect(proposeVerdict({ epidemiology: 6, effectiveness: 6, adrs: [] })).toBeUndefined();
+  });
+
+  it("proposes nothing when the rubric carries no verdict rule", () => {
+    const noRule: CiomsRubric = { provenance: "test", provisional: true, bands: [] };
+    expect(proposeVerdict({ epidemiology: 6, effectiveness: 6, adrs: [5] }, noRule)).toBeUndefined();
+  });
+});
