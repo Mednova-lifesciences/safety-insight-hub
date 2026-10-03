@@ -2,6 +2,7 @@ import {
   Document,
   HeadingLevel,
   Packer,
+  PageBreak,
   Paragraph,
   Table,
   TableCell,
@@ -15,6 +16,7 @@ import { isSpreadsheetFile, mapColumnsByKeywords, parseTabularFile } from "./tab
 import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import type {
+  AssessmentMemoModel,
   PsurAdministrativeCheck,
   PsurAiRecommendation,
   PsurBenefitRiskAssessment,
@@ -3132,3 +3134,212 @@ export const psur = {
     );
   },
 };
+
+
+/**
+ * NAFDAC's internal assessment memo.
+ *
+ * One document, two parts, exactly as the supplied example is laid out: a
+ * covering memo, then the report it refers to as its attachment. The
+ * screening directive goes to the MAH and demands a response; this goes to
+ * another directorate and does not.
+ */
+export function renderAssessmentMemoText(m: AssessmentMemoModel): string {
+  const rule = "=".repeat(72);
+  const thin = "-".repeat(72);
+  const lines: string[] = [];
+
+  lines.push("National Agency for Food and Drug Administration and Control");
+  lines.push("Pharmacovigilance Directorate");
+  lines.push("INTERNAL MEMO");
+  lines.push(rule);
+  lines.push(`${m.referenceNumber}        ${m.memoDate}`);
+  lines.push("");
+  lines.push(`To:     ${m.to}`);
+  lines.push(`From:   ${m.from}`);
+  lines.push("");
+  lines.push(`SUBJECT: ${m.subject}`);
+  lines.push("");
+  lines.push("The above subject matter refers, please.");
+  lines.push("");
+  lines.push("I hereby forward, as an attachment to this memo, the report of the review of");
+  lines.push("the PSUR for the above-mentioned medicinal product for your attention.");
+  lines.push("");
+  lines.push("Thank you,");
+  lines.push("");
+  lines.push(m.signatory);
+  lines.push("");
+  lines.push("");
+
+  lines.push("THE REPORT OF THE REVIEW");
+  lines.push(rule);
+  lines.push(`Product name and strength: ${m.productNameAndStrength}`);
+  lines.push("");
+
+  lines.push("REVIEW CRITERIA");
+  lines.push(thin);
+  for (const c of m.criteria) {
+    lines.push(`${c.number}. ${c.label}`);
+    lines.push(indent(c.remarks, 4));
+    for (const citation of c.citations) {
+      lines.push(indent(`Source: ${citation}`, 4));
+    }
+    lines.push("");
+  }
+
+  lines.push("SUMMARY TABLE 1: ICH AND CIOMS PRINCIPLE");
+  lines.push(thin);
+  lines.push(`Epidemiology of Disease     total ${m.totals.epidemiology}`);
+  lines.push(`Effectiveness of Product    total ${m.totals.effectiveness}`);
+  m.matrix.adrs.forEach((adr, i) => {
+    lines.push(`${adr.reaction.padEnd(27)} total ${m.totals.adrs[i]}`);
+  });
+  if (m.provisionalRubricUsed) {
+    lines.push("");
+    lines.push("NOTE: a PROVISIONAL scoring rubric was in force for this assessment. Any band");
+    lines.push("label and benefit-risk conclusion below were confirmed by the assessor, not");
+    lines.push("derived from an authoritative NAFDAC rubric.");
+  }
+  lines.push("");
+
+  if (m.analysisOfMatrix) {
+    lines.push("ANALYSIS OF MATRIX");
+    lines.push(thin);
+    if (m.bandLabel) lines.push(`Efficacy band: ${m.bandLabel}`);
+    lines.push(m.analysisOfMatrix);
+    lines.push("");
+  }
+
+  if (m.conclusion) {
+    lines.push("CONCLUSION");
+    lines.push(thin);
+    if (m.benefitRiskVerdict) lines.push(m.benefitRiskVerdict);
+    lines.push(m.conclusion);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * The same memo as a Word file.
+ *
+ * A real page break between the memo and the report, because the supplied
+ * example has one and the two parts are read as separate pages.
+ */
+export function buildAssessmentMemoDocx(m: AssessmentMemoModel): Document {
+  const criteriaTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        tableHeader: true,
+        children: [headerCell("S/N"), headerCell("Review Criteria"), headerCell("Remarks")],
+      }),
+      ...m.criteria.map(
+        (c) =>
+          new TableRow({
+            children: [
+              cell(String(c.number)),
+              cell(c.label),
+              cell(
+                c.citations.length > 0
+                  ? `${c.remarks}\n\nSource(s): ${c.citations.join("; ")}`
+                  : c.remarks,
+              ),
+            ],
+          }),
+      ),
+    ],
+  });
+
+  const matrixTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        tableHeader: true,
+        children: [headerCell("Column"), headerCell("Total")],
+      }),
+      new TableRow({
+        children: [cell("Epidemiology of Disease"), cell(String(m.totals.epidemiology))],
+      }),
+      new TableRow({
+        children: [cell("Effectiveness of Product"), cell(String(m.totals.effectiveness))],
+      }),
+      ...m.matrix.adrs.map(
+        (adr, i) =>
+          new TableRow({ children: [cell(adr.reaction), cell(String(m.totals.adrs[i]))] }),
+      ),
+    ],
+  });
+
+  return new Document({
+    sections: [
+      {
+        children: [
+          new Paragraph({
+            text: "National Agency for Food and Drug Administration and Control",
+            heading: HeadingLevel.HEADING_2,
+          }),
+          new Paragraph({ text: "Pharmacovigilance Directorate" }),
+          docxHeading("Internal Memo"),
+          docxLabelValue("Ref", m.referenceNumber),
+          docxLabelValue("Date", m.memoDate),
+          docxLabelValue("To", m.to),
+          docxLabelValue("From", m.from),
+          docxLabelValue("Subject", m.subject),
+          new Paragraph({ text: "" }),
+          new Paragraph({ text: "The above subject matter refers, please." }),
+          new Paragraph({
+            text:
+              "I hereby forward, as an attachment to this memo, the report of the review " +
+              "of the PSUR for the above-mentioned medicinal product for your attention.",
+          }),
+          new Paragraph({ text: "" }),
+          new Paragraph({ text: "Thank you," }),
+          new Paragraph({ text: m.signatory }),
+          new Paragraph({ children: [new PageBreak()] }),
+
+          docxHeading("The report of the review"),
+          docxLabelValue("Product name and strength", m.productNameAndStrength),
+          new Paragraph({ text: "" }),
+          criteriaTable,
+          new Paragraph({ text: "" }),
+          docxHeading("Summary Table 1: ICH and CIOMS Principle", HeadingLevel.HEADING_2),
+          matrixTable,
+          ...(m.provisionalRubricUsed
+            ? [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text:
+                        "Note: a provisional scoring rubric was in force for this " +
+                        "assessment. Any band label and benefit-risk conclusion were " +
+                        "confirmed by the assessor, not derived from an authoritative " +
+                        "NAFDAC rubric.",
+                      italics: true,
+                    }),
+                  ],
+                }),
+              ]
+            : []),
+          ...(m.analysisOfMatrix
+            ? [
+                docxHeading("Analysis of Matrix", HeadingLevel.HEADING_2),
+                ...(m.bandLabel ? [docxLabelValue("Efficacy band", m.bandLabel)] : []),
+                new Paragraph({ text: m.analysisOfMatrix }),
+              ]
+            : []),
+          ...(m.conclusion
+            ? [
+                docxHeading("Conclusion", HeadingLevel.HEADING_2),
+                ...(m.benefitRiskVerdict
+                  ? [new Paragraph({ text: m.benefitRiskVerdict })]
+                  : []),
+                new Paragraph({ text: m.conclusion }),
+              ]
+            : []),
+        ],
+      },
+    ],
+  });
+}
