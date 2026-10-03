@@ -662,6 +662,13 @@ export interface PsurDocument {
   /** Extracted PDF text retained so scientific review can be run by the
    * evaluator after the Review Officer hands the document onward. */
   extractedText?: string | undefined;
+  /** The assessment's working sections and the cited evidence under them.
+   *  Undefined until an assessor records something; the memo renders from
+   *  these via the projection in assessment-memo.ts. */
+  assessmentSections?: AssessmentSection[] | undefined;
+  /** The ICH/CIOMS scoring matrix for this assessment, carrying who last
+   *  changed a score and when. */
+  ciomsMatrix?: CiomsMatrix | undefined;
   /** Administrative Completeness Check — runs immediately at upload,
    *  before detailed scientific review. Distinct pass, distinct data;
    *  never collapsed into the findings list. Absent on documents

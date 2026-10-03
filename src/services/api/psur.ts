@@ -17,6 +17,8 @@ import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import type {
   AssessmentMemoModel,
+  AssessmentSection,
+  CiomsMatrix,
   PsurAdministrativeCheck,
   PsurAiRecommendation,
   PsurBenefitRiskAssessment,
@@ -1827,6 +1829,47 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
 }
 
 export const psur = {
+  /**
+   * Appends or replaces one working section's record.
+   *
+   * Replaces by section id, so re-saving a section does not accumulate
+   * duplicates — but the EVIDENCE inside it is append-only (see
+   * psur/evidence.ts): a corrected entry arrives as a new entry carrying
+   * `supersedes`, never as an edit over the old one.
+   */
+  saveAssessmentSection: async (
+    documentId: string,
+    section: AssessmentSection,
+  ): Promise<PsurDocument> => {
+    const doc = await readDocument(documentId);
+    const existing = doc.assessmentSections ?? [];
+    const next = [...existing.filter((s) => s.section !== section.section), section];
+    return saveDocument({ ...doc, assessmentSections: next });
+  },
+
+  /**
+   * Records a CIOMS matrix, stamping who changed it and when.
+   *
+   * The stamp is not optional bookkeeping: a changed benefit-risk input is
+   * what an audit asks about first, and both the Evaluator and the Peer
+   * Reviewer may change one (see canEditCiomsMatrix in psur/workflow.ts).
+   */
+  saveCiomsMatrix: async (
+    documentId: string,
+    matrix: CiomsMatrix,
+    editedBy: string,
+  ): Promise<PsurDocument> => {
+    const doc = await readDocument(documentId);
+    return saveDocument({
+      ...doc,
+      ciomsMatrix: {
+        ...matrix,
+        lastEditedBy: editedBy,
+        lastEditedAt: new Date().toISOString(),
+      },
+    });
+  },
+
   documents: async (): Promise<PsurDocument[]> => {
     const { data, error } = await supabase.from("pv_psur_documents").select("data");
     if (error) throw new Error(error.message);
