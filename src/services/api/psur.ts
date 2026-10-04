@@ -3570,17 +3570,23 @@ function memoRun(text: string, opts: { bold?: boolean; italics?: boolean; size?:
 
 function memoPara(
   text: string,
-  opts: { bold?: boolean; italics?: boolean; size?: number; center?: boolean; after?: number } = {},
+  opts: {
+    bold?: boolean;
+    italics?: boolean;
+    size?: number;
+    center?: boolean;
+    after?: number;
+    keepNext?: boolean;
+  } = {},
 ): Paragraph {
   return new Paragraph({
     children: [memoRun(text, opts)],
     ...(opts.center ? { alignment: AlignmentType.CENTER } : {}),
+    ...(opts.keepNext ? { keepNext: true } : {}),
     spacing: { after: opts.after ?? 120 },
   });
 }
 
-/** A table cell holding several paragraphs; each "\n"-separated line of
- *  each block becomes its own paragraph, so Word keeps the line breaks. */
 /** The text width of the default A4 page with 1-inch margins, in twips.
  *  Column widths are fixed in twips because Word ignores percentage cell
  *  widths and squeezes the criteria column to a word or two per line. */
@@ -3596,15 +3602,20 @@ function memoTable(rows: TableRow[], percents: number[]): Table {
   });
 }
 
+/** A table cell holding several paragraphs; each "\n"-separated line of
+ *  each block becomes its own paragraph, so Word keeps the line breaks. */
 function memoCell(
   blocks: { text: string; bold?: boolean; italics?: boolean }[],
   width?: number,
+  keepNext = false,
 ): TableCell {
   const paragraphs = blocks.flatMap((b, i) => {
     const ps = b.text
       .split("\n")
-      .map((line) => memoPara(line, { bold: !!b.bold, italics: !!b.italics, after: 60 }));
-    return i < blocks.length - 1 && b.text ? [...ps, memoPara("", { after: 0 })] : ps;
+      .map((line) =>
+        memoPara(line, { bold: !!b.bold, italics: !!b.italics, after: 60, keepNext }),
+      );
+    return i < blocks.length - 1 && b.text ? [...ps, memoPara("", { after: 0, keepNext })] : ps;
   });
   return new TableCell({
     children: paragraphs.length > 0 ? paragraphs : [memoPara("")],
@@ -3666,6 +3677,7 @@ export function buildAssessmentMemoDocx(m: AssessmentMemoModel): Document {
             memoCell(
               [{ text: value, bold: r === 0 || c === 0 || r === grid.length - 1 }],
               MATRIX_COLUMNS[c],
+              r < grid.length - 1,
             ),
           ),
         }),
@@ -3719,7 +3731,7 @@ export function buildAssessmentMemoDocx(m: AssessmentMemoModel): Document {
           memoPara(m.productNameAndStrength, { after: 200 }),
           criteriaTable,
           memoPara("", { after: 200 }),
-          memoPara("Summary Table 1: ICH and CIOMS PRINCIPLE", { bold: true }),
+          memoPara("Summary Table 1: ICH and CIOMS PRINCIPLE", { bold: true, keepNext: true }),
           matrixTable,
           ...(m.provisionalRubricUsed
             ? [
