@@ -6,6 +6,7 @@ import type {
   EvidenceSourceType,
   MemoCriterionId,
   PsurDocument,
+  PsurOverallBenefitRiskOutcome,
   PsurSubmissionDetails,
   PsurV4SectionId,
 } from "@/types/pv";
@@ -150,7 +151,10 @@ export function defaultMemoDraft(doc: PsurDocument, today: Date = new Date()): A
     answers: {},
     overallSafetyEnumeration: "",
     bandConfirmed: "",
-    verdictConfirmed: "",
+    // Starts from the Evaluator's own Section 12 decision — a person's
+    // decision, not the rubric's proposal — so the two documents agree
+    // unless someone deliberately changes one.
+    verdictConfirmed: verdictFromSection12(doc) ?? "",
     analysisOfMatrix:
       "Following an expert in-house review of the safety and efficacy profile of the above " +
       "medicinal product, we have established the following:",
@@ -194,6 +198,49 @@ export function memoInputFromDocument(
 
 /** What blocks generating the memo, in the assessor's words. Empty when
  *  nothing does. Warnings are separate: they inform, they do not block. */
+/**
+ * The memo's wording for each Section 12 outcome.
+ *
+ * The supplied NAFDAC memo concludes "Positive Benefit-Risk Balance", so a
+ * favourable outcome is worded that way; the others follow the same form.
+ * The outcome itself is recorded once, in Section 12 — this only words it.
+ */
+export const OUTCOME_VERDICT: Record<PsurOverallBenefitRiskOutcome, string> = {
+  FAVOURABLE: "Positive Benefit-Risk Balance",
+  FAVOURABLE_WITH_CONDITIONS: "Positive Benefit-Risk Balance, subject to conditions",
+  UNCERTAIN_REQUIRES_FOLLOWUP: "Benefit-Risk Balance uncertain, requiring follow-up",
+  UNFAVOURABLE: "Negative Benefit-Risk Balance",
+};
+
+/** The memo verdict implied by the Section 12 decision, if one was made. */
+export function verdictFromSection12(doc: PsurDocument): string | undefined {
+  const outcome = doc.regulatoryDecision?.overallOutcome;
+  return outcome ? OUTCOME_VERDICT[outcome] : undefined;
+}
+
+/**
+ * Things worth knowing before generating that do not block it.
+ *
+ * A memo verdict that differs from Section 12 is allowed — the assessor may
+ * have a reason — but it would put two different benefit-risk conclusions
+ * on the record for one report, so it is said out loud.
+ */
+export function memoWarnings(doc: PsurDocument, draft: AssessmentMemoDraft): string[] {
+  const out: string[] = [];
+  const fromSection12 = verdictFromSection12(doc);
+  const verdict = draft.verdictConfirmed.trim();
+  if (fromSection12 && verdict && verdict !== fromSection12) {
+    out.push(
+      `The memo's verdict ("${verdict}") differs from the Section 12 outcome ` +
+        `("${fromSection12}"). Make them agree, or be sure the difference is intended.`,
+    );
+  }
+  if (!doc.regulatoryDecision?.overallOutcome) {
+    out.push("Section 12 has no overall benefit-risk outcome recorded yet.");
+  }
+  return out;
+}
+
 export function memoBlockers(
   draft: AssessmentMemoDraft,
   matrix: CiomsMatrix | undefined,
