@@ -220,11 +220,29 @@ describe("buildRequiredAction — grounded, non-invented instructions", () => {
 });
 
 describe("buildComplianceDirectiveModel — narrower, action-oriented, MAH-facing only", () => {
-  it("scenario: accepted-but-resolved deficiencies do NOT appear in the action table", () => {
+  it("a gap NAFDAC resolved itself is STILL reported to the MAH, marked as resolved", () => {
+    // NAFDAC (2026-09-30): evaluators fill gaps themselves, and the MAH is
+    // still told so it supplies the information next cycle. This used to be
+    // the opposite — resolved items were left out.
     const resolved = mahFinding({ id: "pf-resolved", resolved: true, resolution: "RSI supplied." });
     const model = buildComplianceDirectiveModel(baseDoc(), [resolved]);
-    expect(model.deficiencies).toHaveLength(0);
+    expect(model.deficiencies).toHaveLength(1);
+    expect(model.deficiencies[0]!.status).toBe("RESOLVED_BY_NAFDAC");
     expect(model.resolvedCount).toBe(1);
+  });
+
+  it("lists unresolved points before resolved ones", () => {
+    const resolvedHigh = mahFinding({ id: "pf-r", severity: "HIGH", resolved: true });
+    const openLow = mahFinding({ id: "pf-o", severity: "LOW" });
+    const model = buildComplianceDirectiveModel(baseDoc(), [resolvedHigh, openLow]);
+    expect(model.deficiencies.map((d) => d.status)).toEqual(["FOR_NEXT_PSUR", "RESOLVED_BY_NAFDAC"]);
+  });
+
+  it("reads as advisory: says no response is required and asks for none", () => {
+    const model = buildComplianceDirectiveModel(baseDoc(), [mahFinding()]);
+    expect(model.introduction).toMatch(/no response to it is required/i);
+    expect(model.introduction).toMatch(/next periodic report/i);
+    expect(model.introduction).not.toMatch(/before the assessment can be finalised/i);
   });
 
   it("scenario: dismissed findings never appear as outstanding MAH requirements", () => {
@@ -251,7 +269,7 @@ describe("buildComplianceDirectiveModel — narrower, action-oriented, MAH-facin
     expect(model.deficiencies).toHaveLength(0);
   });
 
-  it("only accepted, MAH-facing, NOT YET resolved findings appear — and each gets a human-friendly reference, never the raw finding id", () => {
+  it("only accepted, MAH-facing findings appear — and each gets a human-friendly reference, never the raw finding id", () => {
     const a = mahFinding({ id: "pf-real-uuid-aaaa" });
     const b = mahFinding({ id: "pf-real-uuid-bbbb", severity: "LOW", section: "Other section" });
     const model = buildComplianceDirectiveModel(baseDoc(), [a, b]);
@@ -260,7 +278,7 @@ describe("buildComplianceDirectiveModel — narrower, action-oriented, MAH-facin
       expect(d.referenceNo).toMatch(/^DEF-\d+$/);
       expect(d.referenceNo).not.toContain("pf-real-uuid");
     }
-    expect(model.deficiencies.every((d) => d.status === "OUTSTANDING")).toBe(true);
+    expect(model.deficiencies.every((d) => d.status === "FOR_NEXT_PSUR")).toBe(true);
   });
 
   it("orders deficiencies by severity, most severe first", () => {
@@ -539,15 +557,7 @@ describe("Compliance Directive — follow-up dates", () => {
     ...over,
   });
 
-  it("a saved response deadline appears, formatted for a letter", () => {
-    const m = buildComplianceDirectiveModel(
-      baseDoc({ regulatoryDecision: decision({ mahResponseDeadline: "2026-10-31" }) as never }),
-      [],
-    );
-    expect(m.followUp.responseDeadline).toBe("31 October 2026");
-  });
-
-  it("the next PSUR due date is carried separately and never conflated", () => {
+  it("never carries a response deadline — even one saved before the letter became advisory", () => {
     const m = buildComplianceDirectiveModel(
       baseDoc({
         regulatoryDecision: decision({
@@ -557,25 +567,29 @@ describe("Compliance Directive — follow-up dates", () => {
       }),
       [],
     );
-    expect(m.followUp.responseDeadline).toBe("31 October 2026");
+    expect(JSON.stringify(m)).not.toContain("31 October 2026");
+    expect(m.followUp).not.toHaveProperty("responseDeadline");
     expect(m.followUp.nextPsurDueDate).toBe("30 June 2027");
-    expect(m.followUp.responseDeadline).not.toBe(m.followUp.nextPsurDueDate);
   });
 
-  it("a missing date is null, never invented or derived from the other", () => {
+  it("carries the assessor's advice for the next report", () => {
     const m = buildComplianceDirectiveModel(
-      baseDoc({ regulatoryDecision: decision({ nextPsurDueDate: "2027-06-30" }) as never }),
+      baseDoc({
+        regulatoryDecision: decision({
+          followUpRequired: "Include Nigerian case counts reconciled with VigiFlow.",
+        }) as never,
+      }),
       [],
     );
-    expect(m.followUp.responseDeadline).toBeNull();
-    expect(m.followUp.nextPsurDueDate).toBe("30 June 2027");
+    expect(m.followUp.adviceForNextPsur).toBe(
+      "Include Nigerian case counts reconciled with VigiFlow.",
+    );
   });
 
-  it("no regulatory decision at all yields no dates", () => {
+  it("no regulatory decision at all yields no date and no advice", () => {
     const m = buildComplianceDirectiveModel(baseDoc(), []);
-    expect(m.followUp.responseDeadline).toBeNull();
     expect(m.followUp.nextPsurDueDate).toBeNull();
-    expect(m.followUp.informationRequired).toBeNull();
+    expect(m.followUp.adviceForNextPsur).toBeNull();
   });
 });
 
@@ -692,11 +706,13 @@ describe("Executive Summary and Compliance Directive stay consistent", () => {
     expect(buildExecutiveSummaryModel(doc, findings).findings.mahActionCount).toBe(0);
   });
 
-  it("an accepted-but-resolved deficiency leaves the directive but stays counted", () => {
+  it("an accepted-but-resolved deficiency stays in the feedback, marked resolved, and stays counted", () => {
     // Acceptance, resolution and MAH-facing are three different things.
     const doc = baseDoc();
     const findings = [mahFinding({ humanAssessment: "ACCEPTED", resolved: true })];
-    expect(buildComplianceDirectiveModel(doc, findings).deficiencies).toHaveLength(0);
+    const feedback = buildComplianceDirectiveModel(doc, findings);
+    expect(feedback.deficiencies).toHaveLength(1);
+    expect(feedback.deficiencies[0]!.status).toBe("RESOLVED_BY_NAFDAC");
     const exec = buildExecutiveSummaryModel(doc, findings);
     expect(exec.findings.accepted).toBe(1);
     expect(exec.findings.resolvedCount).toBe(1);

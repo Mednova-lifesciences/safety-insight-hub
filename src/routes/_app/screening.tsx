@@ -348,7 +348,7 @@ function TriagedRow({ doc, onOpen }: { doc: PsurDocument; onOpen: () => void }) 
               onClick={() => download("docx")}
             >
               <FileText className="size-4" />{" "}
-              {returnedAtScreening ? "Screening Directive (Word)" : "Compliance Directive (Word)"}
+              {returnedAtScreening ? "Screening Directive (Word)" : "MAH Feedback Letter (Word)"}
             </Button>
             <Button
               size="sm"

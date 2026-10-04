@@ -677,7 +677,7 @@ function PsurPage() {
                           }
                         }}
                       >
-                        <FileText className="size-4" /> Download Compliance Directive (Word)
+                        <FileText className="size-4" /> Download MAH Feedback Letter (Word)
                       </Button>
                       <Button
                         size="sm"
@@ -909,8 +909,8 @@ function PsurPage() {
                             <div className="mt-3 space-y-2 rounded-md border border-border p-2">
                               <p className="text-xs text-muted-foreground">
                                 {requiresMahAction(f)
-                                  ? "This finding will be treated as assessor-internal and removed from the Compliance Directive."
-                                  : "This finding will be treated as requiring MAH action and added to the Compliance Directive."}
+                                  ? "This finding will be treated as assessor-internal and removed from the MAH feedback letter."
+                                  : "This finding will be treated as requiring MAH action and added to the MAH feedback letter."}
                               </p>
                               <Textarea
                                 autoFocus
@@ -2049,9 +2049,9 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
     doc.regulatoryDecision?.supportingFinding ?? "",
   );
   const [nextDue, setNextDue] = useState(doc.regulatoryDecision?.nextPsurDueDate ?? "");
-  const [responseDeadline, setResponseDeadline] = useState(
-    doc.regulatoryDecision?.mahResponseDeadline ?? "",
-  );
+  // No MAH response deadline here: once a report is in scientific review it
+  // never goes back to the MAH for a response (NAFDAC, 2026-09-30). The
+  // deadline belongs to the Review Officer's screening directive alone.
   const [followUp, setFollowUp] = useState(doc.regulatoryDecision?.followUpRequired ?? "");
   const [saving, setSaving] = useState(false);
 
@@ -2064,7 +2064,6 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
         basis,
         supportingFinding: supportingFinding || undefined,
         nextPsurDueDate: nextDue || undefined,
-        mahResponseDeadline: responseDeadline || undefined,
         followUpRequired: followUp || undefined,
       });
       toast.success("Regulatory decision recorded.");
@@ -2161,32 +2160,20 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
           />
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            {/* Two distinct obligations — when the MAH must answer THIS
-                directive, and when the next periodic report falls due.
-                Neither is ever derived from the other. */}
-            <p className="label-caps mb-1">MAH response deadline</p>
-            <Input
-              type="date"
-              value={responseDeadline}
-              onChange={(e) => setResponseDeadline(e.target.value)}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Printed on the Compliance Directive as the date the MAH must respond by.
-            </p>
-          </div>
-          <div>
-            <p className="label-caps mb-1">Next PSUR/PBRER resubmission date</p>
-            <Input type="date" value={nextDue} onChange={(e) => setNextDue(e.target.value)} />
-            <p className="mt-1 text-xs text-muted-foreground">
-              The next reporting cycle — not the deadline for answering this assessment.
-            </p>
-          </div>
+        <div className="sm:max-w-xs">
+          <p className="label-caps mb-1">Next PSUR/PBRER due date</p>
+          <Input type="date" value={nextDue} onChange={(e) => setNextDue(e.target.value)} />
+          <p className="mt-1 text-xs text-muted-foreground">
+            When the next periodic report falls due. Printed on the MAH feedback letter.
+          </p>
         </div>
         <div>
-          <p className="label-caps mb-1">Follow-up information required</p>
-          <Input value={followUp} onChange={(e) => setFollowUp(e.target.value)} />
+          <p className="label-caps mb-1">Advice to the MAH for the next PSUR</p>
+          <Textarea rows={3} value={followUp} onChange={(e) => setFollowUp(e.target.value)} />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Advisory only — printed on the MAH feedback letter, which asks for no response. Gaps
+            you resolved during this assessment are listed in that letter automatically.
+          </p>
         </div>
 
         {doc.regulatoryDecision ? (

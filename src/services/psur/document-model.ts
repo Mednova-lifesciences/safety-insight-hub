@@ -285,8 +285,18 @@ export interface ComplianceDeficiencyRow {
    *  the MAH against the derivation — recorded so the directive shows a
    *  human made that call, never presenting it as a system classification. */
   ownershipOverride: { by: string; atLabel: string; rationale: string } | null;
-  status: "OUTSTANDING";
+  /** RESOLVED_BY_NAFDAC: the gap was the MAH's, but NAFDAC filled it during
+   *  the assessment — still reported, because the MAH should supply it
+   *  themselves next time (decision 3 in the assessment-memo design).
+   *  FOR_NEXT_PSUR: not resolved; the MAH should address it in the next
+   *  report. Neither asks for a response to this letter. */
+  status: "FOR_NEXT_PSUR" | "RESOLVED_BY_NAFDAC";
 }
+
+export const FEEDBACK_STATUS_LABEL: Record<ComplianceDeficiencyRow["status"], string> = {
+  FOR_NEXT_PSUR: "Address in the next PSUR",
+  RESOLVED_BY_NAFDAC: "Resolved by NAFDAC during this assessment — supply it in the next PSUR",
+};
 
 /**
  * A specific, grounded instruction for what the MAH must supply/correct —
@@ -409,14 +419,14 @@ export interface ComplianceDirectiveModel {
     decidedBy: string;
     decidedAtLabel: string;
   } | null;
-  /** Dates the MAH needs, kept strictly apart: one is when they must answer
-   *  THIS directive, the other is when the next periodic report falls due.
-   *  Either is null when the assessor has not recorded it — never inferred
-   *  from the other, and never defaulted to a computed date. */
+  /** Next-cycle guidance. There is deliberately NO response deadline: once a
+   *  report is in scientific review it never goes back to the MAH for a
+   *  response (confirmed with NAFDAC, 2026-09-30) — that is the Review
+   *  Officer's screening directive, which keeps its own deadline. Null when
+   *  the assessor has not recorded it; never defaulted. */
   followUp: {
-    responseDeadline: string | null;
     nextPsurDueDate: string | null;
-    informationRequired: string | null;
+    adviceForNextPsur: string | null;
   };
   /** Closing signature block, from the assessor's own Section 13 record.
    *  Every field is null until actually signed; nothing here is invented.
@@ -462,17 +472,22 @@ function fmtDueDate(value: string | undefined): string | null {
 }
 
 /**
- * Builds the MAH-facing directive from the assessor's FINALIZED state —
- * never raw AI output. Only findings the assessor has ACCEPTED, that
- * genuinely require MAH action (see requiresMahAction in
- * finding-ownership.ts — NOT the suggestedSource category, which answers
- * the unrelated "where could I go look for this evidence" question),
- * and that are NOT YET resolved appear in the action table — accepting a
- * finding records it as a valid deficiency, it does not by itself mean
- * it's been fixed, and a resolved deficiency has nothing left for the
- * MAH to do. Assessor-internal observations (no MAH-facing source) never
- * appear here even if accepted — see this module's own doc comment above:
- * those belong in the Executive Summary, not the directive.
+ * Builds the MAH feedback letter — advisory, next-cycle — from the
+ * assessor's FINALIZED state, never raw AI output.
+ *
+ * Once a report is in scientific review it never goes back to the MAH for a
+ * response (confirmed with NAFDAC, 2026-09-30): evaluators resolve gaps
+ * themselves and the MAH receives only advice for its next report. So this
+ * letter carries no deadline and asks for no reply. (Kept under its old
+ * name, ComplianceDirective, to avoid churning every caller.)
+ *
+ * Every ACCEPTED finding that only the MAH could have supplied (see
+ * requiresMahAction in finding-ownership.ts — NOT the suggestedSource
+ * category) is listed, RESOLVED ONES INCLUDED and marked as resolved by
+ * NAFDAC: a gap NAFDAC filled is still a gap in the submission. This
+ * reverses the earlier "resolved items are not restated" behaviour.
+ * Assessor-internal observations never appear here even if accepted; they
+ * belong in the Executive Summary.
  */
 export function buildComplianceDirectiveModel(
   doc: PsurDocument,
@@ -480,11 +495,18 @@ export function buildComplianceDirectiveModel(
 ): ComplianceDirectiveModel {
   const accepted = allFindings.filter((f) => f.humanAssessment === "ACCEPTED");
   const dismissed = allFindings.filter((f) => f.humanAssessment === "DISMISSED");
-  const outstandingMahAction = accepted.filter((f) => requiresMahAction(f) && !f.resolved);
+  // Resolved gaps stay in: a gap NAFDAC filled by its own research is still
+  // something the MAH should have supplied, and is reported so they supply
+  // it next time. Unresolved first, then by severity.
+  const mahItems = accepted.filter((f) => requiresMahAction(f));
   const resolved = accepted.filter((f) => f.resolved);
 
-  const deficiencies: ComplianceDeficiencyRow[] = outstandingMahAction
-    .sort((a, b) => severityRank(b.severity) - severityRank(a.severity))
+  const deficiencies: ComplianceDeficiencyRow[] = mahItems
+    .sort(
+      (a, b) =>
+        Number(!!a.resolved) - Number(!!b.resolved) ||
+        severityRank(b.severity) - severityRank(a.severity),
+    )
     .map((f, i) => ({
       referenceNo: `DEF-${i + 1}`,
       v4SectionLabel: f.v4Section
@@ -511,7 +533,7 @@ export function buildComplianceDirectiveModel(
               rationale: f.actionOwnerOverride.rationale,
             }
           : null,
-      status: "OUTSTANDING",
+      status: f.resolved ? ("RESOLVED_BY_NAFDAC" as const) : ("FOR_NEXT_PSUR" as const),
     }));
 
   const mahFacingActions = (doc.regulatoryDecision?.actions ?? []).filter((a) =>
@@ -527,9 +549,10 @@ export function buildComplianceDirectiveModel(
     introduction:
       `This PSUR/PBRER submission for ${doc.product}, covering the reporting period ` +
       `${doc.reportingPeriod}, has been assessed by NAFDAC pharmacovigilance against the ` +
-      `Agency's PSUR/PBRER evaluation requirements. The deficiencies set out in this directive ` +
-      `require clarification, correction, additional information or supporting evidence from the ` +
-      `Marketing Authorisation Holder before the assessment can be finalised.`,
+      `Agency's PSUR/PBRER evaluation requirements. This letter is advisory: no response to it ` +
+      `is required. It sets out where the submission fell short of those requirements, ` +
+      `including gaps NAFDAC resolved through its own research during the assessment, so that ` +
+      `the Marketing Authorisation Holder can address them in its next periodic report.`,
     deficiencies,
     regulatoryContext:
       doc.regulatoryDecision && mahFacingActions.length > 0
@@ -547,9 +570,10 @@ export function buildComplianceDirectiveModel(
           }
         : null,
     followUp: {
-      responseDeadline: fmtDueDate(doc.regulatoryDecision?.mahResponseDeadline),
+      // mahResponseDeadline may still be stored on reports assessed before
+      // this letter became advisory; it is deliberately not read.
       nextPsurDueDate: fmtDueDate(doc.regulatoryDecision?.nextPsurDueDate),
-      informationRequired: doc.regulatoryDecision?.followUpRequired?.trim() || null,
+      adviceForNextPsur: doc.regulatoryDecision?.followUpRequired?.trim() || null,
     },
     signatory: {
       evaluatorName: doc.signOff?.evaluatorName?.trim() || null,

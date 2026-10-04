@@ -125,6 +125,7 @@ import {
 } from "@/services/psur/section-consistency";
 import {
   buildComplianceDirectiveModel,
+  FEEDBACK_STATUS_LABEL,
   buildExecutiveSummaryModel,
   SUGGESTED_SOURCE_LABEL,
   type ComplianceDirectiveModel,
@@ -1405,10 +1406,28 @@ function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
   });
 }
 
+/** The closing note. Resolved gaps are now IN the letter (marked as
+ *  resolved by NAFDAC), so only dismissed findings are left out. */
+function feedbackFootnote(m: ComplianceDirectiveModel): string {
+  const parts: string[] = [];
+  if (m.resolvedCount > 0) {
+    parts.push(
+      `${m.resolvedCount} of the points above ${m.resolvedCount === 1 ? "was" : "were"} resolved ` +
+        `by NAFDAC during this assessment and ${m.resolvedCount === 1 ? "is" : "are"} included ` +
+        `so the information can be supplied in the next report.`,
+    );
+  }
+  if (m.dismissedCount > 0) {
+    parts.push(`${m.dismissedCount} finding(s) judged not applicable are not included.`);
+  }
+  return parts.length > 0 ? `Note: ${parts.join(" ")}` : "";
+}
+
 function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
   const lines: string[] = [];
   const rule = "-".repeat(60);
-  lines.push("PSUR/PBRER COMPLIANCE DIRECTIVE (DRAFT)");
+  lines.push("PSUR/PBRER ASSESSMENT — FEEDBACK TO THE MARKETING AUTHORISATION HOLDER");
+  lines.push("Advisory, for the next reporting cycle. No response to this letter is required.");
   lines.push("=".repeat(60));
   lines.push(DOC_DISCLAIMER);
   lines.push("");
@@ -1422,10 +1441,10 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
   lines.push(rule);
   lines.push(m.introduction);
   lines.push("");
-  lines.push(`DEFICIENCIES REQUIRING MAH ACTION (${m.deficiencies.length})`);
+  lines.push(`POINTS FOR THE NEXT PSUR (${m.deficiencies.length})`);
   lines.push(rule);
   if (m.deficiencies.length === 0) {
-    lines.push("No outstanding MAH-facing deficiencies at this time.");
+    lines.push("No shortcomings in the submission were identified for the MAH to address.");
   }
   for (const d of m.deficiencies) {
     lines.push(
@@ -1433,7 +1452,7 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
     );
     lines.push(`  What was identified: ${d.whatWasIdentified}`);
     lines.push(`  Why this matters: ${d.whyMaterial}`);
-    lines.push(`  Required action: ${d.requiredAction}`);
+    lines.push(`  For the next PSUR: ${d.requiredAction}`);
     if (d.assessorObservation) lines.push(`  Assessor observation: ${d.assessorObservation}`);
     if (d.suggestedSource) {
       lines.push(`  Suggested source: ${d.suggestedSource.label} — ${d.suggestedSource.note}`);
@@ -1447,24 +1466,19 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
       lines.push(
         `  Referred to the MAH by assessor decision: ${d.ownershipOverride.by} on ${d.ownershipOverride.atLabel} — ${d.ownershipOverride.rationale}`,
       );
-    lines.push(`  Status: ${d.status}`);
+    lines.push(`  Status: ${FEEDBACK_STATUS_LABEL[d.status]}`);
     lines.push("");
   }
   if (m.regulatoryContext) {
-    lines.push("REGULATORY CONTEXT");
+    lines.push("REGULATORY OUTCOME");
     lines.push(rule);
     lines.push(`Overall benefit-risk outcome: ${m.regulatoryContext.overallOutcome}`);
-    lines.push(`Actions requested of the MAH: ${m.regulatoryContext.mahFacingActions.join(", ")}`);
+    lines.push(`Recommended to the MAH: ${m.regulatoryContext.mahFacingActions.join(", ")}`);
     lines.push(`Basis: ${m.regulatoryContext.basis}`);
     if (m.regulatoryContext.assessorConclusion) {
       lines.push("");
       lines.push("Assessor's conclusion:");
       lines.push(m.regulatoryContext.assessorConclusion);
-      lines.push("");
-      lines.push(
-        "If the Marketing Authorisation Holder disagrees with any part of this assessment, " +
-          "the response should address the specific deficiencies above and the reasoning here.",
-      );
     }
     lines.push(
       `Decided by: ${m.regulatoryContext.decidedBy} on ${m.regulatoryContext.decidedAtLabel}`,
@@ -1472,19 +1486,12 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
     lines.push("");
   }
 
-  // Response deadline and next-PSUR date are separate obligations and are
-  // never derived from one another; each appears only when recorded.
-  if (m.followUp.responseDeadline || m.followUp.nextPsurDueDate || m.followUp.informationRequired) {
-    lines.push("REQUIRED FOLLOW-UP");
+  if (m.followUp.nextPsurDueDate || m.followUp.adviceForNextPsur) {
+    lines.push("FOR THE NEXT REPORTING CYCLE");
     lines.push(rule);
-    if (m.followUp.informationRequired) {
-      lines.push(`Information required: ${m.followUp.informationRequired}`);
-    }
+    if (m.followUp.adviceForNextPsur) lines.push(m.followUp.adviceForNextPsur);
     lines.push(
-      `Response deadline: ${m.followUp.responseDeadline ?? "not specified in this directive"}`,
-    );
-    lines.push(
-      `Next PSUR/PBRER resubmission date: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`,
+      `Next PSUR/PBRER due: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`,
     );
     lines.push("");
   }
@@ -1501,9 +1508,7 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
   lines.push(`Signature: ${m.signatory.peerReviewerName ? "recorded electronically" : "pending"}`);
   lines.push(`Signature SHA: ${m.signatory.peerReviewerSignatureSha ?? "not recorded"}`);
   lines.push("");
-  lines.push(
-    `Note: ${m.resolvedCount} previously-identified deficiency/deficiencies already resolved and ${m.dismissedCount} finding(s) dismissed as not applicable are not restated in this directive.`,
-  );
+  lines.push(feedbackFootnote(m));
   return lines.join("\n");
 }
 
@@ -1738,7 +1743,7 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
                 headerCell("V4 Section"),
                 headerCell("Severity"),
                 headerCell("What was identified / why it matters"),
-                headerCell("Required action"),
+                headerCell("For the next PSUR"),
                 headerCell("Status"),
               ],
             }),
@@ -1765,16 +1770,29 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
                           ? `\n\nReferred to the MAH by assessor decision: ${d.ownershipOverride.by} on ${d.ownershipOverride.atLabel} — ${d.ownershipOverride.rationale}`
                           : ""),
                     ),
-                    cell(d.status),
+                    cell(FEEDBACK_STATUS_LABEL[d.status]),
                   ],
                 }),
             ),
           ],
         })
-      : new Paragraph({ text: "No outstanding MAH-facing deficiencies at this time." });
+      : new Paragraph({
+          text: "No shortcomings in the submission were identified for the MAH to address.",
+        });
 
   const children: (Paragraph | Table)[] = [
-    new Paragraph({ text: "PSUR/PBRER Compliance Directive", heading: HeadingLevel.TITLE }),
+    new Paragraph({
+      text: "PSUR/PBRER Assessment — Feedback to the Marketing Authorisation Holder",
+      heading: HeadingLevel.TITLE,
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: "Advisory, for the next reporting cycle. No response to this letter is required.",
+          bold: true,
+        }),
+      ],
+    }),
     new Paragraph({ children: [new TextRun({ text: DOC_DISCLAIMER, italics: true })] }),
     new Paragraph({ text: "" }),
     docxLabelValue("Product", m.meta.product),
@@ -1786,19 +1804,19 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
     docxHeading("Introduction"),
     new Paragraph({ text: m.introduction }),
     new Paragraph({ text: "" }),
-    docxHeading(`Deficiencies Requiring MAH Action (${m.deficiencies.length})`),
+    docxHeading(`Points for the next PSUR (${m.deficiencies.length})`),
     table,
     new Paragraph({ text: "" }),
   ];
 
   if (m.regulatoryContext) {
     children.push(
-      docxHeading("Regulatory Context"),
+      docxHeading("Regulatory Outcome"),
       new Paragraph({
         text: `Overall benefit-risk outcome: ${m.regulatoryContext.overallOutcome}`,
       }),
       new Paragraph({
-        text: `Actions requested of the MAH: ${m.regulatoryContext.mahFacingActions.join(", ")}`,
+        text: `Recommended to the MAH: ${m.regulatoryContext.mahFacingActions.join(", ")}`,
       }),
       new Paragraph({ text: `Basis: ${m.regulatoryContext.basis}` }),
       ...(m.regulatoryContext.assessorConclusion
@@ -1807,12 +1825,6 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
               children: [new TextRun({ text: "Assessor's conclusion:", bold: true })],
             }),
             new Paragraph({ text: m.regulatoryContext.assessorConclusion }),
-            new Paragraph({
-              text:
-                "If the Marketing Authorisation Holder disagrees with any part of this " +
-                "assessment, the response should address the specific deficiencies above and " +
-                "the reasoning here.",
-            }),
           ]
         : []),
       new Paragraph({
@@ -1822,19 +1834,14 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
     );
   }
 
-  if (m.followUp.responseDeadline || m.followUp.nextPsurDueDate || m.followUp.informationRequired) {
-    children.push(docxHeading("Required follow-up", HeadingLevel.HEADING_2));
-    if (m.followUp.informationRequired) {
-      children.push(
-        new Paragraph({ text: `Information required: ${m.followUp.informationRequired}` }),
-      );
+  if (m.followUp.nextPsurDueDate || m.followUp.adviceForNextPsur) {
+    children.push(docxHeading("For the next reporting cycle", HeadingLevel.HEADING_2));
+    if (m.followUp.adviceForNextPsur) {
+      children.push(new Paragraph({ text: m.followUp.adviceForNextPsur }));
     }
     children.push(
       new Paragraph({
-        text: `Response deadline: ${m.followUp.responseDeadline ?? "not specified in this directive"}`,
-      }),
-      new Paragraph({
-        text: `Next PSUR/PBRER resubmission date: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`,
+        text: `Next PSUR/PBRER due: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`,
       }),
       new Paragraph({ text: "" }),
     );
@@ -1863,10 +1870,7 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
   children.push(
     new Paragraph({
       children: [
-        new TextRun({
-          text: `Note: ${m.resolvedCount} previously-identified deficiency/deficiencies already resolved and ${m.dismissedCount} finding(s) dismissed as not applicable are not restated in this directive.`,
-          italics: true,
-        }),
+        new TextRun({ text: feedbackFootnote(m), italics: true }),
       ],
     }),
   );
@@ -3372,7 +3376,7 @@ export const psur = {
     const model = buildComplianceDirectiveModel(doc, findings);
     await downloadBlob(
       await Packer.toBlob(buildComplianceDirectiveDocx(model)),
-      docBaseName(doc) + "-compliance-directive.docx",
+      docBaseName(doc) + "-mah-feedback-letter.docx",
     );
   },
 
@@ -3383,7 +3387,7 @@ export const psur = {
     const model = buildComplianceDirectiveModel(doc, findings);
     await downloadBlob(
       new Blob([renderComplianceDirectiveText(model)], { type: "text/plain" }),
-      docBaseName(doc) + "-compliance-directive.txt",
+      docBaseName(doc) + "-mah-feedback-letter.txt",
     );
   },
 };
