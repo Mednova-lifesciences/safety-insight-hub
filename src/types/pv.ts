@@ -1502,6 +1502,8 @@ export interface PsurFinding {
         citation: string;
         criterion?: MemoCriterionId | undefined;
         evidenceId?: string | undefined;
+        /** Where the research prints in the V4 evaluation report. */
+        v4Field?: V4FieldId | undefined;
       }
     | undefined;
   /** The assessor's own decision on WHO must act on this finding,

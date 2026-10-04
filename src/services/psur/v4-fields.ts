@@ -83,7 +83,11 @@ export const V4_FIELDS: V4Field[] = [
     label:
       "Provide patient years, number of patients, prescriptions, units sold, and defined daily doses, if available",
   },
-  { id: "S5_ACTIONS", section: 5, label: "Actions taken for safety reasons during the reporting interval" },
+  {
+    id: "S5_ACTIONS",
+    section: 5,
+    label: "Actions taken for safety reasons during the reporting interval",
+  },
   { id: "S5_FURTHER", section: 5, label: "Further assessment" },
   {
     id: "S6_STUDIES",
@@ -104,7 +108,11 @@ export const V4_FIELDS: V4Field[] = [
       "VigiFlow: number of ICSRs received during the reporting interval and cumulatively, including serious cases, compared with the Nigerian cases reported by the MAH",
   },
   { id: "S7_FURTHER", section: 7, label: "Further assessment" },
-  { id: "S8_SIGNALS", section: 8, label: "Signals new, ongoing or closed during this reporting interval" },
+  {
+    id: "S8_SIGNALS",
+    section: 8,
+    label: "Signals new, ongoing or closed during this reporting interval",
+  },
   { id: "S8_FURTHER", section: 8, label: "Further assessment" },
   { id: "S9_FURTHER", section: 9, label: "Further assessment" },
   { id: "S10_KEY_RISKS", section: 10, label: "Key risks — further evidence" },

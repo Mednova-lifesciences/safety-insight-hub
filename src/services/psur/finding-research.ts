@@ -195,6 +195,7 @@ export function resolvedFinding(
       citation: input.citation.trim(),
       ...(input.criterion ? { criterion: input.criterion } : {}),
       ...(evidenceId ? { evidenceId } : {}),
+      ...(input.v4Field ? { v4Field: input.v4Field } : {}),
     },
   };
 }

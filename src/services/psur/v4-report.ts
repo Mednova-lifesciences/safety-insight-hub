@@ -39,7 +39,14 @@ export type V4Block =
   | { kind: "subheading"; text: string }
   | { kind: "instruction"; text: string }
   | { kind: "field"; label: string; value: string }
-  | { kind: "table"; header: string[]; rows: string[][]; firstColumnBold?: boolean }
+  | {
+      kind: "table";
+      header: string[];
+      rows: string[][];
+      firstColumnBold?: boolean;
+      /** Column widths in percent; equal when omitted. */
+      widths?: number[];
+    }
   | { kind: "ticks"; options: { label: string; checked: boolean }[] }
   | { kind: "list"; title: string; items: string[] };
 
@@ -114,6 +121,15 @@ const SECTION_IDS: Record<number, PsurV4SectionId> = {
   13: "S13_CONCLUSION_SIGNOFF",
 };
 
+/** Joins sentences without doubling a full stop already at the end. */
+function sentences(...parts: (string | undefined | null)[]): string {
+  return parts
+    .map((p) => (p ?? "").trim().replace(/\.+$/, ""))
+    .filter(Boolean)
+    .map((p) => `${p}.`)
+    .join(" ");
+}
+
 function orNotStated(v: string | undefined | null): string {
   return v && v.trim() ? v.trim() : NOT_STATED;
 }
@@ -147,6 +163,15 @@ export function buildV4ReportModel(
       byField.set(field, [...(byField.get(field) ?? []), e]);
     }
   }
+  // Research that resolved a finding but was kept out of the memo has no
+  // evidence entry; it still belongs in the V4 field the assessor chose.
+  for (const f of findings) {
+    const r = f.researchResolution;
+    if (f.humanAssessment !== "ACCEPTED" || !f.resolved || !r || r.evidenceId || !r.v4Field)
+      continue;
+    const pseudo = { content: r.content, citation: r.citation } as EvidenceEntry;
+    byField.set(r.v4Field, [...(byField.get(r.v4Field) ?? []), pseudo]);
+  }
   const research = (field: V4FieldId): string[] =>
     (byField.get(field) ?? []).map((e) => `${e.content.trim()} [${cite(e.citation)}]`);
   /** A field's answer: what is already known, then the research on it. */
@@ -157,7 +182,9 @@ export function buildV4ReportModel(
   /** A FURTHER field prints only when something was filed there. */
   const further = (field: V4FieldId): V4Block[] => {
     const r = research(field);
-    return r.length > 0 ? [{ kind: "field", label: "Further assessment", value: r.join("\n") }] : [];
+    return r.length > 0
+      ? [{ kind: "field", label: "Further assessment", value: r.join("\n") }]
+      : [];
   };
 
   const coverage = new Map(buildAuthoritativeSectionCoverage(doc).map((c) => [c.section, c]));
@@ -173,7 +200,7 @@ export function buildV4ReportModel(
       out.push({
         kind: "field",
         label: "Reviewer's assessment of this section",
-        value: [STATUS_LABEL[c.status], c.comment?.trim(), why?.trim()].filter(Boolean).join(". "),
+        value: sentences(STATUS_LABEL[c.status], c.comment, why),
       });
     }
     const here = accepted.filter((f) => f.v4Section === id);
@@ -185,8 +212,10 @@ export function buildV4ReportModel(
           const base = `${f.severity.charAt(0)}${f.severity.slice(1).toLowerCase()} — ${f.description.trim()}`;
           if (!f.resolved) return `${base} Outstanding.`;
           const r = f.researchResolution;
-          if (r && r.evidenceId) return `${base} Resolved by NAFDAC during this assessment (see above).`;
-          if (r) return `${base} Resolved by NAFDAC during this assessment: ${r.content} [${cite(r.citation)}]`;
+          if (r && (r.evidenceId || r.v4Field))
+            return `${base} Resolved by NAFDAC during this assessment (see above).`;
+          if (r)
+            return `${base} Resolved by NAFDAC during this assessment: ${r.content} [${cite(r.citation)}]`;
           return `${base} Resolved during this assessment.`;
         }),
       });
@@ -214,12 +243,12 @@ export function buildV4ReportModel(
     blocks: [
       {
         kind: "instruction",
-        text:
-          "Complete before starting the scientific review. A deficient submission should be returned to the MAH before detailed assessment begins.",
+        text: "Complete before starting the scientific review. A deficient submission should be returned to the MAH before detailed assessment begins.",
       },
       {
         kind: "table",
         header: ["Check", "Yes / No / N/A", "Comment"],
+        widths: [40, 15, 45],
         rows: [
           adminRow(
             "Does the submission follow the NAFDAC/ICH E2C(R2) recommended template",
@@ -254,6 +283,7 @@ export function buildV4ReportModel(
         kind: "table",
         header: [],
         firstColumnBold: true,
+        widths: [42, 58],
         rows: [
           ["Date of Review", reviewDate],
           ["Name of Product / Strength / Dosage Form", orNotStated(details.productName)],
@@ -303,13 +333,21 @@ export function buildV4ReportModel(
     number: 3,
     title: "Therapeutic Context",
     blocks: [
-      { kind: "field", label: "Incidence and prevalence of disease", value: answer("S3_INCIDENCE") },
+      {
+        kind: "field",
+        label: "Incidence and prevalence of disease",
+        value: answer("S3_INCIDENCE"),
+      },
       {
         kind: "field",
         label: "Disease duration (acute / chronic / progressive)",
         value: answer("S3_DURATION"),
       },
-      { kind: "field", label: "Mortality and severity of the disease", value: answer("S3_MORTALITY") },
+      {
+        kind: "field",
+        label: "Mortality and severity of the disease",
+        value: answer("S3_MORTALITY"),
+      },
       { kind: "table", header: ["Disease", "Mortality", "Severity"], rows: [["", "", ""]] },
       { kind: "field", label: "Current treatment options", value: answer("S3_TREATMENTS") },
       {
@@ -354,6 +392,7 @@ export function buildV4ReportModel(
         kind: "table",
         header: ["", "Reporting Interval", "Cumulative"],
         firstColumnBold: true,
+        widths: [30, 35, 35],
         rows: [
           ["Global exposure", "", ""],
           ["Nigerian exposure", nc?.nigerianExposureEvidence?.trim() ?? "", ""],
@@ -387,7 +426,9 @@ export function buildV4ReportModel(
           "Briefly highlight studies containing relevant safety information (company-sponsored and published studies)",
         value: answer(
           "S6_STUDIES",
-          doc.memoDraft?.answers?.RELEVANT_STUDIES ? [doc.memoDraft.answers.RELEVANT_STUDIES + "."] : [],
+          doc.memoDraft?.answers?.RELEVANT_STUDIES
+            ? [doc.memoDraft.answers.RELEVANT_STUDIES + "."]
+            : [],
         ),
       },
       ...further("S6_FURTHER"),
@@ -413,7 +454,13 @@ export function buildV4ReportModel(
       },
       {
         kind: "table",
-        header: ["SOC / Event", "Reporting interval", "Cumulative", "Nigerian cases", "Reviewer assessment"],
+        header: [
+          "SOC / Event",
+          "Reporting interval",
+          "Cumulative",
+          "Nigerian cases",
+          "Reviewer assessment",
+        ],
         rows: [["", "", "", "", ""]],
       },
       {
@@ -431,7 +478,11 @@ export function buildV4ReportModel(
           },
         ],
       },
-      { kind: "field", label: "VigiFlow findings", value: vigiflow.length > 0 ? vigiflow.join("\n") : NOT_ASSESSED },
+      {
+        kind: "field",
+        label: "VigiFlow findings",
+        value: vigiflow.length > 0 ? vigiflow.join("\n") : NOT_ASSESSED,
+      },
       ...further("S7_FURTHER"),
       ...reviewerAssessment(7),
     ],
@@ -444,8 +495,7 @@ export function buildV4ReportModel(
     blocks: [
       {
         kind: "instruction",
-        text:
-          "List every signal that was new, ongoing, or closed during this reporting interval. This section should not be left blank; state 'No signals under evaluation this interval' if genuinely applicable.",
+        text: "List every signal that was new, ongoing, or closed during this reporting interval. This section should not be left blank; state 'No signals under evaluation this interval' if genuinely applicable.",
       },
       {
         kind: "table",
@@ -480,12 +530,15 @@ export function buildV4ReportModel(
         kind: "table",
         header: ["Population / Category", "Data Adequacy", "Comments"],
         firstColumnBold: true,
+        widths: [30, 20, 50],
         rows: POPULATION_ROWS.map(({ area, label }) => {
           const p = pops.get(area);
           return [
             label,
             p ? STATUS_LABEL[p.status] : "",
-            p ? [p.comment?.trim(), p.notApplicableJustification?.trim()].filter(Boolean).join(" ") : "",
+            p
+              ? [p.comment?.trim(), p.notApplicableJustification?.trim()].filter(Boolean).join(" ")
+              : "",
           ];
         }),
       },
@@ -501,7 +554,9 @@ export function buildV4ReportModel(
       .map((r) => [
         r.risk,
         r.severity,
-        [r.frequency, r.frequencyDataSource ? `(${r.frequencyDataSource})` : ""].filter(Boolean).join(" "),
+        [r.frequency, r.frequencyDataSource ? `(${r.frequencyDataSource})` : ""]
+          .filter(Boolean)
+          .join(" "),
         r.reversibility,
         r.duration,
         r.preventabilityRiskManagement,
@@ -525,7 +580,10 @@ export function buildV4ReportModel(
     b.magnitude,
     EVIDENCE_QUALITY_LABEL[b.evidenceQuality] ?? b.evidenceQuality,
   ]);
-  const missing = (br?.missingInformation ?? []).map((m) => [m.missingInformation, m.riskMinimisationImplication]);
+  const missing = (br?.missingInformation ?? []).map((m) => [
+    m.missingInformation,
+    m.riskMinimisationImplication,
+  ]);
   const dims: { key: string; label: string }[] = [
     { key: "CONDITION_UNMET_NEED", label: "Analysis of Condition / Unmet Medical Need" },
     { key: "CURRENT_TREATMENT_OPTIONS", label: "Current Treatment Options" },
@@ -533,7 +591,9 @@ export function buildV4ReportModel(
     { key: "RISK", label: "Risk" },
     { key: "RISK_MANAGEMENT", label: "Risk Management" },
   ];
-  const effects = new Map((br?.integratedEffectsTable ?? []).map((r) => [r.dimension as string, r]));
+  const effects = new Map(
+    (br?.integratedEffectsTable ?? []).map((r) => [r.dimension as string, r]),
+  );
   const rme = br?.riskMinimisationEffectiveness?.outcome;
   sections.push({
     number: 10,
@@ -550,7 +610,12 @@ export function buildV4ReportModel(
       { kind: "subheading", text: "10.1 Key Benefits" },
       {
         kind: "table",
-        header: ["Key Benefit", "Evidence Source", "Magnitude", "Evidence Quality (High/Moderate/Low/Very Low)"],
+        header: [
+          "Key Benefit",
+          "Evidence Source",
+          "Magnitude",
+          "Evidence Quality (High/Moderate/Low/Very Low)",
+        ],
         rows: benefits.length > 0 ? benefits : blankRows(3, 4),
       },
       { kind: "subheading", text: "10.2 Key Risks" },
@@ -568,16 +633,22 @@ export function buildV4ReportModel(
       },
       {
         kind: "instruction",
-        text:
-          "Frequency: state the available frequency estimate using an appropriate denominator or category, where applicable, and indicate the data source e.g RSI, SmPC, PSUR document, etc.",
+        text: "Frequency: state the available frequency estimate using an appropriate denominator or category, where applicable, and indicate the data source e.g RSI, SmPC, PSUR document, etc.",
       },
       ...(byField.has("S10_KEY_RISKS")
-        ? [{ kind: "field" as const, label: "Key risks — further evidence", value: research("S10_KEY_RISKS").join("\n") }]
+        ? [
+            {
+              kind: "field" as const,
+              label: "Key risks — further evidence",
+              value: research("S10_KEY_RISKS").join("\n"),
+            },
+          ]
         : []),
       { kind: "instruction", text: "Missing information:" },
       {
         kind: "table",
         header: ["Missing Information", "Risk-Minimisation Implication"],
+        widths: [45, 55],
         rows: missing.length > 0 ? missing : blankRows(3, 2),
       },
       { kind: "subheading", text: "10.3 Integrated Benefit-Risk Effects Table" },
@@ -585,12 +656,16 @@ export function buildV4ReportModel(
         kind: "table",
         header: ["Dimension", "Evidence & Uncertainty", "Reviewer Conclusion"],
         firstColumnBold: true,
+        widths: [24, 38, 38],
         rows: dims.map((d) => {
           const r = effects.get(d.key);
           return [d.label, r?.evidenceAndUncertainty ?? "", r?.reviewerConclusion ?? ""];
         }),
       },
-      { kind: "subheading", text: "10.4 Patient / Healthcare-Professional Perspective (If available)" },
+      {
+        kind: "subheading",
+        text: "10.4 Patient / Healthcare-Professional Perspective (If available)",
+      },
       {
         kind: "field",
         label:
@@ -599,7 +674,10 @@ export function buildV4ReportModel(
           ? br.patientHcpPerspective.summary
           : "Not available",
       },
-      { kind: "subheading", text: "10.5 Risk Minimisation Measures — Effectiveness This Interval (If applicable)" },
+      {
+        kind: "subheading",
+        text: "10.5 Risk Minimisation Measures — Effectiveness This Interval (If applicable)",
+      },
       {
         kind: "ticks",
         options: [
@@ -644,10 +722,15 @@ export function buildV4ReportModel(
       {
         kind: "ticks",
         options: [
-          ...UNCERTAINTY_ROWS.map((c) => ({ label: UNCERTAINTY_CATEGORY_LABEL[c], checked: present.has(c) })),
+          ...UNCERTAINTY_ROWS.map((c) => ({
+            label: UNCERTAINTY_CATEGORY_LABEL[c],
+            checked: present.has(c),
+          })),
           {
             label: `Potential impact of the uncertainty on the benefit–risk conclusion: ${
-              worstImpact ? worstImpact.charAt(0) + worstImpact.slice(1).toLowerCase() : "Low / Moderate / High"
+              worstImpact
+                ? worstImpact.charAt(0) + worstImpact.slice(1).toLowerCase()
+                : "Low / Moderate / High"
             }`,
             checked: !!worstImpact,
           },
@@ -672,7 +755,10 @@ export function buildV4ReportModel(
         value:
           us.length > 0
             ? us
-                .map((u) => `${UNCERTAINTY_CATEGORY_LABEL[u.category]}: ${u.description}. ${u.rationale}`.trim())
+                .map(
+                  (u) =>
+                    `${UNCERTAINTY_CATEGORY_LABEL[u.category]}: ${sentences(u.description, u.rationale)}`,
+                )
                 .join("\n")
             : NOT_ASSESSED,
       },
@@ -695,17 +781,21 @@ export function buildV4ReportModel(
       { kind: "instruction", text: "Risk Minimisation Considerations (tick all that apply)" },
       {
         kind: "ticks",
-        options: (Object.keys(RISK_MINIMISATION_ACTION_LABEL) as (keyof typeof RISK_MINIMISATION_ACTION_LABEL)[]).map(
-          (a) => ({ label: RISK_MINIMISATION_ACTION_LABEL[a], checked: actions.has(a) }),
-        ),
+        options: (
+          Object.keys(
+            RISK_MINIMISATION_ACTION_LABEL,
+          ) as (keyof typeof RISK_MINIMISATION_ACTION_LABEL)[]
+        ).map((a) => ({ label: RISK_MINIMISATION_ACTION_LABEL[a], checked: actions.has(a) })),
       },
       { kind: "instruction", text: "Overall Benefit-Risk Outcome (tick one)" },
       {
         kind: "ticks",
-        options: (Object.keys(OVERALL_OUTCOME_LABEL) as (keyof typeof OVERALL_OUTCOME_LABEL)[]).map((o) => ({
-          label: OVERALL_OUTCOME_LABEL[o],
-          checked: rd?.overallOutcome === o,
-        })),
+        options: (Object.keys(OVERALL_OUTCOME_LABEL) as (keyof typeof OVERALL_OUTCOME_LABEL)[]).map(
+          (o) => ({
+            label: OVERALL_OUTCOME_LABEL[o],
+            checked: rd?.overallOutcome === o,
+          }),
+        ),
       },
       {
         kind: "field",
@@ -721,9 +811,10 @@ export function buildV4ReportModel(
       {
         kind: "field",
         label: "Follow-up information required/follow-up deadline",
-        value: [rd?.followUpRequired?.trim(), rd?.mahResponseDeadline ? `Deadline: ${dateOnly(rd.mahResponseDeadline)}` : ""]
-          .filter(Boolean)
-          .join(". "),
+        value: sentences(
+          rd?.followUpRequired,
+          rd?.mahResponseDeadline ? `Deadline: ${dateOnly(rd.mahResponseDeadline)}` : "",
+        ),
       },
       ...further("S12_FURTHER"),
     ],
@@ -748,9 +839,15 @@ export function buildV4ReportModel(
       {
         kind: "ticks",
         options: [
-          { label: "High : robust literature review, exposure and safety data", checked: conf === "HIGH" },
+          {
+            label: "High : robust literature review, exposure and safety data",
+            checked: conf === "HIGH",
+          },
           { label: "Medium: some important uncertainties", checked: conf === "MEDIUM" },
-          { label: "Low: substantial missing information/limited or no exposure", checked: conf === "LOW" },
+          {
+            label: "Low: substantial missing information/limited or no exposure",
+            checked: conf === "LOW",
+          },
         ],
       },
       ...extra,
@@ -762,9 +859,17 @@ export function buildV4ReportModel(
           ...(so?.references?.trim() ? so.references.trim().split("\n").filter(Boolean) : []),
         ],
       },
-      { kind: "field", label: "Evaluator's name and signature", value: so?.evaluatorName?.trim() ?? "" },
+      {
+        kind: "field",
+        label: "Evaluator's name and signature",
+        value: so?.evaluatorName?.trim() ?? "",
+      },
       { kind: "field", label: "Date", value: dateOnly(so?.evaluatorSignedAt) },
-      { kind: "field", label: "Peer reviewed by (name and signature)", value: so?.peerReviewerName?.trim() ?? "" },
+      {
+        kind: "field",
+        label: "Peer reviewed by (name and signature)",
+        value: so?.peerReviewerName?.trim() ?? "",
+      },
       { kind: "field", label: "Date", value: dateOnly(so?.peerReviewedAt) },
     ],
   });

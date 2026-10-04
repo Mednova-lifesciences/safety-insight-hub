@@ -3946,7 +3946,8 @@ export function buildV4ReportDocx(m: V4ReportModel): Document {
           break;
         case "table": {
           const width = Math.max(b.header.length, ...b.rows.map((r) => r.length), 1);
-          const percents = Array(width).fill(100 / width);
+          const percents =
+            b.widths && b.widths.length === width ? b.widths : Array(width).fill(100 / width);
           const rows: TableRow[] = [];
           if (b.header.length > 0) {
             rows.push(

@@ -59,7 +59,8 @@ const evidence = (
 function field(model: ReturnType<typeof buildV4ReportModel>, section: number, labelStart: string) {
   const s = model.sections.find((x) => x.number === section)!;
   return s.blocks.find(
-    (b): b is Extract<V4Block, { kind: "field" }> => b.kind === "field" && b.label.startsWith(labelStart),
+    (b): b is Extract<V4Block, { kind: "field" }> =>
+      b.kind === "field" && b.label.startsWith(labelStart),
   );
 }
 
@@ -67,7 +68,22 @@ describe("the V4 report keeps the template's structure", () => {
   it("has the administrative check and sections 1 to 13, in order, with the template's titles", () => {
     const m = buildV4ReportModel(doc(), []);
     expect(m.title).toBe("PSUR/PBRER EVALUATION FORM");
-    expect(m.sections.map((s) => s.number)).toEqual([null, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(m.sections.map((s) => s.number)).toEqual([
+      null,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+    ]);
     expect(m.sections[0]!.title).toBe("Administrative Completeness Check");
     expect(m.sections.find((s) => s.number === 10)!.title).toBe("Benefit-Risk Assessment");
     expect(m.sections.find((s) => s.number === 11)!.title).toBe(
@@ -77,7 +93,10 @@ describe("the V4 report keeps the template's structure", () => {
 
   it("fills Section 1 from the screening, saying so when something was not stated", () => {
     const m = buildV4ReportModel(doc(), []);
-    const t = m.sections.find((s) => s.number === 1)!.blocks[0] as Extract<V4Block, { kind: "table" }>;
+    const t = m.sections.find((s) => s.number === 1)!.blocks[0] as Extract<
+      V4Block,
+      { kind: "table" }
+    >;
     const row = (label: string) => t.rows.find((r) => r[0] === label)![1];
     expect(row("NAFDAC Registration Number")).toBe("A4-100123");
     expect(row("Nigerian Birth Date (NBD)")).toBe("05 June 2018");
@@ -95,24 +114,41 @@ describe("research goes into the field it answers, with numbered references", ()
     {
       section: "S4_RSI",
       evidence: [
-        evidence("e1", "SmPC v7.2 added DIES to section 4.4.", "Submitted PSUR, Appendix I, p. 12", {
-          criterion: "RSI_CHANGES",
+        evidence(
+          "e1",
+          "SmPC v7.2 added DIES to section 4.4.",
+          "Submitted PSUR, Appendix I, p. 12",
+          {
+            criterion: "RSI_CHANGES",
+          },
+        ),
+        evidence("e2", "SmPC version 7.2.", "Submitted PSUR, Appendix I, p. 1", {
+          v4Field: "S4_TYPE_VERSION",
         }),
-        evidence("e2", "SmPC version 7.2.", "Submitted PSUR, Appendix I, p. 1", { v4Field: "S4_TYPE_VERSION" }),
       ],
     },
     {
       section: "S6_LITERATURE",
       evidence: [
-        evidence("e3", "A 2026 cohort found more GI adverse events.", "Savage TJ et al. JAMA 2026", {
-          section: "S6_LITERATURE",
-          criterion: "RELEVANT_STUDIES",
-        }),
+        evidence(
+          "e3",
+          "A 2026 cohort found more GI adverse events.",
+          "Savage TJ et al. JAMA 2026",
+          {
+            section: "S6_LITERATURE",
+            criterion: "RELEVANT_STUDIES",
+          },
+        ),
         // The same source cited twice keeps one number.
-        evidence("e4", "The same cohort found no excess hepatotoxicity.", "Savage TJ et al. JAMA 2026", {
-          section: "S6_LITERATURE",
-          criterion: "RELEVANT_STUDIES",
-        }),
+        evidence(
+          "e4",
+          "The same cohort found no excess hepatotoxicity.",
+          "Savage TJ et al. JAMA 2026",
+          {
+            section: "S6_LITERATURE",
+            criterion: "RELEVANT_STUDIES",
+          },
+        ),
       ],
     },
   ];
@@ -121,7 +157,9 @@ describe("research goes into the field it answers, with numbered references", ()
     const m = buildV4ReportModel(doc({ assessmentSections: sections }), []);
     // Numbered in order of appearance: "RSI type" comes first in Section 4.
     expect(field(m, 4, "RSI type")!.value).toBe("SmPC version 7.2. [1]");
-    expect(field(m, 4, "Changes made to the RSI")!.value).toBe("SmPC v7.2 added DIES to section 4.4. [2]");
+    expect(field(m, 4, "Changes made to the RSI")!.value).toBe(
+      "SmPC v7.2 added DIES to section 4.4. [2]",
+    );
     expect(field(m, 6, "Briefly highlight studies")!.value).toContain("[3]");
   });
 
@@ -134,7 +172,10 @@ describe("research goes into the field it answers, with numbered references", ()
     ]);
     const refs = m.sections
       .find((s) => s.number === 13)!
-      .blocks.find((b): b is Extract<V4Block, { kind: "list" }> => b.kind === "list" && b.title === "References")!;
+      .blocks.find(
+        (b): b is Extract<V4Block, { kind: "list" }> =>
+          b.kind === "list" && b.title === "References",
+      )!;
     expect(refs.items.slice(0, 3)).toEqual([
       "[1] Submitted PSUR, Appendix I, p. 1",
       "[2] Submitted PSUR, Appendix I, p. 12",
@@ -146,7 +187,13 @@ describe("research goes into the field it answers, with numbered references", ()
     const unaccepted: AssessmentSection[] = [
       {
         section: "S4_RSI",
-        evidence: [{ ...evidence("c1", "Unreviewed AI text.", "x"), acceptedBy: undefined, acceptedAt: undefined }],
+        evidence: [
+          {
+            ...evidence("c1", "Unreviewed AI text.", "x"),
+            acceptedBy: undefined,
+            acceptedAt: undefined,
+          },
+        ],
       },
     ];
     const m = buildV4ReportModel(doc({ assessmentSections: unaccepted }), []);
@@ -156,7 +203,9 @@ describe("research goes into the field it answers, with numbered references", ()
 
   it("a memo criterion implies its V4 field when none was chosen", () => {
     expect(defaultFieldForCriterion("PATIENT_EXPOSURE")).toBe("S7_VIGIFLOW");
-    expect(fieldForEvidence(evidence("x", "c", "s", { criterion: "WORLDWIDE_ACTIONS" }))).toBe("S2_ACTIONS");
+    expect(fieldForEvidence(evidence("x", "c", "s", { criterion: "WORLDWIDE_ACTIONS" }))).toBe(
+      "S2_ACTIONS",
+    );
   });
 });
 
@@ -173,13 +222,20 @@ describe("findings and decisions", () => {
       assistGenerated: true,
       humanAssessment: "ACCEPTED",
       resolved: true,
-      researchResolution: { by: "Eve", at: AT, content: "SmPC v7.2 added DIES.", citation: "Appendix I" },
+      researchResolution: {
+        by: "Eve",
+        at: AT,
+        content: "SmPC v7.2 added DIES.",
+        citation: "Appendix I",
+      },
     } as PsurFinding;
     const m = buildV4ReportModel(doc(), [f]);
     const list = m.sections
       .find((s) => s.number === 4)!
       .blocks.find((b): b is Extract<V4Block, { kind: "list" }> => b.kind === "list")!;
-    expect(list.items[0]).toContain("Resolved by NAFDAC during this assessment: SmPC v7.2 added DIES. [1]");
+    expect(list.items[0]).toContain(
+      "Resolved by NAFDAC during this assessment: SmPC v7.2 added DIES. [1]",
+    );
     expect(m.references).toContain("Appendix I");
   });
 
@@ -199,10 +255,43 @@ describe("findings and decisions", () => {
       [],
     );
     const s12 = m.sections.find((s) => s.number === 12)!;
-    const outcomes = s12.blocks.filter((b): b is Extract<V4Block, { kind: "ticks" }> => b.kind === "ticks")[1]!;
-    expect(outcomes.options.filter((o) => o.checked).map((o) => o.label)).toEqual(["Favourable with conditions"]);
+    const outcomes = s12.blocks.filter(
+      (b): b is Extract<V4Block, { kind: "ticks" }> => b.kind === "ticks",
+    )[1]!;
+    expect(outcomes.options.filter((o) => o.checked).map((o) => o.label)).toEqual([
+      "Favourable with conditions",
+    ]);
     expect(field(m, 12, "Follow-up information required")!.value).toBe(
-      "Reconcile Nigerian cases with VigiFlow. Deadline: 31 December 2026",
+      "Reconcile Nigerian cases with VigiFlow. Deadline: 31 December 2026.",
     );
+  });
+});
+
+describe("research kept out of the memo", () => {
+  it("still prints in the V4 field chosen for it", () => {
+    const f = {
+      id: "f2",
+      category: "MISSING_SECTION",
+      severity: "MEDIUM",
+      section: "Product info",
+      description: "No separate Date of Review.",
+      evidence: "",
+      v4Section: "S1_PRODUCT_REGULATORY",
+      assistGenerated: true,
+      humanAssessment: "ACCEPTED",
+      resolved: true,
+      researchResolution: {
+        by: "Eve",
+        at: AT,
+        content: "Date of review taken as the QPPV signature date, 12 September 2026.",
+        citation: "Submitted PSUR, title page",
+        v4Field: "S1_FURTHER",
+      },
+    } as PsurFinding;
+    const m = buildV4ReportModel(doc(), [f]);
+    expect(field(m, 1, "Further assessment")!.value).toBe(
+      "Date of review taken as the QPPV signature date, 12 September 2026. [1]",
+    );
+    expect(m.references).toEqual(["Submitted PSUR, title page"]);
   });
 });
