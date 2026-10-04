@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { factualCriteria, MEMO_CRITERIA, MEMO_REFERENCE_PREFIX } from "./assessment-memo";
+import {
+  factualCriteria,
+  MEMO_CRITERIA,
+  MEMO_REFERENCE_PREFIX,
+  NOT_ASSESSED,
+  NOT_STATED,
+} from "./assessment-memo";
 import type { PsurSubmissionDetails } from "@/types/pv";
 
 function details(overrides: Partial<PsurSubmissionDetails> = {}): PsurSubmissionDetails {
@@ -251,5 +257,30 @@ describe("the assembled memo", () => {
   it("keeps the reference number exactly as the assessor completed it", () => {
     const m = buildAssessmentMemoModel(input())!;
     expect(m.referenceNumber).toBe("NAFDAC/PV/GCIOMS/455/III");
+  });
+});
+
+describe("what an empty criterion says", () => {
+  it("criteria 1-6 blame the submission; criteria 7-11 say NAFDAC did not assess them", () => {
+    const facts = factualCriteria(
+      {
+        productName: "",
+        activeSubstance: "",
+        nafdacRegNo: "",
+        mah: "",
+        qppv: "",
+        qppvContact: "",
+        ibd: "",
+        firstNafdacRegistrationDate: "",
+        dlp: "",
+        intervalCovered: "",
+        dateReceived: "",
+      },
+      "",
+    );
+    expect(facts.every((c) => c.remarks === NOT_STATED)).toBe(true);
+    const researched = evidenceCriteria([]);
+    expect(researched.map((c) => c.remarks)).toEqual(Array(5).fill(NOT_ASSESSED));
+    expect(NOT_ASSESSED).toBe("Not assessed");
   });
 });

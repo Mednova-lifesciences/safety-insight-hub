@@ -67,8 +67,16 @@ export const MEMO_REFERENCE_PREFIX = "NAFDAC/PV/GCIOMS/";
 
 /** What a criterion reads when nothing established it. Never a blank
  *  cell: a blank reads as NAFDAC's omission rather than a finding. Same
- *  reasoning as orNotStated() in screening-directive.ts. */
-const NOT_ESTABLISHED = "Not stated in the submission";
+ *  reasoning as orNotStated() in screening-directive.ts.
+ *
+ *  Two wordings, because the two halves fail differently. Criteria 1-6
+ *  are read off the submission, so an empty one IS the submission's gap.
+ *  Criteria 7-11 are NAFDAC's own research: an empty one means nobody
+ *  assessed it, and "not stated in the submission" there would blame the
+ *  MAH for NAFDAC's gap. */
+export const NOT_STATED = "Not stated in the submission";
+export const NOT_ASSESSED = "Not assessed";
+const NOT_ESTABLISHED = NOT_STATED;
 
 function criterion(id: MemoCriterionId, value: string): MemoCriterion {
   const def = MEMO_CRITERIA.find((c) => c.id === id)!;
@@ -184,7 +192,7 @@ export function evidenceCriteria(sections: AssessmentSection[]): MemoCriterion[]
       id,
       number: def.number,
       label: def.label,
-      remarks: remarks || NOT_ESTABLISHED,
+      remarks: remarks || NOT_ASSESSED,
       citations: entries.map((e) => e.citation.trim()),
       unestablished: entries.length === 0,
     };
