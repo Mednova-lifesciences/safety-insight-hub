@@ -8,6 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PasteResearch, V4ResearchCard } from "@/components/pv/psur-assessment-memo";
+import { SectionFindings } from "@/components/pv/psur-section-findings";
+import { findingsFor } from "@/services/psur/finding-research";
 import { ExposureEditor, RowsEditor, type Column } from "@/components/pv/psur-v4-tables";
 import { EMPTY_EXPOSURE } from "@/services/psur/v4-prefill";
 import { psur as psurApi } from "@/services/api/psur";
@@ -386,6 +388,19 @@ export function V4SectionsPanel({
 
         {canResearch ? <PasteResearch doc={doc} onChanged={onChanged} /> : null}
 
+        {findingsFor(findings, ["ADMIN_SCREENING", undefined]).length > 0 ? (
+          <div className="space-y-2 rounded-md border border-border p-3">
+            <p className="text-sm font-semibold">Administrative check and other findings</p>
+            <SectionFindings
+              doc={doc}
+              findings={findingsFor(findings, ["ADMIN_SCREENING", undefined])}
+              canEvaluate={canEvaluate}
+              canResearch={canResearch}
+              onChanged={onChanged}
+            />
+          </div>
+        ) : null}
+
         {SECTIONS.map((id) => {
           const d = drafts[id]!;
           const saved = a?.assessments?.[id];
@@ -405,6 +420,15 @@ export function V4SectionsPanel({
                   <StatusPill tone="assist">AI draft — not yet reviewed</StatusPill>
                 )}
               </div>
+
+              <SectionFindings
+                doc={doc}
+                findings={findingsFor(findings, [id])}
+                canEvaluate={canEvaluate}
+                canResearch={canResearch}
+                onChanged={onChanged}
+                edited={d.reviewed}
+              />
 
               {id === "S1_PRODUCT_REGULATORY" ? (
                 <div className="overflow-hidden rounded-md border border-border">

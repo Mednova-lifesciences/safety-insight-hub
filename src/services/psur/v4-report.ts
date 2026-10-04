@@ -160,31 +160,6 @@ export const AI_EXTRACT_MARK = "[Extracted by AI from the submission — not yet
 /** Printed under a table the AI filled from the submission. */
 export const AI_TABLE_NOTE =
   "Extracted by AI from the submission and not yet reviewed by the assessor.";
-/**
- * The V4 fields the report prints research in: the template's own prompts.
- * Research filed anywhere else (older "Further assessment" entries, key
- * risks kept for the memo) is not printed as a field; research that
- * resolved a finding is shown with the finding instead.
- */
-export const PRINTED_FIELDS: ReadonlySet<V4FieldId> = new Set<V4FieldId>([
-  "S2_ACTIONS",
-  "S2_INCONSISTENT",
-  "S3_INCIDENCE",
-  "S3_DURATION",
-  "S3_MORTALITY",
-  "S3_TREATMENTS",
-  "S3_QOL",
-  "S4_TYPE_VERSION",
-  "S4_CHANGES",
-  "S4_RATIONALE",
-  "S5_EXPOSURE",
-  "S5_ACTIONS",
-  "S6_STUDIES",
-  "S7_DIFFERENCES",
-  "S7_VIGIFLOW",
-  "S8_SIGNALS",
-]);
-
 /** Section 8's wording for an interval with no signals. */
 export const NO_SIGNALS = "No signals under evaluation this interval";
 
@@ -219,20 +194,17 @@ export function researchByField(
   doc: PsurDocument,
   findings: PsurFinding[],
 ): Map<V4FieldId, EvidenceEntry[]> {
+  // Research that fixed a finding prints with the finding, not in a field.
+  const fixedFindings = new Set(
+    findings.map((f) => f.researchResolution?.evidenceId).filter((id): id is string => !!id),
+  );
   const byField = new Map<V4FieldId, EvidenceEntry[]>();
   for (const section of doc.assessmentSections ?? []) {
     for (const e of renderableEvidence(section.evidence)) {
-      if (!e.content.trim()) continue;
+      if (!e.content.trim() || fixedFindings.has(e.id)) continue;
       const field = fieldForEvidence(e);
       byField.set(field, [...(byField.get(field) ?? []), e]);
     }
-  }
-  for (const f of findings) {
-    const r = f.researchResolution;
-    if (f.humanAssessment !== "ACCEPTED" || !f.resolved || !r || r.evidenceId || !r.v4Field)
-      continue;
-    const pseudo = { content: r.content, citation: r.citation } as EvidenceEntry;
-    byField.set(r.v4Field, [...(byField.get(r.v4Field) ?? []), pseudo]);
   }
   return byField;
 }
@@ -348,6 +320,13 @@ export function buildV4ReportModel(
       });
       if (c.source !== "assessor") out.push({ kind: "instruction", text: AI_DRAFT_NOTE });
     }
+    return [...out, ...deficiencies(n)];
+  };
+  /** A section's accepted findings, each with how it was resolved — so a
+   *  gap the evaluator accepted shows on the form wherever it sits. */
+  const deficiencies = (n: number): V4Block[] => {
+    const id = SECTION_IDS[n]!;
+    const out: V4Block[] = [];
     const here = accepted.filter((f) => f.v4Section === id);
     if (here.length > 0) {
       out.push({
@@ -359,8 +338,6 @@ export function buildV4ReportModel(
           if (f.formResolution)
             return `${base} Corrected by NAFDAC on this form: ${f.formResolution.note}`;
           const r = f.researchResolution;
-          if (r && r.v4Field && PRINTED_FIELDS.has(r.v4Field))
-            return `${base} Resolved by NAFDAC during this assessment (see above).`;
           if (r)
             return `${base} Resolved by NAFDAC during this assessment: ${r.content} [${cite(r.citation)}]`;
           return `${base} Resolved during this assessment.`;
@@ -738,6 +715,7 @@ export function buildV4ReportModel(
           ];
         }),
       },
+      ...deficiencies(9),
     ],
   });
 
@@ -879,6 +857,7 @@ export function buildV4ReportModel(
         ],
       },
       { kind: "field", label: "Comment", value: br?.riskMinimisationEffectiveness?.comment ?? "" },
+      ...deficiencies(10),
     ],
   });
 
@@ -956,6 +935,7 @@ export function buildV4ReportModel(
         label: "Evaluator's comments (critically assess the MAH's benefit-risk profile)",
         value: answer("S11_COMMENTS", doc.evaluatorComments ? [doc.evaluatorComments] : []),
       },
+      ...deficiencies(11),
     ],
   });
 
@@ -1004,11 +984,13 @@ export function buildV4ReportModel(
           rd?.mahResponseDeadline ? `Deadline: ${dateOnly(rd.mahResponseDeadline)}` : "",
         ),
       },
+      ...deficiencies(12),
     ],
   });
 
   // ---- 13 ----
   // Every citation is numbered by now; Section 13 lists them.
+  const deficiencies13 = deficiencies(13);
   const so = doc.signOff;
   const conf = so?.reviewerConfidence;
   sections.push({
@@ -1021,6 +1003,7 @@ export function buildV4ReportModel(
           "Conclusion (state the overall benefit-risk conclusion for the product, referencing the outcome selected in Section 12 and the key drivers identified in Section 10)",
         value: so?.conclusion?.trim() || NOT_ASSESSED,
       },
+      ...deficiencies13,
       { kind: "instruction", text: "Reviewer confidence in this conclusion:" },
       {
         kind: "ticks",

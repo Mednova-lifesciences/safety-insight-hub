@@ -10,6 +10,8 @@ import {
   resolvedFinding,
   searchCriterionFor,
   withdrawEvidence,
+  findingsFor,
+  isPending,
 } from "./finding-research";
 import { evidenceForCriterion } from "./memo-draft";
 import type { PsurDocument } from "@/types/pv";
@@ -208,5 +210,20 @@ describe("the feedback letter's count of resolved points", () => {
     );
     expect(letter.deficiencies).toHaveLength(0);
     expect(letter.resolvedCount).toBe(0);
+  });
+});
+
+describe("findings by section", () => {
+  const f = (id: string, v4Section: string | undefined, humanAssessment?: "ACCEPTED") =>
+    ({ id, v4Section, humanAssessment }) as unknown as PsurFinding;
+  const all = [f("a", "S1_PRODUCT_REGULATORY"), f("b", "S4_RSI", "ACCEPTED"), f("c", undefined)];
+
+  it("finds a section's own findings, and those with no section", () => {
+    expect(findingsFor(all, ["S4_RSI"]).map((x) => x.id)).toEqual(["b"]);
+    expect(findingsFor(all, ["ADMIN_SCREENING", undefined]).map((x) => x.id)).toEqual(["c"]);
+  });
+
+  it("a finding is pending until someone accepts or dismisses it", () => {
+    expect(all.filter(isPending).map((x) => x.id)).toEqual(["a", "c"]);
   });
 });
