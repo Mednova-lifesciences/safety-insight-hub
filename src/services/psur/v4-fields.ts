@@ -159,7 +159,7 @@ const SECTION_FIELD: Record<PsurV4SectionId, V4FieldId> = {
   ADMIN_SCREENING: "S1_FURTHER",
   S1_PRODUCT_REGULATORY: "S1_FURTHER",
   S2_WORLDWIDE_STATUS: "S2_ACTIONS",
-  S3_THERAPEUTIC_CONTEXT: "S3_FURTHER",
+  S3_THERAPEUTIC_CONTEXT: "S3_INCIDENCE",
   S4_RSI: "S4_CHANGES",
   S5_EXPOSURE_ACTIONS: "S5_ACTIONS",
   S6_LITERATURE: "S6_STUDIES",
@@ -174,6 +174,14 @@ const SECTION_FIELD: Record<PsurV4SectionId, V4FieldId> = {
 
 export function defaultFieldForCriterion(id: MemoCriterionId | undefined): V4FieldId | undefined {
   return id ? CRITERION_FIELD[id] : undefined;
+}
+
+/** The memo criterion a V4 field's research also counts for, if any — the
+ *  reverse of CRITERION_FIELD. Research filed elsewhere is V4-only. */
+export function criterionForField(field: V4FieldId): MemoCriterionId | undefined {
+  return (Object.entries(CRITERION_FIELD) as [MemoCriterionId, V4FieldId | undefined][]).find(
+    ([, f]) => f === field,
+  )?.[0];
 }
 
 export function defaultFieldForSection(id: PsurV4SectionId | undefined): V4FieldId | undefined {

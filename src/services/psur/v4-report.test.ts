@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { AssessmentSection, PsurDocument, PsurFinding } from "@/types/pv";
-import { AI_DRAFT_NOTE, buildV4ReportModel, type V4Block } from "./v4-report";
+import {
+  AI_DRAFT_NOTE,
+  AI_EXTRACT_MARK,
+  AI_TABLE_NOTE,
+  buildV4ReportModel,
+  latestV4PageText,
+  NO_SIGNALS,
+  V4_DEFAULT_PAGE_TEXT,
+  type V4Block,
+} from "./v4-report";
 import { defaultFieldForCriterion, fieldForEvidence } from "./v4-fields";
+import { V4_TEMPLATE_ITEMS } from "./v4-template-items";
 
 const AT = "2026-10-04T12:00:00.000Z";
 
@@ -268,7 +278,7 @@ describe("findings and decisions", () => {
 });
 
 describe("research kept out of the memo", () => {
-  it("still prints in the V4 field chosen for it", () => {
+  it("prints with its finding when the template has no prompt for it", () => {
     const f = {
       id: "f2",
       category: "MISSING_SECTION",
@@ -289,8 +299,12 @@ describe("research kept out of the memo", () => {
       },
     } as PsurFinding;
     const m = buildV4ReportModel(doc(), [f]);
-    expect(field(m, 1, "Further assessment")!.value).toBe(
-      "Date of review taken as the QPPV signature date, 12 September 2026. [1]",
+    expect(field(m, 1, "Further assessment")).toBeUndefined();
+    const list = m.sections
+      .find((x) => x.number === 1)!
+      .blocks.find((b): b is Extract<V4Block, { kind: "list" }> => b.kind === "list")!;
+    expect(list.items[0]).toBe(
+      "Medium — No separate Date of Review. Resolved by NAFDAC during this assessment: Date of review taken as the QPPV signature date, 12 September 2026. [1]",
     );
     expect(m.references).toEqual(["Submitted PSUR, title page"]);
   });
@@ -409,5 +423,99 @@ describe("the V4 report stands apart from the memo", () => {
     expect(
       indication({ memoDraft: { therapeuticCategory: "Antibacterial" } } as Partial<PsurDocument>),
     ).toBe("Antibacterial");
+  });
+});
+
+describe("the V4 template checklist", () => {
+  const norm = (t: string) =>
+    t
+      .replace(/[’‘]/g, "'")
+      .replace(/\s+/g, " ")
+      .replace(/[:.]$/, "")
+      .trim()
+      .toLowerCase();
+  const texts = (m: ReturnType<typeof buildV4ReportModel>): string[] => {
+    const out = [m.title, m.agency, m.subtitle, m.instructions];
+    for (const s of m.sections) {
+      out.push(s.number === null ? s.title : `${s.number}. ${s.title}`);
+      for (const b of s.blocks) {
+        if (b.kind === "field") out.push(b.label);
+        if (b.kind === "subheading" || b.kind === "instruction") out.push(b.text);
+        if (b.kind === "list") out.push(b.title);
+        if (b.kind === "ticks") out.push(...b.options.map((o) => o.label));
+        if (b.kind === "table") out.push(...b.header, ...b.rows.map((r) => r[0] ?? ""));
+      }
+    }
+    return out;
+  };
+
+  it("prints every heading, prompt, tick box and table label of the template", () => {
+    const have = new Set(texts(buildV4ReportModel(doc(), [])).map(norm));
+    const missing = V4_TEMPLATE_ITEMS.filter((i) => !have.has(norm(i)));
+    expect(missing).toEqual([]);
+    expect(V4_TEMPLATE_ITEMS.length).toBe(172);
+  });
+});
+
+describe("the AI pre-fill and the evaluator's answers", () => {
+  const prefill: PsurDocument["v4Prefill"] = {
+    generatedAt: AT,
+    fields: { S4_TYPE_VERSION: "SmPC version 6.2, 14 January 2026 (p. 11)." },
+    tables: {
+      adrs: [{ soc: "Skin", interval: "12", cumulative: "140", nigerian: "2", assessment: "" }],
+    },
+  };
+  const tableRows = (m: ReturnType<typeof buildV4ReportModel>, n: number, first: string) =>
+    m.sections
+      .find((s) => s.number === n)!
+      .blocks.find(
+        (b): b is Extract<V4Block, { kind: "table" }> =>
+          b.kind === "table" && b.header[0] === first,
+      )!.rows;
+
+  it("prints the AI's reading marked as not yet reviewed", () => {
+    const m = buildV4ReportModel(doc({ v4Prefill: prefill }), []);
+    expect(field(m, 4, "RSI type")!.value).toBe(
+      `SmPC version 6.2, 14 January 2026 (p. 11). ${AI_EXTRACT_MARK}`,
+    );
+    expect(tableRows(m, 7, "SOC / Event")).toEqual([["Skin", "12", "140", "2", ""]]);
+    expect(
+      m.sections.find((s) => s.number === 7)!.blocks,
+    ).toContainEqual({ kind: "instruction", text: AI_TABLE_NOTE });
+  });
+
+  it("prints the evaluator's saved answer and table instead, unmarked", () => {
+    const m = buildV4ReportModel(
+      doc({
+        v4Prefill: prefill,
+        v4SectionAnswers: {
+          fields: { S4_TYPE_VERSION: "SmPC, version 7.2 (March 2026)." },
+          tables: { adrs: [] },
+        },
+      }),
+      [],
+    );
+    expect(field(m, 4, "RSI type")!.value).toBe("SmPC, version 7.2 (March 2026).");
+    expect(tableRows(m, 7, "SOC / Event")).toEqual([["", "", "", "", ""]]);
+    expect(m.sections.find((s) => s.number === 7)!.blocks).not.toContainEqual({
+      kind: "instruction",
+      text: AI_TABLE_NOTE,
+    });
+  });
+
+  it("states 'No signals under evaluation this interval' when the evaluator says so", () => {
+    const m = buildV4ReportModel(doc({ v4SectionAnswers: { noSignals: true } }), []);
+    expect(tableRows(m, 8, "Signal / Term")[0]![0]).toBe(NO_SIGNALS);
+  });
+
+  it("uses this report's header, else the last one saved, else the template's", () => {
+    const own = { ...V4_DEFAULT_PAGE_TEXT, sopRef: "SOP Ref No.: PV-010-05" };
+    const older = { ...V4_DEFAULT_PAGE_TEXT, footer: "Old", updatedAt: "2026-01-01T00:00:00Z" };
+    const newer = { ...V4_DEFAULT_PAGE_TEXT, footer: "New", updatedAt: "2026-09-01T00:00:00Z" };
+    expect(buildV4ReportModel(doc({ v4PageText: own }), []).pageText).toEqual(own);
+    expect(
+      latestV4PageText([doc({ v4PageText: older }), doc({ v4PageText: newer }), doc()])!.footer,
+    ).toBe("New");
+    expect(buildV4ReportModel(doc(), []).pageText).toEqual(V4_DEFAULT_PAGE_TEXT);
   });
 });

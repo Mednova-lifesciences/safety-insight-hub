@@ -5,6 +5,7 @@ import {
   MEMO_REFERENCE_PREFIX,
   NOT_ASSESSED,
   NOT_STATED,
+  withAssessorInput,
 } from "./assessment-memo";
 import type { PsurSubmissionDetails } from "@/types/pv";
 
@@ -282,5 +283,36 @@ describe("what an empty criterion says", () => {
     const researched = evidenceCriteria([]);
     expect(researched.map((c) => c.remarks)).toEqual(Array(5).fill(NOT_ASSESSED));
     expect(NOT_ASSESSED).toBe("Not assessed");
+  });
+});
+
+describe("the brief highlights", () => {
+  it("prints the assessor's highlight before the research under its criterion", () => {
+    const criteria = withAssessorInput(
+      [
+        {
+          id: "RSI_CHANGES",
+          number: 7,
+          label: "RSI",
+          remarks: "DIES added to section 4.4.",
+          citations: ["SmPC v7.2"],
+          unestablished: false,
+        },
+        {
+          id: "WORLDWIDE_ACTIONS",
+          number: 8,
+          label: "Actions",
+          remarks: "Not assessed",
+          citations: [],
+          unestablished: true,
+        },
+      ],
+      { RSI_CHANGES: "Yes" },
+      "",
+      { RSI_CHANGES: "One safety update.", WORLDWIDE_ACTIONS: "None this interval." },
+    );
+    expect(criteria[0]!.remarks).toBe("One safety update.\n\nDIES added to section 4.4.");
+    expect(criteria[1]!.remarks).toBe("None this interval.");
+    expect(criteria[1]!.unestablished).toBe(false);
   });
 });

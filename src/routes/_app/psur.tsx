@@ -8,10 +8,11 @@ import {
 } from "@/services/psur/workflow";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { PsurScreeningDecision } from "@/components/pv/psur-screening-decision";
-import { PsurAssessmentMemoPanel, V4ResearchCard } from "@/components/pv/psur-assessment-memo";
+import { PsurAssessmentMemoPanel } from "@/components/pv/psur-assessment-memo";
 import { FindingResearch } from "@/components/pv/psur-finding-research";
 import { ScreeningRecord } from "@/components/pv/psur-screening-checklist";
-import { V4SectionsPanel } from "@/components/pv/psur-v4-sections";
+import { V4PageTextEditor, V4SectionsPanel } from "@/components/pv/psur-v4-sections";
+import { BenefitRiskTables } from "@/components/pv/psur-v4-section10";
 import { useMemo, useState } from "react";
 import { ArrowRight, Download, FileText, Stamp, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
@@ -156,8 +157,8 @@ const uncertaintyCategoryLabel: Record<PsurUncertaintyCategory, string> = {
   LIMITED_NIGERIAN_EXPOSURE: "Limited data on local (Nigerian) exposure",
   MISSING_SUBPOPULATION_DATA: "Missing subpopulation data",
   SHORT_FOLLOWUP_DURATION: "Short follow-up duration",
-  STUDY_DESIGN_LIMITATIONS: "Study design limitations",
-  LIMITED_GENERALISABILITY: "Limited generalisability of the studied population",
+  STUDY_DESIGN_LIMITATIONS: "Study design limitations (e.g. comparator choice, randomisation, blinding)",
+  LIMITED_GENERALISABILITY: "Limited generalisability of the studied population to the target population",
   OTHER: "Other",
 };
 
@@ -1051,20 +1052,6 @@ function PsurPage() {
               />
             ) : null}
 
-            {activeDoc.stage === "REVIEWED" ? (
-              <Section
-                title="10. Key risks — research"
-                description="Published evidence on the product's important risks. Accepted research prints in Section 10 of the V4 report, under “Key risks — further evidence”."
-              >
-                <V4ResearchCard
-                  doc={activeDoc}
-                  criterion="OVERALL_SAFETY_EVALUATION"
-                  canEdit={canEditAssessmentMemo(activeDoc, { canEvaluate, canPeerReview })}
-                  onChanged={refreshDocAndFindings}
-                />
-              </Section>
-            ) : null}
-
             <UncertaintiesPanel
               key={`uncertainties-${activeDoc.id}`}
               doc={activeDoc}
@@ -1095,9 +1082,17 @@ function PsurPage() {
                 title="V4 evaluation report"
                 description="The report in the V4 template's layout, built from everything above. Generate it again after any change."
               >
-                <Button size="sm" onClick={() => downloadV4Report(activeDoc.id)}>
-                  <FileText className="size-4" /> Generate V4 Evaluation Report (Word)
-                </Button>
+                <div className="space-y-3">
+                  <Button size="sm" onClick={() => downloadV4Report(activeDoc.id)}>
+                    <FileText className="size-4" /> Generate V4 Evaluation Report (Word)
+                  </Button>
+                  <V4PageTextEditor
+                    key={`v4-page-text-${activeDoc.id}`}
+                    doc={activeDoc}
+                    allDocs={visible}
+                    onChanged={refreshDocAndFindings}
+                  />
+                </div>
               </Section>
             ) : null}
           </>
@@ -1148,6 +1143,7 @@ function AdministrativeScreeningPanel({
 
   return (
     <Section
+      id="administrative-screening"
       title="Administrative Completeness Check"
       description="Runs before detailed scientific review, per the V4 template. This is a recommendation for the Review Officer — it never automatically accepts or rejects a submission. Evaluators and peer reviewers see it as read-only context; the decision itself belongs to the officer."
     >
@@ -1301,6 +1297,7 @@ function SpecialPopulationsPanel({ doc, onChanged }: { doc: PsurDocument; onChan
 
   return (
     <Section
+      id="v4-S9_SPECIAL_POPULATIONS"
       title="9. Special Populations, Special Situations & Missing Information"
       description="Every area must be either adequately addressed, present but incomplete, missing, or explicitly marked not applicable with a justification — never left ambiguous."
       actions={
@@ -1312,70 +1309,112 @@ function SpecialPopulationsPanel({ doc, onChanged }: { doc: PsurDocument; onChan
       }
     >
       <div className="space-y-2">
-        {items.map((item, i) => (
-          <div key={item.area} className="space-y-2 rounded-md border border-border p-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="min-w-56 text-sm font-medium">
-                {specialPopulationAreaLabel[item.area]}
-              </span>
-              <Select
-                value={item.status}
-                onValueChange={(v) =>
-                  setItems((prev) =>
-                    prev.map((x, j) =>
-                      j === i ? { ...x, status: v as PsurSectionStatus, source: "assessor" } : x,
-                    ),
-                  )
-                }
-              >
-                <SelectTrigger className="w-64">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(sectionStatusLabel) as PsurSectionStatus[])
-                    .filter((s) => s !== "ASSESSOR_PENDING")
-                    .map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {sectionStatusLabel[s]}
-                      </SelectItem>
-                    ))}
-                  <SelectItem value="ASSESSOR_PENDING">Not yet assessed</SelectItem>
-                </SelectContent>
-              </Select>
-              <StatusPill tone={item.source === "assessor" ? "success" : "assist"}>
-                {item.source === "assessor" ? "assessor" : item.source === "rule" ? "rule" : "AI"}
-              </StatusPill>
-            </div>
-            <Textarea
-              placeholder="Comment — what the submission says (or doesn't say) about this area"
-              value={item.comment}
-              rows={2}
-              onChange={(e) =>
-                setItems((prev) =>
-                  prev.map((x, j) =>
-                    j === i ? { ...x, comment: e.target.value, source: "assessor" } : x,
-                  ),
-                )
-              }
-            />
-            {item.status === "NOT_APPLICABLE" ? (
-              <Textarea
-                placeholder="Justification (required) — why this area genuinely does not apply"
-                value={item.notApplicableJustification ?? ""}
-                rows={2}
-                onChange={(e) =>
-                  setItems((prev) =>
-                    prev.map((x, j) =>
-                      j === i
-                        ? { ...x, notApplicableJustification: e.target.value, source: "assessor" }
-                        : x,
-                    ),
-                  )
-                }
-              />
-            ) : null}
-          </div>
-        ))}
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table className="w-full min-w-[640px] table-fixed border-collapse text-sm">
+            <colgroup>
+              <col style={{ width: "26%" }} />
+              <col style={{ width: "24%" }} />
+              <col style={{ width: "50%" }} />
+            </colgroup>
+            <thead className="bg-muted/50 text-xs">
+              <tr>
+                <th className="border-b border-r border-border p-2 text-left">Population / Category</th>
+                <th className="border-b border-r border-border p-2 text-left">Data Adequacy</th>
+                <th className="border-b border-border p-2 text-left">Comments</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, i) => (
+                <tr key={item.area} className="align-top">
+                  <th className="border-b border-r border-border p-2 text-left font-medium">
+                    {specialPopulationAreaLabel[item.area]}
+                    <div className="mt-1">
+                      <StatusPill tone={item.source === "assessor" ? "success" : "assist"}>
+                        {item.source === "assessor"
+                          ? "assessor"
+                          : item.source === "rule"
+                            ? "rule"
+                            : "AI"}
+                      </StatusPill>
+                    </div>
+                  </th>
+                  <td className="border-b border-r border-border p-1">
+                    <Select
+                      value={item.status}
+                      disabled={!canEvaluate}
+                      onValueChange={(v) =>
+                        setItems((prev) =>
+                          prev.map((x, j) =>
+                            j === i
+                              ? { ...x, status: v as PsurSectionStatus, source: "assessor" }
+                              : x,
+                          ),
+                        )
+                      }
+                    >
+                      <SelectTrigger
+                        className="h-8 text-xs"
+                        aria-label={`${specialPopulationAreaLabel[item.area]}: data adequacy`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(sectionStatusLabel) as PsurSectionStatus[])
+                          .filter((st) => st !== "ASSESSOR_PENDING")
+                          .map((st) => (
+                            <SelectItem key={st} value={st}>
+                              {sectionStatusLabel[st]}
+                            </SelectItem>
+                          ))}
+                        <SelectItem value="ASSESSOR_PENDING">Not yet assessed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </td>
+                  <td className="border-b border-border p-1">
+                    <Textarea
+                      aria-label={`${specialPopulationAreaLabel[item.area]}: comments`}
+                      className="min-h-0 border-0 p-1 text-xs shadow-none focus-visible:ring-1"
+                      placeholder="What the submission says (or doesn't say) about this area"
+                      value={item.comment}
+                      disabled={!canEvaluate}
+                      rows={2}
+                      onChange={(e) =>
+                        setItems((prev) =>
+                          prev.map((x, j) =>
+                            j === i ? { ...x, comment: e.target.value, source: "assessor" } : x,
+                          ),
+                        )
+                      }
+                    />
+                    {item.status === "NOT_APPLICABLE" ? (
+                      <Textarea
+                        aria-label={`${specialPopulationAreaLabel[item.area]}: why not applicable`}
+                        className="mt-1 min-h-0 p-1 text-xs"
+                        placeholder="Justification (required) — why this area genuinely does not apply"
+                        value={item.notApplicableJustification ?? ""}
+                        disabled={!canEvaluate}
+                        rows={2}
+                        onChange={(e) =>
+                          setItems((prev) =>
+                            prev.map((x, j) =>
+                              j === i
+                                ? {
+                                    ...x,
+                                    notApplicableJustification: e.target.value,
+                                    source: "assessor",
+                                  }
+                                : x,
+                            ),
+                          )
+                        }
+                      />
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </Section>
   );
@@ -1415,6 +1454,7 @@ function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: ()
 
   return (
     <Section
+      id="v4-S10_BENEFIT_RISK"
       title="10. Benefit-Risk Assessment"
       description="Key benefits and risks, the integrated effects table, patient/HCP perspective, and risk-minimisation effectiveness. Edit anything the AI extraction got wrong or missed."
       actions={
@@ -1426,399 +1466,7 @@ function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: ()
       }
     >
       <div className="space-y-4">
-        <div>
-          <p className="label-caps mb-2">10.1 Key benefits</p>
-          {data.keyBenefits.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              No key benefits recorded — the source text didn't support extracting any, or none have
-              been added yet.
-            </p>
-          ) : null}
-          <div className="space-y-2">
-            {data.keyBenefits.map((b, i) => (
-              <div
-                key={b.id}
-                className="grid gap-2 rounded-md border border-border p-2 sm:grid-cols-4"
-              >
-                <Input
-                  placeholder="Benefit"
-                  value={b.benefit}
-                  onChange={(e) =>
-                    setData((d) => ({
-                      ...d,
-                      keyBenefits: d.keyBenefits.map((x, j) =>
-                        j === i ? { ...x, benefit: e.target.value } : x,
-                      ),
-                    }))
-                  }
-                />
-                <Input
-                  placeholder="Evidence source"
-                  value={b.evidenceSource}
-                  onChange={(e) =>
-                    setData((d) => ({
-                      ...d,
-                      keyBenefits: d.keyBenefits.map((x, j) =>
-                        j === i ? { ...x, evidenceSource: e.target.value } : x,
-                      ),
-                    }))
-                  }
-                />
-                <Input
-                  placeholder="Magnitude"
-                  value={b.magnitude}
-                  onChange={(e) =>
-                    setData((d) => ({
-                      ...d,
-                      keyBenefits: d.keyBenefits.map((x, j) =>
-                        j === i ? { ...x, magnitude: e.target.value } : x,
-                      ),
-                    }))
-                  }
-                />
-                <Select
-                  value={b.evidenceQuality}
-                  onValueChange={(v) =>
-                    setData((d) => ({
-                      ...d,
-                      keyBenefits: d.keyBenefits.map((x, j) =>
-                        j === i ? { ...x, evidenceQuality: v as PsurEvidenceQuality } : x,
-                      ),
-                    }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(evidenceQualityLabel) as PsurEvidenceQuality[]).map((q) => (
-                      <SelectItem key={q} value={q}>
-                        {evidenceQualityLabel[q]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ))}
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-2"
-            onClick={() =>
-              setData((d) => ({
-                ...d,
-                keyBenefits: [
-                  ...d.keyBenefits,
-                  {
-                    id: `krb-${Date.now()}`,
-                    benefit: "",
-                    evidenceSource: "",
-                    magnitude: "",
-                    evidenceQuality: "NOT_ASSESSABLE",
-                  },
-                ],
-              }))
-            }
-          >
-            Add key benefit
-          </Button>
-        </div>
-
-        <div>
-          <p className="label-caps mb-2">10.2 Key risks</p>
-          {data.keyRisks.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No key risks recorded yet.</p>
-          ) : null}
-          <div className="space-y-2">
-            {data.keyRisks.map((r, i) => (
-              <div key={r.id} className="space-y-2 rounded-md border border-border p-2">
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <Select
-                    value={r.kind}
-                    onValueChange={(v) =>
-                      setData((d) => ({
-                        ...d,
-                        keyRisks: d.keyRisks.map((x, j) =>
-                          j === i ? { ...x, kind: v as PsurKeyRisk["kind"] } : x,
-                        ),
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="IDENTIFIED">Important identified risk</SelectItem>
-                      <SelectItem value="POTENTIAL">Important potential risk</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    placeholder="Risk"
-                    value={r.risk}
-                    onChange={(e) =>
-                      setData((d) => ({
-                        ...d,
-                        keyRisks: d.keyRisks.map((x, j) =>
-                          j === i ? { ...x, risk: e.target.value } : x,
-                        ),
-                      }))
-                    }
-                  />
-                  <Input
-                    placeholder="Severity"
-                    value={r.severity}
-                    onChange={(e) =>
-                      setData((d) => ({
-                        ...d,
-                        keyRisks: d.keyRisks.map((x, j) =>
-                          j === i ? { ...x, severity: e.target.value } : x,
-                        ),
-                      }))
-                    }
-                  />
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Input
-                    placeholder="Frequency"
-                    value={r.frequency}
-                    onChange={(e) =>
-                      setData((d) => ({
-                        ...d,
-                        keyRisks: d.keyRisks.map((x, j) =>
-                          j === i ? { ...x, frequency: e.target.value } : x,
-                        ),
-                      }))
-                    }
-                  />
-                  <Input
-                    placeholder="Frequency data source (mandatory per template)"
-                    value={r.frequencyDataSource}
-                    onChange={(e) =>
-                      setData((d) => ({
-                        ...d,
-                        keyRisks: d.keyRisks.map((x, j) =>
-                          j === i ? { ...x, frequencyDataSource: e.target.value } : x,
-                        ),
-                      }))
-                    }
-                  />
-                </div>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <Input
-                    placeholder="Reversibility"
-                    value={r.reversibility}
-                    onChange={(e) =>
-                      setData((d) => ({
-                        ...d,
-                        keyRisks: d.keyRisks.map((x, j) =>
-                          j === i ? { ...x, reversibility: e.target.value } : x,
-                        ),
-                      }))
-                    }
-                  />
-                  <Input
-                    placeholder="Duration"
-                    value={r.duration}
-                    onChange={(e) =>
-                      setData((d) => ({
-                        ...d,
-                        keyRisks: d.keyRisks.map((x, j) =>
-                          j === i ? { ...x, duration: e.target.value } : x,
-                        ),
-                      }))
-                    }
-                  />
-                  <Input
-                    placeholder="Preventability / risk management"
-                    value={r.preventabilityRiskManagement}
-                    onChange={(e) =>
-                      setData((d) => ({
-                        ...d,
-                        keyRisks: d.keyRisks.map((x, j) =>
-                          j === i ? { ...x, preventabilityRiskManagement: e.target.value } : x,
-                        ),
-                      }))
-                    }
-                  />
-                </div>
-                <Textarea
-                  placeholder="Comment"
-                  value={r.comment}
-                  rows={2}
-                  onChange={(e) =>
-                    setData((d) => ({
-                      ...d,
-                      keyRisks: d.keyRisks.map((x, j) =>
-                        j === i ? { ...x, comment: e.target.value } : x,
-                      ),
-                    }))
-                  }
-                />
-              </div>
-            ))}
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-2"
-            onClick={() =>
-              setData((d) => ({
-                ...d,
-                keyRisks: [
-                  ...d.keyRisks,
-                  {
-                    id: `krk-${Date.now()}`,
-                    kind: "POTENTIAL",
-                    risk: "",
-                    severity: "",
-                    frequency: "",
-                    frequencyDataSource: "",
-                    reversibility: "",
-                    duration: "",
-                    preventabilityRiskManagement: "",
-                    comment: "",
-                  },
-                ],
-              }))
-            }
-          >
-            Add key risk
-          </Button>
-        </div>
-
-        <div>
-          <p className="label-caps mb-2">10.2 Missing information</p>
-          {data.missingInformation.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              No missing-information items recorded yet.
-            </p>
-          ) : null}
-          <div className="space-y-2">
-            {data.missingInformation.map((m, i) => (
-              <div
-                key={m.id}
-                className="grid gap-2 rounded-md border border-border p-2 sm:grid-cols-2"
-              >
-                <Textarea
-                  placeholder="Missing information"
-                  value={m.missingInformation}
-                  rows={2}
-                  onChange={(e) =>
-                    setData((d) => ({
-                      ...d,
-                      missingInformation: d.missingInformation.map((x, j) =>
-                        j === i ? { ...x, missingInformation: e.target.value } : x,
-                      ),
-                    }))
-                  }
-                />
-                <Textarea
-                  placeholder="Risk-minimisation implication"
-                  value={m.riskMinimisationImplication}
-                  rows={2}
-                  onChange={(e) =>
-                    setData((d) => ({
-                      ...d,
-                      missingInformation: d.missingInformation.map((x, j) =>
-                        j === i ? { ...x, riskMinimisationImplication: e.target.value } : x,
-                      ),
-                    }))
-                  }
-                />
-              </div>
-            ))}
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-2"
-            onClick={() =>
-              setData((d) => ({
-                ...d,
-                missingInformation: [
-                  ...d.missingInformation,
-                  {
-                    id: `mi-${Date.now()}`,
-                    missingInformation: "",
-                    riskMinimisationImplication: "",
-                  },
-                ],
-              }))
-            }
-          >
-            Add missing-information item
-          </Button>
-        </div>
-
-        <div>
-          <p className="label-caps mb-2">10.3 Integrated Benefit-Risk Effects Table</p>
-          <div className="space-y-2">
-            {data.integratedEffectsTable.map((row, i) => (
-              <div key={`${row.dimension}-${i}`} className="rounded-md border border-border p-2">
-                <p className="text-xs font-medium">{row.dimension.replaceAll("_", " ")}</p>
-                <Textarea
-                  className="mt-1"
-                  placeholder="Evidence and uncertainty"
-                  value={row.evidenceAndUncertainty}
-                  rows={2}
-                  onChange={(e) =>
-                    setData((d) => ({
-                      ...d,
-                      integratedEffectsTable: d.integratedEffectsTable.map((x, j) =>
-                        j === i ? { ...x, evidenceAndUncertainty: e.target.value } : x,
-                      ),
-                    }))
-                  }
-                />
-                <Textarea
-                  className="mt-1"
-                  placeholder="Reviewer conclusion"
-                  value={row.reviewerConclusion}
-                  rows={2}
-                  onChange={(e) =>
-                    setData((d) => ({
-                      ...d,
-                      integratedEffectsTable: d.integratedEffectsTable.map((x, j) =>
-                        j === i ? { ...x, reviewerConclusion: e.target.value } : x,
-                      ),
-                    }))
-                  }
-                />
-              </div>
-            ))}
-          </div>
-          {data.integratedEffectsTable.length === 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  "CONDITION_UNMET_NEED",
-                  "CURRENT_TREATMENT_OPTIONS",
-                  "BENEFIT",
-                  "RISK",
-                  "RISK_MANAGEMENT",
-                ] as const
-              ).map((dim) => (
-                <Button
-                  key={dim}
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    setData((d) => ({
-                      ...d,
-                      integratedEffectsTable: [
-                        ...d.integratedEffectsTable,
-                        { dimension: dim, evidenceAndUncertainty: "", reviewerConclusion: "" },
-                      ],
-                    }))
-                  }
-                >
-                  Add {dim.replaceAll("_", " ").toLowerCase()}
-                </Button>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        <BenefitRiskTables data={data} setData={setData} disabled={!canEvaluate} />
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
@@ -1924,6 +1572,7 @@ function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: 
 
   return (
     <Section
+      id="v4-S11_UNCERTAINTIES"
       title="11. Uncertainties Affecting the Benefit-Risk Assessment"
       description="This section must not be left blank — if genuinely none apply this interval, say so explicitly rather than leaving it empty."
       actions={
@@ -2209,6 +1858,7 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
 
   return (
     <Section
+      id="v4-S12_REGULATORY_DECISION"
       title="12. Regulatory Decision & Recommended Actions"
       description="The assessor's own decision — the AI never makes a binding regulatory recommendation on its own."
       actions={
@@ -2419,6 +2069,7 @@ function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => 
 
   return (
     <Section
+      id="v4-S13_CONCLUSION_SIGNOFF"
       title="13. Conclusion, Sign-off & Document Control"
       description="Pure assessor input — never generated by the AI. The evaluator writes and signs the conclusion; the peer reviewer countersigns it. Both signatures need the signer's password."
       actions={

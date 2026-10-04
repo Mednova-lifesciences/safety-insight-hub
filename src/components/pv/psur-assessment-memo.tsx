@@ -446,7 +446,9 @@ function AddEvidenceForm({
           ))}
         </SelectContent>
       </Select>
-      <V4FieldSelect value={v4Field} onChange={setV4Field} />
+      {criterion === "OVERALL_SAFETY_EVALUATION" ? null : (
+        <V4FieldSelect value={v4Field} onChange={setV4Field} />
+      )}
       <Textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
@@ -516,7 +518,8 @@ const V4_HOME: Record<MemoCriterionId, { section: number; title: string } | unde
   WORLDWIDE_ACTIONS: { section: 2, title: "Research: regulatory actions worldwide" },
   PATIENT_EXPOSURE: { section: 7, title: "Research: VigiFlow (Nigerian ICSRs)" },
   RELEVANT_STUDIES: { section: 6, title: "Research: studies with relevant safety information" },
-  OVERALL_SAFETY_EVALUATION: { section: 10, title: "Research: key risks" },
+  // The V4 form has no prompt for criterion 11's research; it is memo-only.
+  OVERALL_SAFETY_EVALUATION: undefined,
 };
 
 /**
@@ -560,12 +563,14 @@ function AnswersCard({
   draft,
   setDraft,
   canEdit,
+  onChanged,
 }: {
   doc: PsurDocument;
   criterion: MemoCriterionId;
   draft: AssessmentMemoDraft;
   setDraft: (d: AssessmentMemoDraft) => void;
   canEdit: boolean;
+  onChanged: () => void;
 }) {
   const accepted = evidenceForCriterion(doc.assessmentSections ?? [], criterion).filter(
     (e) => e.status === "ACCEPTED",
@@ -621,7 +626,34 @@ function AnswersCard({
           />
         </div>
       ) : null}
-      {home ? (
+      {criterion !== "OVERALL_SAFETY_EVALUATION" ? (
+        <label className="mt-3 block">
+          <span className="label-caps">
+            {criterion === "PATIENT_EXPOSURE"
+              ? "Brief highlight of the exposure data"
+              : "If yes, give a brief highlight"}
+          </span>
+          <Textarea
+            className="mt-1"
+            rows={3}
+            disabled={!canEdit}
+            aria-label={`Brief highlight for ${criterionLabel(criterion)}`}
+            value={draft.highlights?.[criterion] ?? ""}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                highlights: { ...(draft.highlights ?? {}), [criterion]: e.target.value },
+              })
+            }
+            placeholder="In your own words. The accepted research is cited beneath it in the memo."
+          />
+        </label>
+      ) : null}
+      {criterion === "OVERALL_SAFETY_EVALUATION" ? (
+        <div className="mt-3">
+          <ResearchCard doc={doc} criterion={criterion} canEdit={canEdit} onChanged={onChanged} />
+        </div>
+      ) : home ? (
         <p className="mt-2 text-xs text-muted-foreground">
           {accepted === 0
             ? `No accepted research yet. Research is done in section ${home.section} above.`

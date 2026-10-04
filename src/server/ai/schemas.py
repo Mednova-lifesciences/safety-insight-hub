@@ -1259,3 +1259,88 @@ class AiEvidenceRoute(BaseModel):
         if v not in _ROUTABLE_CRITERIA:
             raise ValueError(f"unknown criterion {v}")
         return v
+
+
+class AiPsurV4PrefillFields(BaseModel):
+    worldwide_actions: Optional[str] = None
+    incidence_prevalence: Optional[str] = None
+    disease_duration: Optional[str] = None
+    mortality_severity: Optional[str] = None
+    treatment_options: Optional[str] = None
+    quality_of_life: Optional[str] = None
+    rsi_type_version: Optional[str] = None
+    rsi_changes: Optional[str] = None
+    rsi_rationale: Optional[str] = None
+    exposure_detail: Optional[str] = None
+    safety_actions: Optional[str] = None
+    studies: Optional[str] = None
+    nigeria_vs_global: Optional[str] = None
+
+
+class AiPsurV4Disease(BaseModel):
+    disease: str = ""
+    mortality: str = ""
+    severity: str = ""
+
+
+class AiPsurV4Exposure(BaseModel):
+    global_interval: Optional[str] = None
+    global_cumulative: Optional[str] = None
+    nigerian_interval: Optional[str] = None
+    nigerian_cumulative: Optional[str] = None
+    other_region: Optional[str] = None
+    other_interval: Optional[str] = None
+    other_cumulative: Optional[str] = None
+
+
+class AiPsurV4Adr(BaseModel):
+    soc: str = ""
+    interval: str = ""
+    cumulative: str = ""
+    nigerian: str = ""
+
+
+class AiPsurV4Signal(BaseModel):
+    signal: str = ""
+    source: str = ""
+    status: str = ""
+    method: str = ""
+    outcome: str = ""
+    date_closed: str = ""
+    action: str = ""
+
+
+class AiPsurV4Prefill(BaseModel):
+    """The V4 form's fields and tables as the submission states them.
+
+    A starting point the assessor reviews, never an answer: see
+    PSUR_V4_PREFILL_PROMPT. Values are coerced to text because models
+    return counts as numbers as often as strings."""
+
+    fields: AiPsurV4PrefillFields = Field(default_factory=AiPsurV4PrefillFields)
+    diseases: list[AiPsurV4Disease] = []
+    exposure: Optional[AiPsurV4Exposure] = None
+    adrs: list[AiPsurV4Adr] = []
+    signals: list[AiPsurV4Signal] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _numbers_as_text(cls, data: Any) -> Any:
+        def text(v: Any) -> Any:
+            if isinstance(v, bool) or v is None:
+                return v
+            if isinstance(v, (int, float)):
+                return str(v)
+            if isinstance(v, dict):
+                return {k: text(x) for k, x in v.items()}
+            if isinstance(v, list):
+                return [row(x) for x in v]
+            return v
+
+        def row(v: Any) -> Any:
+            # A table row's empty cell comes back as null; it is just empty.
+            if isinstance(v, dict):
+                return {k: "" if x is None else text(x) for k, x in v.items()}
+            return text(v)
+
+        return text(data) if isinstance(data, dict) else data

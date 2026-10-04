@@ -5,31 +5,24 @@ import { StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { psur as psurApi } from "@/services/api/psur";
 import { ai, type AiPsurResearchCandidate } from "@/services/api/ai";
 import { MEMO_CRITERIA } from "@/services/psur/assessment-memo";
 import {
   canResolveWithResearch,
-  criterionForFinding,
+  findingNeedsResearch,
   searchCriterionFor,
+  v4SectionAnchor,
 } from "@/services/psur/finding-research";
-import {
-  EVIDENCE_CRITERIA,
-  searchSubstance,
-  submissionDetailsOf,
-} from "@/services/psur/memo-draft";
+import { searchSubstance, submissionDetailsOf } from "@/services/psur/memo-draft";
 import type { MemoCriterionId, PsurDocument, PsurFinding, PsurV4SectionId } from "@/types/pv";
-import { defaultFieldForSection, type V4FieldId } from "@/services/psur/v4-fields";
+import {
+  criterionForField,
+  defaultFieldForSection,
+  v4Field as v4Field_,
+  type V4FieldId,
+} from "@/services/psur/v4-fields";
 import { V4FieldSelect } from "@/components/pv/v4-field-select";
-
-const NOT_IN_MEMO = "NONE";
 
 function criterionName(id: MemoCriterionId): string {
   const c = MEMO_CRITERIA.find((x) => x.id === id)!;
@@ -61,11 +54,7 @@ export function FindingResearch({
   onChanged: () => void;
 }) {
   const existing = finding.researchResolution;
-  const suggested = criterionForFinding(finding);
   const [open, setOpen] = useState(false);
-  const [criterion, setCriterion] = useState<string>(
-    existing ? (existing.criterion ?? NOT_IN_MEMO) : (suggested ?? NOT_IN_MEMO),
-  );
   const [content, setContent] = useState(existing?.content ?? "");
   const [citation, setCitation] = useState(existing?.citation ?? "");
   const [origin, setOrigin] = useState<"ai" | "assessor">("assessor");
@@ -79,11 +68,17 @@ export function FindingResearch({
   const [busy, setBusy] = useState(false);
 
   if (!canResolveWithResearch(finding)) return null;
+  // A finding resolved with research before its section stopped taking
+  // research keeps showing that resolution.
+  if (!findingNeedsResearch(finding) && !existing)
+    return <FormFix doc={doc} finding={finding} canEdit={canEdit} onChanged={onChanged} />;
 
-  const chosen = criterion === NOT_IN_MEMO ? undefined : (criterion as MemoCriterionId);
+  // The V4 field decides where the answer goes; the memo criterion follows
+  // from it (research under a field the memo has no criterion for stays
+  // V4-only).
+  const chosen = criterionForField(v4Field);
 
   const startEditing = () => {
-    setCriterion(existing ? (existing.criterion ?? NOT_IN_MEMO) : (suggested ?? NOT_IN_MEMO));
     setContent(existing?.content ?? "");
     setCitation(existing?.citation ?? "");
     setOrigin("assessor");
@@ -127,11 +122,7 @@ export function FindingResearch({
         origin,
         v4Field,
       });
-      toast.success(
-        chosen
-          ? `Resolved. Filed in the memo under criterion ${MEMO_CRITERIA.find((c) => c.id === chosen)!.number}.`
-          : "Resolved. Not filed in the memo.",
-      );
+      toast.success(`Resolved. It prints in the V4 report under “${v4Field_(v4Field).label}”.`);
       setOpen(false);
       onChanged();
     } catch (err) {
@@ -164,9 +155,11 @@ export function FindingResearch({
             </StatusPill>
             <span className="text-muted-foreground">
               by {existing.by} on {existing.at.slice(0, 16).replace("T", " ")} UTC ·{" "}
-              {existing.criterion
-                ? `in the memo under ${criterionName(existing.criterion).slice(0, 70)}`
-                : "not filed in the memo"}
+              {existing.v4Field
+                ? `in the V4 report under “${v4Field_(existing.v4Field).label}”`
+                : existing.criterion
+                  ? `in the memo under ${criterionName(existing.criterion)}`
+                  : "not filed in the report"}
             </span>
           </div>
           <p className="mt-1 whitespace-pre-wrap text-foreground">{existing.content}</p>
@@ -196,29 +189,20 @@ export function FindingResearch({
           data-testid="finding-research-form"
         >
           <p className="text-xs text-muted-foreground">
-            Fill the gap this finding names. Saving marks it resolved by you, files the research in
-            the assessment memo, and lists it on the MAH feedback letter as resolved by NAFDAC. The
-            finding stays here so you can edit or reopen it.
+            Fill the gap this finding names. Saving marks it resolved by you, puts your answer in
+            the V4 report field you choose, and lists it on the MAH feedback letter as resolved by
+            NAFDAC. The finding stays here so you can edit or reopen it.
           </p>
-          <label className="block">
-            <span className="label-caps">File in the memo under</span>
-            <Select value={criterion} onValueChange={setCriterion}>
-              <SelectTrigger className="mt-1" aria-label="Memo criterion">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {EVIDENCE_CRITERIA.map((id) => (
-                  <SelectItem key={id} value={id}>
-                    {criterionName(id).slice(0, 90)}
-                  </SelectItem>
-                ))}
-                <SelectItem value={NOT_IN_MEMO}>
-                  Don't add to the memo — resolve the finding only
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-          <V4FieldSelect value={v4Field} onChange={setV4Field} />
+          <V4FieldSelect
+            label="Where this answer goes in the V4 report"
+            value={v4Field}
+            onChange={setV4Field}
+          />
+          {chosen ? (
+            <p className="text-xs text-muted-foreground">
+              If a memo is generated, this also counts as research for its {criterionName(chosen)}
+            </p>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" disabled={searching} onClick={search}>
@@ -285,13 +269,17 @@ export function FindingResearch({
             )
           ) : null}
 
-          <Textarea
-            rows={4}
-            aria-label="Research for this finding"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="What you found that fills this gap, in your words."
-          />
+          <label className="block">
+            <span className="text-sm font-medium">{v4Field_(v4Field).label}:</span>
+            <Textarea
+              className="mt-1"
+              rows={4}
+              aria-label="Research for this finding"
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Your answer, in your words — what you found that fills this gap."
+            />
+          </label>
           <Input
             aria-label="Source for this research"
             value={citation}
@@ -308,6 +296,139 @@ export function FindingResearch({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Resolving a finding whose section is answered from the submission or by
+ * the evaluator (Section 1's details, exposure, signals, Sections 9-13),
+ * not from research: the evaluator corrects the form itself, then records
+ * what they corrected. The finding stays listed, resolved by NAFDAC.
+ */
+function FormFix({
+  doc,
+  finding,
+  canEdit,
+  onChanged,
+}: {
+  doc: PsurDocument;
+  finding: PsurFinding;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const done = finding.formResolution;
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState(done?.note ?? "");
+  const [busy, setBusy] = useState(false);
+  const go = () =>
+    document
+      .getElementById(v4SectionAnchor(finding.v4Section))
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  if (done && !open) {
+    return (
+      <div className="mt-2 rounded-md border border-success/30 bg-success-soft/40 p-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill tone="success" icon={<Check className="size-3.5" />}>
+            Corrected on the form
+          </StatusPill>
+          <span className="text-muted-foreground">
+            by {done.by} on {done.at.slice(0, 16).replace("T", " ")} UTC
+          </span>
+        </div>
+        <p className="mt-1 whitespace-pre-wrap text-foreground">{done.note}</p>
+        {canEdit ? (
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => setOpen(true)}>
+              <Pencil className="size-4" /> Edit
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await psurApi.reopenFinding(doc.id, finding.id);
+                  toast.success("Reopened.");
+                  onChanged();
+                } catch (err) {
+                  toast.error(errorText(err, "Could not reopen the finding."));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <RotateCcw className="size-4" /> Undo resolution
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+  if (!canEdit) return null;
+  if (!open) {
+    return (
+      <div className="mt-2 flex flex-wrap gap-2" data-testid="finding-form-fix">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            go();
+            setOpen(true);
+          }}
+        >
+          <Pencil className="size-4" /> Fix on the form
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div
+      className="mt-2 space-y-2 rounded-md border border-border p-3"
+      data-testid="finding-form-fix"
+    >
+      <p className="text-xs text-muted-foreground">
+        This section is answered from the submission and your review, not from research. Correct it
+        in its section of the form (
+        <button type="button" className="underline" onClick={go}>
+          go there
+        </button>
+        ), then say here what you corrected. The finding stays listed, resolved by NAFDAC, and the
+        MAH feedback letter says so.
+      </p>
+      <Textarea
+        rows={2}
+        aria-label="What you corrected on the form"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="e.g. Date of review entered as 12 September 2026, from the QPPV signature on the title page."
+      />
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={busy || !note.trim()}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await psurApi.resolveFindingOnForm(doc.id, finding.id, note);
+              toast.success("Resolved — corrected on the form.");
+              setOpen(false);
+              onChanged();
+            } catch (err) {
+              toast.error(errorText(err, "Could not save."));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <Check className="size-4" /> {busy ? "Saving…" : "Mark resolved"}
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }

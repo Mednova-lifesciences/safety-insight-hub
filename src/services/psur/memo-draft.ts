@@ -193,6 +193,7 @@ export function memoInputFromDocument(
     conclusion: draft.conclusion,
     answers: draft.answers,
     overallSafetyEnumeration: draft.overallSafetyEnumeration,
+    highlights: draft.highlights,
   };
 }
 

@@ -30,8 +30,9 @@ from ..ai.prompts import (
     PSUR_REVIEW_PDF_PROMPT,
     PSUR_REVIEW_SPREADSHEET_PROMPT,
     PSUR_SCREENING_PDF_PROMPT,
+    PSUR_V4_PREFILL_PROMPT,
 )
-from ..ai.schemas import AiPsurAdministrativeScreening, AiPsurFix, AiPsurReview
+from ..ai.schemas import AiPsurAdministrativeScreening, AiPsurFix, AiPsurReview, AiPsurV4Prefill
 from ..dependencies import AuthenticatedUser, require_any_permission, require_permission
 
 logger = logging.getLogger(__name__)
@@ -704,4 +705,82 @@ async def screen_pdf(
             pages_extracted=total_pages,
             extracted_text=text,
             error=str(exc),
+        )
+
+
+class V4PrefillRequest(BaseModel):
+    filename: str
+    extractedText: str
+    product: str = ""
+    reportingPeriod: str = ""
+
+
+class V4PrefillResponse(BaseModel):
+    fields: dict[str, Optional[str]] = {}
+    diseases: list[dict] = []
+    exposure: Optional[dict] = None
+    adrs: list[dict] = []
+    signals: list[dict] = []
+    ai_used: bool
+    prompt_version: str
+    model: Optional[str] = None
+    error: Optional[str] = None
+
+
+MAX_PREFILL_ROWS = 40
+
+
+@router.post("/v4-prefill", response_model=V4PrefillResponse)
+async def v4_prefill(
+    request: V4PrefillRequest,
+    user: AuthenticatedUser = Depends(require_permission("psur.evaluate")),
+):
+    """The V4 evaluation form's fields and tables as the submission states
+    them, for the assessor to review. Reads the text retained on the
+    document record, like /review-pdf-text."""
+    text = request.extractedText.strip()
+    if not text:
+        return V4PrefillResponse(
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="No extracted text is available to read the answers from.",
+        )
+    try:
+        completion = await structured_completion(
+            system_prompt=PSUR_V4_PREFILL_PROMPT,
+            user_content=json.dumps(
+                {
+                    "filename": request.filename,
+                    "declaredProduct": request.product or None,
+                    "declaredReportingPeriod": request.reportingPeriod or None,
+                    "extractedText": text[:MAX_PDF_CHARS],
+                }
+            ),
+            max_output_tokens=10000,
+        )
+        parsed = AiPsurV4Prefill.model_validate(completion.data)
+        return V4PrefillResponse(
+            fields=parsed.fields.model_dump(),
+            diseases=[d.model_dump() for d in parsed.diseases[:MAX_PREFILL_ROWS]],
+            exposure=parsed.exposure.model_dump() if parsed.exposure else None,
+            adrs=[a.model_dump() for a in parsed.adrs[:MAX_PREFILL_ROWS]],
+            signals=[s.model_dump() for s in parsed.signals[:MAX_PREFILL_ROWS]],
+            ai_used=True,
+            prompt_version=PROMPT_VERSION,
+            model=completion.model,
+        )
+    except AiNotConfiguredError as exc:
+        logger.info("V4 prefill skipped: %s", exc)
+        return V4PrefillResponse(ai_used=False, prompt_version=PROMPT_VERSION, error=str(exc))
+    except AiRequestError as exc:
+        logger.exception("V4 prefill failed")
+        return V4PrefillResponse(
+            ai_used=False, prompt_version=PROMPT_VERSION, error=f"AI unavailable: {exc}"
+        )
+    except Exception:
+        logger.exception("V4 prefill returned unusable output")
+        return V4PrefillResponse(
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="The AI returned an unusable response.",
         )
