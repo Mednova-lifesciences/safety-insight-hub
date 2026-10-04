@@ -4,6 +4,8 @@
 // Re-exported because a notification's audience is a list of roles, and
 // every consumer of that field already imports from here.
 import type { Role } from "@/lib/auth";
+// Type-only as well: the V4 field catalogue lives with the report it shapes.
+import type { V4FieldId } from "@/services/psur/v4-fields";
 export type { Role };
 
 export type WorkflowStep =
@@ -1291,6 +1293,9 @@ export interface EvidenceEntry {
   /** The review finding this evidence resolved, when it was entered through
    *  "Resolve with research" on that finding. */
   findingId?: string | undefined;
+  /** The V4 evaluation-form field this research answers. Absent on entries
+   *  recorded before the V4 report existed — see fieldForEvidence. */
+  v4Field?: V4FieldId | undefined;
 }
 
 /** One of the 14 working sections, with the evidence gathered under it. */
@@ -1497,6 +1502,8 @@ export interface PsurFinding {
         citation: string;
         criterion?: MemoCriterionId | undefined;
         evidenceId?: string | undefined;
+        /** Where the research prints in the V4 evaluation report. */
+        v4Field?: V4FieldId | undefined;
       }
     | undefined;
   /** The assessor's own decision on WHO must act on this finding,

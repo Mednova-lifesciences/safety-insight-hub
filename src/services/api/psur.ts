@@ -56,6 +56,8 @@ import type {
 } from "@/types/pv";
 import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
 import { buildAssessmentMemoModel } from "@/services/psur/assessment-memo";
+import type { V4FieldId } from "@/services/psur/v4-fields";
+import { buildV4ReportModel, type V4ReportModel } from "@/services/psur/v4-report";
 import {
   fileFindingResearch,
   reopenedFinding,
@@ -1967,6 +1969,7 @@ export const psur = {
     documentId: string,
     input: Pick<EvidenceEntry, "section" | "sourceType" | "citation" | "content" | "origin"> & {
       criterion: MemoCriterionId;
+      v4Field?: V4FieldId | undefined;
     },
   ): Promise<PsurDocument> =>
     inDocumentQueue(documentId, async () => {
@@ -2139,6 +2142,23 @@ export const psur = {
     const model = buildAssessmentMemoModel(memoInputFromDocument(doc, draft));
     if (!model && blockers.length === 0) blockers.push("Every CIOMS score must be a whole number of 0 or more.");
     return { model, blockers };
+  },
+
+  /** The NAFDAC V4 evaluation form, filled in from the review. */
+  downloadV4Report: async (documentId: string): Promise<void> => {
+    const doc = await readDocument(documentId);
+    const findings = await readFindings(documentId);
+    const model = buildV4ReportModel(doc, findings);
+    await downloadBlob(
+      await Packer.toBlob(buildV4ReportDocx(model)),
+      docBaseName(doc) + "-v4-evaluation-report.docx",
+    );
+    await recordAudit({
+      action: "PSUR_V4_REPORT_GENERATED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      newValue: `${model.references.length} reference(s)`,
+    });
   },
 
   downloadAssessmentMemo: async (documentId: string): Promise<void> => {
@@ -3856,5 +3876,106 @@ export function buildAssessmentMemoDocx(m: AssessmentMemoModel): Document {
         ],
       },
     ],
+  });
+}
+
+/**
+ * The V4 evaluation form as a Word file, laid out as the template is:
+ * centred title block, then the Administrative Completeness Check and
+ * Sections 1-13 with their own fields, tables and tick boxes. Research
+ * sits inside the fields it answers with [n] citations; Section 13 lists
+ * the references.
+ */
+export function buildV4ReportDocx(m: V4ReportModel): Document {
+  const children: (Paragraph | Table)[] = [
+    memoPara(m.title, { bold: true, size: 28, center: true, after: 40 }),
+    memoPara(m.agency, { bold: true, center: true, after: 40 }),
+    memoPara(m.subtitle, { center: true, after: 120 }),
+    memoPara(`Product: ${m.product}   ·   Generated ${m.generatedLabel}`, {
+      italics: true,
+      size: 20,
+      center: true,
+      after: 120,
+    }),
+    memoPara(
+      "Instructions: complete every section. Where a section is genuinely not applicable, write ‘Not applicable’ and state why, rather than leaving it blank. Free-text fields should give a reasoned assessment, not a single-word answer.",
+      { italics: true, size: 20, after: 240 },
+    ),
+  ];
+
+  for (const s of m.sections) {
+    children.push(
+      memoPara(s.number === null ? s.title : `${s.number}. ${s.title}`, {
+        bold: true,
+        size: 26,
+        after: 120,
+        keepNext: true,
+      }),
+    );
+    for (const b of s.blocks) {
+      switch (b.kind) {
+        case "subheading":
+          children.push(memoPara(b.text, { bold: true, after: 80, keepNext: true }));
+          break;
+        case "instruction":
+          children.push(memoPara(b.text, { italics: true, size: 20, after: 80, keepNext: true }));
+          break;
+        case "field": {
+          const lines = (b.value || "").split("\n");
+          children.push(
+            new Paragraph({
+              children: [memoRun(`${b.label}: `, { bold: true }), memoRun(lines[0] ?? "")],
+              spacing: { after: lines.length > 1 ? 40 : 120 },
+            }),
+            ...lines.slice(1).map((l, i) => memoPara(l, { after: i === lines.length - 2 ? 120 : 40 })),
+          );
+          break;
+        }
+        case "ticks":
+          for (const o of b.options) {
+            children.push(memoPara(`${o.checked ? "☒" : "☐"}  ${o.label}`, { after: 40 }));
+          }
+          children.push(memoPara("", { after: 60 }));
+          break;
+        case "list":
+          children.push(memoPara(`${b.title}:`, { bold: true, after: 40, keepNext: true }));
+          if (b.items.length === 0) children.push(memoPara("None.", { after: 120 }));
+          b.items.forEach((item, i) =>
+            children.push(memoPara(item, { after: i === b.items.length - 1 ? 120 : 40 })),
+          );
+          break;
+        case "table": {
+          const width = Math.max(b.header.length, ...b.rows.map((r) => r.length), 1);
+          const percents =
+            b.widths && b.widths.length === width ? b.widths : Array(width).fill(100 / width);
+          const rows: TableRow[] = [];
+          if (b.header.length > 0) {
+            rows.push(
+              new TableRow({
+                tableHeader: true,
+                children: b.header.map((h, i) => memoCell([{ text: h, bold: true }], percents[i])),
+              }),
+            );
+          }
+          for (const r of b.rows) {
+            rows.push(
+              new TableRow({
+                children: r.map((v, i) =>
+                  memoCell([{ text: v, bold: !!b.firstColumnBold && i === 0 }], percents[i]),
+                ),
+              }),
+            );
+          }
+          children.push(memoTable(rows, percents), memoPara("", { after: 120 }));
+          break;
+        }
+      }
+    }
+    children.push(memoPara("", { after: 120 }));
+  }
+
+  return new Document({
+    styles: { default: { document: { run: { font: MEMO_FONT, size: 22 } } } },
+    sections: [{ children }],
   });
 }

@@ -25,7 +25,9 @@ import {
   searchSubstance,
   submissionDetailsOf,
 } from "@/services/psur/memo-draft";
-import type { MemoCriterionId, PsurDocument, PsurFinding } from "@/types/pv";
+import type { MemoCriterionId, PsurDocument, PsurFinding, PsurV4SectionId } from "@/types/pv";
+import { defaultFieldForSection, type V4FieldId } from "@/services/psur/v4-fields";
+import { V4FieldSelect } from "@/components/pv/v4-field-select";
 
 const NOT_IN_MEMO = "NONE";
 
@@ -67,6 +69,11 @@ export function FindingResearch({
   const [content, setContent] = useState(existing?.content ?? "");
   const [citation, setCitation] = useState(existing?.citation ?? "");
   const [origin, setOrigin] = useState<"ai" | "assessor">("assessor");
+  const initialField = (): V4FieldId =>
+    existing?.v4Field ??
+    defaultFieldForSection(finding.v4Section as PsurV4SectionId) ??
+    "S13_FURTHER";
+  const [v4Field, setV4Field] = useState<V4FieldId>(initialField);
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<AiPsurResearchCandidate[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,6 +87,7 @@ export function FindingResearch({
     setContent(existing?.content ?? "");
     setCitation(existing?.citation ?? "");
     setOrigin("assessor");
+    setV4Field(initialField());
     setResults(null);
     setOpen(true);
   };
@@ -117,6 +125,7 @@ export function FindingResearch({
         citation,
         criterion: chosen,
         origin,
+        v4Field,
       });
       toast.success(
         chosen
@@ -209,6 +218,7 @@ export function FindingResearch({
               </SelectContent>
             </Select>
           </label>
+          <V4FieldSelect value={v4Field} onChange={setV4Field} />
 
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" disabled={searching} onClick={search}>

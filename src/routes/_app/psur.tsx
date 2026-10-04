@@ -640,6 +640,20 @@ function PsurPage() {
                       </Button>
                       <Button
                         size="sm"
+                        onClick={async () => {
+                          try {
+                            await psurApi.downloadV4Report(activeDoc.id);
+                          } catch (err) {
+                            toast.error(
+                              err instanceof Error ? err.message : "Could not generate the V4 report.",
+                            );
+                          }
+                        }}
+                      >
+                        <FileText className="size-4" /> Generate V4 Evaluation Report (Word)
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="ghost"
                         onClick={async () => {
                           try {
@@ -2059,9 +2073,13 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
     doc.regulatoryDecision?.supportingFinding ?? "",
   );
   const [nextDue, setNextDue] = useState(doc.regulatoryDecision?.nextPsurDueDate ?? "");
-  // No MAH response deadline here: once a report is in scientific review it
-  // never goes back to the MAH for a response (NAFDAC, 2026-09-30). The
-  // deadline belongs to the Review Officer's screening directive alone.
+  // The V4 form's Section 12 has a "follow-up deadline", so it is offered
+  // here — optional, and printed on the V4 evaluation report only. The
+  // advisory MAH feedback letter never carries it: NAFDAC said a report in
+  // scientific review does not go back to the MAH for a response.
+  const [followUpDeadline, setFollowUpDeadline] = useState(
+    doc.regulatoryDecision?.mahResponseDeadline ?? "",
+  );
   const [followUp, setFollowUp] = useState(doc.regulatoryDecision?.followUpRequired ?? "");
   const [saving, setSaving] = useState(false);
 
@@ -2075,6 +2093,7 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
         supportingFinding: supportingFinding || undefined,
         nextPsurDueDate: nextDue || undefined,
         followUpRequired: followUp || undefined,
+        mahResponseDeadline: followUpDeadline || undefined,
       });
       toast.success("Regulatory decision recorded.");
       onChanged();
@@ -2183,6 +2202,19 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
           <p className="mt-1 text-xs text-muted-foreground">
             Advisory only — printed on the MAH feedback letter, which asks for no response. Gaps
             you resolved during this assessment are listed in that letter automatically.
+          </p>
+        </div>
+        <div className="sm:max-w-xs">
+          <p className="label-caps mb-1">Follow-up deadline (optional)</p>
+          <Input
+            type="date"
+            aria-label="Follow-up deadline"
+            value={followUpDeadline}
+            onChange={(e) => setFollowUpDeadline(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            As the V4 form's Section 12 asks. Printed on the V4 evaluation report only — never on
+            the advisory MAH feedback letter.
           </p>
         </div>
 

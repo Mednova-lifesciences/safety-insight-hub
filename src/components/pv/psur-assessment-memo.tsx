@@ -55,6 +55,8 @@ import {
   type EvidenceStatus,
 } from "@/services/psur/memo-draft";
 import { canEditCiomsMatrix } from "@/services/psur/workflow";
+import { defaultFieldForCriterion, type V4FieldId } from "@/services/psur/v4-fields";
+import { V4FieldSelect } from "@/components/pv/v4-field-select";
 import type {
   AssessmentMemoDraft,
   CiomsMatrix,
@@ -420,6 +422,9 @@ function AddEvidenceForm({
   onClose: () => void;
 }) {
   const [sourceType, setSourceType] = useState<EvidenceSourceType>(defaultSourceType(criterion));
+  const [v4Field, setV4Field] = useState<V4FieldId>(
+    defaultFieldForCriterion(criterion) ?? "S13_FURTHER",
+  );
   const [citation, setCitation] = useState(initial?.citation ?? "");
   const [content, setContent] = useState(initial?.content ?? "");
   const [busy, setBusy] = useState(false);
@@ -441,6 +446,7 @@ function AddEvidenceForm({
           ))}
         </SelectContent>
       </Select>
+      <V4FieldSelect value={v4Field} onChange={setV4Field} />
       <Textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
@@ -476,6 +482,7 @@ function AddEvidenceForm({
                 citation,
                 content,
                 origin: "assessor",
+                v4Field,
               });
               toast.success("Evidence added and accepted.");
               onChanged();
