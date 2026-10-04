@@ -1211,3 +1211,51 @@ class AiPsurAdministrativeScreening(BaseModel):
                 ", ".join(rejected[:20]),
             )
         return kept
+
+
+# ------------------------------------------------- PSUR assessment memo --
+
+_RESEARCH_CRITERIA = {"RSI_CHANGES", "WORLDWIDE_ACTIONS", "RELEVANT_STUDIES", "OVERALL_SAFETY_EVALUATION"}
+_ROUTABLE_CRITERIA = _RESEARCH_CRITERIA | {"PATIENT_EXPOSURE"}
+
+
+class AiResearchCandidate(BaseModel):
+    source_id: str
+    remark: str
+    relevance: Literal["HIGH", "MEDIUM", "LOW"] = "MEDIUM"
+
+    @field_validator("relevance", mode="before")
+    @classmethod
+    def _upper_relevance(cls, v: Any) -> Any:
+        return v.upper() if isinstance(v, str) else v
+
+
+class AiResearchSummary(BaseModel):
+    candidates: list[AiResearchCandidate] = []
+
+    @field_validator("candidates", mode="before")
+    @classmethod
+    def _drop_bad_rows(cls, v: Any) -> Any:
+        if not isinstance(v, list):
+            return []
+        kept = []
+        for item in v:
+            try:
+                kept.append(AiResearchCandidate.model_validate(item))
+            except Exception:
+                logger.warning("PSUR research: discarded an unparseable candidate")
+        return kept
+
+
+class AiEvidenceRoute(BaseModel):
+    criterion: str
+    confidence: float = Field(ge=0, le=1)
+    reason: str
+
+    @field_validator("criterion")
+    @classmethod
+    def _known_criterion(cls, v: str) -> str:
+        v = v.strip().upper()
+        if v not in _ROUTABLE_CRITERIA:
+            raise ValueError(f"unknown criterion {v}")
+        return v
