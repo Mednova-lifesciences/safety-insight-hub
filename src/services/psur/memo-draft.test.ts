@@ -19,6 +19,9 @@ import {
   rejectEvidence,
   reviseEvidence,
   searchSubstance,
+  memoWarnings,
+  verdictFromSection12,
+  OUTCOME_VERDICT,
 } from "./memo-draft";
 import { renderableEvidence } from "./evidence";
 
@@ -250,5 +253,62 @@ describe("the memo draft", () => {
 
   it("writes the date the way the memo does", () => {
     expect(formatMemoDate(new Date(2026, 0, 5))).toBe("5 January 2026");
+  });
+});
+
+describe("the memo verdict and the Section 12 decision", () => {
+  const decided = (outcome: "FAVOURABLE" | "FAVOURABLE_WITH_CONDITIONS" | "UNFAVOURABLE") =>
+    doc({
+      regulatoryDecision: {
+        actions: ["CONTINUE_ROUTINE_PV"],
+        overallOutcome: outcome,
+        basis: "b",
+        decidedBy: "Eve",
+        decidedAt: AT,
+      },
+    } as Partial<PsurDocument>);
+
+  it("words a favourable outcome the way the supplied memo does", () => {
+    expect(OUTCOME_VERDICT.FAVOURABLE).toBe("Positive Benefit-Risk Balance");
+  });
+
+  it("a new draft's verdict starts from the Section 12 decision", () => {
+    expect(defaultMemoDraft(decided("FAVOURABLE_WITH_CONDITIONS")).verdictConfirmed).toBe(
+      "Positive Benefit-Risk Balance, subject to conditions",
+    );
+  });
+
+  it("with no Section 12 decision the verdict starts empty, and that is said", () => {
+    const d = doc();
+    expect(verdictFromSection12(d)).toBeUndefined();
+    expect(defaultMemoDraft(d).verdictConfirmed).toBe("");
+    expect(memoWarnings(d, defaultMemoDraft(d)).join(" ")).toMatch(/Section 12 has no overall/);
+  });
+
+  it("warns when the memo and Section 12 disagree, and is quiet when they agree", () => {
+    const d = decided("UNFAVOURABLE");
+    const agreeing = defaultMemoDraft(d);
+    expect(memoWarnings(d, agreeing)).toEqual([]);
+    const disagreeing = { ...agreeing, verdictConfirmed: "Positive Benefit-Risk Balance" };
+    expect(memoWarnings(d, disagreeing).join(" ")).toMatch(/differs from the Section 12 outcome/);
+  });
+
+  it("a disagreement warns but never blocks generation", () => {
+    const d = decided("UNFAVOURABLE");
+    const draft = {
+      ...defaultMemoDraft(d),
+      referenceSuffix: "1/I",
+      signatory: "S",
+      bandConfirmed: "Medium",
+      verdictConfirmed: "Positive Benefit-Risk Balance",
+      conclusion: "c",
+    };
+    const matrix = {
+      epidemiologyOfDisease: { seriousness: 1, duration: 1, incidence: 1 },
+      effectivenessOfProduct: { seriousness: 1, duration: 1, incidence: 1 },
+      adrs: [{ reaction: "Rash", scores: { seriousness: 1, duration: 1, incidence: 1 } }],
+    };
+    expect(memoBlockers(draft, matrix)).toEqual([]);
+    expect(memoWarnings(d, draft)).toHaveLength(1);
   });
 });

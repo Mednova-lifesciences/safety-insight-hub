@@ -48,7 +48,9 @@ import {
   evidenceForCriterion,
   homeSection,
   memoBlockers,
+  memoWarnings,
   searchSubstance,
+  verdictFromSection12,
   submissionDetailsOf,
   type EvidenceStatus,
 } from "@/services/psur/memo-draft";
@@ -1017,6 +1019,8 @@ export function PsurAssessmentMemoPanel({
   const proposedBand = totals ? bandFor(totals.effectiveness) : undefined;
   const proposedVerdict = totals ? proposeVerdict(totals) : undefined;
   const blockers = memoBlockers(draft, matrix);
+  const warnings = memoWarnings(doc, draft);
+  const section12Verdict = verdictFromSection12(doc);
   const facts = useMemo(
     () => factualCriteria(submissionDetailsOf(doc), draft.therapeuticCategory),
     [doc, draft.therapeuticCategory],
@@ -1218,6 +1222,25 @@ export function PsurAssessmentMemoPanel({
               placeholder="e.g. Positive Benefit-Risk Balance"
               onChange={(e) => update({ ...draft, verdictConfirmed: e.target.value })}
             />
+            {section12Verdict ? (
+              <div className="mt-1 text-xs text-foreground" data-testid="section12-verdict">
+                Section 12 decision: <strong>{section12Verdict}</strong>
+                {canEdit && draft.verdictConfirmed !== section12Verdict ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => update({ ...draft, verdictConfirmed: section12Verdict })}
+                  >
+                    Use the Section 12 decision
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-muted-foreground">
+                No overall outcome recorded in Section 12 yet. Record it there and this verdict will
+                follow it.
+              </p>
+            )}
             {proposedVerdict ? (
               <div className="mt-1 text-xs text-muted-foreground">
                 Proposed: {proposedVerdict.verdict}. {proposedVerdict.reasoning}
@@ -1232,7 +1255,10 @@ export function PsurAssessmentMemoPanel({
                 ) : null}
               </div>
             ) : null}
-            {proposedVerdict &&
+            {/* Section 12 is the assessor's decision and outranks the
+                rubric's proposal; this hint only matters without it. */}
+            {!section12Verdict &&
+            proposedVerdict &&
             draft.verdictConfirmed &&
             draft.verdictConfirmed !== proposedVerdict.verdict ? (
               <p className="mt-1 text-xs text-warning" data-testid="verdict-differs">
@@ -1284,6 +1310,16 @@ export function PsurAssessmentMemoPanel({
           ) : (
             <p className="mt-1 text-sm text-success">Ready to generate.</p>
           )}
+          {warnings.length > 0 ? (
+            <ul
+              className="mt-2 list-disc pl-5 text-xs text-muted-foreground"
+              data-testid="memo-warnings"
+            >
+              {warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               size="sm"
