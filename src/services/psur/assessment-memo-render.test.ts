@@ -35,7 +35,7 @@ function model(overrides: Partial<AssessmentMemoModel> = {}): AssessmentMemoMode
         id: "RELEVANT_STUDIES",
         number: 10,
         label: "Studies containing relevant safety information",
-        remarks: "Not stated in the submission",
+        remarks: "Not assessed",
         citations: [],
         unestablished: true,
       },
@@ -131,8 +131,8 @@ describe("the rendered memo", () => {
     expect(out).toContain("is not less than the epidemiology of the disease itself; a score of 6 vs.");
   });
 
-  it("shows an unestablished criterion as not stated, never as a blank", () => {
+  it("shows an unestablished criterion in words, never as a blank", () => {
     const out = renderAssessmentMemoText(model());
-    expect(out).toContain("Not stated in the submission");
+    expect(out).toContain("Not assessed");
   });
 });

@@ -587,8 +587,8 @@ function CriterionCard({
         </ul>
       ) : (
         <p className="mt-3 text-sm text-muted-foreground">
-          No evidence yet. Without an answer or accepted evidence, the memo will say this criterion
-          was not established.
+          No evidence yet. Without an answer or accepted evidence, the memo will print “Not
+          assessed” for this criterion.
         </p>
       )}
 
