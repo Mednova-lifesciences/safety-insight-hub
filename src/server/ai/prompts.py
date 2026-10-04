@@ -1461,3 +1461,56 @@ Return a JSON object of exactly this shape:
 {"criterion": "<one id above>", "confidence": <number 0 to 1>, "reason": "<one sentence>"}
 Base the reason on words that actually appear in the text.
 """
+
+PSUR_V4_PREFILL_PROMPT = """You assist a NAFDAC (Nigeria) pharmacovigilance assessor completing the
+PSUR/PBRER Evaluation Form (V4). You are given the extracted text of the marketing-authorisation
+holder's PSUR/PBRER, with "--- page N ---" markers. Read it and fill the form's fields and tables
+with what THE SUBMISSION STATES.
+
+Rules:
+- Use only the submission's text. Never add knowledge of your own about the product or the disease,
+  and never guess. If the submission does not state something, return null for a field or leave the
+  table empty.
+- Every field value is a short factual summary (one to four sentences) in plain English, ending
+  with the page it comes from, e.g. "(p. 12)" or "(pp. 12-13)".
+- Quote figures exactly as written, with their units (patient-years, treatment courses, packs, DDDs).
+- The assessor reviews everything you return before it is used.
+
+Return a JSON object of exactly this shape:
+{
+  "fields": {
+    "worldwide_actions": "<regulatory actions taken by any authority or the MAH for safety reasons
+      this interval, worldwide: approvals, refusals, suspensions, withdrawals, variations>" | null,
+    "incidence_prevalence": "<incidence and prevalence of the disease(s) treated>" | null,
+    "disease_duration": "<whether the disease is acute, chronic or progressive>" | null,
+    "mortality_severity": "<mortality and severity of the disease>" | null,
+    "treatment_options": "<current treatment options>" | null,
+    "quality_of_life": "<quality-of-life impact of the disease given current treatments>" | null,
+    "rsi_type_version": "<RSI type (SmPC / CDS / CCDS) and version number, with its date>" | null,
+    "rsi_changes": "<changes made to the RSI during the reporting interval; say so if none>" | null,
+    "rsi_rationale": "<the rationale given for those changes>" | null,
+    "exposure_detail": "<patient-years, number of patients, prescriptions, units sold, defined daily
+      doses, as stated>" | null,
+    "safety_actions": "<actions taken for safety reasons during the reporting interval>" | null,
+    "studies": "<company-sponsored and published studies with relevant safety information, briefly>"
+      | null,
+    "nigeria_vs_global": "<differences the submission reports between Nigerian and global data>"
+      | null
+  },
+  "diseases": [{"disease": "...", "mortality": "...", "severity": "..."}],
+  "exposure": {
+    "global_interval": "..." | null, "global_cumulative": "..." | null,
+    "nigerian_interval": "..." | null, "nigerian_cumulative": "..." | null,
+    "other_region": "<name of one other region the submission reports separately>" | null,
+    "other_interval": "..." | null, "other_cumulative": "..." | null
+  } | null,
+  "adrs": [{"soc": "<MedDRA SOC or event>", "interval": "<interval count>",
+            "cumulative": "<cumulative count>", "nigerian": "<Nigerian count, or empty>"}],
+  "signals": [{"signal": "...", "source": "...", "status": "New | Ongoing | Closed",
+               "method": "<method of evaluation>", "outcome": "...",
+               "date_closed": "<date, or empty>", "action": "<regulatory action, or empty>"}]
+}
+Exposure values are the figure with its unit, e.g. "38,400 treatment courses (p. 9)".
+For "adrs", reproduce the submission's own summary tabulation by SOC (or by event where it tabulates
+events); include every row it gives, up to 40.
+"""

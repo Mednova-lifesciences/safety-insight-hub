@@ -200,8 +200,48 @@ export function resolvedFinding(
   };
 }
 
+/**
+ * The V4 sections whose answers come from outside the submission —
+ * regulatory actions, therapeutic context, the RSI, the literature and
+ * VigiFlow. A finding anywhere else is about what the submission or the
+ * form itself says, so it is resolved by correcting the form, not with
+ * research.
+ */
+export const RESEARCH_SECTIONS: PsurV4SectionId[] = [
+  "S2_WORLDWIDE_STATUS",
+  "S3_THERAPEUTIC_CONTEXT",
+  "S4_RSI",
+  "S6_LITERATURE",
+  "S7_AGGREGATE_SAFETY_DATA",
+];
+
+export function findingNeedsResearch(f: PsurFinding): boolean {
+  return RESEARCH_SECTIONS.includes(f.v4Section as PsurV4SectionId);
+}
+
+/** Where on the review page a V4 section is answered — the anchor "Fix on
+ *  the form" jumps to. */
+export function v4SectionAnchor(section: string | undefined): string {
+  return section === "ADMIN_SCREENING" ? "administrative-screening" : `v4-${section ?? ""}`;
+}
+
+/** The finding resolved by correcting the form, with what was corrected. */
+export function formFixedFinding(
+  finding: PsurFinding,
+  note: string,
+  by: string,
+  at: string,
+): PsurFinding {
+  return {
+    ...finding,
+    resolved: true,
+    resolution: note.trim(),
+    formResolution: { by, at, note: note.trim() },
+  };
+}
+
 /** The finding reopened: no longer resolved, research no longer attached. */
 export function reopenedFinding(finding: PsurFinding): PsurFinding {
-  const { researchResolution: _r, resolution: _res, ...rest } = finding;
+  const { researchResolution: _r, resolution: _res, formResolution: _f, ...rest } = finding;
   return { ...rest, resolved: false };
 }

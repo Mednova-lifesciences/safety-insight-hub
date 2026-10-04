@@ -47,7 +47,10 @@ import type {
   PsurSectionCoverage,
   PsurSectionStatus,
   PsurSignOff,
+  PsurV4PageText,
   PsurV4SectionAnswers,
+  PsurV4Tables,
+  V4Section1Row,
   PsurSpecialPopulationArea,
   PsurSpecialPopulationItem,
   PsurUncertainty,
@@ -62,9 +65,15 @@ import type {
 import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
 import { buildAssessmentMemoModel } from "@/services/psur/assessment-memo";
 import type { V4FieldId } from "@/services/psur/v4-fields";
-import { buildV4ReportModel, type V4ReportModel } from "@/services/psur/v4-report";
+import { prefillFromAi } from "@/services/psur/v4-prefill";
+import {
+  buildV4ReportModel,
+  latestV4PageText,
+  type V4ReportModel,
+} from "@/services/psur/v4-report";
 import {
   fileFindingResearch,
+  formFixedFinding,
   reopenedFinding,
   resolvedFinding,
   withdrawEvidence,
@@ -2107,6 +2116,35 @@ export const psur = {
       return next;
     }),
 
+  /** Resolves an accepted finding by correcting the form itself, saying
+   *  what was corrected. For sections answered from the submission, not
+   *  from research (findingNeedsResearch). */
+  resolveFindingOnForm: (
+    documentId: string,
+    findingId: string,
+    note: string,
+  ): Promise<PsurFinding> =>
+    inDocumentQueue(documentId, async () => {
+      if (!note.trim()) throw new Error("Say what you corrected on the form.");
+      const finding = (await readFindings(documentId)).find((f) => f.id === findingId);
+      if (!finding) throw new Error("Finding not found");
+      const next = formFixedFinding(
+        finding,
+        note,
+        currentActor().name,
+        new Date().toISOString(),
+      );
+      await saveFinding(documentId, next);
+      await recordAudit({
+        action: "PSUR_FINDING_RESOLVED_ON_FORM",
+        entity: "PsurFinding",
+        entityId: findingId,
+        previousValue: finding.resolution ?? null,
+        newValue: note.trim(),
+      });
+      return next;
+    }),
+
   /** Reopens a finding resolved with research. Its research is withdrawn
    *  from the memo — kept on record, never printed — and the finding goes
    *  back to accepted-but-unresolved. */
@@ -2153,7 +2191,9 @@ export const psur = {
   downloadV4Report: async (documentId: string): Promise<void> => {
     const doc = await readDocument(documentId);
     const findings = await readFindings(documentId);
-    const model = buildV4ReportModel(doc, findings);
+    // A report with no header of its own takes the last one saved.
+    const fallback = doc.v4PageText ? undefined : latestV4PageText(await psur.documents());
+    const model = buildV4ReportModel(doc, findings, new Date(), fallback);
     await downloadBlob(
       await Packer.toBlob(buildV4ReportDocx(model)),
       docBaseName(doc) + "-v4-evaluation-report.docx",
@@ -3041,10 +3081,17 @@ export const psur = {
       s2Inconsistent: boolean;
       s2Explanation: string;
       therapeuticIndication: string;
+      s1: Partial<Record<V4Section1Row, string>>;
       s7AdrTabulation: boolean;
       s7VigiflowChecked: boolean;
-      /** Section -> the reviewed wording. Sections left out are unreviewed. */
+      /** Section -> the reviewed wording. Sections left out are unreviewed;
+       *  a reviewed section may have no wording ("Not assessed"). */
       assessments: Partial<Record<PsurV4SectionId, string>>;
+      /** The reviewed sections' field answers. */
+      fields: Partial<Record<V4FieldId, string>>;
+      /** The reviewed sections' tables. */
+      tables: PsurV4Tables;
+      noSignals: boolean;
     },
   ): Promise<PsurDocument> => {
     const document = await readDocument(documentId);
@@ -3054,7 +3101,6 @@ export const psur = {
     const assessments: PsurV4SectionAnswers["assessments"] = {};
     for (const [id, raw] of Object.entries(answers.assessments) as [PsurV4SectionId, string][]) {
       const text = raw.trim();
-      if (!text) continue;
       const before = previous[id];
       // Re-saving unchanged wording keeps who reviewed it, and when.
       assessments[id] = before && before.text === text ? before : { text, by: actor.name, at: now };
@@ -3065,9 +3111,19 @@ export const psur = {
         s2Inconsistent: answers.s2Inconsistent,
         s2Explanation: answers.s2Explanation.trim() || undefined,
         therapeuticIndication: answers.therapeuticIndication.trim() || undefined,
+        s1: Object.fromEntries(
+          Object.entries(answers.s1)
+            .map(([k, v]) => [k, (v ?? "").trim()])
+            .filter(([, v]) => v),
+        ),
         s7AdrTabulation: answers.s7AdrTabulation,
         s7VigiflowChecked: answers.s7VigiflowChecked,
         assessments,
+        fields: Object.fromEntries(
+          Object.entries(answers.fields).map(([k, v]) => [k, (v ?? "").trim()]),
+        ),
+        tables: answers.tables,
+        noSignals: answers.noSignals,
         updatedBy: actor.name,
         updatedAt: now,
       },
@@ -3078,9 +3134,73 @@ export const psur = {
       action: "PSUR_V4_SECTION_ANSWERS_UPDATED",
       entity: "PsurDocument",
       entityId: documentId,
-      newValue: `${Object.keys(assessments).length} section assessment(s) reviewed by evaluator`,
+      newValue: `${Object.keys(assessments).length} section(s) reviewed by evaluator`,
     });
     return next;
+  },
+
+  /** The V4 report's page header and footer for this report. The last one
+   *  saved carries forward to reports that have none (latestV4PageText). */
+  updateV4PageText: async (
+    documentId: string,
+    text: Omit<PsurV4PageText, "updatedBy" | "updatedAt">,
+  ): Promise<PsurDocument> =>
+    inDocumentQueue(documentId, async () => {
+      const document = await readDocument(documentId);
+      const actor = currentActor();
+      const next: PsurDocumentRow = {
+        ...document,
+        v4PageText: {
+          annexure: text.annexure.trim(),
+          sopRef: text.sopRef.trim(),
+          title: text.title.trim(),
+          footer: text.footer.trim(),
+          updatedBy: actor.name,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+      await saveDocument(next);
+      await recordAudit({
+        action: "PSUR_V4_PAGE_TEXT_UPDATED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        newValue: `${text.sopRef} — ${text.footer}`,
+      });
+      return next;
+    }),
+
+  /** Reads the V4 form's fields and tables from the submission's text with
+   *  the AI and keeps the result as a starting point (PsurV4Prefill) —
+   *  never as the evaluator's answers. */
+  runV4Prefill: async (documentId: string): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    const text = document.extractedText?.trim();
+    if (!text) throw new Error("This report has no extracted text to read the answers from.");
+    const r = await ai.psur.v4Prefill({
+      filename: document.filename,
+      extractedText: text,
+      product: document.product,
+      reportingPeriod: document.reportingPeriod,
+    });
+    const prefill = prefillFromAi(r, new Date().toISOString());
+    return inDocumentQueue(documentId, async () => {
+      const latest = await readDocument(documentId);
+      // A failed re-read never throws away a good earlier reading.
+      if (prefill.error && latest.v4Prefill && !latest.v4Prefill.error) {
+        throw new Error(`${prefill.error} The earlier pre-fill is kept.`);
+      }
+      const next: PsurDocumentRow = { ...latest, v4Prefill: prefill };
+      await saveDocument(next);
+      await recordAudit({
+        action: "PSUR_V4_PREFILL_GENERATED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        newValue: prefill.error
+          ? `Failed: ${prefill.error}`
+          : `${Object.keys(prefill.fields).length} field(s) extracted`,
+      });
+      return next;
+    });
   },
 
   /** Section 13 — pure assessor input, never AI-generated (see
@@ -3939,19 +4059,6 @@ export function buildAssessmentMemoDocx(m: AssessmentMemoModel): Document {
   });
 }
 
-/**
- * The V4 template's own page furniture. Kept as data, not literals in the
- * layout, so a revised SOP reference or template version is a one-line
- * change. Wording copied from the template's header and footer.
- */
-export const V4_TEMPLATE_HEADER = {
-  annexure: "Annexure 2",
-  sopRef: "SOP Ref No.: PV-010-04",
-  title: "Title of Annexure: PSUR/PBRER Evaluation Form (Full Structured Assessment)",
-};
-export const V4_TEMPLATE_FOOTER =
-  "Confidential — NAFDAC Internal Use  |  Template Version 4.0 (Draft)";
-
 /** The template is US Letter with 1-inch margins: 9360 twips of text. */
 const V4_TEXT_WIDTH = 9360;
 const V4_HEADER_COLUMNS = [1911, 3194, 4255];
@@ -4074,7 +4181,7 @@ export function buildV4ReportDocx(m: V4ReportModel): Document {
     v4Para(
       [
         v4Run(
-          "Instructions: complete every section. Where a section is genuinely not applicable, write ‘Not applicable’ and state why, rather than leaving it blank. Free-text fields should give a reasoned assessment, not a single-word answer.",
+          m.instructions,
           { italics: true, size: 20 },
         ),
       ],
@@ -4179,11 +4286,7 @@ export function buildV4ReportDocx(m: V4ReportModel): Document {
     layout: TableLayoutType.FIXED,
     rows: [
       new TableRow({
-        children: [
-          V4_TEMPLATE_HEADER.annexure,
-          V4_TEMPLATE_HEADER.sopRef,
-          V4_TEMPLATE_HEADER.title,
-        ].map(
+        children: [m.pageText.annexure, m.pageText.sopRef, m.pageText.title].map(
           (t, i) =>
             new TableCell({
               width: { size: V4_HEADER_COLUMNS[i]!, type: WidthType.DXA },
@@ -4224,7 +4327,7 @@ export function buildV4ReportDocx(m: V4ReportModel): Document {
               new Paragraph({
                 alignment: AlignmentType.CENTER,
                 children: [
-                  footerRun({ text: `${V4_TEMPLATE_FOOTER}  |  Page ` }),
+                  footerRun({ text: `${m.pageText.footer}  |  Page ` }),
                   footerRun({ page: "current" }),
                   footerRun({ text: " of " }),
                   footerRun({ page: "total" }),

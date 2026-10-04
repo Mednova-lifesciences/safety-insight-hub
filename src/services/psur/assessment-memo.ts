@@ -232,10 +232,19 @@ export function withAssessorInput(
   criteria: MemoCriterion[],
   answers: MemoAnswers,
   overallSafetyEnumeration: string,
+  highlights: Partial<Record<MemoCriterionId, string>> = {},
 ): MemoCriterion[] {
   return criteria.map((c) => {
     const answer = answerLine(c.id, answers);
     let next: MemoCriterion = answer ? { ...c, answer } : c;
+    const highlight = (highlights[c.id] ?? "").trim();
+    if (highlight) {
+      next = {
+        ...next,
+        remarks: next.unestablished ? highlight : `${highlight}\n\n${next.remarks}`,
+        unestablished: false,
+      };
+    }
     if (c.id === "OVERALL_SAFETY_EVALUATION") {
       const enumeration = overallSafetyEnumeration
         .split("\n")
@@ -270,6 +279,8 @@ export interface AssessmentMemoInput {
   answers?: MemoAnswers | undefined;
   /** Criterion 11 in the assessor's words, one risk per line. */
   overallSafetyEnumeration?: string | undefined;
+  /** Criteria 7-10's brief highlights, in the assessor's words. */
+  highlights?: Partial<Record<MemoCriterionId, string>> | undefined;
   productNameAndStrength: string;
   therapeuticCategory: string;
   details: PsurSubmissionDetails;
@@ -321,6 +332,7 @@ export function buildAssessmentMemoModel(
         evidenceCriteria(input.sections),
         input.answers ?? {},
         input.overallSafetyEnumeration ?? "",
+        input.highlights ?? {},
       ),
     ],
     matrix: input.matrix,

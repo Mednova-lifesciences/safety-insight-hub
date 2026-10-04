@@ -722,6 +722,10 @@ export interface PsurDocument {
   /** The evaluator's own answers to the V4 form's Sections 2-8 — see
    *  PsurV4SectionAnswers. */
   v4SectionAnswers?: PsurV4SectionAnswers | undefined;
+  /** The AI's extraction for the V4 form — see PsurV4Prefill. */
+  v4Prefill?: PsurV4Prefill | undefined;
+  /** The V4 report's page header and footer for this report. */
+  v4PageText?: PsurV4PageText | undefined;
   /** When the evaluator last changed something Section 12's decision rests
    *  on (Sections 2-11). Compared with regulatoryDecision.decidedAt so the
    *  page can say the decision predates those changes — the decision itself
@@ -1225,12 +1229,113 @@ export interface PsurV4SectionAnswers {
   /** Section 1's "Therapeutic Indication(s)". Falls back to the memo's
    *  therapeutic category for reports assessed before this existed. */
   therapeuticIndication?: string | undefined;
+  /** Section 1's table as the evaluator corrected it. A row left empty
+   *  prints what the administrative screening recorded. */
+  s1?: Partial<Record<V4Section1Row, string>> | undefined;
   /** Section 7: "Attach or reproduce the MAH's summary tabulation of ADRs…" */
   s7AdrTabulation?: boolean | undefined;
   /** Section 7: "Check VigiFlow for the Nigerian component…" */
   s7VigiflowChecked?: boolean | undefined;
-  /** Section -> the evaluator's reviewed assessment of it. */
+  /** Section -> the evaluator's reviewed assessment of it. Its presence
+   *  is what marks a section reviewed: the section's fields and tables
+   *  below are saved with it, and from then on print as the evaluator's. */
   assessments?: Partial<Record<PsurV4SectionId, PsurReviewedAssessment>> | undefined;
+  /** The evaluator's own answer to each free-text field of the form, in
+   *  their words. Research filed under the field prints after it. */
+  fields?: Partial<Record<V4FieldId, string>> | undefined;
+  /** The form's tables, as the evaluator completed them. */
+  tables?: PsurV4Tables | undefined;
+  /** Section 8: "state 'No signals under evaluation this interval' if
+   *  genuinely applicable". */
+  noSignals?: boolean | undefined;
+  updatedBy?: string | undefined;
+  updatedAt?: string | undefined;
+}
+
+/** The rows of Section 1's table other than the therapeutic indication. */
+export type V4Section1Row =
+  | "dateOfReview"
+  | "product"
+  | "mah"
+  | "regNo"
+  | "period"
+  | "ibd"
+  | "nbd";
+
+/** Section 3: "Disease | Mortality | Severity". */
+export interface V4DiseaseRow {
+  disease: string;
+  mortality: string;
+  severity: string;
+}
+
+/** One row of Section 5's exposure table. */
+export interface V4ExposureRow {
+  interval: string;
+  cumulative: string;
+}
+
+/** Section 5: global, Nigerian and one other region, interval and
+ *  cumulative. */
+export interface V4ExposureTable {
+  global: V4ExposureRow;
+  nigerian: V4ExposureRow;
+  /** "Another relevant region (if applicable)" — named by the evaluator. */
+  otherRegion: string;
+  other: V4ExposureRow;
+}
+
+/** Section 7: "SOC / Event | Reporting interval | Cumulative | Nigerian
+ *  cases | Reviewer assessment". */
+export interface V4AdrRow {
+  soc: string;
+  interval: string;
+  cumulative: string;
+  nigerian: string;
+  assessment: string;
+}
+
+/** Section 8: "Signal / Term | Source | Status | Method of Evaluation |
+ *  Outcome | Date Closed | Regulatory action". */
+export interface V4SignalRow {
+  signal: string;
+  source: string;
+  status: string;
+  method: string;
+  outcome: string;
+  dateClosed: string;
+  action: string;
+}
+
+export interface PsurV4Tables {
+  diseases?: V4DiseaseRow[] | undefined;
+  exposure?: V4ExposureTable | undefined;
+  adrs?: V4AdrRow[] | undefined;
+  signals?: V4SignalRow[] | undefined;
+}
+
+/**
+ * What the AI read from the submission for the V4 form's fields and
+ * tables. A starting point only: kept apart from the evaluator's answers
+ * (PsurV4SectionAnswers), and printed in the V4 report marked as not yet
+ * reviewed until the evaluator reviews that section.
+ */
+export interface PsurV4Prefill {
+  fields: Partial<Record<V4FieldId, string>>;
+  tables: PsurV4Tables;
+  generatedAt: string;
+  model?: string | undefined;
+  /** Set when the extraction could not run; the form stays blank. */
+  error?: string | undefined;
+}
+
+/** The V4 report's page header and footer — the template's, by default,
+ *  and editable because the SOP reference and version change. */
+export interface PsurV4PageText {
+  annexure: string;
+  sopRef: string;
+  title: string;
+  footer: string;
   updatedBy?: string | undefined;
   updatedAt?: string | undefined;
 }
@@ -1460,6 +1565,9 @@ export interface AssessmentMemoDraft {
    *  serious first. Accepted evidence under the same criterion is cited
    *  beneath it. */
   overallSafetyEnumeration: string;
+  /** Criteria 7-10's "if yes, give a brief highlight", in the assessor's
+   *  own words. Printed before the research cited under the criterion. */
+  highlights?: Partial<Record<MemoCriterionId, string>> | undefined;
   bandConfirmed: string;
   verdictConfirmed: string;
   analysisOfMatrix: string;
@@ -1547,6 +1655,10 @@ export interface PsurFinding {
         v4Field?: V4FieldId | undefined;
       }
     | undefined;
+  /** Set when NAFDAC resolved the finding by correcting the form itself
+   *  (a missing date, a figure from the submission) rather than with
+   *  research: what was corrected, by whom, when. */
+  formResolution?: { by: string; at: string; note: string } | undefined;
   /** The assessor's own decision on WHO must act on this finding,
    *  overriding the deterministic derivation in
    *  services/psur/finding-ownership.ts. The derivation is a defensible

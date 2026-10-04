@@ -42,8 +42,8 @@ export const UNCERTAINTY_CATEGORY_LABEL: Record<PsurUncertaintyCategory, string>
   LIMITED_NIGERIAN_EXPOSURE: "Limited data on local (Nigerian) exposure",
   MISSING_SUBPOPULATION_DATA: "Missing subpopulation data",
   SHORT_FOLLOWUP_DURATION: "Short follow-up duration",
-  STUDY_DESIGN_LIMITATIONS: "Study design limitations",
-  LIMITED_GENERALISABILITY: "Limited generalisability of the studied population",
+  STUDY_DESIGN_LIMITATIONS: "Study design limitations (e.g. comparator choice, randomisation, blinding)",
+  LIMITED_GENERALISABILITY: "Limited generalisability of the studied population to the target population",
   OTHER: "Other",
 };
 

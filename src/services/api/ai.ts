@@ -319,6 +319,35 @@ export interface AiPsurRouteEvidenceResponse {
   prompt_version: string;
 }
 
+/** The V4 form's answers as the AI read them from the submission. Every
+ *  value is what the PSUR states, with its page; null when not stated. */
+export interface AiPsurV4PrefillResponse {
+  fields: Record<string, string | null>;
+  diseases: { disease: string; mortality: string; severity: string }[];
+  exposure: {
+    global_interval: string | null;
+    global_cumulative: string | null;
+    nigerian_interval: string | null;
+    nigerian_cumulative: string | null;
+    other_region: string | null;
+    other_interval: string | null;
+    other_cumulative: string | null;
+  } | null;
+  adrs: { soc: string; interval: string; cumulative: string; nigerian: string }[];
+  signals: {
+    signal: string;
+    source: string;
+    status: string;
+    method: string;
+    outcome: string;
+    date_closed: string;
+    action: string;
+  }[];
+  ai_used: boolean;
+  model?: string | null;
+  error?: string | null;
+}
+
 export interface AiPsurFixResponse {
   resolutions: AiPsurResolution[];
   unresolved: AiPsurUnresolved[];
@@ -540,6 +569,14 @@ export const ai = {
      *  memo until an assessor accepts it. */
     research: (body: { criterion: string; substance: string; interval: string; focus?: string }) =>
       apiRequest<AiPsurResearchResponse>("/api/ai/psur/research", { method: "POST", body }),
+    /** The V4 form's fields and tables, read from the submission's text. */
+    v4Prefill: (body: {
+      filename: string;
+      extractedText: string;
+      product: string;
+      reportingPeriod: string;
+    }) =>
+      apiRequest<AiPsurV4PrefillResponse>("/api/ai/psur/v4-prefill", { method: "POST", body }),
     /** Which memo criterion pasted text belongs to — a proposal. */
     routeEvidence: (body: { text: string }) =>
       apiRequest<AiPsurRouteEvidenceResponse>("/api/ai/psur/route-evidence", {

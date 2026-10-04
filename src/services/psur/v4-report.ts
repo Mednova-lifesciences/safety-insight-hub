@@ -7,6 +7,11 @@ import type {
   PsurSectionStatus,
   PsurSpecialPopulationArea,
   PsurUncertaintyCategory,
+  PsurV4PageText,
+  V4AdrRow,
+  V4DiseaseRow,
+  V4ExposureTable,
+  V4SignalRow,
   PsurV4SectionId,
 } from "@/types/pv";
 import { renderableEvidence } from "./evidence";
@@ -63,6 +68,10 @@ export interface V4ReportModel {
   title: string;
   agency: string;
   subtitle: string;
+  /** The form's opening instructions, as the template words them. */
+  instructions: string;
+  /** The header and footer printed on every page. */
+  pageText: PsurV4PageText;
   product: string;
   generatedLabel: string;
   sections: V4Section[];
@@ -123,6 +132,61 @@ export const SECTION_IDS: Record<number, PsurV4SectionId> = {
   12: "S12_REGULATORY_DECISION",
   13: "S13_CONCLUSION_SIGNOFF",
 };
+
+/** The template's own header and footer. The SOP reference and template
+ *  version change over time, so staff can edit them (PsurV4PageText). */
+export const V4_DEFAULT_PAGE_TEXT: PsurV4PageText = {
+  annexure: "Annexure 2",
+  sopRef: "SOP Ref No.: PV-010-04",
+  title: "Title of Annexure: PSUR/PBRER Evaluation Form (Full Structured Assessment)",
+  footer: "Confidential — NAFDAC Internal Use  |  Template Version 4.0 (Draft)",
+};
+
+/** The header and footer most recently saved on any report: set once,
+ *  it carries forward to the next report until someone changes it. */
+export function latestV4PageText(docs: PsurDocument[]): PsurV4PageText | undefined {
+  return docs
+    .map((d) => d.v4PageText)
+    .filter((t): t is PsurV4PageText => !!t)
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
+}
+
+export const V4_INSTRUCTIONS =
+  "Instructions: complete every section. Where a section is genuinely not applicable, write ‘Not applicable’ and state why, rather than leaving it blank. Free-text fields should give a reasoned assessment, not a single-word answer.";
+
+/** Appended to a field the AI filled from the submission, until the
+ *  evaluator reviews its section. */
+export const AI_EXTRACT_MARK = "[Extracted by AI from the submission — not yet reviewed]";
+/** Printed under a table the AI filled from the submission. */
+export const AI_TABLE_NOTE =
+  "Extracted by AI from the submission and not yet reviewed by the assessor.";
+/**
+ * The V4 fields the report prints research in: the template's own prompts.
+ * Research filed anywhere else (older "Further assessment" entries, key
+ * risks kept for the memo) is not printed as a field; research that
+ * resolved a finding is shown with the finding instead.
+ */
+export const PRINTED_FIELDS: ReadonlySet<V4FieldId> = new Set<V4FieldId>([
+  "S2_ACTIONS",
+  "S2_INCONSISTENT",
+  "S3_INCIDENCE",
+  "S3_DURATION",
+  "S3_MORTALITY",
+  "S3_TREATMENTS",
+  "S3_QOL",
+  "S4_TYPE_VERSION",
+  "S4_CHANGES",
+  "S4_RATIONALE",
+  "S5_EXPOSURE",
+  "S5_ACTIONS",
+  "S6_STUDIES",
+  "S7_DIFFERENCES",
+  "S7_VIGIFLOW",
+  "S8_SIGNALS",
+]);
+
+/** Section 8's wording for an interval with no signals. */
+export const NO_SIGNALS = "No signals under evaluation this interval";
 
 /** Printed under any assessment the evaluator has not reviewed. */
 export const AI_DRAFT_NOTE =
@@ -205,6 +269,9 @@ export function buildV4ReportModel(
   doc: PsurDocument,
   findings: PsurFinding[],
   now: Date = new Date(),
+  /** The header and footer to use when this report has none of its own —
+   *  the most recently saved one (see latestV4PageText). */
+  fallbackPageText?: PsurV4PageText,
 ): V4ReportModel {
   const details = submissionDetailsOf(doc);
   const references: string[] = [];
@@ -219,35 +286,58 @@ export function buildV4ReportModel(
   const byField = researchByField(doc, findings);
   const research = (field: V4FieldId): string[] =>
     (byField.get(field) ?? []).map((e) => `${e.content.trim()} [${cite(e.citation)}]`);
-  /** A field's answer: what is already known, then the research on it. */
+  const answers = doc.v4SectionAnswers;
+  const prefill = doc.v4Prefill;
+  /** The evaluator's own answer to a field once saved; until then the AI's
+   *  extraction from the submission, marked as such. */
+  const own = (field: V4FieldId): string => {
+    const saved = answers?.fields?.[field];
+    if (saved !== undefined) return saved.trim();
+    const ai = prefill?.fields?.[field]?.trim();
+    return ai ? `${ai} ${AI_EXTRACT_MARK}` : "";
+  };
+  /** A field's answer: what is already known, the evaluator's own answer
+   *  (or the AI's extraction), then the research on it. */
   const answer = (field: V4FieldId, known: string[] = [], empty = NOT_ASSESSED): string => {
-    const parts = [...known.map((k) => k.trim()).filter(Boolean), ...research(field)];
+    const mine = own(field);
+    const parts = [
+      ...known.map((k) => k.trim()).filter(Boolean),
+      ...(mine ? [mine] : []),
+      ...research(field),
+    ];
     return parts.length > 0 ? parts.join("\n") : empty;
   };
-  /** A FURTHER field prints only when something was filed there. */
-  const further = (field: V4FieldId): V4Block[] => {
-    const r = research(field);
-    return r.length > 0
-      ? [{ kind: "field", label: "Further assessment", value: r.join("\n") }]
-      : [];
-  };
+  /** A table as the evaluator saved it, else as the AI extracted it (with
+   *  a note saying so), else the template's empty row. */
+  function table<R>(
+    key: "diseases" | "adrs" | "signals",
+    toRows: (rows: R[]) => string[][],
+    empty: string[][],
+  ): { rows: string[][]; fromAi: boolean } {
+    const saved = answers?.tables?.[key] as R[] | undefined;
+    if (saved !== undefined) return { rows: saved.length ? toRows(saved) : empty, fromAi: false };
+    const ai = prefill?.tables?.[key] as R[] | undefined;
+    if (ai && ai.length) return { rows: toRows(ai), fromAi: true };
+    return { rows: empty, fromAi: false };
+  }
+  const aiTableNote = (fromAi: boolean): V4Block[] =>
+    fromAi ? [{ kind: "instruction", text: AI_TABLE_NOTE }] : [];
 
   const coverage = new Map(buildAuthoritativeSectionCoverage(doc).map((c) => [c.section, c]));
   const accepted = findings.filter((f) => f.humanAssessment === "ACCEPTED");
   /** The reviewer's assessment of a section and the deficiencies found in
    *  it — the "reasoned assessment" the template's instructions ask for. */
-  const answers = doc.v4SectionAnswers;
   const ticks = v4Ticks(doc, findings);
   const reviewerAssessment = (n: number): V4Block[] => {
     const id = SECTION_IDS[n]!;
     const c = coverage.get(id);
     const reviewed = answers?.assessments?.[id];
     const out: V4Block[] = [];
-    if (reviewed?.text.trim()) {
+    if (reviewed) {
       out.push({
         kind: "field",
         label: "Reviewer's assessment of this section",
-        value: reviewed.text.trim(),
+        value: reviewed.text.trim() || NOT_ASSESSED,
       });
     } else if (c) {
       // Never let the AI's reading pass as the evaluator's own judgement.
@@ -266,8 +356,10 @@ export function buildV4ReportModel(
         items: here.map((f) => {
           const base = `${f.severity.charAt(0)}${f.severity.slice(1).toLowerCase()} — ${f.description.trim()}`;
           if (!f.resolved) return `${base} Outstanding.`;
+          if (f.formResolution)
+            return `${base} Corrected by NAFDAC on this form: ${f.formResolution.note}`;
           const r = f.researchResolution;
-          if (r && (r.evidenceId || r.v4Field))
+          if (r && r.v4Field && PRINTED_FIELDS.has(r.v4Field))
             return `${base} Resolved by NAFDAC during this assessment (see above).`;
           if (r)
             return `${base} Resolved by NAFDAC during this assessment: ${r.content} [${cite(r.citation)}]`;
@@ -327,6 +419,7 @@ export function buildV4ReportModel(
   });
 
   // ---- 1 ----
+  const s1 = answers?.s1 ?? {};
   const reviewDate = doc.signOff?.evaluatorSignedAt
     ? dateOnly(doc.signOff.evaluatorSignedAt)
     : `${longDate(now.toISOString().slice(0, 10))} (review in progress)`;
@@ -340,13 +433,16 @@ export function buildV4ReportModel(
         firstColumnBold: true,
         widths: [42, 58],
         rows: [
-          ["Date of Review", reviewDate],
-          ["Name of Product / Strength / Dosage Form", orNotStated(details.productName)],
-          ["Marketing Authorisation Holder (MAH)", orNotStated(details.mah)],
-          ["NAFDAC Registration Number", orNotStated(details.nafdacRegNo)],
-          ["Reporting Period", orNotStated(details.intervalCovered)],
-          ["International Birth Date (IBD)", orNotStated(details.ibd)],
-          ["Nigerian Birth Date (NBD)", orNotStated(details.firstNafdacRegistrationDate)],
+          ["Date of Review", s1.dateOfReview ?? reviewDate],
+          ["Name of Product / Strength / Dosage Form", orNotStated(s1.product ?? details.productName)],
+          ["Marketing Authorisation Holder (MAH)", orNotStated(s1.mah ?? details.mah)],
+          ["NAFDAC Registration Number", orNotStated(s1.regNo ?? details.nafdacRegNo)],
+          ["Reporting Period", orNotStated(s1.period ?? details.intervalCovered)],
+          ["International Birth Date (IBD)", orNotStated(s1.ibd ?? details.ibd)],
+          [
+            "Nigerian Birth Date (NBD)",
+            orNotStated(s1.nbd ?? details.firstNafdacRegistrationDate),
+          ],
           [
             "Therapeutic Indication(s)",
             orNotStated(
@@ -355,7 +451,6 @@ export function buildV4ReportModel(
           ],
         ],
       },
-      ...further("S1_FURTHER"),
       ...reviewerAssessment(1),
     ],
   });
@@ -391,12 +486,16 @@ export function buildV4ReportModel(
           ticks.s2Inconsistent ? NOT_ASSESSED : "",
         ),
       },
-      ...further("S2_FURTHER"),
       ...reviewerAssessment(2),
     ],
   });
 
   // ---- 3 ----
+  const diseases = table<V4DiseaseRow>(
+    "diseases",
+    (rows) => rows.map((r) => [r.disease, r.mortality, r.severity]),
+    [["", "", ""]],
+  );
   sections.push({
     number: 3,
     title: "Therapeutic Context",
@@ -416,14 +515,14 @@ export function buildV4ReportModel(
         label: "Mortality and severity of the disease",
         value: answer("S3_MORTALITY"),
       },
-      { kind: "table", header: ["Disease", "Mortality", "Severity"], rows: [["", "", ""]] },
+      { kind: "table", header: ["Disease", "Mortality", "Severity"], rows: diseases.rows },
+      ...aiTableNote(diseases.fromAi),
       { kind: "field", label: "Current treatment options", value: answer("S3_TREATMENTS") },
       {
         kind: "field",
         label: "Quality-of-life impact of the disease/condition given current treatment options",
         value: answer("S3_QOL"),
       },
-      ...further("S3_FURTHER"),
       ...reviewerAssessment(3),
     ],
   });
@@ -444,13 +543,37 @@ export function buildV4ReportModel(
         value: answer("S4_CHANGES"),
       },
       { kind: "field", label: "Rationale for the changes (if any)", value: answer("S4_RATIONALE") },
-      ...further("S4_FURTHER"),
       ...reviewerAssessment(4),
     ],
   });
 
   // ---- 5 ----
   const nc = doc.nigerianContext;
+  const exposureRows = (t: V4ExposureTable): string[][] => [
+    ["Global exposure", t.global.interval, t.global.cumulative],
+    ["Nigerian exposure", t.nigerian.interval, t.nigerian.cumulative],
+    [
+      t.otherRegion.trim()
+        ? `Another relevant region (if applicable): ${t.otherRegion.trim()}`
+        : "Another relevant region (if applicable)",
+      t.other.interval,
+      t.other.cumulative,
+    ],
+  ];
+  const savedExposure = answers?.tables?.exposure;
+  const aiExposure = prefill?.tables?.exposure;
+  const exposure: { rows: string[][]; fromAi: boolean } = savedExposure
+    ? { rows: exposureRows(savedExposure), fromAi: false }
+    : aiExposure
+      ? { rows: exposureRows(aiExposure), fromAi: true }
+      : {
+          rows: [
+            ["Global exposure", "", ""],
+            ["Nigerian exposure", nc?.nigerianExposureEvidence?.trim() ?? "", ""],
+            ["Another relevant region (if applicable)", "", ""],
+          ],
+          fromAi: false,
+        };
   sections.push({
     number: 5,
     title: "Exposure & Actions Taken for Safety Reasons",
@@ -461,12 +584,9 @@ export function buildV4ReportModel(
         style: "rows",
         firstColumnBold: true,
         widths: [30, 35, 35],
-        rows: [
-          ["Global exposure", "", ""],
-          ["Nigerian exposure", nc?.nigerianExposureEvidence?.trim() ?? "", ""],
-          ["Another relevant region (if applicable)", "", ""],
-        ],
+        rows: exposure.rows,
       },
+      ...aiTableNote(exposure.fromAi),
       {
         kind: "field",
         label:
@@ -478,7 +598,6 @@ export function buildV4ReportModel(
         label: "Actions taken for safety reasons during the reporting interval",
         value: answer("S5_ACTIONS"),
       },
-      ...further("S5_FURTHER"),
       ...reviewerAssessment(5),
     ],
   });
@@ -494,13 +613,16 @@ export function buildV4ReportModel(
           "Briefly highlight studies containing relevant safety information (company-sponsored and published studies)",
         value: answer("S6_STUDIES"),
       },
-      ...further("S6_FURTHER"),
       ...reviewerAssessment(6),
     ],
   });
 
   // ---- 7 ----
-  const vigiflow = research("S7_VIGIFLOW");
+  const adrs = table<V4AdrRow>(
+    "adrs",
+    (rows) => rows.map((r) => [r.soc, r.interval, r.cumulative, r.nigerian, r.assessment]),
+    [["", "", "", "", ""]],
+  );
   sections.push({
     number: 7,
     title: "Aggregate Safety Data Summary",
@@ -524,9 +646,10 @@ export function buildV4ReportModel(
           "Nigerian cases",
           "Reviewer assessment",
         ],
-        rows: [["", "", "", "", ""]],
+        rows: adrs.rows,
         style: "rows",
       },
+      ...aiTableNote(adrs.fromAi),
       {
         kind: "field",
         label: "Note any differences between Nigeria-specific and global data, if relevant",
@@ -545,14 +668,19 @@ export function buildV4ReportModel(
       {
         kind: "field",
         label: "VigiFlow findings",
-        value: vigiflow.length > 0 ? vigiflow.join("\n") : NOT_ASSESSED,
+        value: answer("S7_VIGIFLOW"),
       },
-      ...further("S7_FURTHER"),
       ...reviewerAssessment(7),
     ],
   });
 
   // ---- 8 ----
+  const signals = table<V4SignalRow>(
+    "signals",
+    (rows) =>
+      rows.map((r) => [r.signal, r.source, r.status, r.method, r.outcome, r.dateClosed, r.action]),
+    [[answers?.noSignals ? NO_SIGNALS : "", "", "", "", "", "", ""]],
+  );
   sections.push({
     number: 8,
     title: "Signal Evaluation Log",
@@ -572,14 +700,18 @@ export function buildV4ReportModel(
           "Date Closed",
           "Regulatory action",
         ],
-        rows: [["", "", "", "", "", "", ""]],
+        rows: signals.rows,
       },
-      {
-        kind: "field",
-        label: "Signals new, ongoing or closed during this reporting interval",
-        value: answer("S8_SIGNALS"),
-      },
-      ...further("S8_FURTHER"),
+      ...aiTableNote(signals.fromAi),
+      ...(byField.has("S8_SIGNALS") || own("S8_SIGNALS")
+        ? [
+            {
+              kind: "field" as const,
+              label: "Signals new, ongoing or closed during this reporting interval",
+              value: answer("S8_SIGNALS"),
+            },
+          ]
+        : []),
       ...reviewerAssessment(8),
     ],
   });
@@ -606,7 +738,6 @@ export function buildV4ReportModel(
           ];
         }),
       },
-      ...further("S9_FURTHER"),
     ],
   });
 
@@ -699,15 +830,6 @@ export function buildV4ReportModel(
         kind: "instruction",
         text: "Frequency: state the available frequency estimate using an appropriate denominator or category, where applicable, and indicate the data source e.g RSI, SmPC, PSUR document, etc.",
       },
-      ...(byField.has("S10_KEY_RISKS")
-        ? [
-            {
-              kind: "field" as const,
-              label: "Key risks — further evidence",
-              value: research("S10_KEY_RISKS").join("\n"),
-            },
-          ]
-        : []),
       { kind: "instruction", text: "Missing information:" },
       {
         kind: "table",
@@ -716,6 +838,10 @@ export function buildV4ReportModel(
         rows: missing.length > 0 ? missing : blankRows(3, 2),
       },
       { kind: "subheading", text: "10.3 Integrated Benefit-Risk Effects Table" },
+      {
+        kind: "instruction",
+        text: "Synthesise the evidence and uncertainty for each dimension before reaching an overall conclusion (structured benefit-risk framework, modelled on the FDA five-dimension framework and CIOMS Working Group XII's Structured Benefit-Risk Framework).",
+      },
       {
         kind: "table",
         header: ["Dimension", "Evidence & Uncertainty", "Reviewer Conclusion"],
@@ -733,7 +859,7 @@ export function buildV4ReportModel(
       {
         kind: "field",
         label:
-          "Where available, summarise patient- or HCP-reported views on the acceptability of the risks relative to the benefits",
+          "Where available, summarise patient- or HCP-reported views on the acceptability of the risks relative to the benefits (e.g. from PROs, patient support programmes, HCP feedback)",
         value: br?.patientHcpPerspective?.available
           ? br.patientHcpPerspective.summary
           : "Not available",
@@ -753,7 +879,6 @@ export function buildV4ReportModel(
         ],
       },
       { kind: "field", label: "Comment", value: br?.riskMinimisationEffectiveness?.comment ?? "" },
-      ...further("S10_FURTHER"),
     ],
   });
 
@@ -831,7 +956,6 @@ export function buildV4ReportModel(
         label: "Evaluator's comments (critically assess the MAH's benefit-risk profile)",
         value: answer("S11_COMMENTS", doc.evaluatorComments ? [doc.evaluatorComments] : []),
       },
-      ...further("S11_FURTHER"),
     ],
   });
 
@@ -880,13 +1004,11 @@ export function buildV4ReportModel(
           rd?.mahResponseDeadline ? `Deadline: ${dateOnly(rd.mahResponseDeadline)}` : "",
         ),
       },
-      ...further("S12_FURTHER"),
     ],
   });
 
   // ---- 13 ----
   // Every citation is numbered by now; Section 13 lists them.
-  const extra = further("S13_FURTHER");
   const so = doc.signOff;
   const conf = so?.reviewerConfidence;
   sections.push({
@@ -914,7 +1036,6 @@ export function buildV4ReportModel(
           },
         ],
       },
-      ...extra,
       {
         kind: "list",
         title: "References",
@@ -940,6 +1061,8 @@ export function buildV4ReportModel(
 
   return {
     title: "PSUR/PBRER EVALUATION FORM",
+    instructions: V4_INSTRUCTIONS,
+    pageText: doc.v4PageText ?? fallbackPageText ?? V4_DEFAULT_PAGE_TEXT,
     agency: "National Agency for Food and Drug Administration and Control (NAFDAC)",
     subtitle:
       "Pharmacovigilance Directorate — Structured Benefit-Risk Assessment Template (V4, Draft)",
