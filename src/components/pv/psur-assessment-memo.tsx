@@ -504,34 +504,75 @@ function AddEvidenceForm({
   );
 }
 
-function CriterionCard({
+/** Where each researched criterion's evidence prints in the V4 report. */
+const V4_HOME: Record<MemoCriterionId, { section: number; title: string } | undefined> = {
+  PRODUCT_IDENTITY: undefined,
+  REPORTING_INTERVAL: undefined,
+  THERAPEUTIC_CATEGORY: undefined,
+  DATE_RECEIVED: undefined,
+  INTERNATIONAL_BIRTH_DATE: undefined,
+  NIGERIA_BIRTH_DATE: undefined,
+  RSI_CHANGES: { section: 4, title: "Research: changes made to the RSI" },
+  WORLDWIDE_ACTIONS: { section: 2, title: "Research: regulatory actions worldwide" },
+  PATIENT_EXPOSURE: { section: 7, title: "Research: VigiFlow (Nigerian ICSRs)" },
+  RELEVANT_STUDIES: { section: 6, title: "Research: studies with relevant safety information" },
+  OVERALL_SAFETY_EVALUATION: { section: 10, title: "Research: key risks" },
+};
+
+/**
+ * Research for one of the memo's criteria 7-11 — which is also the
+ * research behind a V4 field (V4_HOME).
+ *
+ * "research" mode is the V4 view: searching, adding, accepting and
+ * rejecting evidence, with no Yes/No (the V4 form asks open questions).
+ * "answers" mode is the memo's view of the same criterion: only its
+ * Yes/No answers, and how much research the V4 section already holds.
+ */
+function CriterionCard(
+  props:
+    | {
+        mode: "research";
+        doc: PsurDocument;
+        criterion: MemoCriterionId;
+        canEdit: boolean;
+        onChanged: () => void;
+      }
+    | {
+        mode: "answers";
+        doc: PsurDocument;
+        criterion: MemoCriterionId;
+        draft: AssessmentMemoDraft;
+        setDraft: (d: AssessmentMemoDraft) => void;
+        canEdit: boolean;
+        onChanged: () => void;
+      },
+) {
+  return props.mode === "research" ? (
+    <ResearchCard {...props} />
+  ) : (
+    <AnswersCard {...props} />
+  );
+}
+
+function AnswersCard({
   doc,
   criterion,
   draft,
   setDraft,
   canEdit,
-  onChanged,
 }: {
   doc: PsurDocument;
   criterion: MemoCriterionId;
   draft: AssessmentMemoDraft;
   setDraft: (d: AssessmentMemoDraft) => void;
   canEdit: boolean;
-  onChanged: () => void;
 }) {
-  const [adding, setAdding] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [result, setResult] = useState<AiPsurResearchResponse | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
-  const entries = evidenceForCriterion(doc.assessmentSections ?? [], criterion);
-  const live = entries.filter((e) => e.status === "ACCEPTED" || e.status === "CANDIDATE");
-  const history = entries.filter(
-    (e) => e.status === "REJECTED" || e.status === "SUPERSEDED" || e.status === "WITHDRAWN",
-  );
-  const researchable = RESEARCHABLE_CRITERIA.includes(criterion);
+  const accepted = evidenceForCriterion(doc.assessmentSections ?? [], criterion).filter(
+    (e) => e.status === "ACCEPTED",
+  ).length;
+  const home = V4_HOME[criterion];
   const setAnswer = (key: keyof MemoAnswers, v: "Yes" | "No" | undefined) =>
     setDraft({ ...draft, answers: { ...draft.answers, [key]: v } });
-
   return (
     <div className="rounded-lg border border-border p-4" data-testid={`criterion-${criterion}`}>
       <h3 className="text-sm font-semibold text-foreground">{criterionLabel(criterion)}</h3>
@@ -562,7 +603,6 @@ function CriterionCard({
           />
         )}
       </div>
-
       {criterion === "OVERALL_SAFETY_EVALUATION" ? (
         <div className="mt-3">
           <label className="label-caps" htmlFor="overall-safety">
@@ -581,6 +621,44 @@ function CriterionCard({
           />
         </div>
       ) : null}
+      {home ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {accepted === 0
+            ? `No accepted research yet. Research is done in section ${home.section} above.`
+            : `${accepted} accepted piece${accepted === 1 ? "" : "s"} of research from section ${home.section} above ${accepted === 1 ? "prints" : "print"} under this criterion.`}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ResearchCard({
+  doc,
+  criterion,
+  canEdit,
+  onChanged,
+}: {
+  doc: PsurDocument;
+  criterion: MemoCriterionId;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [result, setResult] = useState<AiPsurResearchResponse | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const entries = evidenceForCriterion(doc.assessmentSections ?? [], criterion);
+  const live = entries.filter((e) => e.status === "ACCEPTED" || e.status === "CANDIDATE");
+  const history = entries.filter(
+    (e) => e.status === "REJECTED" || e.status === "SUPERSEDED" || e.status === "WITHDRAWN",
+  );
+  const researchable = RESEARCHABLE_CRITERIA.includes(criterion);
+
+  return (
+    <div className="rounded-lg border border-border p-4" data-testid={`research-${criterion}`}>
+      <h3 className="text-sm font-semibold text-foreground">
+        {V4_HOME[criterion]?.title ?? criterionLabel(criterion)}
+      </h3>
 
       {criterion === "PATIENT_EXPOSURE" ? (
         <p className="mt-2 text-xs text-muted-foreground">
@@ -605,8 +683,8 @@ function CriterionCard({
         </ul>
       ) : (
         <p className="mt-3 text-sm text-muted-foreground">
-          No evidence yet. Without an answer or accepted evidence, the memo will print “Not
-          assessed” for this criterion.
+          No research yet. Nothing from here prints in the V4 report until you accept a piece of
+          evidence.
         </p>
       )}
 
@@ -1158,12 +1236,14 @@ export function PsurAssessmentMemoPanel({
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-foreground">
-            Criteria 7–11 — researched evidence
-          </h3>
-          {canEdit ? <PasteAndRoute doc={doc} onChanged={onChanged} /> : null}
+          <h3 className="text-sm font-semibold text-foreground">Criteria 7–11 — answers</h3>
+          <p className="text-xs text-muted-foreground">
+            The research behind these criteria is done in the V4 sections above, and prints here
+            too.
+          </p>
           {EVIDENCE_CRITERIA.map((id) => (
             <CriterionCard
+              mode="answers"
               key={id}
               doc={doc}
               criterion={id}
@@ -1375,3 +1455,16 @@ export function PsurAssessmentMemoPanel({
     </Section>
   );
 }
+
+/** The research for one V4 field, for the V4 sections of the page. */
+export function V4ResearchCard(props: {
+  doc: PsurDocument;
+  criterion: MemoCriterionId;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  return <CriterionCard mode="research" {...props} />;
+}
+
+/** "Paste your own research" — the AI suggests where it belongs. */
+export { PasteAndRoute as PasteResearch };

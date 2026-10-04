@@ -384,3 +384,30 @@ describe("Section 2's 'If yes, explain'", () => {
     expect(explain({ s2Inconsistent: false })).toBe("");
   });
 });
+
+describe("the V4 report stands apart from the memo", () => {
+  it("never prints the memo's Yes/No answers — the V4 form asks open questions", () => {
+    const m = buildV4ReportModel(
+      doc({
+        memoDraft: { answers: { RSI_CHANGES: "No", RELEVANT_STUDIES: "Yes" } },
+      } as Partial<PsurDocument>),
+      [],
+    );
+    expect(field(m, 4, "Changes made to the RSI")!.value).toBe("Not assessed");
+    expect(field(m, 6, "Briefly highlight studies")!.value).toBe("Not assessed");
+  });
+
+  it("takes the therapeutic indication from the V4 answers, else the memo", () => {
+    const indication = (d: Partial<PsurDocument>) =>
+      buildV4ReportModel(doc(d), [])
+        .sections.find((s) => s.number === 1)!
+        .blocks.flatMap((b) => (b.kind === "table" ? b.rows : []))
+        .find((r) => r[0] === "Therapeutic Indication(s)")![1];
+    expect(
+      indication({ v4SectionAnswers: { therapeuticIndication: "Bacterial infections" } }),
+    ).toBe("Bacterial infections");
+    expect(
+      indication({ memoDraft: { therapeuticCategory: "Antibacterial" } } as Partial<PsurDocument>),
+    ).toBe("Antibacterial");
+  });
+});

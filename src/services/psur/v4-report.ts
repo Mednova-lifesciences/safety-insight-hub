@@ -347,7 +347,12 @@ export function buildV4ReportModel(
           ["Reporting Period", orNotStated(details.intervalCovered)],
           ["International Birth Date (IBD)", orNotStated(details.ibd)],
           ["Nigerian Birth Date (NBD)", orNotStated(details.firstNafdacRegistrationDate)],
-          ["Therapeutic Indication(s)", orNotStated(doc.memoDraft?.therapeuticCategory)],
+          [
+            "Therapeutic Indication(s)",
+            orNotStated(
+              doc.v4SectionAnswers?.therapeuticIndication ?? doc.memoDraft?.therapeuticCategory,
+            ),
+          ],
         ],
       },
       ...further("S1_FURTHER"),
@@ -424,7 +429,6 @@ export function buildV4ReportModel(
   });
 
   // ---- 4 ----
-  const rsiAnswer = doc.memoDraft?.answers?.RSI_CHANGES;
   sections.push({
     number: 4,
     title: "Reference Safety Information (RSI)",
@@ -437,7 +441,7 @@ export function buildV4ReportModel(
       {
         kind: "field",
         label: "Changes made to the RSI during this reporting interval",
-        value: answer("S4_CHANGES", rsiAnswer ? [rsiAnswer + "."] : []),
+        value: answer("S4_CHANGES"),
       },
       { kind: "field", label: "Rationale for the changes (if any)", value: answer("S4_RATIONALE") },
       ...further("S4_FURTHER"),
@@ -488,12 +492,7 @@ export function buildV4ReportModel(
         kind: "field",
         label:
           "Briefly highlight studies containing relevant safety information (company-sponsored and published studies)",
-        value: answer(
-          "S6_STUDIES",
-          doc.memoDraft?.answers?.RELEVANT_STUDIES
-            ? [doc.memoDraft.answers.RELEVANT_STUDIES + "."]
-            : [],
-        ),
+        value: answer("S6_STUDIES"),
       },
       ...further("S6_FURTHER"),
       ...reviewerAssessment(6),
