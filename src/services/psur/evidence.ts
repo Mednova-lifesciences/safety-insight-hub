@@ -33,7 +33,9 @@ export function renderableEvidence(entries: EvidenceEntry[]): EvidenceEntry[] {
   const superseded = new Set(
     entries.map((e) => e.supersedes).filter((id): id is string => !!id),
   );
-  return entries.filter((e) => !superseded.has(e.id) && isCited(e) && isAccepted(e));
+  return entries.filter(
+    (e) => !superseded.has(e.id) && !e.withdrawnBy && isCited(e) && isAccepted(e),
+  );
 }
 
 /**

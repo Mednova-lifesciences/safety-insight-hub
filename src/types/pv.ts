@@ -1284,6 +1284,13 @@ export interface EvidenceEntry {
    *  shows what was looked at and set aside; it never renders. */
   rejectedBy?: string | undefined;
   rejectedAt?: string | undefined;
+  /** Accepted evidence taken back out of the memo — when the finding it
+   *  resolved is reopened. Kept on record; it never renders again. */
+  withdrawnBy?: string | undefined;
+  withdrawnAt?: string | undefined;
+  /** The review finding this evidence resolved, when it was entered through
+   *  "Resolve with research" on that finding. */
+  findingId?: string | undefined;
 }
 
 /** One of the 14 working sections, with the evidence gathered under it. */
@@ -1470,9 +1477,28 @@ export interface PsurFinding {
   respondedBy?: string | undefined;
   respondedAt?: string | undefined;
   rationale?: string | undefined;
-  /** Set once "Run Full Fix" has proposed a resolution for this finding. */
+  /** Set once "Run Full Fix" has proposed a resolution for this finding,
+   *  or an assessor resolved it with research (see researchResolution). */
   resolution?: string | undefined;
   resolved?: boolean | undefined;
+  /**
+   * An assessor resolved this gap with their own research — NAFDAC filling
+   * a gap the MAH left, as NAFDAC's process expects of evaluators.
+   *
+   * The research itself lives once, as accepted memo evidence
+   * (`evidenceId`); this records who resolved the finding and points at it.
+   * Absent when the research is not filed in the memo (`criterion` unset).
+   */
+  researchResolution?:
+    | {
+        by: string;
+        at: string;
+        content: string;
+        citation: string;
+        criterion?: MemoCriterionId | undefined;
+        evidenceId?: string | undefined;
+      }
+    | undefined;
   /** The assessor's own decision on WHO must act on this finding,
    *  overriding the deterministic derivation in
    *  services/psur/finding-ownership.ts. The derivation is a defensible

@@ -29,6 +29,9 @@ class ResearchRequest(BaseModel):
     criterion: str
     substance: str
     interval: str = ""
+    # The specific gap being researched — a review finding's text — so the
+    # remarks speak to it. Optional; the search itself is unchanged.
+    focus: str = ""
 
 
 class ResearchCandidateOut(BaseModel):
@@ -138,6 +141,7 @@ async def research_criterion(
             "criterion": criterion,
             "product": substance,
             "reporting_interval": request.interval,
+            **({"focus": request.focus.strip()[:1500]} if request.focus.strip() else {}),
             "sources": [
                 {
                     "id": s.id,

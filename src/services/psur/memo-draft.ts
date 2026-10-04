@@ -257,10 +257,11 @@ export function memoBlockers(
   return out;
 }
 
-export type EvidenceStatus = "ACCEPTED" | "CANDIDATE" | "REJECTED" | "SUPERSEDED";
+export type EvidenceStatus = "ACCEPTED" | "CANDIDATE" | "REJECTED" | "SUPERSEDED" | "WITHDRAWN";
 
 export function evidenceStatus(e: EvidenceEntry, all: EvidenceEntry[]): EvidenceStatus {
   if (all.some((other) => other.supersedes === e.id)) return "SUPERSEDED";
+  if (e.withdrawnBy) return "WITHDRAWN";
   if (e.rejectedBy) return "REJECTED";
   if (isAccepted(e)) return "ACCEPTED";
   return "CANDIDATE";

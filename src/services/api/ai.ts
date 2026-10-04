@@ -538,7 +538,7 @@ export const ai = {
     /** Public-registry sources for one memo criterion. Candidates only:
      *  every one carries the registry's own citation, and none reaches the
      *  memo until an assessor accepts it. */
-    research: (body: { criterion: string; substance: string; interval: string }) =>
+    research: (body: { criterion: string; substance: string; interval: string; focus?: string }) =>
       apiRequest<AiPsurResearchResponse>("/api/ai/psur/research", { method: "POST", body }),
     /** Which memo criterion pasted text belongs to — a proposal. */
     routeEvidence: (body: { text: string }) =>
