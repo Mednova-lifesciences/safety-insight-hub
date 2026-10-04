@@ -219,10 +219,17 @@ export function findingNeedsResearch(f: PsurFinding): boolean {
   return RESEARCH_SECTIONS.includes(f.v4Section as PsurV4SectionId);
 }
 
-/** Where on the review page a V4 section is answered — the anchor "Fix on
- *  the form" jumps to. */
-export function v4SectionAnchor(section: string | undefined): string {
-  return section === "ADMIN_SCREENING" ? "administrative-screening" : `v4-${section ?? ""}`;
+/** A finding nobody has accepted or dismissed yet. */
+export function isPending(f: PsurFinding): boolean {
+  return !f.humanAssessment;
+}
+
+/** The findings that belong to the given sections of the form. */
+export function findingsFor(
+  findings: PsurFinding[],
+  sections: (PsurV4SectionId | undefined)[],
+): PsurFinding[] {
+  return findings.filter((f) => sections.includes(f.v4Section as PsurV4SectionId | undefined));
 }
 
 /** The finding resolved by correcting the form, with what was corrected. */

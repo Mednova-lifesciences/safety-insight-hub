@@ -519,3 +519,27 @@ describe("the AI pre-fill and the evaluator's answers", () => {
     expect(buildV4ReportModel(doc(), []).pageText).toEqual(V4_DEFAULT_PAGE_TEXT);
   });
 });
+
+describe("findings in Sections 9-13", () => {
+  it("lists an accepted Section 9 finding, with how NAFDAC fixed it", () => {
+    const f = {
+      id: "f9",
+      category: "MISSING_SECTION",
+      severity: "HIGH",
+      section: "Special populations",
+      description: "No pregnancy assessment.",
+      evidence: "",
+      v4Section: "S9_SPECIAL_POPULATIONS",
+      assistGenerated: true,
+      humanAssessment: "ACCEPTED",
+      resolved: true,
+      formResolution: { by: "Eve", at: AT, note: "Pregnancy marked Missing." },
+    } as PsurFinding;
+    const list = buildV4ReportModel(doc(), [f])
+      .sections.find((s) => s.number === 9)!
+      .blocks.find((b): b is Extract<V4Block, { kind: "list" }> => b.kind === "list")!;
+    expect(list.items).toEqual([
+      "High — No pregnancy assessment. Corrected by NAFDAC on this form: Pregnancy marked Missing.",
+    ]);
+  });
+});

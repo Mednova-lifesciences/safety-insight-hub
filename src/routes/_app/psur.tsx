@@ -9,9 +9,10 @@ import {
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { PsurScreeningDecision } from "@/components/pv/psur-screening-decision";
 import { PsurAssessmentMemoPanel } from "@/components/pv/psur-assessment-memo";
-import { FindingResearch } from "@/components/pv/psur-finding-research";
 import { ScreeningRecord } from "@/components/pv/psur-screening-checklist";
 import { V4PageTextEditor, V4SectionsPanel } from "@/components/pv/psur-v4-sections";
+import { SectionFindings } from "@/components/pv/psur-section-findings";
+import { findingsFor } from "@/services/psur/finding-research";
 import { BenefitRiskTables } from "@/components/pv/psur-v4-section10";
 import { useMemo, useState } from "react";
 import { ArrowRight, Download, FileText, Stamp, Upload, Wrench } from "lucide-react";
@@ -68,20 +69,10 @@ import {
   buildAuthoritativeSectionCoverage,
   RECONCILIATION_EXCLUDED_SECTIONS,
 } from "@/services/psur/section-consistency";
-import { buildSourceLink } from "@/services/psur/source-links";
 import {
   deriveScreeningRecommendation,
   explainScreeningRecommendation,
 } from "@/services/psur/administrative-screening";
-import {
-  actionOwnerLabel,
-  isActionOwnerOverridden,
-  requiresMahAction,
-} from "@/services/psur/finding-ownership";
-// The one shared suggested-source label map — this page used to keep a
-// byte-identical private copy, which is two places for the same wording
-// to drift apart.
-import { SUGGESTED_SOURCE_LABEL as suggestedSourceLabel } from "@/services/psur/document-model";
 
 export const Route = createFileRoute("/_app/psur")({
   head: () => ({
@@ -109,28 +100,8 @@ export const Route = createFileRoute("/_app/psur")({
 
 const FLOW = ["Upload PDF or XLSX/CSV", "AI review", "Findings displayed", "Accept / dismiss"];
 
-const categoryTone: Record<PsurFinding["category"], Tone> = {
-  MISSING_SECTION: "critical",
-  CONSISTENCY: "warning",
-  NUMERICAL: "warning",
-  SIGNAL: "info",
-  BENEFIT_RISK: "assist",
-};
 
-const v4SectionLabel = new Map(PSUR_V4_TEMPLATE_SECTIONS.map((s) => [s.id, s.name]));
 
-const deficiencyTypeLabel: Record<NonNullable<PsurFinding["deficiencyType"]>, string> = {
-  MISSING_INFORMATION: "Missing information",
-  INCOMPLETE_INFORMATION: "Incomplete information",
-  INADEQUATE_EVIDENCE: "Inadequate evidence",
-  INCONSISTENCY: "Inconsistency",
-  UNCLEAR_AMBIGUOUS_INFORMATION: "Unclear/ambiguous",
-  UNSUPPORTED_CLAIM: "Unsupported claim",
-  MISSING_REQUIRED_SECTION: "Missing required section",
-  INSUFFICIENT_LOCAL_EVIDENCE: "Insufficient local (Nigerian) evidence",
-  ADDITIONAL_LITERATURE_REQUIRED: "Additional literature required",
-  DATA_DISCREPANCY: "Data discrepancy",
-};
 
 const riskMinimisationActionLabel: Record<PsurRiskMinimisationAction, string> = {
   NO_ACTION_REQUIRED: "No action required",
@@ -209,11 +180,6 @@ const SPECIAL_POPULATION_AREAS = Object.keys(
   specialPopulationAreaLabel,
 ) as PsurSpecialPopulationArea[];
 
-function assessmentTone(status: PsurFinding["humanAssessment"]): Tone {
-  if (status === "ACCEPTED") return "success";
-  if (status === "DISMISSED") return "neutral";
-  return "warning";
-}
 
 function PsurPage() {
   // Three different people open this page and may do three different
@@ -274,10 +240,6 @@ function PsurPage() {
   const [runningScientificReview, setRunningScientificReview] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [docsPage, setDocsPage] = useState(1);
-  const [dismissingId, setDismissingId] = useState<string | null>(null);
-  const [dismissReason, setDismissReason] = useState("");
-  const [reassigningId, setReassigningId] = useState<string | null>(null);
-  const [reassignReason, setReassignReason] = useState("");
 
   return (
     <>
@@ -528,7 +490,7 @@ function PsurPage() {
 
             <Section
               title="Review findings"
-              description="Missing sections, consistency issues, numerical discrepancies, signal-related items and benefit-risk areas requiring attention."
+              description="What the AI found missing or wrong. Each finding now sits in the section it is about, below — decide there whether it is a real gap, and fix it."
               actions={
                 <div className="flex flex-wrap items-center gap-2">
                   {canEvaluate &&
@@ -711,318 +673,7 @@ function PsurPage() {
               }
             >
               <QueryBoundary query={findings} loadingLabel="Analysing document">
-                {(items) =>
-                  items.length === 0 ? (
-                    <EmptyState title="No findings returned" />
-                  ) : (
-                    <ul className="space-y-3">
-                      {items.map((f) => (
-                        <li key={f.id} className="rounded-md border border-border p-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <StatusPill tone={categoryTone[f.category]}>
-                              {f.category.replaceAll("_", " ").toLowerCase()}
-                            </StatusPill>
-                            <StatusPill
-                              tone={
-                                f.severity === "HIGH"
-                                  ? "critical"
-                                  : f.severity === "MEDIUM"
-                                    ? "warning"
-                                    : "neutral"
-                              }
-                            >
-                              {f.severity.toLowerCase()} severity
-                            </StatusPill>
-                            <span className="text-sm font-medium">{f.section}</span>
-                            {f.v4Section ? (
-                              <StatusPill tone="neutral">
-                                {v4SectionLabel.get(f.v4Section) ?? f.v4Section}
-                              </StatusPill>
-                            ) : null}
-                            {f.deficiencyType ? (
-                              <StatusPill tone="warning">
-                                {deficiencyTypeLabel[f.deficiencyType]}
-                              </StatusPill>
-                            ) : null}
-                            <StatusPill tone={f.source === "ai" ? "assist" : "neutral"}>
-                              {f.source === "ai" ? "AI" : "rule"}
-                            </StatusPill>
-                            {f.assistGenerated ? (
-                              <AssistLabel>AI-generated review assistance</AssistLabel>
-                            ) : null}
-                            {f.humanAssessment ? (
-                              <StatusPill tone={assessmentTone(f.humanAssessment)}>
-                                {f.humanAssessment.toLowerCase()}
-                              </StatusPill>
-                            ) : null}
-                            {/* Ownership is derived from what the finding
-                                actually IS (see finding-ownership.ts), not
-                                from which source was suggested for further
-                                reading — the two answer different
-                                questions, and conflating them used to drop
-                                genuine MAH deficiencies out of the
-                                Compliance Directive entirely. */}
-                            <StatusPill tone={requiresMahAction(f) ? "critical" : "neutral"}>
-                              {actionOwnerLabel(f)}
-                            </StatusPill>
-                            {isActionOwnerOverridden(f) ? (
-                              <StatusPill tone="success">set by assessor</StatusPill>
-                            ) : null}
-                          </div>
-                          <p className="mt-2 text-sm">{f.description}</p>
-                          <p className="mt-1 border-l-2 border-border pl-2 text-xs text-muted-foreground">
-                            {f.evidence}
-                          </p>
-                          {f.suggestedSource ? (
-                            <p className="mt-2 rounded-md border border-info/30 bg-info-soft px-2 py-1.5 text-xs text-foreground">
-                              <span className="font-medium">
-                                Suggested source: {suggestedSourceLabel[f.suggestedSource.type]}
-                              </span>
-                              {" — "}
-                              {f.suggestedSource.note}
-                              {(() => {
-                                // A link that actually runs the search, where a
-                                // real public endpoint exists for this category.
-                                const link = buildSourceLink(f, activeDoc.product);
-                                return link ? (
-                                  <>
-                                    {" "}
-                                    <a
-                                      href={link.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="font-medium underline underline-offset-2"
-                                    >
-                                      Search {link.site} for {link.what} →
-                                    </a>
-                                  </>
-                                ) : null;
-                              })()}
-                            </p>
-                          ) : null}
-                          {f.humanAssessment === "ACCEPTED" ? (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Accepted as a valid deficiency —{" "}
-                              {f.resolved ? "resolved" : "still outstanding"} until a resolution is
-                              recorded. Accepting a finding does not by itself mean the underlying
-                              deficiency has been fixed.
-                            </p>
-                          ) : null}
-                          {f.humanAssessment === "DISMISSED" && f.rationale ? (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Dismissed by {f.respondedBy ?? "reviewer"}: {f.rationale}
-                            </p>
-                          ) : null}
-                          <FindingResearch
-                            doc={activeDoc}
-                            finding={f}
-                            canEdit={canEditAssessmentMemo(activeDoc, {
-                              canEvaluate,
-                              canPeerReview,
-                            })}
-                            onChanged={refreshDocAndFindings}
-                          />
-                          {f.resolution && !f.researchResolution ? (
-                            <p className="mt-2 rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs">
-                              <span className="font-medium">
-                                {f.resolved ? "Resolution: " : "Unresolved: "}
-                              </span>
-                              {f.resolution}
-                            </p>
-                          ) : null}
-                          {f.actionOwnerOverride ? (
-                            <p className="mt-2 rounded-md border border-success/30 bg-success-soft px-2 py-1.5 text-xs">
-                              <span className="font-medium">
-                                Ownership set by {f.actionOwnerOverride.by} to{" "}
-                                {f.actionOwnerOverride.owner === "MAH"
-                                  ? "MAH action"
-                                  : "assessor-internal"}
-                              </span>
-                              {" — "}
-                              {f.actionOwnerOverride.rationale} (
-                              {f.actionOwnerOverride.at.slice(0, 16).replace("T", " ")} UTC)
-                            </p>
-                          ) : null}
-                          {/* Accepting, dismissing and reassigning a finding
-                              are the scientific review itself, and reassigning
-                              in particular decides what appears in the
-                              MAH-facing directive. Evaluator-only: a peer
-                              reviewer checks these decisions rather than
-                              making them, and the officer has not reached
-                              this stage of the assessment. */}
-                          <div className="mt-3 flex flex-wrap gap-2" hidden={!canEvaluate}>
-                            <Button
-                              size="sm"
-                              variant={f.humanAssessment === "ACCEPTED" ? "default" : "outline"}
-                              onClick={async () => {
-                                try {
-                                  await psurApi.recordAssessment(
-                                    activeDoc.id,
-                                    f.id,
-                                    "ACCEPTED",
-                                    "Confirmed by reviewer",
-                                  );
-                                  toast.success("Assessment recorded.");
-                                  findings.refetch();
-                                } catch (err) {
-                                  toast.error(
-                                    isNotConfigured(err)
-                                      ? "Backend not connected — the assessment was not recorded."
-                                      : "Could not record the assessment.",
-                                  );
-                                }
-                              }}
-                            >
-                              Accept finding
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant={f.humanAssessment === "DISMISSED" ? "default" : "ghost"}
-                              onClick={() => {
-                                setDismissingId(f.id);
-                                setDismissReason("");
-                              }}
-                            >
-                              Dismiss
-                            </Button>
-                            {/* Reassigning ownership is what moves a finding
-                                into or out of the MAH-facing directive, so
-                                it takes a rationale and is audited — the
-                                same treatment accept/dismiss gets. */}
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setReassigningId(f.id);
-                                setReassignReason("");
-                              }}
-                            >
-                              {requiresMahAction(f)
-                                ? "Mark assessor-internal"
-                                : "Refer to MAH instead"}
-                            </Button>
-                            {f.actionOwnerOverride ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={async () => {
-                                  try {
-                                    await psurApi.clearActionOwnerOverride(activeDoc.id, f.id);
-                                    toast.success("Ownership returned to the derived value.");
-                                    findings.refetch();
-                                  } catch (err) {
-                                    toast.error(
-                                      isNotConfigured(err)
-                                        ? "Backend not connected — nothing was changed."
-                                        : "Could not clear the override.",
-                                    );
-                                  }
-                                }}
-                              >
-                                Reset to derived
-                              </Button>
-                            ) : null}
-                          </div>
-                          {reassigningId === f.id ? (
-                            <div className="mt-3 space-y-2 rounded-md border border-border p-2">
-                              <p className="text-xs text-muted-foreground">
-                                {requiresMahAction(f)
-                                  ? "This finding will be treated as assessor-internal and removed from the MAH feedback letter."
-                                  : "This finding will be treated as requiring MAH action and added to the MAH feedback letter."}
-                              </p>
-                              <Textarea
-                                autoFocus
-                                placeholder="Reason for reassigning this finding (required — e.g. 'I can close this from VigiFlow without going back to the MAH')"
-                                value={reassignReason}
-                                onChange={(e) => setReassignReason(e.target.value)}
-                                rows={2}
-                              />
-                              <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  disabled={!reassignReason.trim()}
-                                  onClick={async () => {
-                                    try {
-                                      await psurApi.recordActionOwnerOverride(
-                                        activeDoc.id,
-                                        f.id,
-                                        requiresMahAction(f) ? "ASSESSOR" : "MAH",
-                                        reassignReason.trim(),
-                                      );
-                                      toast.success("Ownership recorded.");
-                                      setReassigningId(null);
-                                      findings.refetch();
-                                    } catch (err) {
-                                      toast.error(
-                                        isNotConfigured(err)
-                                          ? "Backend not connected — nothing was changed."
-                                          : "Could not record the change.",
-                                      );
-                                    }
-                                  }}
-                                >
-                                  Confirm
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setReassigningId(null)}
-                                >
-                                  Cancel
-                                </Button>
-                              </div>
-                            </div>
-                          ) : null}
-                          {dismissingId === f.id ? (
-                            <div className="mt-3 space-y-2 rounded-md border border-border p-2">
-                              <Textarea
-                                autoFocus
-                                placeholder="Reason for dismissing this finding (required — e.g. 'not applicable to this product', 'already covered under Section 4')"
-                                value={dismissReason}
-                                onChange={(e) => setDismissReason(e.target.value)}
-                                rows={2}
-                              />
-                              <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  disabled={!dismissReason.trim()}
-                                  onClick={async () => {
-                                    try {
-                                      await psurApi.recordAssessment(
-                                        activeDoc.id,
-                                        f.id,
-                                        "DISMISSED",
-                                        dismissReason.trim(),
-                                      );
-                                      toast.success("Assessment recorded.");
-                                      setDismissingId(null);
-                                      findings.refetch();
-                                    } catch (err) {
-                                      toast.error(
-                                        isNotConfigured(err)
-                                          ? "Backend not connected — the assessment was not recorded."
-                                          : "Could not record the assessment.",
-                                      );
-                                    }
-                                  }}
-                                >
-                                  Confirm dismissal
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setDismissingId(null)}
-                                >
-                                  Cancel
-                                </Button>
-                              </div>
-                            </div>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  )
-                }
+                {(items) => <FindingsSummary findings={items} />}
               </QueryBoundary>
             </Section>
 
@@ -1041,6 +692,8 @@ function PsurPage() {
                 key={`special-populations-${activeDoc.id}`}
                 doc={activeDoc}
                 onChanged={refreshDocAndFindings}
+                findings={findings.data?.data ?? []}
+                canResearch={canEditAssessmentMemo(activeDoc, { canEvaluate, canPeerReview })}
               />
             ) : null}
 
@@ -1049,6 +702,8 @@ function PsurPage() {
                 key={`benefit-risk-${activeDoc.id}`}
                 doc={activeDoc}
                 onChanged={refreshDocAndFindings}
+                findings={findings.data?.data ?? []}
+                canResearch={canEditAssessmentMemo(activeDoc, { canEvaluate, canPeerReview })}
               />
             ) : null}
 
@@ -1056,12 +711,16 @@ function PsurPage() {
               key={`uncertainties-${activeDoc.id}`}
               doc={activeDoc}
               onChanged={refreshDocAndFindings}
+              findings={findings.data?.data ?? []}
+              canResearch={canEditAssessmentMemo(activeDoc, { canEvaluate, canPeerReview })}
             />
 
             <RegulatoryDecisionPanel
               key={`regdecision-${activeDoc.id}`}
               doc={activeDoc}
               onChanged={refreshDocAndFindings}
+              findings={findings.data?.data ?? []}
+              canResearch={canEditAssessmentMemo(activeDoc, { canEvaluate, canPeerReview })}
             />
 
             <OptionalMemo
@@ -1075,6 +734,8 @@ function PsurPage() {
               key={`signoff-${activeDoc.id}`}
               doc={activeDoc}
               onChanged={refreshDocAndFindings}
+              findings={findings.data?.data ?? []}
+              canResearch={canEditAssessmentMemo(activeDoc, { canEvaluate, canPeerReview })}
             />
 
             {activeDoc.stage === "REVIEWED" ? (
@@ -1185,7 +846,7 @@ function AdministrativeScreeningPanel({
                       {sectionStatusLabel[s.status]}
                     </StatusPill>
                     <span className="font-medium">
-                      {v4SectionLabel.get(s.section) ?? s.section}
+                      {SECTION_NAME.get(s.section) ?? s.section}
                     </span>
                     <StatusPill tone={s.source === "assessor" ? "success" : "assist"}>
                       {s.source === "assessor" ? "assessor" : s.source === "rule" ? "rule" : "AI"}
@@ -1272,7 +933,17 @@ function newSpecialPopulationItems(): PsurSpecialPopulationItem[] {
  *  a justification. The coarse S9 section-coverage status shown in
  *  Administrative Completeness is DERIVED from these 8 items, so editing
  *  here is what actually moves that status. */
-function SpecialPopulationsPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+function SpecialPopulationsPanel({
+  doc,
+  findings,
+  canResearch,
+  onChanged,
+}: {
+  doc: PsurDocument;
+  findings: PsurFinding[];
+  canResearch: boolean;
+  onChanged: () => void;
+}) {
   // Sections 9-12 are the evaluator's work; see SignOffPanel.
   const canEvaluate = usePermission("psur.evaluate");
   const [items, setItems] = useState<PsurSpecialPopulationItem[]>(
@@ -1308,6 +979,13 @@ function SpecialPopulationsPanel({ doc, onChanged }: { doc: PsurDocument; onChan
         ) : null
       }
     >
+      <SectionFindings
+        doc={doc}
+        findings={findingsFor(findings, ["S9_SPECIAL_POPULATIONS"])}
+        canEvaluate={canEvaluate}
+        canResearch={canResearch}
+        onChanged={onChanged}
+      />
       <div className="space-y-2">
         <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full min-w-[640px] table-fixed border-collapse text-sm">
@@ -1424,7 +1102,17 @@ function SpecialPopulationsPanel({ doc, onChanged }: { doc: PsurDocument; onChan
  *  extraction (never fabricated — entries the text didn't support are
  *  simply absent/NOT_ASSESSABLE) and lets the assessor edit every field
  *  directly; saving marks the record as assessor-owned. */
-function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+function BenefitRiskPanel({
+  doc,
+  findings,
+  canResearch,
+  onChanged,
+}: {
+  doc: PsurDocument;
+  findings: PsurFinding[];
+  canResearch: boolean;
+  onChanged: () => void;
+}) {
   // Sections 9-12 are the evaluator's work; see SignOffPanel.
   const canEvaluate = usePermission("psur.evaluate");
   const empty: PsurBenefitRiskAssessment = {
@@ -1465,6 +1153,13 @@ function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: ()
         ) : null
       }
     >
+      <SectionFindings
+        doc={doc}
+        findings={findingsFor(findings, ["S10_BENEFIT_RISK"])}
+        canEvaluate={canEvaluate}
+        canResearch={canResearch}
+        onChanged={onChanged}
+      />
       <div className="space-y-4">
         <BenefitRiskTables data={data} setData={setData} disabled={!canEvaluate} />
 
@@ -1545,7 +1240,17 @@ function BenefitRiskPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: ()
 }
 
 /** Section 11 — Uncertainties Affecting the Benefit-Risk Assessment. */
-function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+function UncertaintiesPanel({
+  doc,
+  findings,
+  canResearch,
+  onChanged,
+}: {
+  doc: PsurDocument;
+  findings: PsurFinding[];
+  canResearch: boolean;
+  onChanged: () => void;
+}) {
   // Sections 9-12 are the evaluator's work; see SignOffPanel.
   const canEvaluate = usePermission("psur.evaluate");
   const [items, setItems] = useState<PsurUncertainty[]>(doc.uncertainties ?? []);
@@ -1583,6 +1288,13 @@ function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: 
         ) : null
       }
     >
+      <SectionFindings
+        doc={doc}
+        findings={findingsFor(findings, ["S11_UNCERTAINTIES"])}
+        canEvaluate={canEvaluate}
+        canResearch={canResearch}
+        onChanged={onChanged}
+      />
       <div className="space-y-2">
         {items.length === 0 && noneConfirmed ? (
           <p className="rounded-md border border-success/30 bg-success-soft px-2 py-1.5 text-xs">
@@ -1804,6 +1516,66 @@ function OptionalMemo({
   );
 }
 
+const SECTION_NAME = new Map(PSUR_V4_TEMPLATE_SECTIONS.map((x) => [x.id, x.name]));
+
+/** Where a finding is shown on the page, by its section. */
+function findingAnchor(f: PsurFinding): string {
+  return f.v4Section && f.v4Section !== "ADMIN_SCREENING" ? `v4-${f.v4Section}` : "v4-sections-1-8";
+}
+
+/**
+ * The findings at a glance: how many still need a decision, how many are
+ * real gaps left for the MAH, how many NAFDAC fixed — and a link to each
+ * section that has any. The findings themselves sit in their sections.
+ */
+function FindingsSummary({ findings }: { findings: PsurFinding[] }) {
+  if (findings.length === 0) {
+    return <p className="text-sm text-muted-foreground">The AI found nothing missing or wrong.</p>;
+  }
+  const pending = findings.filter((f) => !f.humanAssessment).length;
+  const open = findings.filter((f) => f.humanAssessment === "ACCEPTED" && !f.resolved).length;
+  const fixed = findings.filter((f) => f.humanAssessment === "ACCEPTED" && f.resolved).length;
+  const dismissed = findings.filter((f) => f.humanAssessment === "DISMISSED").length;
+  const bySection = new Map<string, PsurFinding[]>();
+  for (const f of findings) {
+    const key = findingAnchor(f);
+    bySection.set(key, [...(bySection.get(key) ?? []), f]);
+  }
+  return (
+    <div className="space-y-3 text-sm">
+      <p>
+        <span className="font-medium">{findings.length} findings.</span>{" "}
+        {pending > 0 ? (
+          <span className="text-warning">{pending} waiting for your decision. </span>
+        ) : null}
+        {open} real gap{open === 1 ? "" : "s"} for the MAH, {fixed} fixed by NAFDAC, {dismissed}{" "}
+        dismissed.
+      </p>
+      <ul className="flex flex-wrap gap-2">
+        {[...bySection.entries()].map(([anchor, list]) => {
+          const waiting = list.filter((f) => !f.humanAssessment).length;
+          const first = list[0]!;
+          const name =
+            first.v4Section && first.v4Section !== "ADMIN_SCREENING"
+              ? (SECTION_NAME.get(first.v4Section as PsurV4SectionId) ?? first.section)
+              : "Administrative check and other";
+          return (
+            <li key={anchor}>
+              <a
+                href={`#${anchor}`}
+                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
+              >
+                {name} · {list.length}
+                {waiting > 0 ? <span className="text-warning">({waiting} to decide)</span> : null}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 /** Whether Sections 1-11 were edited after the Section 12 decision. */
 function decisionIsStale(doc: PsurDocument): boolean {
   const decidedAt = doc.regulatoryDecision?.decidedAt;
@@ -1811,7 +1583,17 @@ function decisionIsStale(doc: PsurDocument): boolean {
   return !!decidedAt && !!editedAt && editedAt > decidedAt;
 }
 
-function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+function RegulatoryDecisionPanel({
+  doc,
+  findings,
+  canResearch,
+  onChanged,
+}: {
+  doc: PsurDocument;
+  findings: PsurFinding[];
+  canResearch: boolean;
+  onChanged: () => void;
+}) {
   // Sections 9-12 are the evaluator's work; see SignOffPanel.
   const canEvaluate = usePermission("psur.evaluate");
   const [actions, setActions] = useState<PsurRiskMinimisationAction[]>(
@@ -1869,6 +1651,13 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
         ) : null
       }
     >
+      <SectionFindings
+        doc={doc}
+        findings={findingsFor(findings, ["S12_REGULATORY_DECISION"])}
+        canEvaluate={canEvaluate}
+        canResearch={canResearch}
+        onChanged={onChanged}
+      />
       <div className="space-y-4">
         {decisionIsStale(doc) ? (
           <div
@@ -2012,7 +1801,17 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
  * rather than by hiding the panel from either of them: both need to READ
  * the whole of it.
  */
-function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
+function SignOffPanel({
+  doc,
+  findings,
+  canResearch,
+  onChanged,
+}: {
+  doc: PsurDocument;
+  findings: PsurFinding[];
+  canResearch: boolean;
+  onChanged: () => void;
+}) {
   const [signOff, setSignOff] = useState<PsurSignOff>(
     doc.signOff ?? { conclusion: "", reviewerConfidence: undefined, references: "" },
   );
@@ -2080,6 +1879,23 @@ function SignOffPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => 
         ) : null
       }
     >
+      {findings.some((f) => !f.humanAssessment) ? (
+        <p
+          role="status"
+          className="mb-3 rounded-md border border-warning/25 bg-warning-soft p-3 text-sm text-warning"
+        >
+          {findings.filter((f) => !f.humanAssessment).length} finding(s) are still waiting for a
+          decision. Until you accept or dismiss them, they are left out of the V4 report and the MAH
+          feedback letter. Each one is shown in its section above.
+        </p>
+      ) : null}
+      <SectionFindings
+        doc={doc}
+        findings={findingsFor(findings, ["S13_CONCLUSION_SIGNOFF"])}
+        canEvaluate={canEvaluate}
+        canResearch={canResearch}
+        onChanged={onChanged}
+      />
       <div className="space-y-3">
         <Textarea
           placeholder="Overall conclusion, referencing the outcome selected in Section 12 and the key drivers from Section 10"
