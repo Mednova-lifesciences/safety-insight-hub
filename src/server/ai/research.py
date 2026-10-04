@@ -185,6 +185,25 @@ def _year_within(year: str, start: Optional[str], end: Optional[str]) -> Optiona
 # ------------------------------------------------------------------ PubMed --
 
 
+def article_doi(art) -> str:
+    """The article's OWN DOI.
+
+    Only two places hold it: the article's ELocationID, and the
+    ArticleIdList directly under PubmedData. A record also carries a
+    ReferenceList whose entries have ArticleIdLists of their own — the DOIs
+    of the works it cites. Searching the whole record (".//ArticleIdList")
+    picked up the last cited work's DOI and printed it as this article's,
+    which on a signed memo is a false citation.
+    """
+    for loc in art.findall("./MedlineCitation/Article/ELocationID"):
+        if loc.get("EIdType") == "doi" and (loc.text or "").strip():
+            return loc.text.strip()
+    for aid in art.findall("./PubmedData/ArticleIdList/ArticleId"):
+        if aid.get("IdType") == "doi" and (aid.text or "").strip():
+            return aid.text.strip()
+    return ""
+
+
 def parse_pubmed_xml(xml_text: str) -> list[dict]:
     """The fields a citation needs, per article, from an efetch response."""
     articles: list[dict] = []
@@ -203,19 +222,16 @@ def parse_pubmed_xml(xml_text: str) -> list[dict]:
         day = (art.findtext(".//ArticleDate/Day") or "").strip()
         published = f"{year}-{int(month):02d}-{int(day):02d}" if year and month.isdigit() and day.isdigit() else year
         authors = []
-        for a in art.findall(".//AuthorList/Author"):
+        for a in art.findall("./MedlineCitation/Article/AuthorList/Author"):
             last = (a.findtext("LastName") or "").strip()
             initials = (a.findtext("Initials") or "").strip()
             if last:
                 authors.append(f"{last} {initials}".strip())
             elif a.findtext("CollectiveName"):
                 authors.append(a.findtext("CollectiveName").strip())
-        doi = ""
-        for aid in art.findall(".//ArticleIdList/ArticleId"):
-            if aid.get("IdType") == "doi" and aid.text:
-                doi = aid.text.strip()
+        doi = article_doi(art)
         abstract = " ".join(
-            ("".join(p.itertext())).strip() for p in art.findall(".//Abstract/AbstractText")
+            ("".join(p.itertext())).strip() for p in art.findall("./MedlineCitation/Article/Abstract/AbstractText")
         ).strip()
         pub_types = [(p.text or "").strip() for p in art.findall(".//PublicationTypeList/PublicationType")]
         if pmid and title:

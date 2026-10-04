@@ -154,3 +154,32 @@ def test_combination_products_search_each_component():
     assert substance_terms("Tramadol hydrochloride") == ["tramadol"]
     assert substance_terms("Artemether + Lumefantrine") == ["artemether", "lumefantrine"]
     assert substance_terms("tramadol") == ["tramadol"]
+
+
+def test_a_cited_works_doi_is_never_taken_for_the_articles_own():
+    # Real PubMed records carry a ReferenceList whose entries have their own
+    # ArticleIdLists. The article's DOI must come from its own identifiers.
+    xml = """<?xml version="1.0"?>
+<PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>41516355</PMID><Article>
+<Journal><JournalIssue><PubDate><Year>2026</Year></PubDate></JournalIssue><Title>Int J Mol Sci</Title></Journal>
+<ArticleTitle>HLA Signatures and Idiosyncratic DILI.</ArticleTitle>
+<ELocationID EIdType="doi" ValidYN="Y">10.3390/ijms27010482</ELocationID>
+<AuthorList><Author><LastName>Onaciu</LastName><Initials>A</Initials></Author></AuthorList>
+</Article></MedlineCitation>
+<PubmedData><ArticleIdList><ArticleId IdType="pubmed">41516355</ArticleId><ArticleId IdType="doi">10.3390/ijms27010482</ArticleId></ArticleIdList>
+<ReferenceList><Reference><Citation>A cited 2023 paper.</Citation>
+<ArticleIdList><ArticleId IdType="doi">10.1016/j.jhep.2023.04.033</ArticleId></ArticleIdList></Reference></ReferenceList>
+</PubmedData></PubmedArticle></PubmedArticleSet>"""
+    [a] = parse_pubmed_xml(xml)
+    assert a["doi"] == "10.3390/ijms27010482"
+
+
+def test_the_pubmed_data_doi_is_used_when_there_is_no_elocation():
+    xml = """<?xml version="1.0"?>
+<PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>1</PMID><Article>
+<Journal><JournalIssue><PubDate><Year>2020</Year></PubDate></JournalIssue><Title>J</Title></Journal>
+<ArticleTitle>T.</ArticleTitle></Article></MedlineCitation>
+<PubmedData><ArticleIdList><ArticleId IdType="doi">10.1/own</ArticleId></ArticleIdList>
+<ReferenceList><Reference><ArticleIdList><ArticleId IdType="doi">10.1/cited</ArticleId></ArticleIdList></Reference></ReferenceList>
+</PubmedData></PubmedArticle></PubmedArticleSet>"""
+    assert parse_pubmed_xml(xml)[0]["doi"] == "10.1/own"
