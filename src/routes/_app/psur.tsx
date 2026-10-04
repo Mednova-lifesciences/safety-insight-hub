@@ -8,7 +8,7 @@ import {
 } from "@/services/psur/workflow";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { PsurScreeningDecision } from "@/components/pv/psur-screening-decision";
-import { PsurAssessmentMemoPanel } from "@/components/pv/psur-assessment-memo";
+import { PsurAssessmentMemoPanel, V4ResearchCard } from "@/components/pv/psur-assessment-memo";
 import { FindingResearch } from "@/components/pv/psur-finding-research";
 import { ScreeningRecord } from "@/components/pv/psur-screening-checklist";
 import { V4SectionsPanel } from "@/components/pv/psur-v4-sections";
@@ -641,15 +641,7 @@ function PsurPage() {
                       </Button>
                       <Button
                         size="sm"
-                        onClick={async () => {
-                          try {
-                            await psurApi.downloadV4Report(activeDoc.id);
-                          } catch (err) {
-                            toast.error(
-                              err instanceof Error ? err.message : "Could not generate the V4 report.",
-                            );
-                          }
-                        }}
+                        onClick={() => downloadV4Report(activeDoc.id)}
                       >
                         <FileText className="size-4" /> Generate V4 Evaluation Report (Word)
                       </Button>
@@ -1038,6 +1030,7 @@ function PsurPage() {
                 key={`v4-sections-${activeDoc.id}-${activeDoc.v4SectionAnswers?.updatedAt ?? ""}`}
                 doc={activeDoc}
                 findings={findings.data?.data ?? []}
+                canResearch={canEditAssessmentMemo(activeDoc, { canEvaluate, canPeerReview })}
                 onChanged={refreshDocAndFindings}
               />
             ) : null}
@@ -1058,6 +1051,20 @@ function PsurPage() {
               />
             ) : null}
 
+            {activeDoc.stage === "REVIEWED" ? (
+              <Section
+                title="10. Key risks — research"
+                description="Published evidence on the product's important risks. Accepted research prints in Section 10 of the V4 report, under “Key risks — further evidence”."
+              >
+                <V4ResearchCard
+                  doc={activeDoc}
+                  criterion="OVERALL_SAFETY_EVALUATION"
+                  canEdit={canEditAssessmentMemo(activeDoc, { canEvaluate, canPeerReview })}
+                  onChanged={refreshDocAndFindings}
+                />
+              </Section>
+            ) : null}
+
             <UncertaintiesPanel
               key={`uncertainties-${activeDoc.id}`}
               doc={activeDoc}
@@ -1070,7 +1077,7 @@ function PsurPage() {
               onChanged={refreshDocAndFindings}
             />
 
-            <PsurAssessmentMemoPanel
+            <OptionalMemo
               key={`assessment-memo-${activeDoc.id}`}
               doc={activeDoc}
               canEdit={canEditAssessmentMemo(activeDoc, { canEvaluate, canPeerReview })}
@@ -1082,6 +1089,17 @@ function PsurPage() {
               doc={activeDoc}
               onChanged={refreshDocAndFindings}
             />
+
+            {activeDoc.stage === "REVIEWED" ? (
+              <Section
+                title="V4 evaluation report"
+                description="The report in the V4 template's layout, built from everything above. Generate it again after any change."
+              >
+                <Button size="sm" onClick={() => downloadV4Report(activeDoc.id)}>
+                  <FileText className="size-4" /> Generate V4 Evaluation Report (Word)
+                </Button>
+              </Section>
+            ) : null}
           </>
         ) : null}
       </div>
@@ -2069,6 +2087,74 @@ function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: 
  *  suggestion (document.aiRecommendation) is shown as a clearly-labelled,
  *  non-binding starting point; the assessor's own decision is a
  *  structurally separate field the assessor must set explicitly. */
+async function downloadV4Report(documentId: string) {
+  try {
+    await psurApi.downloadV4Report(documentId);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : "Could not generate the V4 report.");
+  }
+}
+
+/**
+ * The older internal assessment memo, kept in case it is asked for. The
+ * V4 evaluation report is the main report, so the memo's own inputs (its
+ * details, criteria 1-6, the Yes/No answers, the scoring matrix) stay out
+ * of the way until someone chooses to generate it.
+ */
+function OptionalMemo({
+  doc,
+  canEdit,
+  onChanged,
+}: {
+  doc: PsurDocument;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // Once opened, the memo stays mounted and is only hidden, so hiding it
+  // never cuts off its autosave.
+  const [started, setStarted] = useState(false);
+  if (!open && !started) {
+    return (
+      <Section
+        id="assessment-memo"
+        title="Assessment memo (optional)"
+        description="NAFDAC's older internal memo format. The V4 evaluation report is the main report; open the memo only if it is asked for. It reuses the research above, so nothing is typed twice."
+        actions={
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setOpen(true);
+              setStarted(true);
+            }}
+          >
+            <FileText className="size-4" /> Generate memo
+          </Button>
+        }
+      >
+        <p className="text-xs text-muted-foreground">
+          {doc.memoDraft
+            ? "A memo has been started for this report. Open it to continue."
+            : "No memo started."}
+        </p>
+      </Section>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <Button size="sm" variant="ghost" onClick={() => setOpen((o) => !o)}>
+          {open ? "Hide memo" : "Show memo"}
+        </Button>
+      </div>
+      <div className={open ? undefined : "hidden"}>
+        <PsurAssessmentMemoPanel doc={doc} canEdit={canEdit} onChanged={onChanged} />
+      </div>
+    </div>
+  );
+}
+
 /** Whether Sections 1-11 were edited after the Section 12 decision. */
 function decisionIsStale(doc: PsurDocument): boolean {
   const decidedAt = doc.regulatoryDecision?.decidedAt;

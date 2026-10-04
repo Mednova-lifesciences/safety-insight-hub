@@ -3040,6 +3040,7 @@ export const psur = {
     answers: {
       s2Inconsistent: boolean;
       s2Explanation: string;
+      therapeuticIndication: string;
       s7AdrTabulation: boolean;
       s7VigiflowChecked: boolean;
       /** Section -> the reviewed wording. Sections left out are unreviewed. */
@@ -3063,6 +3064,7 @@ export const psur = {
       v4SectionAnswers: {
         s2Inconsistent: answers.s2Inconsistent,
         s2Explanation: answers.s2Explanation.trim() || undefined,
+        therapeuticIndication: answers.therapeuticIndication.trim() || undefined,
         s7AdrTabulation: answers.s7AdrTabulation,
         s7VigiflowChecked: answers.s7VigiflowChecked,
         assessments,

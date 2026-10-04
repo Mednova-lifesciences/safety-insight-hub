@@ -1222,6 +1222,9 @@ export interface PsurV4SectionAnswers {
   /** Section 2's "If yes, explain". Printed before any research filed
    *  under that field. */
   s2Explanation?: string | undefined;
+  /** Section 1's "Therapeutic Indication(s)". Falls back to the memo's
+   *  therapeutic category for reports assessed before this existed. */
+  therapeuticIndication?: string | undefined;
   /** Section 7: "Attach or reproduce the MAH's summary tabulation of ADRs…" */
   s7AdrTabulation?: boolean | undefined;
   /** Section 7: "Check VigiFlow for the Nigerian component…" */

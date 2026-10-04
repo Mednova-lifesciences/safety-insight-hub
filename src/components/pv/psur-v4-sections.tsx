@@ -4,11 +4,14 @@ import { usePermission } from "@/lib/auth";
 import { Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { PasteResearch, V4ResearchCard } from "@/components/pv/psur-assessment-memo";
 import { Textarea } from "@/components/ui/textarea";
 import { psur as psurApi } from "@/services/api/psur";
 import { aiSectionAssessment, SECTION_IDS, v4Ticks } from "@/services/psur/v4-report";
 import {
   PSUR_V4_TEMPLATE_SECTIONS,
+  type MemoCriterionId,
   type PsurDocument,
   type PsurFinding,
   type PsurV4SectionId,
@@ -16,6 +19,13 @@ import {
 
 const SECTIONS = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => SECTION_IDS[n]!);
 const NAME = new Map(PSUR_V4_TEMPLATE_SECTIONS.map((s) => [s.id, s.name]));
+/** The sections whose fields are answered from outside research. */
+const RESEARCH: Partial<Record<PsurV4SectionId, MemoCriterionId>> = {
+  S2_WORLDWIDE_STATUS: "WORLDWIDE_ACTIONS",
+  S4_RSI: "RSI_CHANGES",
+  S6_LITERATURE: "RELEVANT_STUDIES",
+  S7_AGGREGATE_SAFETY_DATA: "PATIENT_EXPOSURE",
+};
 
 interface Draft {
   text: string;
@@ -24,24 +34,32 @@ interface Draft {
 }
 
 /**
- * The evaluator's answers to Sections 1-8 of the V4 evaluation form that
- * are not research: the form's three tick boxes, and their own wording of
+ * Sections 1-8 of the V4 evaluation form: the research behind the fields
+ * answered from outside sources (Sections 2, 4, 6 and 7), the form's tick
+ * boxes, the therapeutic indication, and the evaluator's own wording of
  * each section's assessment. Until a section is reviewed here, the V4
  * report prints the AI's assessment marked "not yet reviewed".
+ *
+ * Research saves as it is accepted; everything else saves with the button.
  */
 export function V4SectionsPanel({
   doc,
   findings,
+  canResearch,
   onChanged,
 }: {
   doc: PsurDocument;
   findings: PsurFinding[];
+  canResearch: boolean;
   onChanged: () => void;
 }) {
   const canEvaluate = usePermission("psur.evaluate");
   const initialTicks = v4Ticks(doc, findings);
   const [s2Inconsistent, setS2Inconsistent] = useState(initialTicks.s2Inconsistent);
   const [s2Explanation, setS2Explanation] = useState(doc.v4SectionAnswers?.s2Explanation ?? "");
+  const [indication, setIndication] = useState(
+    doc.v4SectionAnswers?.therapeuticIndication ?? doc.memoDraft?.therapeuticCategory ?? "",
+  );
   const [s7AdrTabulation, setS7AdrTabulation] = useState(initialTicks.s7AdrTabulation);
   const [s7VigiflowChecked, setS7VigiflowChecked] = useState(initialTicks.s7VigiflowChecked);
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
@@ -68,6 +86,7 @@ export function V4SectionsPanel({
       await psurApi.updateV4SectionAnswers(doc.id, {
         s2Inconsistent,
         s2Explanation,
+        therapeuticIndication: indication,
         s7AdrTabulation,
         s7VigiflowChecked,
         assessments,
@@ -97,8 +116,8 @@ export function V4SectionsPanel({
   return (
     <Section
       id="v4-sections-1-8"
-      title="Sections 1-8 — V4 form answers"
-      description="The V4 form's tick boxes, and your own assessment of each section. Until you review a section, the V4 report prints the AI's assessment marked as not yet reviewed."
+      title="Sections 1-8 — V4 evaluation form"
+      description="Research for the fields the V4 form answers from outside sources, the form's tick boxes, and your own assessment of each section. Until you review a section, the V4 report prints the AI's assessment marked as not yet reviewed."
       actions={
         canEvaluate ? (
           <Button size="sm" disabled={saving} onClick={save}>
@@ -108,6 +127,7 @@ export function V4SectionsPanel({
       }
     >
       <div className="space-y-3">
+        {canResearch ? <PasteResearch doc={doc} onChanged={onChanged} /> : null}
         {SECTIONS.map((id) => {
           const d = drafts[id]!;
           const saved = doc.v4SectionAnswers?.assessments?.[id];
@@ -124,6 +144,26 @@ export function V4SectionsPanel({
                 )}
               </div>
 
+              {id === "S1_PRODUCT_REGULATORY" ? (
+                <label className="block">
+                  <span className="label-caps">Therapeutic indication(s)</span>
+                  <Input
+                    className="mt-1"
+                    value={indication}
+                    disabled={!canEvaluate}
+                    placeholder="e.g. Antibacterial for systemic use"
+                    onChange={(e) => setIndication(e.target.value)}
+                  />
+                </label>
+              ) : null}
+              {RESEARCH[id] ? (
+                <V4ResearchCard
+                  doc={doc}
+                  criterion={RESEARCH[id]!}
+                  canEdit={canResearch}
+                  onChanged={onChanged}
+                />
+              ) : null}
               {id === "S2_WORLDWIDE_STATUS" ? (
                 <>
                   {tick(
