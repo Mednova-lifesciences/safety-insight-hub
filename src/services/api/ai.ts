@@ -286,6 +286,39 @@ export interface AiPsurUnresolved {
   reason: string;
 }
 
+export interface AiPsurResearchCandidate {
+  source_id: string;
+  source_type: string;
+  registry: string;
+  title: string;
+  /** The registry's citation, attached server-side — never model-written. */
+  citation: string;
+  url: string;
+  published: string;
+  in_interval: boolean | null;
+  content: string;
+  excerpt: string;
+  relevance: "HIGH" | "MEDIUM" | "LOW";
+  summarised_by_ai: boolean;
+}
+
+export interface AiPsurResearchResponse {
+  criterion: string;
+  candidates: AiPsurResearchCandidate[];
+  registries: { name: string; query: string; count: number; error?: string | null }[];
+  ai_used: boolean;
+  prompt_version: string;
+  error?: string | null;
+}
+
+export interface AiPsurRouteEvidenceResponse {
+  criterion: string;
+  confidence: number;
+  reason: string;
+  ai_used: boolean;
+  prompt_version: string;
+}
+
 export interface AiPsurFixResponse {
   resolutions: AiPsurResolution[];
   unresolved: AiPsurUnresolved[];
@@ -502,6 +535,17 @@ export const ai = {
       columns?: string[] | undefined;
       rows?: Record<string, string>[] | undefined;
     }) => apiRequest<AiPsurFixResponse>("/api/ai/psur/fix", { method: "POST", body }),
+    /** Public-registry sources for one memo criterion. Candidates only:
+     *  every one carries the registry's own citation, and none reaches the
+     *  memo until an assessor accepts it. */
+    research: (body: { criterion: string; substance: string; interval: string }) =>
+      apiRequest<AiPsurResearchResponse>("/api/ai/psur/research", { method: "POST", body }),
+    /** Which memo criterion pasted text belongs to — a proposal. */
+    routeEvidence: (body: { text: string }) =>
+      apiRequest<AiPsurRouteEvidenceResponse>("/api/ai/psur/route-evidence", {
+        method: "POST",
+        body,
+      }),
   },
 
   icsr: {

@@ -669,6 +669,9 @@ export interface PsurDocument {
   /** The ICH/CIOMS scoring matrix for this assessment, carrying who last
    *  changed a score and when. */
   ciomsMatrix?: CiomsMatrix | undefined;
+  /** What the assessor has typed into the memo so far. Undefined until
+   *  someone opens the memo workspace and saves. */
+  memoDraft?: AssessmentMemoDraft | undefined;
   /** Administrative Completeness Check — runs immediately at upload,
    *  before detailed scientific review. Distinct pass, distinct data;
    *  never collapsed into the findings list. Absent on documents
@@ -1260,6 +1263,11 @@ export type EvidenceSourceType =
 export interface EvidenceEntry {
   id: string;
   section: PsurV4SectionId;
+  /** The memo criterion this was gathered for. A working section can feed
+   *  more than one criterion (S5 feeds both 8 and 9), so without this an
+   *  entry would print under every criterion its section feeds. Absent on
+   *  entries recorded before it existed; those follow their section. */
+  criterion?: MemoCriterionId | undefined;
   sourceType: EvidenceSourceType;
   /** URL, DOI or document reference. Required — see above. */
   citation: string;
@@ -1272,6 +1280,10 @@ export interface EvidenceEntry {
   acceptedAt?: string | undefined;
   /** The id of an entry this one replaces. The superseded entry is kept. */
   supersedes?: string | undefined;
+  /** A candidate an assessor turned down. Kept, not deleted, so the record
+   *  shows what was looked at and set aside; it never renders. */
+  rejectedBy?: string | undefined;
+  rejectedAt?: string | undefined;
 }
 
 /** One of the 14 working sections, with the evidence gathered under it. */
@@ -1355,6 +1367,52 @@ export interface MemoCriterion {
   citations: string[];
   /** True when no accepted evidence or fact established this criterion. */
   unestablished: boolean;
+  /** The form's Yes/No answer, printed above the remarks as the supplied
+   *  memo does ("Yes", or for criterion 9 one line per question). Only
+   *  ever what the assessor chose; never inferred from the evidence. */
+  answer?: string | undefined;
+}
+
+/** The Yes/No answers the memo form asks for. Criterion 9 asks two. */
+export interface MemoAnswers {
+  RSI_CHANGES?: "Yes" | "No" | undefined;
+  WORLDWIDE_ACTIONS?: "Yes" | "No" | undefined;
+  RELEVANT_STUDIES?: "Yes" | "No" | undefined;
+  PATIENT_EXPOSURE_AFRICAN?: "Yes" | "No" | undefined;
+  PATIENT_EXPOSURE_NIGERIAN?: "Yes" | "No" | undefined;
+}
+
+/**
+ * Everything the assessor types into the memo that is not evidence.
+ *
+ * Persisted on the document so an Evaluator can stop and resume, and so the
+ * Peer Reviewer sees the same draft. `bandConfirmed` and `verdictConfirmed`
+ * are empty until a person confirms them: the rubric's proposals are shown
+ * beside them and never copied in on their own (spec section 6).
+ */
+export interface AssessmentMemoDraft {
+  /** The part after MEMO_REFERENCE_PREFIX, e.g. "455/III". */
+  referenceSuffix: string;
+  memoDate: string;
+  to: string;
+  from: string;
+  signatory: string;
+  signatoryTitle: string;
+  locationAddress: string;
+  productNameAndStrength: string;
+  therapeuticCategory: string;
+  mahName: string;
+  answers: MemoAnswers;
+  /** Criterion 11 in the assessor's own words, one risk per line, most
+   *  serious first. Accepted evidence under the same criterion is cited
+   *  beneath it. */
+  overallSafetyEnumeration: string;
+  bandConfirmed: string;
+  verdictConfirmed: string;
+  analysisOfMatrix: string;
+  conclusion: string;
+  updatedBy?: string | undefined;
+  updatedAt?: string | undefined;
 }
 
 export interface AssessmentMemoModel {
@@ -1366,6 +1424,12 @@ export interface AssessmentMemoModel {
   subject: string;
   productNameAndStrength: string;
   signatory: string;
+  /** The line under the signatory, e.g. "Director (PV)". */
+  signatoryTitle: string;
+  /** "Location Address: ..." under the letterhead. Empty omits the line. */
+  locationAddress: string;
+  /** Who submitted the PSUR, as the forwarding sentence names them. */
+  mahName: string;
   criteria: MemoCriterion[];
   matrix: CiomsMatrix;
   totals: { epidemiology: number; effectiveness: number; adrs: number[] };

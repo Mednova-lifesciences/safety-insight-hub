@@ -3,6 +3,7 @@ import type {
   AssessmentSection,
   CiomsMatrix,
   CiomsRubric,
+  MemoAnswers,
   MemoCriterion,
   MemoCriterionId,
   PsurSubmissionDetails,
@@ -82,6 +83,30 @@ function criterion(id: MemoCriterionId, value: string): MemoCriterion {
   };
 }
 
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** "2026-09-03..." -> "3 September 2026", as the memo writes dates. A
+ *  value that is not an ISO date is returned as it was. */
+export function longDate(value: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  if (!m) return value.trim();
+  const month = MONTH_NAMES[Number(m[2]) - 1];
+  return month ? `${Number(m[3])} ${month} ${m[1]}` : value.trim();
+}
+
 /**
  * Criteria 1-6 — the facts.
  *
@@ -97,7 +122,7 @@ export function factualCriteria(
     criterion("PRODUCT_IDENTITY", details.activeSubstance || details.productName),
     criterion("REPORTING_INTERVAL", details.intervalCovered),
     criterion("THERAPEUTIC_CATEGORY", therapeuticCategory),
-    criterion("DATE_RECEIVED", details.dateReceived.slice(0, 10)),
+    criterion("DATE_RECEIVED", longDate(details.dateReceived)),
     criterion("INTERNATIONAL_BIRTH_DATE", details.ibd),
     criterion("NIGERIA_BIRTH_DATE", details.firstNafdacRegistrationDate),
   ];
@@ -151,6 +176,7 @@ export function evidenceCriteria(sections: AssessmentSection[]): MemoCriterion[]
   return EVIDENCE_CRITERIA.map((id) => {
     const entries = CRITERION_SECTIONS[id]
       .flatMap((sectionId) => renderableEvidence(byId.get(sectionId)?.evidence ?? []))
+      .filter((e) => !e.criterion || e.criterion === id)
       .filter((e) => e.content.trim().length > 0);
     const remarks = entries.map((e) => e.content.trim()).join("\n\n");
     const def = MEMO_CRITERIA.find((c) => c.id === id)!;
@@ -165,12 +191,77 @@ export function evidenceCriteria(sections: AssessmentSection[]): MemoCriterion[]
   });
 }
 
+/**
+ * The Yes/No line the form asks for above each researched remark.
+ *
+ * Only what the assessor chose. "No" is a legitimate answer with no
+ * evidence behind it (nothing changed, no action was taken), so an answer
+ * alone establishes the criterion; evidence alone does not imply "Yes".
+ */
+export function answerLine(id: MemoCriterionId, answers: MemoAnswers): string | undefined {
+  if (id === "PATIENT_EXPOSURE") {
+    const lines = [
+      answers.PATIENT_EXPOSURE_AFRICAN && `African component: ${answers.PATIENT_EXPOSURE_AFRICAN}`,
+      answers.PATIENT_EXPOSURE_NIGERIAN && `Nigerian component: ${answers.PATIENT_EXPOSURE_NIGERIAN}`,
+    ].filter((l): l is string => !!l);
+    return lines.length > 0 ? lines.join("\n") : undefined;
+  }
+  if (id === "RSI_CHANGES" || id === "WORLDWIDE_ACTIONS" || id === "RELEVANT_STUDIES") {
+    return answers[id];
+  }
+  return undefined;
+}
+
+/**
+ * Lays the assessor's own input over the evidence projection.
+ *
+ * Criterion 11 is assessor judgement (spec section 2): their enumeration
+ * leads, and accepted evidence under it stays cited beneath. A criterion
+ * answered "No" with no evidence reads as that answer, not as
+ * unestablished — "no changes were made" is a finding.
+ */
+export function withAssessorInput(
+  criteria: MemoCriterion[],
+  answers: MemoAnswers,
+  overallSafetyEnumeration: string,
+): MemoCriterion[] {
+  return criteria.map((c) => {
+    const answer = answerLine(c.id, answers);
+    let next: MemoCriterion = answer ? { ...c, answer } : c;
+    if (c.id === "OVERALL_SAFETY_EVALUATION") {
+      const enumeration = overallSafetyEnumeration
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .join("\n");
+      if (enumeration) {
+        next = {
+          ...next,
+          remarks: next.unestablished ? enumeration : `${enumeration}\n\n${next.remarks}`,
+          unestablished: false,
+        };
+      }
+    }
+    if (next.unestablished && answer) {
+      next = { ...next, remarks: "", unestablished: false };
+    }
+    return next;
+  });
+}
+
 export interface AssessmentMemoInput {
   referenceNumber: string;
   memoDate: string;
   to: string;
   from: string;
   signatory: string;
+  signatoryTitle?: string | undefined;
+  locationAddress?: string | undefined;
+  mahName?: string | undefined;
+  /** The Yes/No column answers. Absent answers print nothing. */
+  answers?: MemoAnswers | undefined;
+  /** Criterion 11 in the assessor's words, one risk per line. */
+  overallSafetyEnumeration?: string | undefined;
   productNameAndStrength: string;
   therapeuticCategory: string;
   details: PsurSubmissionDetails;
@@ -213,9 +304,16 @@ export function buildAssessmentMemoModel(
       input.productNameAndStrength,
     productNameAndStrength: input.productNameAndStrength,
     signatory: input.signatory,
+    signatoryTitle: (input.signatoryTitle ?? "").trim(),
+    locationAddress: (input.locationAddress ?? "").trim(),
+    mahName: (input.mahName ?? "").trim(),
     criteria: [
       ...factualCriteria(input.details, input.therapeuticCategory),
-      ...evidenceCriteria(input.sections),
+      ...withAssessorInput(
+        evidenceCriteria(input.sections),
+        input.answers ?? {},
+        input.overallSafetyEnumeration ?? "",
+      ),
     ],
     matrix: input.matrix,
     totals,

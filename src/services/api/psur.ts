@@ -1,4 +1,5 @@
 import {
+  AlignmentType,
   Document,
   HeadingLevel,
   Packer,
@@ -6,7 +7,10 @@ import {
   Paragraph,
   Table,
   TableCell,
+  TableLayoutType,
   TableRow,
+  TabStopPosition,
+  TabStopType,
   TextRun,
   WidthType,
 } from "docx";
@@ -16,9 +20,12 @@ import { isSpreadsheetFile, mapColumnsByKeywords, parseTabularFile } from "./tab
 import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import type {
+  AssessmentMemoDraft,
   AssessmentMemoModel,
   AssessmentSection,
   CiomsMatrix,
+  EvidenceEntry,
+  MemoCriterionId,
   PsurAdministrativeCheck,
   PsurAiRecommendation,
   PsurBenefitRiskAssessment,
@@ -48,6 +55,45 @@ import type {
   PsurSubmissionDetails,
 } from "@/types/pv";
 import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
+import { buildAssessmentMemoModel } from "@/services/psur/assessment-memo";
+import {
+  acceptEvidence,
+  appendEvidence,
+  defaultMemoDraft,
+  memoBlockers,
+  memoInputFromDocument,
+  rejectEvidence,
+  reviseEvidence,
+} from "@/services/psur/memo-draft";
+
+/**
+ * Runs read-modify-write changes to one document one at a time.
+ *
+ * Every memo write reads the whole document and saves it back. Two of them
+ * overlapping — an autosave of the draft while an assessor accepts a piece
+ * of evidence — would let the later save overwrite the earlier one's change
+ * with a stale copy. Queueing per document closes that within this tab.
+ */
+const documentQueues = new Map<string, Promise<unknown>>();
+
+function inDocumentQueue<T>(documentId: string, work: () => Promise<T>): Promise<T> {
+  const previous = documentQueues.get(documentId) ?? Promise.resolve();
+  const next = previous.then(work, work);
+  documentQueues.set(
+    documentId,
+    next.catch(() => undefined),
+  );
+  return next;
+}
+
+/** The document with one working section replaced by its new version. */
+function withSection<T extends PsurDocument>(doc: T, section: AssessmentSection): T {
+  const existing = doc.assessmentSections ?? [];
+  return {
+    ...doc,
+    assessmentSections: [...existing.filter((s) => s.section !== section.section), section],
+  };
+}
 import { deriveWorkflowStage } from "@/services/psur/workflow";
 import { pushNotification } from "./db";
 import {
@@ -1837,15 +1883,16 @@ export const psur = {
    * psur/evidence.ts): a corrected entry arrives as a new entry carrying
    * `supersedes`, never as an edit over the old one.
    */
-  saveAssessmentSection: async (
+  saveAssessmentSection: (
     documentId: string,
     section: AssessmentSection,
-  ): Promise<PsurDocument> => {
-    const doc = await readDocument(documentId);
-    const existing = doc.assessmentSections ?? [];
-    const next = [...existing.filter((s) => s.section !== section.section), section];
-    return saveDocument({ ...doc, assessmentSections: next });
-  },
+  ): Promise<PsurDocument> =>
+    inDocumentQueue(documentId, async () => {
+      const doc = await readDocument(documentId);
+      const existing = doc.assessmentSections ?? [];
+      const next = [...existing.filter((s) => s.section !== section.section), section];
+      return saveDocument({ ...doc, assessmentSections: next });
+    }),
 
   /**
    * Records a CIOMS matrix, stamping who changed it and when.
@@ -1854,20 +1901,183 @@ export const psur = {
    * what an audit asks about first, and both the Evaluator and the Peer
    * Reviewer may change one (see canEditCiomsMatrix in psur/workflow.ts).
    */
-  saveCiomsMatrix: async (
+  saveCiomsMatrix: (
     documentId: string,
     matrix: CiomsMatrix,
     editedBy: string,
-  ): Promise<PsurDocument> => {
+  ): Promise<PsurDocument> =>
+    inDocumentQueue(documentId, async () => {
+      const doc = await readDocument(documentId);
+      const saved = await saveDocument({
+        ...doc,
+        ciomsMatrix: {
+          ...matrix,
+          lastEditedBy: editedBy,
+          lastEditedAt: new Date().toISOString(),
+        },
+      });
+      const scores = (m: CiomsMatrix | undefined) =>
+        m
+          ? JSON.stringify({
+              epidemiology: m.epidemiologyOfDisease,
+              effectiveness: m.effectivenessOfProduct,
+              adrs: m.adrs,
+            })
+          : null;
+      await recordAudit({
+        action: "PSUR_CIOMS_MATRIX_CHANGED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        previousValue: scores(doc.ciomsMatrix),
+        newValue: scores(matrix),
+      });
+      return saved;
+    }),
+
+  /** Saves what the assessor has typed into the memo, stamped with who and
+   *  when so the Peer Reviewer can see whose draft they are reading. */
+  saveMemoDraft: (documentId: string, draft: AssessmentMemoDraft): Promise<PsurDocument> =>
+    inDocumentQueue(documentId, async () => {
+      const doc = await readDocument(documentId);
+      return saveDocument({
+        ...doc,
+        memoDraft: { ...draft, updatedBy: currentActor().name, updatedAt: new Date().toISOString() },
+      });
+    }),
+
+  /**
+   * Files one piece of evidence under its working section.
+   *
+   * Hand-entered evidence is accepted by the person entering it — typing it
+   * in is the acceptance. AI-retrieved evidence arrives as a candidate and
+   * waits for someone to accept it.
+   */
+  addEvidence: (
+    documentId: string,
+    input: Pick<EvidenceEntry, "section" | "sourceType" | "citation" | "content" | "origin"> & {
+      criterion: MemoCriterionId;
+    },
+  ): Promise<PsurDocument> =>
+    inDocumentQueue(documentId, async () => {
+      const doc = await readDocument(documentId);
+      const actor = currentActor();
+      const at = new Date().toISOString();
+      const entry: EvidenceEntry = {
+        id: newId("ev"),
+        ...input,
+        citation: input.citation.trim(),
+        content: input.content.trim(),
+        addedBy: actor.name,
+        addedAt: at,
+        ...(input.origin === "assessor" ? { acceptedBy: actor.name, acceptedAt: at } : {}),
+      };
+      const section = appendEvidence(doc.assessmentSections ?? [], entry);
+      const saved = await saveDocument(withSection(doc, section));
+      await recordAudit({
+        action: input.origin === "ai" ? "PSUR_EVIDENCE_CANDIDATE_ADDED" : "PSUR_EVIDENCE_ADDED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        newValue: `${entry.section}: ${entry.citation}`,
+      });
+      return saved;
+    }),
+
+  acceptEvidence: (documentId: string, entryId: string): Promise<PsurDocument> =>
+    inDocumentQueue(documentId, async () => {
+      const doc = await readDocument(documentId);
+      const actor = currentActor();
+      const section = acceptEvidence(doc.assessmentSections ?? [], entryId, actor.name, new Date().toISOString());
+      const saved = await saveDocument(withSection(doc, section));
+      await recordAudit({
+        action: "PSUR_EVIDENCE_ACCEPTED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        newValue: entryId,
+      });
+      return saved;
+    }),
+
+  rejectEvidence: (documentId: string, entryId: string): Promise<PsurDocument> =>
+    inDocumentQueue(documentId, async () => {
+      const doc = await readDocument(documentId);
+      const actor = currentActor();
+      const section = rejectEvidence(doc.assessmentSections ?? [], entryId, actor.name, new Date().toISOString());
+      const saved = await saveDocument(withSection(doc, section));
+      await recordAudit({
+        action: "PSUR_EVIDENCE_REJECTED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        newValue: entryId,
+      });
+      return saved;
+    }),
+
+  /** A correction: a new accepted entry superseding the old, which stays. */
+  reviseEvidence: (
+    documentId: string,
+    entryId: string,
+    change: { content: string; citation: string },
+    criterion?: MemoCriterionId,
+  ): Promise<PsurDocument> =>
+    inDocumentQueue(documentId, async () => {
+      const doc = await readDocument(documentId);
+      const sections = doc.assessmentSections ?? [];
+      const previous = sections.flatMap((s) => s.evidence).find((e) => e.id === entryId);
+      if (!previous) throw new Error("That evidence entry no longer exists.");
+      const actor = currentActor();
+      const section = reviseEvidence(
+        sections,
+        previous,
+        { content: change.content.trim(), citation: change.citation.trim() },
+        newId("ev"),
+        actor.name,
+        new Date().toISOString(),
+        criterion,
+      );
+      const saved = await saveDocument(withSection(doc, section));
+      await recordAudit({
+        action: "PSUR_EVIDENCE_REVISED",
+        entity: "PsurDocument",
+        entityId: documentId,
+        previousValue: previous.content,
+        newValue: change.content.trim(),
+      });
+      return saved;
+    }),
+
+  /** The memo model for a document, or the reasons it cannot be built yet. */
+  assessmentMemo: async (
+    documentId: string,
+  ): Promise<{ model: AssessmentMemoModel | null; blockers: string[] }> => {
     const doc = await readDocument(documentId);
-    return saveDocument({
-      ...doc,
-      ciomsMatrix: {
-        ...matrix,
-        lastEditedBy: editedBy,
-        lastEditedAt: new Date().toISOString(),
-      },
+    const draft = doc.memoDraft ?? defaultMemoDraft(doc);
+    const blockers = memoBlockers(draft, doc.ciomsMatrix);
+    const model = buildAssessmentMemoModel(memoInputFromDocument(doc, draft));
+    if (!model && blockers.length === 0) blockers.push("Every CIOMS score must be a whole number of 0 or more.");
+    return { model, blockers };
+  },
+
+  downloadAssessmentMemo: async (documentId: string): Promise<void> => {
+    const doc = await readDocument(documentId);
+    const { model, blockers } = await psur.assessmentMemo(documentId);
+    if (!model || blockers.length > 0) throw new Error(blockers[0] ?? "The memo cannot be generated yet.");
+    await downloadBlob(await Packer.toBlob(buildAssessmentMemoDocx(model)), docBaseName(doc) + "-assessment-memo.docx");
+    await recordAudit({
+      action: "PSUR_ASSESSMENT_MEMO_GENERATED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      newValue: model.referenceNumber,
     });
+  },
+
+  downloadAssessmentMemoText: async (documentId: string): Promise<void> => {
+    const doc = await readDocument(documentId);
+    const { model, blockers } = await psur.assessmentMemo(documentId);
+    if (!model || blockers.length > 0) throw new Error(blockers[0] ?? "The memo cannot be generated yet.");
+    await downloadBlob(
+      new Blob([renderAssessmentMemoText(model)], { type: "text/plain" }),
+      docBaseName(doc) + "-assessment-memo.txt",
+    );
   },
 
   documents: async (): Promise<PsurDocument[]> => {
@@ -3194,6 +3404,7 @@ export function renderAssessmentMemoText(m: AssessmentMemoModel): string {
 
   lines.push("National Agency for Food and Drug Administration and Control");
   lines.push("Pharmacovigilance Directorate");
+  if (m.locationAddress) lines.push(`Location Address: ${m.locationAddress}`);
   lines.push("INTERNAL MEMO");
   lines.push(rule);
   lines.push(`${m.referenceNumber}        ${m.memoDate}`);
@@ -3205,25 +3416,27 @@ export function renderAssessmentMemoText(m: AssessmentMemoModel): string {
   lines.push("");
   lines.push("The above subject matter refers, please.");
   lines.push("");
-  lines.push("I hereby forward, as an attachment to this memo, the report of the review of");
-  lines.push("the PSUR for the above-mentioned medicinal product for your attention.");
+  lines.push(forwardingSentence(m));
   lines.push("");
   lines.push("Thank you,");
   lines.push("");
-  lines.push(m.signatory);
+  lines.push(`For: ${m.signatory}`);
+  if (m.signatoryTitle) lines.push(m.signatoryTitle);
   lines.push("");
   lines.push("");
 
   lines.push("THE REPORT OF THE REVIEW");
   lines.push(rule);
-  lines.push(`Product name and strength: ${m.productNameAndStrength}`);
+  lines.push("Product name and strength");
+  lines.push(m.productNameAndStrength);
   lines.push("");
 
   lines.push("REVIEW CRITERIA");
   lines.push(thin);
   for (const c of m.criteria) {
     lines.push(`${c.number}. ${c.label}`);
-    lines.push(indent(c.remarks, 4));
+    if (c.answer) lines.push(indent(c.answer, 4));
+    if (c.remarks) lines.push(indent(c.remarks, 4));
     for (const citation of c.citations) {
       lines.push(indent(`Source: ${citation}`, 4));
     }
@@ -3232,11 +3445,11 @@ export function renderAssessmentMemoText(m: AssessmentMemoModel): string {
 
   lines.push("SUMMARY TABLE 1: ICH AND CIOMS PRINCIPLE");
   lines.push(thin);
-  lines.push(`Epidemiology of Disease     total ${m.totals.epidemiology}`);
-  lines.push(`Effectiveness of Product    total ${m.totals.effectiveness}`);
-  m.matrix.adrs.forEach((adr, i) => {
-    lines.push(`${adr.reaction.padEnd(27)} total ${m.totals.adrs[i]}`);
-  });
+  const grid = ciomsGrid(m);
+  const widths = grid[0]!.map((_, col) => Math.max(...grid.map((row) => row[col]!.length)));
+  for (const row of grid) {
+    lines.push(row.map((value, col) => value.padEnd(widths[col]!)).join("  |  "));
+  }
   if (m.provisionalRubricUsed) {
     lines.push("");
     lines.push("NOTE: a PROVISIONAL scoring rubric was in force for this assessment. Any band");
@@ -3245,11 +3458,11 @@ export function renderAssessmentMemoText(m: AssessmentMemoModel): string {
   }
   lines.push("");
 
-  if (m.analysisOfMatrix) {
+  const analysis = analysisParagraphs(m);
+  if (analysis.length > 0) {
     lines.push("ANALYSIS OF MATRIX");
     lines.push(thin);
-    if (m.bandLabel) lines.push(`Efficacy band: ${m.bandLabel}`);
-    lines.push(m.analysisOfMatrix);
+    for (const p of analysis) lines.push(p.bullet ? `  • ${p.text}` : p.text);
     lines.push("");
   }
 
@@ -3264,121 +3477,284 @@ export function renderAssessmentMemoText(m: AssessmentMemoModel): string {
   return lines.join("\n");
 }
 
+function forwardingSentence(m: AssessmentMemoModel): string {
+  return (
+    "I hereby forward, as an attachment to this memo, the report of the review of the PSUR " +
+    "for the above-mentioned medicinal product" +
+    (m.mahName ? ` submitted by ${m.mahName}` : "") +
+    " for your attention."
+  );
+}
+
 /**
- * The same memo as a Word file.
- *
- * A real page break between the memo and the report, because the supplied
- * example has one and the two parts are read as separate pages.
+ * The matrix as the supplied memo draws it: the three rows down the side,
+ * a column each for the disease and the product, and ONE column for all
+ * the adverse reactions with their scores joined by "&" in the order the
+ * header names them.
+ */
+function ciomsGrid(m: AssessmentMemoModel): string[][] {
+  const adrNames = m.matrix.adrs.map((a) => a.reaction).join("; ");
+  const header = [
+    "",
+    "Epidemiology of Disease",
+    "Effectiveness of Product",
+    `Adverse Drug Reactions${adrNames ? ` (${adrNames})` : ""}`,
+  ];
+  const row = (label: string, key: "seriousness" | "duration" | "incidence") => [
+    label,
+    String(m.matrix.epidemiologyOfDisease[key]),
+    String(m.matrix.effectivenessOfProduct[key]),
+    m.matrix.adrs.map((a) => String(a.scores[key])).join(" & "),
+  ];
+  return [
+    header,
+    row("Seriousness", "seriousness"),
+    row("Duration", "duration"),
+    row("Incidence", "incidence"),
+    [
+      "Total",
+      String(m.totals.epidemiology),
+      String(m.totals.effectiveness),
+      m.totals.adrs.join(" & "),
+    ],
+  ];
+}
+
+/**
+ * The Analysis of Matrix block. The assessor's first paragraph is the
+ * lead-in; each further line is one of the bold findings the supplied memo
+ * lists beneath it. The band line is printed only once confirmed.
+ */
+function analysisParagraphs(m: AssessmentMemoModel): { text: string; bullet: boolean }[] {
+  const written = m.analysisOfMatrix
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const out = written.map((text, i) => ({ text, bullet: i > 0 }));
+  // The score comparison is written from the totals at the moment the memo
+  // is produced, never stored as typed text: a Peer Reviewer may change a
+  // score after the Evaluator wrote the analysis, and a sentence quoting the
+  // old totals beside a table showing the new ones is a contradiction in a
+  // signed document. Worded as the supplied memo words it.
+  if (m.totals.adrs.length > 0) {
+    const relation =
+      Math.max(...m.totals.adrs) < m.totals.epidemiology ? "less than" : "not less than";
+    out.push({
+      text:
+        `The critical adverse drug reaction risk profile is ${relation} the epidemiology of the ` +
+        `disease itself; a score of ${m.totals.adrs.join(" & ")}` +
+        `${m.totals.adrs.length > 1 ? ", respectively," : ""} vs. a score of ${m.totals.epidemiology}.`,
+      bullet: true,
+    });
+  }
+  if (m.bandLabel) {
+    out.push({
+      text: `The product has a ${m.bandLabel.toLowerCase()} efficacy score of ${m.totals.effectiveness}.`,
+      bullet: true,
+    });
+  }
+  return out;
+}
+
+const MEMO_FONT = "Times New Roman";
+
+function memoRun(text: string, opts: { bold?: boolean; italics?: boolean; size?: number } = {}): TextRun {
+  return new TextRun({
+    text,
+    font: MEMO_FONT,
+    size: opts.size ?? 24,
+    ...(opts.bold ? { bold: true } : {}),
+    ...(opts.italics ? { italics: true } : {}),
+  });
+}
+
+function memoPara(
+  text: string,
+  opts: { bold?: boolean; italics?: boolean; size?: number; center?: boolean; after?: number } = {},
+): Paragraph {
+  return new Paragraph({
+    children: [memoRun(text, opts)],
+    ...(opts.center ? { alignment: AlignmentType.CENTER } : {}),
+    spacing: { after: opts.after ?? 120 },
+  });
+}
+
+/** A table cell holding several paragraphs; each "\n"-separated line of
+ *  each block becomes its own paragraph, so Word keeps the line breaks. */
+/** The text width of the default A4 page with 1-inch margins, in twips.
+ *  Column widths are fixed in twips because Word ignores percentage cell
+ *  widths and squeezes the criteria column to a word or two per line. */
+const MEMO_TEXT_WIDTH = 9026;
+const dxa = (percent: number) => Math.round((MEMO_TEXT_WIDTH * percent) / 100);
+
+function memoTable(rows: TableRow[], percents: number[]): Table {
+  return new Table({
+    width: { size: MEMO_TEXT_WIDTH, type: WidthType.DXA },
+    columnWidths: percents.map(dxa),
+    layout: TableLayoutType.FIXED,
+    rows,
+  });
+}
+
+function memoCell(
+  blocks: { text: string; bold?: boolean; italics?: boolean }[],
+  width?: number,
+): TableCell {
+  const paragraphs = blocks.flatMap((b, i) => {
+    const ps = b.text
+      .split("\n")
+      .map((line) => memoPara(line, { bold: !!b.bold, italics: !!b.italics, after: 60 }));
+    return i < blocks.length - 1 && b.text ? [...ps, memoPara("", { after: 0 })] : ps;
+  });
+  return new TableCell({
+    children: paragraphs.length > 0 ? paragraphs : [memoPara("")],
+    ...(width ? { width: { size: dxa(width), type: WidthType.DXA } } : {}),
+    margins: { top: 60, bottom: 60, left: 100, right: 100 },
+  });
+}
+
+/**
+ * The same memo as a Word file, laid out like the supplied example:
+ * bold letterhead, reference and date on one line, a hard page break, the
+ * criteria table, the full CIOMS matrix, then Analysis and Conclusion.
  */
 export function buildAssessmentMemoDocx(m: AssessmentMemoModel): Document {
-  const criteriaTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
+  // S/N narrow, the criterion wide enough to read as a phrase, the remarks
+  // given the most room — roughly the supplied memo's proportions.
+  const CRITERIA_COLUMNS = [7, 28, 65];
+  const criteriaTable = memoTable(
+    [
       new TableRow({
         tableHeader: true,
-        children: [headerCell("S/N"), headerCell("Review Criteria"), headerCell("Remarks")],
+        children: [
+          memoCell([{ text: "S/N", bold: true }], CRITERIA_COLUMNS[0]),
+          memoCell([{ text: "Review Criteria", bold: true }], CRITERIA_COLUMNS[1]),
+          memoCell([{ text: "Remarks", bold: true }], CRITERIA_COLUMNS[2]),
+        ],
       }),
       ...m.criteria.map(
         (c) =>
           new TableRow({
             children: [
-              cell(String(c.number)),
-              cell(c.label),
-              cell(
-                c.citations.length > 0
-                  ? `${c.remarks}\n\nSource(s): ${c.citations.join("; ")}`
-                  : c.remarks,
+              memoCell([{ text: String(c.number) }], CRITERIA_COLUMNS[0]),
+              memoCell([{ text: c.label }], CRITERIA_COLUMNS[1]),
+              memoCell(
+                [
+                  ...(c.answer ? [{ text: c.answer, bold: true }] : []),
+                  ...(c.remarks ? [{ text: c.remarks }] : []),
+                  ...(c.citations.length > 0
+                    ? [{ text: c.citations.map((x) => `Source: ${x}`).join("\n"), italics: true }]
+                    : []),
+                ],
+                CRITERIA_COLUMNS[2],
               ),
             ],
           }),
       ),
     ],
-  });
+    CRITERIA_COLUMNS,
+  );
 
-  const matrixTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      new TableRow({
-        tableHeader: true,
-        children: [headerCell("Column"), headerCell("Total")],
-      }),
-      new TableRow({
-        children: [cell("Epidemiology of Disease"), cell(String(m.totals.epidemiology))],
-      }),
-      new TableRow({
-        children: [cell("Effectiveness of Product"), cell(String(m.totals.effectiveness))],
-      }),
-      ...m.matrix.adrs.map(
-        (adr, i) =>
-          new TableRow({ children: [cell(adr.reaction), cell(String(m.totals.adrs[i]))] }),
-      ),
-    ],
-  });
+  const grid = ciomsGrid(m);
+  const MATRIX_COLUMNS = [16, 24, 24, 36];
+  const matrixTable = memoTable(
+    grid.map(
+      (row, r) =>
+        new TableRow({
+          tableHeader: r === 0,
+          children: row.map((value, c) =>
+            memoCell(
+              [{ text: value, bold: r === 0 || c === 0 || r === grid.length - 1 }],
+              MATRIX_COLUMNS[c],
+            ),
+          ),
+        }),
+    ),
+    MATRIX_COLUMNS,
+  );
+
+  const analysis = analysisParagraphs(m);
 
   return new Document({
+    styles: { default: { document: { run: { font: MEMO_FONT, size: 24 } } } },
     sections: [
       {
         children: [
-          new Paragraph({
-            text: "National Agency for Food and Drug Administration and Control",
-            heading: HeadingLevel.HEADING_2,
+          memoPara("National Agency for Food and Drug Administration and Control", {
+            bold: true,
+            size: 28,
+            center: true,
+            after: 40,
           }),
-          new Paragraph({ text: "Pharmacovigilance Directorate" }),
-          docxHeading("Internal Memo"),
-          docxLabelValue("Ref", m.referenceNumber),
-          docxLabelValue("Date", m.memoDate),
-          docxLabelValue("To", m.to),
-          docxLabelValue("From", m.from),
-          docxLabelValue("Subject", m.subject),
-          new Paragraph({ text: "" }),
-          new Paragraph({ text: "The above subject matter refers, please." }),
+          memoPara("Pharmacovigilance Directorate", { bold: true, center: true, after: 40 }),
+          ...(m.locationAddress
+            ? [memoPara(`Location Address: ${m.locationAddress}`, { bold: true, center: true, after: 200 })]
+            : []),
+          memoPara("INTERNAL MEMO", { bold: true, size: 28, center: true, after: 240 }),
           new Paragraph({
-            text:
-              "I hereby forward, as an attachment to this memo, the report of the review " +
-              "of the PSUR for the above-mentioned medicinal product for your attention.",
+            children: [memoRun(m.referenceNumber, { bold: true }), memoRun("\t"), memoRun(m.memoDate, { bold: true })],
+            tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
+            spacing: { after: 240 },
           }),
-          new Paragraph({ text: "" }),
-          new Paragraph({ text: "Thank you," }),
-          new Paragraph({ text: m.signatory }),
+          new Paragraph({
+            children: [memoRun("To:     ", { bold: true }), memoRun(m.to, { bold: true })],
+            spacing: { after: 60 },
+          }),
+          new Paragraph({
+            children: [memoRun("From:  ", { bold: true }), memoRun(m.from)],
+            spacing: { after: 240 },
+          }),
+          new Paragraph({
+            children: [memoRun("SUBJECT: ", { bold: true }), memoRun(m.subject, { bold: true })],
+            spacing: { after: 240 },
+          }),
+          memoPara("The above subject matter refers, please."),
+          memoPara(forwardingSentence(m), { after: 240 }),
+          memoPara("Thank you,", { after: 480 }),
+          memoPara(`For: ${m.signatory}`, { bold: true, after: 40 }),
+          ...(m.signatoryTitle ? [memoPara(m.signatoryTitle, { bold: true })] : []),
           new Paragraph({ children: [new PageBreak()] }),
 
-          docxHeading("The report of the review"),
-          docxLabelValue("Product name and strength", m.productNameAndStrength),
-          new Paragraph({ text: "" }),
+          memoPara("Product name and strength", { bold: true, after: 40 }),
+          memoPara(m.productNameAndStrength, { after: 200 }),
           criteriaTable,
-          new Paragraph({ text: "" }),
-          docxHeading("Summary Table 1: ICH and CIOMS Principle", HeadingLevel.HEADING_2),
+          memoPara("", { after: 200 }),
+          memoPara("Summary Table 1: ICH and CIOMS PRINCIPLE", { bold: true }),
           matrixTable,
           ...(m.provisionalRubricUsed
             ? [
-                new Paragraph({
-                  children: [
-                    new TextRun({
-                      text:
-                        "Note: a provisional scoring rubric was in force for this " +
-                        "assessment. Any band label and benefit-risk conclusion were " +
-                        "confirmed by the assessor, not derived from an authoritative " +
-                        "NAFDAC rubric.",
-                      italics: true,
-                    }),
-                  ],
-                }),
+                memoPara(
+                  "Note: a provisional scoring rubric was in force for this assessment. Any band " +
+                    "label and benefit-risk conclusion were confirmed by the assessor, not derived " +
+                    "from an authoritative NAFDAC rubric.",
+                  { italics: true, size: 20 },
+                ),
               ]
             : []),
-          ...(m.analysisOfMatrix
+          ...(analysis.length > 0
             ? [
-                docxHeading("Analysis of Matrix", HeadingLevel.HEADING_2),
-                ...(m.bandLabel ? [docxLabelValue("Efficacy band", m.bandLabel)] : []),
-                new Paragraph({ text: m.analysisOfMatrix }),
+                memoPara("", { after: 120 }),
+                memoPara("Analysis of Matrix", { bold: true }),
+                ...analysis.map((p) =>
+                  p.bullet
+                    ? new Paragraph({
+                        children: [memoRun(p.text, { bold: true })],
+                        bullet: { level: 0 },
+                        spacing: { after: 120 },
+                      })
+                    : memoPara(p.text),
+                ),
               ]
             : []),
           ...(m.conclusion
             ? [
-                docxHeading("Conclusion", HeadingLevel.HEADING_2),
-                ...(m.benefitRiskVerdict
-                  ? [new Paragraph({ text: m.benefitRiskVerdict })]
-                  : []),
-                new Paragraph({ text: m.conclusion }),
+                memoPara("", { after: 120 }),
+                memoPara("Conclusion", { bold: true }),
+                memoPara(
+                  m.benefitRiskVerdict && !m.conclusion.includes(m.benefitRiskVerdict)
+                    ? `${m.benefitRiskVerdict}. ${m.conclusion}`
+                    : m.conclusion,
+                ),
               ]
             : []),
         ],

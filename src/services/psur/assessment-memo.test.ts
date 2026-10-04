@@ -44,7 +44,7 @@ describe("the six factual criteria", () => {
     expect(by("PRODUCT_IDENTITY").remarks).toContain("Tramadol");
     expect(by("REPORTING_INTERVAL").remarks).toBe("12 November 2021 to 12 November 2024");
     expect(by("THERAPEUTIC_CATEGORY").remarks).toBe("Narcotic Analgesic");
-    expect(by("DATE_RECEIVED").remarks).toBe("2026-09-03");
+    expect(by("DATE_RECEIVED").remarks).toBe("3 September 2026");
     expect(by("INTERNATIONAL_BIRTH_DATE").remarks).toBe("1977");
   });
 

@@ -1,9 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { usePermission } from "@/lib/auth";
 import { ConfirmWithPassword } from "@/components/pv/confirm-with-password";
-import { deriveWorkflowStage, visibleForScientificReview } from "@/services/psur/workflow";
+import {
+  canEditAssessmentMemo,
+  deriveWorkflowStage,
+  visibleForScientificReview,
+} from "@/services/psur/workflow";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { PsurScreeningDecision } from "@/components/pv/psur-screening-decision";
+import { PsurAssessmentMemoPanel } from "@/components/pv/psur-assessment-memo";
 import { ScreeningRecord } from "@/components/pv/psur-screening-checklist";
 import { useMemo, useState } from "react";
 import { ArrowRight, Download, FileText, Stamp, Upload, Wrench } from "lucide-react";
@@ -1028,6 +1033,13 @@ function PsurPage() {
             <RegulatoryDecisionPanel
               key={`regdecision-${activeDoc.id}`}
               doc={activeDoc}
+              onChanged={refreshDocAndFindings}
+            />
+
+            <PsurAssessmentMemoPanel
+              key={`assessment-memo-${activeDoc.id}`}
+              doc={activeDoc}
+              canEdit={canEditAssessmentMemo(activeDoc, { canEvaluate, canPeerReview })}
               onChanged={refreshDocAndFindings}
             />
 

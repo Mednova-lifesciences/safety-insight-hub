@@ -11,6 +11,9 @@ function model(overrides: Partial<AssessmentMemoModel> = {}): AssessmentMemoMode
     subject: "Submission of Periodic Safety Update Report (PSUR) for Tramadol-50",
     productNameAndStrength: "Tramadol-50 (Tramadol 50mg) Capsule",
     signatory: "Director (PV)",
+    signatoryTitle: "Director (PV)",
+    locationAddress: "CHQ Abuja",
+    mahName: "Example Pharma Ltd",
     criteria: [
       {
         id: "PRODUCT_IDENTITY",
@@ -93,6 +96,39 @@ describe("the rendered memo", () => {
     );
     expect(out).not.toContain("Positive Benefit-Risk Balance");
     expect(out).not.toContain("Medium");
+  });
+
+  it("writes the score comparison from the totals, so it cannot go stale", () => {
+    // A Peer Reviewer may change a score after the analysis was written; the
+    // sentence is rebuilt from the totals every time the memo is produced.
+    const out = renderAssessmentMemoText(
+      model({
+        totals: { epidemiology: 6, effectiveness: 6, adrs: [5, 4, 5] },
+        matrix: {
+          epidemiologyOfDisease: { seriousness: 2, duration: 2, incidence: 2 },
+          effectivenessOfProduct: { seriousness: 3, duration: 3, incidence: 0 },
+          adrs: [
+            { reaction: "Respiratory Depression", scores: { seriousness: 3, duration: 1, incidence: 1 } },
+            { reaction: "Seizures", scores: { seriousness: 2, duration: 1, incidence: 1 } },
+            { reaction: "Serotonin Syndrome", scores: { seriousness: 3, duration: 1, incidence: 1 } },
+          ],
+        },
+      }),
+    );
+    // The supplied memo's own sentence, reproduced from its own numbers.
+    expect(out).toContain(
+      "The critical adverse drug reaction risk profile is less than the epidemiology of the " +
+        "disease itself; a score of 5 & 4 & 5, respectively, vs. a score of 6.",
+    );
+    expect(out).toContain("The product has a medium efficacy score of 6.");
+    expect(out).toContain("5 & 4 & 5");
+  });
+
+  it("says 'not less than' when a reaction reaches the disease's score", () => {
+    const out = renderAssessmentMemoText(
+      model({ totals: { epidemiology: 6, effectiveness: 6, adrs: [6] } }),
+    );
+    expect(out).toContain("is not less than the epidemiology of the disease itself; a score of 6 vs.");
   });
 
   it("shows an unestablished criterion as not stated, never as a blank", () => {
