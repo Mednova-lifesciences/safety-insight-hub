@@ -12,6 +12,7 @@ import {
   RESEARCHABLE_CRITERIA,
 } from "./memo-draft";
 import { supersede } from "./evidence";
+import type { V4FieldId } from "./v4-fields";
 
 /**
  * Resolving a review finding with the assessor's own research.
@@ -68,6 +69,8 @@ export interface ResearchInput {
   criterion?: MemoCriterionId | undefined;
   /** "ai" when the text came from the registry search, even if edited. */
   origin: "ai" | "assessor";
+  /** Where it prints in the V4 evaluation report. */
+  v4Field?: V4FieldId | undefined;
 }
 
 /**
@@ -145,6 +148,7 @@ export function fileFindingResearch(
       acceptedBy: by,
       acceptedAt: at,
       findingId: finding.id,
+      ...(input.v4Field ? { v4Field: input.v4Field } : {}),
     });
     replace(appendEvidence(next, revised));
     return { sections: next, evidenceId: newEntryId };
@@ -166,6 +170,7 @@ export function fileFindingResearch(
     acceptedBy: by,
     acceptedAt: at,
     findingId: finding.id,
+    ...(input.v4Field ? { v4Field: input.v4Field } : {}),
   };
   replace(appendEvidence(next, entry));
   return { sections: next, evidenceId: newEntryId };

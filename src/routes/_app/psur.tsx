@@ -640,6 +640,20 @@ function PsurPage() {
                       </Button>
                       <Button
                         size="sm"
+                        onClick={async () => {
+                          try {
+                            await psurApi.downloadV4Report(activeDoc.id);
+                          } catch (err) {
+                            toast.error(
+                              err instanceof Error ? err.message : "Could not generate the V4 report.",
+                            );
+                          }
+                        }}
+                      >
+                        <FileText className="size-4" /> Generate V4 Evaluation Report (Word)
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="ghost"
                         onClick={async () => {
                           try {

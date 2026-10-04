@@ -351,6 +351,7 @@ export function reviseEvidence(
   const next = supersede(previous, {
     id,
     ...(tag ? { criterion: tag } : {}),
+    ...(previous.v4Field ? { v4Field: previous.v4Field } : {}),
     section: previous.section,
     sourceType: previous.sourceType,
     citation: change.citation,

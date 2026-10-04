@@ -1,0 +1,208 @@
+import { describe, expect, it } from "vitest";
+import type { AssessmentSection, PsurDocument, PsurFinding } from "@/types/pv";
+import { buildV4ReportModel, type V4Block } from "./v4-report";
+import { defaultFieldForCriterion, fieldForEvidence } from "./v4-fields";
+
+const AT = "2026-10-04T12:00:00.000Z";
+
+function doc(overrides: Partial<PsurDocument> = {}): PsurDocument {
+  return {
+    id: "psur_1",
+    filename: "amoxiclav.pdf",
+    product: "Amoxiclav",
+    reportingPeriod: "01 Sep 2025 – 31 Aug 2026",
+    uploadedAt: "2026-10-04T09:00:00.000Z",
+    uploadedBy: "Officer",
+    stage: "REVIEWED",
+    pages: 14,
+    administrativeScreening: {
+      performedAt: AT,
+      assistGenerated: false,
+      checks: [],
+      submissionDetails: {
+        productName: "Amoxicillin/Clavulanate 500/125 mg tablets",
+        activeSubstance: "Amoxicillin / Clavulanate",
+        nafdacRegNo: "A4-100123",
+        mah: "Zephyr Pharma Nigeria Limited",
+        qppv: "",
+        qppvContact: "",
+        ibd: "17 March 2014",
+        firstNafdacRegistrationDate: "05 June 2018",
+        dlp: "31 August 2026",
+        intervalCovered: "01 Sep 2025 – 31 Aug 2026",
+        dateReceived: "2026-10-04",
+      },
+    },
+    ...overrides,
+  } as PsurDocument;
+}
+
+const evidence = (
+  id: string,
+  content: string,
+  citation: string,
+  extra: Partial<AssessmentSection["evidence"][number]> = {},
+) => ({
+  id,
+  section: "S4_RSI" as const,
+  sourceType: "REFERENCE_SAFETY_INFORMATION" as const,
+  citation,
+  content,
+  origin: "assessor" as const,
+  addedBy: "Eve",
+  addedAt: AT,
+  acceptedBy: "Eve",
+  acceptedAt: AT,
+  ...extra,
+});
+
+function field(model: ReturnType<typeof buildV4ReportModel>, section: number, labelStart: string) {
+  const s = model.sections.find((x) => x.number === section)!;
+  return s.blocks.find(
+    (b): b is Extract<V4Block, { kind: "field" }> => b.kind === "field" && b.label.startsWith(labelStart),
+  );
+}
+
+describe("the V4 report keeps the template's structure", () => {
+  it("has the administrative check and sections 1 to 13, in order, with the template's titles", () => {
+    const m = buildV4ReportModel(doc(), []);
+    expect(m.title).toBe("PSUR/PBRER EVALUATION FORM");
+    expect(m.sections.map((s) => s.number)).toEqual([null, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(m.sections[0]!.title).toBe("Administrative Completeness Check");
+    expect(m.sections.find((s) => s.number === 10)!.title).toBe("Benefit-Risk Assessment");
+    expect(m.sections.find((s) => s.number === 11)!.title).toBe(
+      "Uncertainties Affecting the Benefit-Risk Assessment",
+    );
+  });
+
+  it("fills Section 1 from the screening, saying so when something was not stated", () => {
+    const m = buildV4ReportModel(doc(), []);
+    const t = m.sections.find((s) => s.number === 1)!.blocks[0] as Extract<V4Block, { kind: "table" }>;
+    const row = (label: string) => t.rows.find((r) => r[0] === label)![1];
+    expect(row("NAFDAC Registration Number")).toBe("A4-100123");
+    expect(row("Nigerian Birth Date (NBD)")).toBe("05 June 2018");
+    expect(row("Therapeutic Indication(s)")).toBe("Not stated in the submission");
+  });
+
+  it("an unanswered assessment field reads 'Not assessed', never blank", () => {
+    const m = buildV4ReportModel(doc(), []);
+    expect(field(m, 6, "Briefly highlight studies")!.value).toBe("Not assessed");
+  });
+});
+
+describe("research goes into the field it answers, with numbered references", () => {
+  const sections: AssessmentSection[] = [
+    {
+      section: "S4_RSI",
+      evidence: [
+        evidence("e1", "SmPC v7.2 added DIES to section 4.4.", "Submitted PSUR, Appendix I, p. 12", {
+          criterion: "RSI_CHANGES",
+        }),
+        evidence("e2", "SmPC version 7.2.", "Submitted PSUR, Appendix I, p. 1", { v4Field: "S4_TYPE_VERSION" }),
+      ],
+    },
+    {
+      section: "S6_LITERATURE",
+      evidence: [
+        evidence("e3", "A 2026 cohort found more GI adverse events.", "Savage TJ et al. JAMA 2026", {
+          section: "S6_LITERATURE",
+          criterion: "RELEVANT_STUDIES",
+        }),
+        // The same source cited twice keeps one number.
+        evidence("e4", "The same cohort found no excess hepatotoxicity.", "Savage TJ et al. JAMA 2026", {
+          section: "S6_LITERATURE",
+          criterion: "RELEVANT_STUDIES",
+        }),
+      ],
+    },
+  ];
+
+  it("prints each piece in its field with its reference number", () => {
+    const m = buildV4ReportModel(doc({ assessmentSections: sections }), []);
+    // Numbered in order of appearance: "RSI type" comes first in Section 4.
+    expect(field(m, 4, "RSI type")!.value).toBe("SmPC version 7.2. [1]");
+    expect(field(m, 4, "Changes made to the RSI")!.value).toBe("SmPC v7.2 added DIES to section 4.4. [2]");
+    expect(field(m, 6, "Briefly highlight studies")!.value).toContain("[3]");
+  });
+
+  it("numbers each source once and lists them all under Section 13 References", () => {
+    const m = buildV4ReportModel(doc({ assessmentSections: sections }), []);
+    expect(m.references).toEqual([
+      "Submitted PSUR, Appendix I, p. 1",
+      "Submitted PSUR, Appendix I, p. 12",
+      "Savage TJ et al. JAMA 2026",
+    ]);
+    const refs = m.sections
+      .find((s) => s.number === 13)!
+      .blocks.find((b): b is Extract<V4Block, { kind: "list" }> => b.kind === "list" && b.title === "References")!;
+    expect(refs.items.slice(0, 3)).toEqual([
+      "[1] Submitted PSUR, Appendix I, p. 1",
+      "[2] Submitted PSUR, Appendix I, p. 12",
+      "[3] Savage TJ et al. JAMA 2026",
+    ]);
+  });
+
+  it("never prints a candidate nobody accepted", () => {
+    const unaccepted: AssessmentSection[] = [
+      {
+        section: "S4_RSI",
+        evidence: [{ ...evidence("c1", "Unreviewed AI text.", "x"), acceptedBy: undefined, acceptedAt: undefined }],
+      },
+    ];
+    const m = buildV4ReportModel(doc({ assessmentSections: unaccepted }), []);
+    expect(JSON.stringify(m)).not.toContain("Unreviewed AI text");
+    expect(m.references).toEqual([]);
+  });
+
+  it("a memo criterion implies its V4 field when none was chosen", () => {
+    expect(defaultFieldForCriterion("PATIENT_EXPOSURE")).toBe("S7_VIGIFLOW");
+    expect(fieldForEvidence(evidence("x", "c", "s", { criterion: "WORLDWIDE_ACTIONS" }))).toBe("S2_ACTIONS");
+  });
+});
+
+describe("findings and decisions", () => {
+  it("lists a section's accepted findings, marking those NAFDAC resolved", () => {
+    const f = {
+      id: "f1",
+      category: "MISSING_SECTION",
+      severity: "MEDIUM",
+      section: "RSI",
+      description: "RSI changes are not described.",
+      evidence: "",
+      v4Section: "S4_RSI",
+      assistGenerated: true,
+      humanAssessment: "ACCEPTED",
+      resolved: true,
+      researchResolution: { by: "Eve", at: AT, content: "SmPC v7.2 added DIES.", citation: "Appendix I" },
+    } as PsurFinding;
+    const m = buildV4ReportModel(doc(), [f]);
+    const list = m.sections
+      .find((s) => s.number === 4)!
+      .blocks.find((b): b is Extract<V4Block, { kind: "list" }> => b.kind === "list")!;
+    expect(list.items[0]).toContain("Resolved by NAFDAC during this assessment: SmPC v7.2 added DIES. [1]");
+    expect(m.references).toContain("Appendix I");
+  });
+
+  it("ticks the Section 12 outcome and prints the follow-up deadline the template asks for", () => {
+    const m = buildV4ReportModel(
+      doc({
+        regulatoryDecision: {
+          actions: ["CONTINUE_ROUTINE_PV"],
+          overallOutcome: "FAVOURABLE_WITH_CONDITIONS",
+          basis: "b",
+          followUpRequired: "Reconcile Nigerian cases with VigiFlow",
+          mahResponseDeadline: "2026-12-31",
+          decidedBy: "Eve",
+          decidedAt: AT,
+        },
+      }),
+      [],
+    );
+    const s12 = m.sections.find((s) => s.number === 12)!;
+    const outcomes = s12.blocks.filter((b): b is Extract<V4Block, { kind: "ticks" }> => b.kind === "ticks")[1]!;
+    expect(outcomes.options.filter((o) => o.checked).map((o) => o.label)).toEqual(["Favourable with conditions"]);
+    expect(field(m, 12, "Follow-up information required")!.value).toBe(
+      "Reconcile Nigerian cases with VigiFlow. Deadline: 31 December 2026",
+    );
+  });
+});
