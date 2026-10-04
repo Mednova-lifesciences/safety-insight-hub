@@ -46,6 +46,9 @@ export type V4Block =
       firstColumnBold?: boolean;
       /** Column widths in percent; equal when omitted. */
       widths?: number[];
+      /** "rows": ruled by rows only, as the template's exposure and ADR
+       *  tables are. Full grid otherwise. */
+      style?: "grid" | "rows";
     }
   | { kind: "ticks"; options: { label: string; checked: boolean }[] }
   | { kind: "list"; title: string; items: string[] };
@@ -105,7 +108,7 @@ const UNCERTAINTY_ROWS: PsurUncertaintyCategory[] = [
   "LIMITED_GENERALISABILITY",
 ];
 
-const SECTION_IDS: Record<number, PsurV4SectionId> = {
+export const SECTION_IDS: Record<number, PsurV4SectionId> = {
   1: "S1_PRODUCT_REGULATORY",
   2: "S2_WORLDWIDE_STATUS",
   3: "S3_THERAPEUTIC_CONTEXT",
@@ -120,6 +123,10 @@ const SECTION_IDS: Record<number, PsurV4SectionId> = {
   12: "S12_REGULATORY_DECISION",
   13: "S13_CONCLUSION_SIGNOFF",
 };
+
+/** Printed under any assessment the evaluator has not reviewed. */
+export const AI_DRAFT_NOTE =
+  "Drafted by AI from the submission and not yet reviewed by the assessor.";
 
 /** Joins sentences without doubling a full stop already at the end. */
 function sentences(...parts: (string | undefined | null)[]): string {
@@ -138,6 +145,62 @@ function dateOnly(iso: string | undefined): string {
   return iso ? longDate(iso.slice(0, 10)) : "";
 }
 
+/**
+ * Research grouped by the V4 field it answers. Only accepted, cited,
+ * current entries — the same gate the memo uses (renderableEvidence) —
+ * plus research that resolved a finding but was kept out of the memo,
+ * which has no evidence entry yet still belongs in the field chosen.
+ */
+export function researchByField(
+  doc: PsurDocument,
+  findings: PsurFinding[],
+): Map<V4FieldId, EvidenceEntry[]> {
+  const byField = new Map<V4FieldId, EvidenceEntry[]>();
+  for (const section of doc.assessmentSections ?? []) {
+    for (const e of renderableEvidence(section.evidence)) {
+      if (!e.content.trim()) continue;
+      const field = fieldForEvidence(e);
+      byField.set(field, [...(byField.get(field) ?? []), e]);
+    }
+  }
+  for (const f of findings) {
+    const r = f.researchResolution;
+    if (f.humanAssessment !== "ACCEPTED" || !f.resolved || !r || r.evidenceId || !r.v4Field)
+      continue;
+    const pseudo = { content: r.content, citation: r.citation } as EvidenceEntry;
+    byField.set(r.v4Field, [...(byField.get(r.v4Field) ?? []), pseudo]);
+  }
+  return byField;
+}
+
+/** The AI's (or rule's) assessment of a section, as the report words it. */
+export function aiSectionAssessment(
+  doc: PsurDocument,
+  section: PsurV4SectionId,
+): string | undefined {
+  const c = buildAuthoritativeSectionCoverage(doc).find((x) => x.section === section);
+  if (!c) return undefined;
+  const why = c.status === "NOT_APPLICABLE" ? c.notApplicableJustification : undefined;
+  return sentences(STATUS_LABEL[c.status], c.comment, why);
+}
+
+/**
+ * The V4 form's Sections 2 and 7 tick boxes: the evaluator's own tick when
+ * they set one, otherwise what the research implies.
+ */
+export function v4Ticks(
+  doc: PsurDocument,
+  findings: PsurFinding[],
+): { s2Inconsistent: boolean; s7AdrTabulation: boolean; s7VigiflowChecked: boolean } {
+  const byField = researchByField(doc, findings);
+  const a = doc.v4SectionAnswers;
+  return {
+    s2Inconsistent: a?.s2Inconsistent ?? (byField.get("S2_INCONSISTENT")?.length ?? 0) > 0,
+    s7AdrTabulation: a?.s7AdrTabulation ?? false,
+    s7VigiflowChecked: a?.s7VigiflowChecked ?? (byField.get("S7_VIGIFLOW")?.length ?? 0) > 0,
+  };
+}
+
 export function buildV4ReportModel(
   doc: PsurDocument,
   findings: PsurFinding[],
@@ -153,25 +216,7 @@ export function buildV4ReportModel(
     return references.length;
   };
 
-  // Research, grouped by the V4 field it answers. Only accepted, cited,
-  // current entries — the same gate the memo uses (renderableEvidence).
-  const byField = new Map<V4FieldId, EvidenceEntry[]>();
-  for (const section of doc.assessmentSections ?? []) {
-    for (const e of renderableEvidence(section.evidence)) {
-      if (!e.content.trim()) continue;
-      const field = fieldForEvidence(e);
-      byField.set(field, [...(byField.get(field) ?? []), e]);
-    }
-  }
-  // Research that resolved a finding but was kept out of the memo has no
-  // evidence entry; it still belongs in the V4 field the assessor chose.
-  for (const f of findings) {
-    const r = f.researchResolution;
-    if (f.humanAssessment !== "ACCEPTED" || !f.resolved || !r || r.evidenceId || !r.v4Field)
-      continue;
-    const pseudo = { content: r.content, citation: r.citation } as EvidenceEntry;
-    byField.set(r.v4Field, [...(byField.get(r.v4Field) ?? []), pseudo]);
-  }
+  const byField = researchByField(doc, findings);
   const research = (field: V4FieldId): string[] =>
     (byField.get(field) ?? []).map((e) => `${e.content.trim()} [${cite(e.citation)}]`);
   /** A field's answer: what is already known, then the research on it. */
@@ -191,17 +236,27 @@ export function buildV4ReportModel(
   const accepted = findings.filter((f) => f.humanAssessment === "ACCEPTED");
   /** The reviewer's assessment of a section and the deficiencies found in
    *  it — the "reasoned assessment" the template's instructions ask for. */
+  const answers = doc.v4SectionAnswers;
+  const ticks = v4Ticks(doc, findings);
   const reviewerAssessment = (n: number): V4Block[] => {
     const id = SECTION_IDS[n]!;
     const c = coverage.get(id);
+    const reviewed = answers?.assessments?.[id];
     const out: V4Block[] = [];
-    if (c) {
-      const why = c.status === "NOT_APPLICABLE" ? c.notApplicableJustification : undefined;
+    if (reviewed?.text.trim()) {
       out.push({
         kind: "field",
         label: "Reviewer's assessment of this section",
-        value: sentences(STATUS_LABEL[c.status], c.comment, why),
+        value: reviewed.text.trim(),
       });
+    } else if (c) {
+      // Never let the AI's reading pass as the evaluator's own judgement.
+      out.push({
+        kind: "field",
+        label: "Reviewer's assessment of this section",
+        value: aiSectionAssessment(doc, id) ?? "",
+      });
+      if (c.source !== "assessor") out.push({ kind: "instruction", text: AI_DRAFT_NOTE });
     }
     const here = accepted.filter((f) => f.v4Section === id);
     if (here.length > 0) {
@@ -301,7 +356,6 @@ export function buildV4ReportModel(
   });
 
   // ---- 2 ----
-  const inconsistent = research("S2_INCONSISTENT");
   sections.push({
     number: 2,
     title: "Worldwide Regulatory & Marketing Status",
@@ -318,11 +372,20 @@ export function buildV4ReportModel(
           {
             label:
               "Any action inconsistent with, or not yet reflected in, NAFDAC's current position on this product?",
-            checked: inconsistent.length > 0,
+            checked: ticks.s2Inconsistent,
           },
         ],
       },
-      { kind: "field", label: "If yes, explain", value: inconsistent.join("\n") },
+      {
+        kind: "field",
+        label: "If yes, explain",
+        // Blank when nothing is inconsistent, as the template leaves it.
+        value: answer(
+          "S2_INCONSISTENT",
+          [answers?.s2Explanation ?? ""],
+          ticks.s2Inconsistent ? NOT_ASSESSED : "",
+        ),
+      },
       ...further("S2_FURTHER"),
       ...reviewerAssessment(2),
     ],
@@ -391,6 +454,7 @@ export function buildV4ReportModel(
       {
         kind: "table",
         header: ["", "Reporting Interval", "Cumulative"],
+        style: "rows",
         firstColumnBold: true,
         widths: [30, 35, 35],
         rows: [
@@ -448,7 +512,7 @@ export function buildV4ReportModel(
           {
             label:
               "Attach or reproduce the MAH's summary tabulation of ADRs and identify any SOCs requiring specific regulatory assessment (add more rows to table below as required)",
-            checked: false,
+            checked: ticks.s7AdrTabulation,
           },
         ],
       },
@@ -462,6 +526,7 @@ export function buildV4ReportModel(
           "Reviewer assessment",
         ],
         rows: [["", "", "", "", ""]],
+        style: "rows",
       },
       {
         kind: "field",
@@ -474,7 +539,7 @@ export function buildV4ReportModel(
           {
             label:
               "Check VigiFlow for the Nigerian component of the product's safety data. Document the number of ICSRs received during the reporting interval and cumulatively, including the number of serious cases. Where relevant, compare the VigiFlow data with the Nigerian cases reported by the MAH and document any discrepancies.",
-            checked: vigiflow.length > 0,
+            checked: ticks.s7VigiflowChecked,
           },
         ],
       },
@@ -603,7 +668,7 @@ export function buildV4ReportModel(
         ? [
             {
               kind: "instruction" as const,
-              text: "Drafted by AI from the submission and not yet reviewed by the assessor.",
+              text: AI_DRAFT_NOTE,
             },
           ]
         : []),

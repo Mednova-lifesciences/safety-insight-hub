@@ -11,6 +11,7 @@ import { PsurScreeningDecision } from "@/components/pv/psur-screening-decision";
 import { PsurAssessmentMemoPanel } from "@/components/pv/psur-assessment-memo";
 import { FindingResearch } from "@/components/pv/psur-finding-research";
 import { ScreeningRecord } from "@/components/pv/psur-screening-checklist";
+import { V4SectionsPanel } from "@/components/pv/psur-v4-sections";
 import { useMemo, useState } from "react";
 import { ArrowRight, Download, FileText, Stamp, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
@@ -1031,6 +1032,15 @@ function PsurPage() {
                 }
               </QueryBoundary>
             </Section>
+
+            {activeDoc.stage === "REVIEWED" ? (
+              <V4SectionsPanel
+                key={`v4-sections-${activeDoc.id}-${activeDoc.v4SectionAnswers?.updatedAt ?? ""}`}
+                doc={activeDoc}
+                findings={findings.data?.data ?? []}
+                onChanged={refreshDocAndFindings}
+              />
+            ) : null}
 
             {activeDoc.sourceType !== "SPREADSHEET" ? (
               <SpecialPopulationsPanel
@@ -2059,6 +2069,13 @@ function UncertaintiesPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: 
  *  suggestion (document.aiRecommendation) is shown as a clearly-labelled,
  *  non-binding starting point; the assessor's own decision is a
  *  structurally separate field the assessor must set explicitly. */
+/** Whether Sections 1-11 were edited after the Section 12 decision. */
+function decisionIsStale(doc: PsurDocument): boolean {
+  const decidedAt = doc.regulatoryDecision?.decidedAt;
+  const editedAt = doc.decisionInputsEditedAt;
+  return !!decidedAt && !!editedAt && editedAt > decidedAt;
+}
+
 function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChanged: () => void }) {
   // Sections 9-12 are the evaluator's work; see SignOffPanel.
   const canEvaluate = usePermission("psur.evaluate");
@@ -2117,6 +2134,20 @@ function RegulatoryDecisionPanel({ doc, onChanged }: { doc: PsurDocument; onChan
       }
     >
       <div className="space-y-4">
+        {decisionIsStale(doc) ? (
+          <div
+            role="status"
+            className="rounded-md border border-warning/25 bg-warning-soft p-3 text-sm text-warning"
+          >
+            Sections 1-11 have changed since this decision was recorded on{" "}
+            {new Date(doc.regulatoryDecision!.decidedAt).toLocaleDateString("en-GB", {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            })}
+            . Check it still holds, then save it again. The decision is never changed automatically.
+          </div>
+        ) : null}
         {doc.aiRecommendation ? (
           <div className="rounded-md border border-info/30 bg-info-soft p-3 text-sm">
             <p className="font-medium">AI suggestion (non-binding — the assessor decides)</p>

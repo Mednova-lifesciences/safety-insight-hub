@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssessmentSection, PsurDocument, PsurFinding } from "@/types/pv";
-import { buildV4ReportModel, type V4Block } from "./v4-report";
+import { AI_DRAFT_NOTE, buildV4ReportModel, type V4Block } from "./v4-report";
 import { defaultFieldForCriterion, fieldForEvidence } from "./v4-fields";
 
 const AT = "2026-10-04T12:00:00.000Z";
@@ -293,5 +293,94 @@ describe("research kept out of the memo", () => {
       "Date of review taken as the QPPV signature date, 12 September 2026. [1]",
     );
     expect(m.references).toEqual(["Submitted PSUR, title page"]);
+  });
+});
+
+describe("the evaluator's Sections 1-8 answers", () => {
+  const screened = (extra: Partial<PsurDocument> = {}) =>
+    doc({
+      screening: {
+        performedAt: AT,
+        administrativeChecks: [],
+        sectionCoverage: [
+          {
+            section: "S2_WORLDWIDE_STATUS",
+            status: "ADEQUATELY_ADDRESSED",
+            comment: "Authorised in 14 countries; no safety actions.",
+            source: "ai",
+          },
+        ],
+        recommendation: "PROCEED_TO_SCIENTIFIC_REVIEW",
+        assistGenerated: true,
+      },
+      ...extra,
+    });
+  const blocks = (m: ReturnType<typeof buildV4ReportModel>, n: number) =>
+    m.sections.find((s) => s.number === n)!.blocks;
+  const ticks = (m: ReturnType<typeof buildV4ReportModel>, n: number) =>
+    blocks(m, n)
+      .filter((b): b is Extract<V4Block, { kind: "ticks" }> => b.kind === "ticks")
+      .flatMap((b) => b.options.map((o) => o.checked));
+
+  it("marks an assessment nobody reviewed as the AI's draft", () => {
+    const m = buildV4ReportModel(screened(), []);
+    expect(field(m, 2, "Reviewer's assessment")!.value).toContain("Authorised in 14 countries");
+    expect(blocks(m, 2)).toContainEqual({ kind: "instruction", text: AI_DRAFT_NOTE });
+  });
+
+  it("prints the evaluator's own wording once reviewed, without the AI note", () => {
+    const m = buildV4ReportModel(
+      screened({
+        v4SectionAnswers: {
+          assessments: {
+            S2_WORLDWIDE_STATUS: { text: "Adequate. No action needed.", by: "Eve", at: AT },
+          },
+        },
+      }),
+      [],
+    );
+    expect(field(m, 2, "Reviewer's assessment")!.value).toBe("Adequate. No action needed.");
+    expect(blocks(m, 2)).not.toContainEqual({ kind: "instruction", text: AI_DRAFT_NOTE });
+  });
+
+  it("uses the evaluator's ticks over what the research implies", () => {
+    const vigiflow = evidence("e1", "4 Nigerian ICSRs.", "VigiFlow, searched 4 October 2026", {
+      v4Field: "S7_VIGIFLOW",
+    });
+    const withResearch = (answers?: PsurDocument["v4SectionAnswers"]) =>
+      screened({
+        assessmentSections: [
+          { section: "S7_AGGREGATE_SAFETY_DATA", evidence: [vigiflow] } as AssessmentSection,
+        ],
+        v4SectionAnswers: answers,
+      });
+    // No answers: VigiFlow research implies VigiFlow was checked.
+    expect(ticks(buildV4ReportModel(withResearch(), []), 7)).toEqual([false, true]);
+    expect(ticks(buildV4ReportModel(withResearch(), []), 2)).toEqual([false]);
+    const m = buildV4ReportModel(
+      withResearch({ s2Inconsistent: true, s7AdrTabulation: true, s7VigiflowChecked: false }),
+      [],
+    );
+    expect(ticks(m, 7)).toEqual([true, false]);
+    expect(ticks(m, 2)).toEqual([true]);
+  });
+});
+
+describe("Section 2's 'If yes, explain'", () => {
+  const explain = (answers: PsurDocument["v4SectionAnswers"]) =>
+    field(buildV4ReportModel(doc({ v4SectionAnswers: answers }), []), 2, "If yes, explain")!.value;
+
+  it("prints the evaluator's explanation when the box is ticked", () => {
+    expect(
+      explain({
+        s2Inconsistent: true,
+        s2Explanation: "FDA DIES warning not in the Nigerian SmPC.",
+      }),
+    ).toBe("FDA DIES warning not in the Nigerian SmPC.");
+  });
+
+  it("says 'Not assessed' when ticked without an explanation, and stays blank when not ticked", () => {
+    expect(explain({ s2Inconsistent: true })).toBe("Not assessed");
+    expect(explain({ s2Inconsistent: false })).toBe("");
   });
 });

@@ -1,9 +1,13 @@
 import {
   AlignmentType,
+  BorderStyle,
   Document,
+  Footer,
+  Header,
   HeadingLevel,
   Packer,
   PageBreak,
+  PageNumber,
   Paragraph,
   Table,
   TableCell,
@@ -43,6 +47,7 @@ import type {
   PsurSectionCoverage,
   PsurSectionStatus,
   PsurSignOff,
+  PsurV4SectionAnswers,
   PsurSpecialPopulationArea,
   PsurSpecialPopulationItem,
   PsurUncertainty,
@@ -2910,6 +2915,7 @@ export const psur = {
     const next: PsurDocumentRow = {
       ...document,
       benefitRisk: { ...benefitRisk, assistGenerated: false },
+      decisionInputsEditedAt: new Date().toISOString(),
     };
     await saveDocument(next);
     await reconcileAfterAssessorEdit(next);
@@ -2935,6 +2941,7 @@ export const psur = {
     const next: PsurDocumentRow = {
       ...document,
       specialPopulations: items.map((i) => ({ ...i, source: "assessor" as const })),
+      decisionInputsEditedAt: new Date().toISOString(),
     };
     await saveDocument(next);
     await reconcileAfterAssessorEdit(next);
@@ -2969,6 +2976,7 @@ export const psur = {
       // this call actually carries a value, so saving the uncertainty rows
       // alone never silently blanks an appraisal the assessor already wrote.
       ...(evaluatorComments !== undefined ? { evaluatorComments } : {}),
+      decisionInputsEditedAt: new Date().toISOString(),
       uncertaintiesNoneConfirmed:
         uncertainties.length === 0 && confirmNoneApply
           ? {
@@ -3019,6 +3027,56 @@ export const psur = {
       entity: "PsurDocument",
       entityId: documentId,
       newValue: `${decision.overallOutcome ?? "no outcome set"} — ${decision.actions.length} action(s)`,
+    });
+    return next;
+  },
+
+  /** The evaluator's answers to Sections 1-8 of the V4 form: its three
+   *  tick boxes and their own wording of each section's assessment (see
+   *  PsurV4SectionAnswers). An assessment saved here replaces the AI's in
+   *  the V4 report; the AI's screening result itself is left untouched. */
+  updateV4SectionAnswers: async (
+    documentId: string,
+    answers: {
+      s2Inconsistent: boolean;
+      s2Explanation: string;
+      s7AdrTabulation: boolean;
+      s7VigiflowChecked: boolean;
+      /** Section -> the reviewed wording. Sections left out are unreviewed. */
+      assessments: Partial<Record<PsurV4SectionId, string>>;
+    },
+  ): Promise<PsurDocument> => {
+    const document = await readDocument(documentId);
+    const actor = currentActor();
+    const now = new Date().toISOString();
+    const previous = document.v4SectionAnswers?.assessments ?? {};
+    const assessments: PsurV4SectionAnswers["assessments"] = {};
+    for (const [id, raw] of Object.entries(answers.assessments) as [PsurV4SectionId, string][]) {
+      const text = raw.trim();
+      if (!text) continue;
+      const before = previous[id];
+      // Re-saving unchanged wording keeps who reviewed it, and when.
+      assessments[id] = before && before.text === text ? before : { text, by: actor.name, at: now };
+    }
+    const next: PsurDocumentRow = {
+      ...document,
+      v4SectionAnswers: {
+        s2Inconsistent: answers.s2Inconsistent,
+        s2Explanation: answers.s2Explanation.trim() || undefined,
+        s7AdrTabulation: answers.s7AdrTabulation,
+        s7VigiflowChecked: answers.s7VigiflowChecked,
+        assessments,
+        updatedBy: actor.name,
+        updatedAt: now,
+      },
+      decisionInputsEditedAt: now,
+    };
+    await saveDocument(next);
+    await recordAudit({
+      action: "PSUR_V4_SECTION_ANSWERS_UPDATED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      newValue: `${Object.keys(assessments).length} section assessment(s) reviewed by evaluator`,
     });
     return next;
   },
@@ -3880,102 +3938,301 @@ export function buildAssessmentMemoDocx(m: AssessmentMemoModel): Document {
 }
 
 /**
- * The V4 evaluation form as a Word file, laid out as the template is:
- * centred title block, then the Administrative Completeness Check and
- * Sections 1-13 with their own fields, tables and tick boxes. Research
- * sits inside the fields it answers with [n] citations; Section 13 lists
- * the references.
+ * The V4 template's own page furniture. Kept as data, not literals in the
+ * layout, so a revised SOP reference or template version is a one-line
+ * change. Wording copied from the template's header and footer.
+ */
+export const V4_TEMPLATE_HEADER = {
+  annexure: "Annexure 2",
+  sopRef: "SOP Ref No.: PV-010-04",
+  title: "Title of Annexure: PSUR/PBRER Evaluation Form (Full Structured Assessment)",
+};
+export const V4_TEMPLATE_FOOTER =
+  "Confidential — NAFDAC Internal Use  |  Template Version 4.0 (Draft)";
+
+/** The template is US Letter with 1-inch margins: 9360 twips of text. */
+const V4_TEXT_WIDTH = 9360;
+const V4_HEADER_COLUMNS = [1911, 3194, 4255];
+const V4_FONT = "Times New Roman";
+const V4_TICK_FONT = "Segoe UI Symbol";
+const V4_LINE_GREY = "BFBFBF";
+const V4_FOOTER_GREY = "6E6E6E";
+
+function v4Run(
+  text: string,
+  o: { bold?: boolean; italics?: boolean; size?: number; color?: string; font?: string } = {},
+): TextRun {
+  return new TextRun({
+    text,
+    font: o.font ?? V4_FONT,
+    size: o.size ?? 22,
+    ...(o.bold ? { bold: true } : {}),
+    ...(o.italics ? { italics: true } : {}),
+    ...(o.color ? { color: o.color } : {}),
+  });
+}
+
+function v4Para(
+  children: TextRun[],
+  o: { after?: number; before?: number; keepNext?: boolean; line?: boolean; center?: boolean } = {},
+): Paragraph {
+  return new Paragraph({
+    children,
+    spacing: { before: o.before ?? 0, after: o.after ?? 120 },
+    ...(o.keepNext ? { keepNext: true } : {}),
+    ...(o.center ? { alignment: AlignmentType.CENTER } : {}),
+    // The template's answer lines: a light grey rule under the answer.
+    ...(o.line
+      ? {
+          border: {
+            bottom: { style: BorderStyle.SINGLE, size: 4, space: 2, color: V4_LINE_GREY },
+          },
+        }
+      : {}),
+  });
+}
+
+function v4Table(
+  rows: string[][],
+  header: string[],
+  widths: number[],
+  o: { firstColumnBold?: boolean; rowsOnly?: boolean; size?: number } = {},
+): Table {
+  const dxaW = widths.map((w) => Math.round((V4_TEXT_WIDTH * w) / 100));
+  const cell = (text: string, bold: boolean, i: number) =>
+    new TableCell({
+      width: { size: dxaW[i]!, type: WidthType.DXA },
+      margins: { top: 70, bottom: 70, left: 90, right: 90 },
+      children: (text || "").split("\n").map((line, j, all) =>
+        v4Para([v4Run(line, { bold, size: o.size ?? 20 })], {
+          after: j === all.length - 1 ? 0 : 40,
+        }),
+      ),
+    });
+  const single = { style: BorderStyle.SINGLE, size: 4, color: "auto" };
+  const none = { style: BorderStyle.NONE, size: 0, color: "auto" };
+  return new Table({
+    width: { size: V4_TEXT_WIDTH, type: WidthType.DXA },
+    columnWidths: dxaW,
+    layout: TableLayoutType.FIXED,
+    // Most of the template's tables are full grids; the exposure and ADR
+    // tables are ruled by rows only.
+    borders: o.rowsOnly
+      ? {
+          top: none,
+          left: none,
+          right: none,
+          insideVertical: none,
+          bottom: single,
+          insideHorizontal: single,
+        }
+      : {
+          top: single,
+          left: single,
+          right: single,
+          bottom: single,
+          insideHorizontal: single,
+          insideVertical: single,
+        },
+    rows: [
+      ...(header.length > 0
+        ? [new TableRow({ tableHeader: true, children: header.map((h, i) => cell(h, true, i)) })]
+        : []),
+      ...rows.map(
+        (r) =>
+          new TableRow({ children: r.map((v, i) => cell(v, !!o.firstColumnBold && i === 0, i)) }),
+      ),
+    ],
+  });
+}
+
+/**
+ * The V4 evaluation form as a Word file, reproducing the template's page:
+ * US Letter, the bordered Annexure / SOP / Title header and the
+ * confidential footer with page numbers on every page, section headings
+ * ruled beneath, each answer on a grey writing line, the template's tick
+ * boxes, and its tables. Research sits inside the fields it answers with
+ * [n] citations; Section 13 lists the references.
  */
 export function buildV4ReportDocx(m: V4ReportModel): Document {
   const children: (Paragraph | Table)[] = [
-    memoPara(m.title, { bold: true, size: 28, center: true, after: 40 }),
-    memoPara(m.agency, { bold: true, center: true, after: 40 }),
-    memoPara(m.subtitle, { center: true, after: 120 }),
-    memoPara(`Product: ${m.product}   ·   Generated ${m.generatedLabel}`, {
-      italics: true,
-      size: 20,
-      center: true,
-      after: 120,
-    }),
-    memoPara(
-      "Instructions: complete every section. Where a section is genuinely not applicable, write ‘Not applicable’ and state why, rather than leaving it blank. Free-text fields should give a reasoned assessment, not a single-word answer.",
-      { italics: true, size: 20, after: 240 },
+    v4Para([v4Run(m.title, { bold: true, size: 32 })], { center: true, after: 60 }),
+    v4Para([v4Run(m.agency, { bold: true })], { center: true, after: 40 }),
+    v4Para([v4Run(m.subtitle)], { center: true, after: 120 }),
+    v4Para(
+      [
+        v4Run(`Product: ${m.product}   ·   Generated ${m.generatedLabel}`, {
+          italics: true,
+          size: 18,
+          color: V4_FOOTER_GREY,
+        }),
+      ],
+      { center: true, after: 160 },
+    ),
+    v4Para(
+      [
+        v4Run(
+          "Instructions: complete every section. Where a section is genuinely not applicable, write ‘Not applicable’ and state why, rather than leaving it blank. Free-text fields should give a reasoned assessment, not a single-word answer.",
+          { italics: true, size: 20 },
+        ),
+      ],
+      { after: 200 },
     ),
   ];
 
   for (const s of m.sections) {
     children.push(
-      memoPara(s.number === null ? s.title : `${s.number}. ${s.title}`, {
-        bold: true,
-        size: 26,
-        after: 120,
+      new Paragraph({
+        children: [
+          v4Run(s.number === null ? s.title : `${s.number}. ${s.title}`, { bold: true, size: 28 }),
+        ],
+        spacing: { before: 420, after: 160 },
         keepNext: true,
+        border: { bottom: { style: BorderStyle.SINGLE, size: 6, space: 4, color: "000000" } },
       }),
     );
     for (const b of s.blocks) {
       switch (b.kind) {
         case "subheading":
-          children.push(memoPara(b.text, { bold: true, after: 80, keepNext: true }));
+          children.push(
+            v4Para([v4Run(b.text, { bold: true, size: 24 })], {
+              before: 160,
+              after: 80,
+              keepNext: true,
+            }),
+          );
           break;
         case "instruction":
-          children.push(memoPara(b.text, { italics: true, size: 20, after: 80, keepNext: true }));
+          children.push(
+            v4Para([v4Run(b.text, { italics: true, size: 20 })], { after: 80, keepNext: true }),
+          );
           break;
         case "field": {
-          const lines = (b.value || "").split("\n");
+          // The label on its own line, then the answer on the template's
+          // ruled writing line, as the blank form is laid out.
+          const lines = (b.value || "").split("\n").filter((l) => l.trim());
+          const shown = lines.length > 0 ? lines : [" "];
           children.push(
-            new Paragraph({
-              children: [memoRun(`${b.label}: `, { bold: true }), memoRun(lines[0] ?? "")],
-              spacing: { after: lines.length > 1 ? 40 : 120 },
-            }),
-            ...lines.slice(1).map((l, i) => memoPara(l, { after: i === lines.length - 2 ? 120 : 40 })),
+            v4Para([v4Run(`${b.label}:`, { bold: true })], { after: 40, keepNext: true }),
+          );
+          shown.forEach((l, i) =>
+            children.push(
+              v4Para([v4Run(l)], {
+                after: i === shown.length - 1 ? 160 : 40,
+                line: i === shown.length - 1,
+              }),
+            ),
           );
           break;
         }
         case "ticks":
           for (const o of b.options) {
-            children.push(memoPara(`${o.checked ? "☒" : "☐"}  ${o.label}`, { after: 40 }));
+            children.push(
+              v4Para(
+                [v4Run(o.checked ? "☒" : "☐", { font: V4_TICK_FONT }), v4Run(`  ${o.label}`)],
+                {
+                  after: 40,
+                },
+              ),
+            );
           }
-          children.push(memoPara("", { after: 60 }));
+          children.push(v4Para([v4Run("")], { after: 80 }));
           break;
-        case "list":
-          children.push(memoPara(`${b.title}:`, { bold: true, after: 40, keepNext: true }));
-          if (b.items.length === 0) children.push(memoPara("None.", { after: 120 }));
-          b.items.forEach((item, i) =>
-            children.push(memoPara(item, { after: i === b.items.length - 1 ? 120 : 40 })),
+        case "list": {
+          children.push(
+            v4Para([v4Run(`${b.title}:`, { bold: true })], { after: 40, keepNext: true }),
+          );
+          const items = b.items.length > 0 ? b.items : ["None."];
+          items.forEach((item, i) =>
+            children.push(
+              v4Para([v4Run(item)], {
+                after: i === items.length - 1 ? 160 : 40,
+                line: i === items.length - 1,
+              }),
+            ),
           );
           break;
+        }
         case "table": {
           const width = Math.max(b.header.length, ...b.rows.map((r) => r.length), 1);
-          const percents =
+          const widths =
             b.widths && b.widths.length === width ? b.widths : Array(width).fill(100 / width);
-          const rows: TableRow[] = [];
-          if (b.header.length > 0) {
-            rows.push(
-              new TableRow({
-                tableHeader: true,
-                children: b.header.map((h, i) => memoCell([{ text: h, bold: true }], percents[i])),
-              }),
-            );
-          }
-          for (const r of b.rows) {
-            rows.push(
-              new TableRow({
-                children: r.map((v, i) =>
-                  memoCell([{ text: v, bold: !!b.firstColumnBold && i === 0 }], percents[i]),
-                ),
-              }),
-            );
-          }
-          children.push(memoTable(rows, percents), memoPara("", { after: 120 }));
+          children.push(
+            v4Table(b.rows, b.header, widths, {
+              firstColumnBold: !!b.firstColumnBold,
+              rowsOnly: b.style === "rows",
+              ...(width >= 6 ? { size: 18 } : {}),
+            }),
+            v4Para([v4Run("")], { after: 120 }),
+          );
           break;
         }
       }
     }
-    children.push(memoPara("", { after: 120 }));
   }
 
+  const headerTable = new Table({
+    width: { size: V4_TEXT_WIDTH, type: WidthType.DXA },
+    columnWidths: V4_HEADER_COLUMNS,
+    layout: TableLayoutType.FIXED,
+    rows: [
+      new TableRow({
+        children: [
+          V4_TEMPLATE_HEADER.annexure,
+          V4_TEMPLATE_HEADER.sopRef,
+          V4_TEMPLATE_HEADER.title,
+        ].map(
+          (t, i) =>
+            new TableCell({
+              width: { size: V4_HEADER_COLUMNS[i]!, type: WidthType.DXA },
+              margins: { top: 60, bottom: 60, left: 90, right: 90 },
+              children: [v4Para([v4Run(t, { size: 22 })], { after: 0 })],
+            }),
+        ),
+      }),
+    ],
+  });
+
+  const footerRun = (o: { text?: string; page?: "current" | "total" }) =>
+    o.page
+      ? new TextRun({
+          children: [o.page === "current" ? PageNumber.CURRENT : PageNumber.TOTAL_PAGES],
+          font: V4_FONT,
+          size: 18,
+          color: V4_FOOTER_GREY,
+        })
+      : new TextRun({ text: o.text ?? "", font: V4_FONT, size: 18, color: V4_FOOTER_GREY });
+
   return new Document({
-    styles: { default: { document: { run: { font: MEMO_FONT, size: 22 } } } },
-    sections: [{ children }],
+    styles: { default: { document: { run: { font: V4_FONT, size: 22 } } } },
+    sections: [
+      {
+        properties: {
+          page: {
+            size: { width: 12240, height: 15840 },
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720 },
+          },
+        },
+        headers: {
+          default: new Header({ children: [headerTable, v4Para([v4Run("")], { after: 0 })] }),
+        },
+        footers: {
+          default: new Footer({
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  footerRun({ text: `${V4_TEMPLATE_FOOTER}  |  Page ` }),
+                  footerRun({ page: "current" }),
+                  footerRun({ text: " of " }),
+                  footerRun({ page: "total" }),
+                ],
+              }),
+            ],
+          }),
+        },
+        children,
+      },
+    ],
   });
 }

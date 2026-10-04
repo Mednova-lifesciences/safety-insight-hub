@@ -719,6 +719,14 @@ export interface PsurDocument {
   /** Section 12 — the assessor's own decision. Undefined until an
    *  assessor actually sets it; never defaulted from aiRecommendation. */
   regulatoryDecision?: PsurRegulatoryDecision | undefined;
+  /** The evaluator's own answers to the V4 form's Sections 2-8 — see
+   *  PsurV4SectionAnswers. */
+  v4SectionAnswers?: PsurV4SectionAnswers | undefined;
+  /** When the evaluator last changed something Section 12's decision rests
+   *  on (Sections 2-11). Compared with regulatoryDecision.decidedAt so the
+   *  page can say the decision predates those changes — the decision itself
+   *  is never altered automatically. */
+  decisionInputsEditedAt?: string | undefined;
   /** Section 13 — pure assessor input, never AI-generated. */
   signOff?: PsurSignOff | undefined;
   /** Which of the three assessors' queues this document is sitting in.
@@ -1198,6 +1206,36 @@ export interface PsurRegulatoryDecision {
   followUpRequired?: string | undefined;
   decidedBy: string;
   decidedAt: string;
+}
+
+/**
+ * The evaluator's answers to the V4 form's Sections 2-8 that are not
+ * research: the form's three tick boxes, and the evaluator's own wording of
+ * each section's assessment. A tick left undefined falls back to what the
+ * research implies (VigiFlow research filed means VigiFlow was checked);
+ * an assessment left undefined prints the AI's, marked as not yet reviewed.
+ */
+export interface PsurV4SectionAnswers {
+  /** Section 2: "Any action inconsistent with, or not yet reflected in,
+   *  NAFDAC's current position on this product?" */
+  s2Inconsistent?: boolean | undefined;
+  /** Section 2's "If yes, explain". Printed before any research filed
+   *  under that field. */
+  s2Explanation?: string | undefined;
+  /** Section 7: "Attach or reproduce the MAH's summary tabulation of ADRs…" */
+  s7AdrTabulation?: boolean | undefined;
+  /** Section 7: "Check VigiFlow for the Nigerian component…" */
+  s7VigiflowChecked?: boolean | undefined;
+  /** Section -> the evaluator's reviewed assessment of it. */
+  assessments?: Partial<Record<PsurV4SectionId, PsurReviewedAssessment>> | undefined;
+  updatedBy?: string | undefined;
+  updatedAt?: string | undefined;
+}
+
+export interface PsurReviewedAssessment {
+  text: string;
+  by: string;
+  at: string;
 }
 
 /** Section 13 — pure assessor input, never AI-generated. */
