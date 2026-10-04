@@ -202,9 +202,18 @@ export function generateRecoveryProposal(
     const currentValue = normalizeWhitespace(row[sourceColumn]!);
     if (!currentValue || compatibleWithField(currentValue, currentField)) continue;
 
+    // An identifier is never a value that wandered. A case id is the case
+    // id even when it happens to look like a name, so a protected column
+    // is barred from being a move SOURCE just as it is from being a
+    // target — otherwise a letters-only case id ("OGAEFI") is proposed as
+    // the patient's name and, because a move clears the column it came
+    // from, C.1.1 is blanked outright.
+    if (isProtectedIdentifier(currentField)) continue;
+
     // Pull: fill this broken column from elsewhere in the row.
     for (const [candidateHeader, candidateField] of Object.entries(mapping)) {
       if (candidateHeader === sourceColumn) continue;
+      if (isProtectedIdentifier(candidateField)) continue;
       const candidateValue = normalizeWhitespace(row[candidateHeader] ?? "");
       if (!candidateValue || !compatibleWithField(candidateValue, currentField)) continue;
       const move = recoverMove(

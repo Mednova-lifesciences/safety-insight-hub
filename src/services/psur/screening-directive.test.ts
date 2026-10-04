@@ -93,3 +93,88 @@ describe("a directive says what to DO, not only what is wrong", () => {
     expect(m.outcomeLabel).toBe("Compliance directive");
   });
 });
+
+/**
+ * Section A — the submission's identifying particulars.
+ *
+ * These are not checklist items and carry no item number, so they never
+ * reached the MAH as anything to act on: a blank one appeared in the
+ * letter's header as "Not stated in the submission" and nowhere else, and
+ * four of them (QPPV, QPPV contact, IBD, first registration date) were not
+ * in the directive at all.
+ */
+describe("submission details that were never stated", () => {
+  it("lists exactly the blank fields, and nothing that was supplied", () => {
+    // The fixture supplies product name, reg no, MAH, DLP and interval.
+    const m = buildScreeningDirectiveModel(docWith(emptyChecks()))!;
+    expect(m.missingDetailRows.map((r) => r.label)).toEqual([
+      "Active substance",
+      "Qualified Person for Pharmacovigilance",
+      "QPPV telephone and e-mail",
+      "International Birth Date",
+      "Date of first NAFDAC registration",
+    ]);
+  });
+
+  it("gives every one of them something the MAH can actually do", () => {
+    const m = buildScreeningDirectiveModel(docWith(emptyChecks()))!;
+    for (const row of m.missingDetailRows) {
+      expect(row.action.length).toBeGreaterThan(20);
+      // An instruction, not a restatement of the gap.
+      expect(row.action).toMatch(/^(State|Name|Submit|Provide|Attach|Confirm)/);
+    }
+  });
+
+  it("reaches the four fields the letter's header never carried", () => {
+    const m = buildScreeningDirectiveModel(docWith(emptyChecks()))!;
+    const labels = m.missingDetailRows.map((r) => r.label).join(" | ");
+    for (const field of [
+      "Qualified Person for Pharmacovigilance",
+      "QPPV telephone and e-mail",
+      "International Birth Date",
+      "Date of first NAFDAC registration",
+    ]) {
+      expect(labels).toContain(field);
+    }
+  });
+
+  it("is empty when the submission stated everything", () => {
+    const doc = docWith(emptyChecks());
+    const complete: PsurDocument = {
+      ...doc,
+      administrativeScreening: {
+        ...doc.administrativeScreening!,
+        submissionDetails: {
+          productName: "Test product",
+          activeSubstance: "Paracetamol",
+          nafdacRegNo: "A4-1",
+          mah: "Test MAH",
+          qppv: "Dr A Obi",
+          qppvContact: "08030000000 / qppv@example.com",
+          ibd: "2019-01-01",
+          firstNafdacRegistrationDate: "2020-03-01",
+          dlp: "2026-06-30",
+          intervalCovered: "01 Jul 2025 - 30 Jun 2026",
+          dateReceived: "2026-08-13T09:00:00Z",
+        },
+      },
+    };
+    expect(buildScreeningDirectiveModel(complete)!.missingDetailRows).toEqual([]);
+  });
+
+  it("never asks the MAH for the date received", () => {
+    // The system took the upload, so it always knows that one, and it is
+    // not something an MAH can supply.
+    const m = buildScreeningDirectiveModel(docWith(emptyChecks()))!;
+    expect(m.missingDetailRows.map((r) => r.label).join(" ")).not.toContain("received");
+  });
+
+  it("is independent of the checklist — a gap is not a failing check", () => {
+    // Section A blanks must not inflate the "N of 16 failing" count, and
+    // must still be reported when every check passes.
+    const allPass = emptyChecks().map((c) => ({ ...c, status: "YES" as const }));
+    const m = buildScreeningDirectiveModel(docWith(allPass))!;
+    expect(m.failedRows).toEqual([]);
+    expect(m.missingDetailRows.length).toBe(5);
+  });
+});
