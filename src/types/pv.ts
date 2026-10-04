@@ -662,6 +662,16 @@ export interface PsurDocument {
   /** Extracted PDF text retained so scientific review can be run by the
    * evaluator after the Review Officer hands the document onward. */
   extractedText?: string | undefined;
+  /** The assessment's working sections and the cited evidence under them.
+   *  Undefined until an assessor records something; the memo renders from
+   *  these via the projection in assessment-memo.ts. */
+  assessmentSections?: AssessmentSection[] | undefined;
+  /** The ICH/CIOMS scoring matrix for this assessment, carrying who last
+   *  changed a score and when. */
+  ciomsMatrix?: CiomsMatrix | undefined;
+  /** What the assessor has typed into the memo so far. Undefined until
+   *  someone opens the memo workspace and saves. */
+  memoDraft?: AssessmentMemoDraft | undefined;
   /** Administrative Completeness Check — runs immediately at upload,
    *  before detailed scientific review. Distinct pass, distinct data;
    *  never collapsed into the findings list. Absent on documents
@@ -1222,6 +1232,214 @@ export interface PsurSuggestedSource {
     | "RISK_MANAGEMENT_PLAN"
     | "OTHER";
   note: string;
+}
+
+/** Where a piece of assessment evidence came from.
+ *
+ *  PsurSuggestedSource's union MINUS "REQUEST_FROM_MAH" — that is an
+ *  action, not a source an assessor can cite — PLUS "SUBMITTED_PSUR",
+ *  for evidence read out of the MAH's own document. */
+export type EvidenceSourceType =
+  | "VIGIFLOW_NIGERIA"
+  | "PUBLISHED_LITERATURE"
+  | "REFERENCE_SAFETY_INFORMATION"
+  | "WORLDWIDE_REGULATORY_ACTIONS"
+  | "PATIENT_HCP_FEEDBACK"
+  | "RISK_MANAGEMENT_PLAN"
+  | "SUBMITTED_PSUR"
+  | "OTHER";
+
+/**
+ * One piece of cited evidence behind an assessment.
+ *
+ * Append-only: an entry is never edited in place. A correction is a NEW
+ * entry carrying `supersedes`, so the record of what an assessor actually
+ * relied on at sign-off survives.
+ *
+ * `citation` is required because an assertion nobody can check has no
+ * place in a signed regulatory assessment, and `acceptedBy` is what
+ * separates a candidate from evidence.
+ */
+export interface EvidenceEntry {
+  id: string;
+  section: PsurV4SectionId;
+  /** The memo criterion this was gathered for. A working section can feed
+   *  more than one criterion (S5 feeds both 8 and 9), so without this an
+   *  entry would print under every criterion its section feeds. Absent on
+   *  entries recorded before it existed; those follow their section. */
+  criterion?: MemoCriterionId | undefined;
+  sourceType: EvidenceSourceType;
+  /** URL, DOI or document reference. Required — see above. */
+  citation: string;
+  content: string;
+  origin: "ai" | "assessor";
+  addedBy: string;
+  addedAt: string;
+  /** Unset means a candidate that has not been accepted; it never renders. */
+  acceptedBy?: string | undefined;
+  acceptedAt?: string | undefined;
+  /** The id of an entry this one replaces. The superseded entry is kept. */
+  supersedes?: string | undefined;
+  /** A candidate an assessor turned down. Kept, not deleted, so the record
+   *  shows what was looked at and set aside; it never renders. */
+  rejectedBy?: string | undefined;
+  rejectedAt?: string | undefined;
+}
+
+/** One of the 14 working sections, with the evidence gathered under it. */
+export interface AssessmentSection {
+  section: PsurV4SectionId;
+  /** What the MAH's own submission says, as extracted. */
+  mahStated?: string | undefined;
+  /** The assessor's own words for this section. */
+  assessorNarrative?: string | undefined;
+  evidence: EvidenceEntry[];
+}
+
+/** Seriousness / Duration / Incidence, scored per the CIOMS matrix. */
+export interface CiomsScoreRow {
+  seriousness: number;
+  duration: number;
+  incidence: number;
+}
+
+/** One adverse reaction scored as its own column. */
+export interface CiomsAdrColumn {
+  reaction: string;
+  scores: CiomsScoreRow;
+}
+
+export interface CiomsMatrix {
+  epidemiologyOfDisease: CiomsScoreRow;
+  effectivenessOfProduct: CiomsScoreRow;
+  adrs: CiomsAdrColumn[];
+  /** Who last changed a score, and when. Both assessor roles may. */
+  lastEditedBy?: string | undefined;
+  lastEditedAt?: string | undefined;
+}
+
+export interface CiomsBand {
+  label: string;
+  /** Inclusive. */
+  min: number;
+  /** Inclusive. Omit for the open-ended top band. */
+  max?: number | undefined;
+}
+
+/**
+ * The scale meaning, band boundaries and verdict rule behind the matrix.
+ *
+ * Ships `provisional: true`, derived from the single supplied Tramadol
+ * memo. While provisional, the memo records that a provisional rubric was
+ * used, and the assessor must confirm both the band label and the verdict
+ * every time. See the spec, section 6.
+ */
+export interface CiomsRubric {
+  provenance: string;
+  provisional: boolean;
+  bands: CiomsBand[];
+  /** Described for the assessor to read; never silently applied. */
+  verdictRule?: string | undefined;
+}
+
+/** The 11 rows of the memo's review-criteria table, in the form's order. */
+export type MemoCriterionId =
+  | "PRODUCT_IDENTITY"
+  | "REPORTING_INTERVAL"
+  | "THERAPEUTIC_CATEGORY"
+  | "DATE_RECEIVED"
+  | "INTERNATIONAL_BIRTH_DATE"
+  | "NIGERIA_BIRTH_DATE"
+  | "RSI_CHANGES"
+  | "WORLDWIDE_ACTIONS"
+  | "PATIENT_EXPOSURE"
+  | "RELEVANT_STUDIES"
+  | "OVERALL_SAFETY_EVALUATION";
+
+export interface MemoCriterion {
+  id: MemoCriterionId;
+  number: number;
+  /** The criterion as the form words it. */
+  label: string;
+  /** The Remarks column. Never blank — see NOT_ESTABLISHED. */
+  remarks: string;
+  /** Citations backing the remarks, in order. */
+  citations: string[];
+  /** True when no accepted evidence or fact established this criterion. */
+  unestablished: boolean;
+  /** The form's Yes/No answer, printed above the remarks as the supplied
+   *  memo does ("Yes", or for criterion 9 one line per question). Only
+   *  ever what the assessor chose; never inferred from the evidence. */
+  answer?: string | undefined;
+}
+
+/** The Yes/No answers the memo form asks for. Criterion 9 asks two. */
+export interface MemoAnswers {
+  RSI_CHANGES?: "Yes" | "No" | undefined;
+  WORLDWIDE_ACTIONS?: "Yes" | "No" | undefined;
+  RELEVANT_STUDIES?: "Yes" | "No" | undefined;
+  PATIENT_EXPOSURE_AFRICAN?: "Yes" | "No" | undefined;
+  PATIENT_EXPOSURE_NIGERIAN?: "Yes" | "No" | undefined;
+}
+
+/**
+ * Everything the assessor types into the memo that is not evidence.
+ *
+ * Persisted on the document so an Evaluator can stop and resume, and so the
+ * Peer Reviewer sees the same draft. `bandConfirmed` and `verdictConfirmed`
+ * are empty until a person confirms them: the rubric's proposals are shown
+ * beside them and never copied in on their own (spec section 6).
+ */
+export interface AssessmentMemoDraft {
+  /** The part after MEMO_REFERENCE_PREFIX, e.g. "455/III". */
+  referenceSuffix: string;
+  memoDate: string;
+  to: string;
+  from: string;
+  signatory: string;
+  signatoryTitle: string;
+  locationAddress: string;
+  productNameAndStrength: string;
+  therapeuticCategory: string;
+  mahName: string;
+  answers: MemoAnswers;
+  /** Criterion 11 in the assessor's own words, one risk per line, most
+   *  serious first. Accepted evidence under the same criterion is cited
+   *  beneath it. */
+  overallSafetyEnumeration: string;
+  bandConfirmed: string;
+  verdictConfirmed: string;
+  analysisOfMatrix: string;
+  conclusion: string;
+  updatedBy?: string | undefined;
+  updatedAt?: string | undefined;
+}
+
+export interface AssessmentMemoModel {
+  /** Full reference, e.g. "NAFDAC/PV/GCIOMS/455/III". */
+  referenceNumber: string;
+  memoDate: string;
+  to: string;
+  from: string;
+  subject: string;
+  productNameAndStrength: string;
+  signatory: string;
+  /** The line under the signatory, e.g. "Director (PV)". */
+  signatoryTitle: string;
+  /** "Location Address: ..." under the letterhead. Empty omits the line. */
+  locationAddress: string;
+  /** Who submitted the PSUR, as the forwarding sentence names them. */
+  mahName: string;
+  criteria: MemoCriterion[];
+  matrix: CiomsMatrix;
+  totals: { epidemiology: number; effectiveness: number; adrs: number[] };
+  /** Assessor-confirmed. Empty until confirmed. */
+  bandLabel: string;
+  benefitRiskVerdict: string;
+  analysisOfMatrix: string;
+  conclusion: string;
+  /** True when the rubric in force was provisional. Printed on the memo. */
+  provisionalRubricUsed: boolean;
 }
 
 export interface PsurFinding {

@@ -1,3 +1,4 @@
+import type { Role } from "@/lib/auth";
 import type { PsurDocument, PsurWorkflowStage } from "@/types/pv";
 
 /**
@@ -141,4 +142,40 @@ export function visibleForScientificReview(
   if (opts.canPeerReview) return stage === "AWAITING_PEER_REVIEW" || stage === "PEER_REVIEWED";
   if (opts.canEvaluate) return isInScientificReview(doc);
   return false;
+}
+
+/**
+ * Who may change a CIOMS score.
+ *
+ * The Evaluator authors the assessment, and NAFDAC confirmed the Peer
+ * Reviewer may change a score on review — a widening of that role, which
+ * until now checked and countersigned without editing. Every change is
+ * audited with who and when (see psur.saveCiomsMatrix), because a changed
+ * benefit-risk input is exactly what someone will later ask about.
+ *
+ * The Review Officer is excluded: their step ended at screening. MAH-side
+ * staff are excluded entirely — this is a regulator-side judgement.
+ */
+export function canEditCiomsMatrix(role: Role): boolean {
+  return role === "EVALUATOR" || role === "PEER_REVIEWER";
+}
+
+/**
+ * Whether the assessment memo can be changed right now, by this person.
+ *
+ * The Evaluator authors it until they sign off — their sign-off says "You
+ * will no longer be able to edit the review", and the memo is part of the
+ * review. The Peer Reviewer may then add or accept evidence and change
+ * scores while it is with them (spec section 10). After the countersign it
+ * is the record, and nobody edits it. Generating the document is never
+ * blocked by this: a signed memo must still be printable.
+ */
+export function canEditAssessmentMemo(
+  doc: PsurDocument,
+  who: { canEvaluate: boolean; canPeerReview: boolean },
+): boolean {
+  const stage = deriveWorkflowStage(doc);
+  if (stage === "PEER_REVIEWED" || stage === "RETURNED_TO_MAH") return false;
+  if (stage === "AWAITING_PEER_REVIEW") return who.canPeerReview;
+  return who.canEvaluate && !who.canPeerReview;
 }

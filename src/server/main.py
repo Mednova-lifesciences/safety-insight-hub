@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 # Import routes
 from .routes import auth, cases, seriousness, coding, audit, signals, followups, compatibility, whatsapp
-from .routes import ai_linelist, ai_psur, ai_icsr, ai_coding, ai_literature, ai_e2b
+from .routes import ai_linelist, ai_psur, ai_psur_memo, ai_icsr, ai_coding, ai_literature, ai_e2b
 
 def _get_env(*names: str) -> Optional[str]:
     for name in names:
@@ -104,6 +104,7 @@ app.include_router(followups.router, prefix="/api/follow-ups", tags=["follow-ups
 app.include_router(compatibility.router, prefix="/api", tags=["compatibility"])
 app.include_router(ai_linelist.router, prefix="/api/ai/linelist", tags=["ai-linelist"])
 app.include_router(ai_psur.router, prefix="/api/ai/psur", tags=["ai-psur"])
+app.include_router(ai_psur_memo.router, prefix="/api/ai/psur", tags=["ai-psur"])
 app.include_router(ai_icsr.router, prefix="/api/ai/icsr", tags=["ai-icsr"])
 app.include_router(ai_coding.router, prefix="/api/ai/coding", tags=["ai-coding"])
 app.include_router(ai_e2b.router, prefix="/api/ai/e2b", tags=["ai-e2b"])
