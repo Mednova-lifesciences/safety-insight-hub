@@ -82,6 +82,7 @@ const STATUS_TONE: Record<EvidenceStatus, Tone> = {
   CANDIDATE: "warning",
   REJECTED: "neutral",
   SUPERSEDED: "neutral",
+  WITHDRAWN: "neutral",
 };
 
 const STATUS_LABEL: Record<EvidenceStatus, string> = {
@@ -89,6 +90,7 @@ const STATUS_LABEL: Record<EvidenceStatus, string> = {
   CANDIDATE: "Candidate — not in the memo until accepted",
   REJECTED: "Rejected",
   SUPERSEDED: "Superseded",
+  WITHDRAWN: "Withdrawn — its finding was reopened",
 };
 
 const SCORE_ROWS: { key: keyof CiomsScoreRow; label: string }[] = [
@@ -192,7 +194,7 @@ function EvidenceItem({
     }
   };
 
-  const muted = status === "REJECTED" || status === "SUPERSEDED";
+  const muted = status === "REJECTED" || status === "SUPERSEDED" || status === "WITHDRAWN";
   return (
     <li
       className={`rounded-md border border-border p-3 ${muted ? "opacity-60" : ""}`}
@@ -206,6 +208,7 @@ function EvidenceItem({
           {entry.acceptedBy ? ` · accepted by ${entry.acceptedBy}` : ""}
           {entry.rejectedBy ? ` · rejected by ${entry.rejectedBy}` : ""}
         </span>
+        {entry.findingId ? <StatusPill tone="success">Resolves a review finding</StatusPill> : null}
       </div>
       {editing ? (
         <div className="mt-2 space-y-2">
@@ -272,6 +275,12 @@ function EvidenceItem({
                 <X className="size-4" /> Reject
               </Button>
             </>
+          ) : entry.findingId ? (
+            // Edited from its finding, so the finding and the memo cannot
+            // end up showing different research.
+            <span className="text-xs text-muted-foreground">
+              Edit this from its finding in Review findings above.
+            </span>
           ) : (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => setEditing(true)}>
               <Pencil className="size-4" /> Revise
@@ -509,7 +518,9 @@ function CriterionCard({
   const [showHistory, setShowHistory] = useState(false);
   const entries = evidenceForCriterion(doc.assessmentSections ?? [], criterion);
   const live = entries.filter((e) => e.status === "ACCEPTED" || e.status === "CANDIDATE");
-  const history = entries.filter((e) => e.status === "REJECTED" || e.status === "SUPERSEDED");
+  const history = entries.filter(
+    (e) => e.status === "REJECTED" || e.status === "SUPERSEDED" || e.status === "WITHDRAWN",
+  );
   const researchable = RESEARCHABLE_CRITERIA.includes(criterion);
   const setAnswer = (key: keyof MemoAnswers, v: "Yes" | "No" | undefined) =>
     setDraft({ ...draft, answers: { ...draft.answers, [key]: v } });
@@ -599,7 +610,7 @@ function CriterionCard({
             className="text-xs text-muted-foreground underline"
             onClick={() => setShowHistory((s) => !s)}
           >
-            {showHistory ? "Hide" : "Show"} {history.length} rejected or superseded{" "}
+            {showHistory ? "Hide" : "Show"} {history.length} earlier, rejected or withdrawn{" "}
             {history.length === 1 ? "entry" : "entries"}
           </button>
           {showHistory ? (

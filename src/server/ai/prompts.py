@@ -1436,6 +1436,10 @@ WHAT EACH CRITERION ASKS
 - OVERALL_SAFETY_EVALUATION: the product's important risks, so the assessor can enumerate them in
   order of seriousness. Name the risks the source states.
 
+IF A "focus" IS GIVEN, the assessor is resolving that specific gap in the submission. Write each
+remark about what the source says on THAT gap, rank sources by how directly they address it, and
+mark LOW any source that does not address it. The same rules apply: only what the source says.
+
 Return a JSON object of exactly this shape:
 {"candidates": [{"source_id": "S1", "remark": "...", "relevance": "HIGH" | "MEDIUM" | "LOW"}]}
 Order candidates from most to least relevant. Return {"candidates": []} if nothing is relevant.

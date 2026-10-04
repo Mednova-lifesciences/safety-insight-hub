@@ -9,6 +9,7 @@ import {
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { PsurScreeningDecision } from "@/components/pv/psur-screening-decision";
 import { PsurAssessmentMemoPanel } from "@/components/pv/psur-assessment-memo";
+import { FindingResearch } from "@/components/pv/psur-finding-research";
 import { ScreeningRecord } from "@/components/pv/psur-screening-checklist";
 import { useMemo, useState } from "react";
 import { ArrowRight, Download, FileText, Stamp, Upload, Wrench } from "lucide-react";
@@ -804,7 +805,16 @@ function PsurPage() {
                               Dismissed by {f.respondedBy ?? "reviewer"}: {f.rationale}
                             </p>
                           ) : null}
-                          {f.resolution ? (
+                          <FindingResearch
+                            doc={activeDoc}
+                            finding={f}
+                            canEdit={canEditAssessmentMemo(activeDoc, {
+                              canEvaluate,
+                              canPeerReview,
+                            })}
+                            onChanged={refreshDocAndFindings}
+                          />
+                          {f.resolution && !f.researchResolution ? (
                             <p className="mt-2 rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs">
                               <span className="font-medium">
                                 {f.resolved ? "Resolution: " : "Unresolved: "}

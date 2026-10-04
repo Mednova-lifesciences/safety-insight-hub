@@ -499,7 +499,10 @@ export function buildComplianceDirectiveModel(
   // something the MAH should have supplied, and is reported so they supply
   // it next time. Unresolved first, then by severity.
   const mahItems = accepted.filter((f) => requiresMahAction(f));
-  const resolved = accepted.filter((f) => f.resolved);
+  // Counted among the points THIS letter lists: a resolved finding that
+  // was never the MAH's (assessor-internal) is not one of them, and the
+  // footnote speaks of "the points above".
+  const resolved = mahItems.filter((f) => f.resolved);
 
   const deficiencies: ComplianceDeficiencyRow[] = mahItems
     .sort(

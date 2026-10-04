@@ -57,6 +57,13 @@ import type {
 import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
 import { buildAssessmentMemoModel } from "@/services/psur/assessment-memo";
 import {
+  fileFindingResearch,
+  reopenedFinding,
+  resolvedFinding,
+  withdrawEvidence,
+  type ResearchInput,
+} from "@/services/psur/finding-research";
+import {
   acceptEvidence,
   appendEvidence,
   defaultMemoDraft,
@@ -2047,6 +2054,79 @@ export const psur = {
         newValue: change.content.trim(),
       });
       return saved;
+    }),
+
+  /**
+   * Resolves an accepted finding with the assessor's research, or saves an
+   * edit to that research. The research is filed once, as accepted memo
+   * evidence under the chosen criterion; the finding is marked resolved by
+   * this person and stays in the findings list. See finding-research.ts.
+   */
+  resolveFindingWithResearch: (
+    documentId: string,
+    findingId: string,
+    input: ResearchInput,
+  ): Promise<PsurFinding> =>
+    inDocumentQueue(documentId, async () => {
+      const [doc, findings] = await Promise.all([
+        readDocument(documentId),
+        readFindings(documentId),
+      ]);
+      const finding = findings.find((f) => f.id === findingId);
+      if (!finding) throw new Error("Finding not found");
+      const actor = currentActor();
+      const at = new Date().toISOString();
+      const filed = fileFindingResearch(
+        doc.assessmentSections ?? [],
+        finding,
+        input,
+        newId("ev"),
+        actor.name,
+        at,
+      );
+      await saveDocument({ ...doc, assessmentSections: filed.sections });
+      const next = resolvedFinding(finding, input, filed.evidenceId, actor.name, at);
+      await saveFinding(documentId, next);
+      await recordAudit({
+        action: finding.researchResolution
+          ? "PSUR_FINDING_RESEARCH_EDITED"
+          : "PSUR_FINDING_RESOLVED_WITH_RESEARCH",
+        entity: "PsurFinding",
+        entityId: findingId,
+        previousValue: finding.researchResolution?.content ?? null,
+        newValue: `${input.content.trim()} — ${input.citation.trim()}`,
+      });
+      return next;
+    }),
+
+  /** Reopens a finding resolved with research. Its research is withdrawn
+   *  from the memo — kept on record, never printed — and the finding goes
+   *  back to accepted-but-unresolved. */
+  reopenFinding: (documentId: string, findingId: string): Promise<PsurFinding> =>
+    inDocumentQueue(documentId, async () => {
+      const [doc, findings] = await Promise.all([
+        readDocument(documentId),
+        readFindings(documentId),
+      ]);
+      const finding = findings.find((f) => f.id === findingId);
+      if (!finding) throw new Error("Finding not found");
+      const actor = currentActor();
+      const evidenceId = finding.researchResolution?.evidenceId;
+      const sections = doc.assessmentSections ?? [];
+      if (evidenceId && sections.some((s) => s.evidence.some((e) => e.id === evidenceId))) {
+        const section = withdrawEvidence(sections, evidenceId, actor.name, new Date().toISOString());
+        await saveDocument(withSection(doc, section));
+      }
+      const next = reopenedFinding(finding);
+      await saveFinding(documentId, next);
+      await recordAudit({
+        action: "PSUR_FINDING_REOPENED",
+        entity: "PsurFinding",
+        entityId: findingId,
+        previousValue: finding.researchResolution?.content ?? finding.resolution ?? null,
+        newValue: "unresolved",
+      });
+      return next;
     }),
 
   /** The memo model for a document, or the reasons it cannot be built yet. */
