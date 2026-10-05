@@ -91,7 +91,11 @@ describe.skipIf(!present)("real Ondo AEFI line list — data preparation", () =>
       });
     });
 
-    writeFileSync(process.env["ONDO_REPORT"] ?? "ondo-report.txt", REPORT.join("\n"), "utf8");
+    // The report quotes real case rows (patient names, addresses), so it is
+    // written only when a path is asked for explicitly — never by default
+    // into the working tree, where a plain test run would leave it.
+    const reportPath = process.env["ONDO_REPORT"];
+    if (reportPath) writeFileSync(reportPath, REPORT.join("\n"), "utf8");
     expect(parsed.rows.length).toBeGreaterThan(0);
   });
 });
