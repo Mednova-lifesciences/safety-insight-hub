@@ -38,6 +38,7 @@ import {
 } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { LineListDecisionControl } from "@/components/pv/linelist-decision-control";
+import { LineListChangesPanel } from "@/components/pv/linelist-changes-panel";
 import {
   decidedRowsWithoutIssues,
   decisionCounts,
@@ -358,7 +359,7 @@ function LineListPage() {
                               );
                             } else {
                               toast.success(
-                                `${result.correctionsApplied} field(s) corrected.${result.unresolved.length ? ` ${result.unresolved.length} left unresolved.` : ""}`,
+                                `${result.correctionsApplied} field(s) corrected — see Changes made below.${result.unresolved.length ? ` ${result.unresolved.length} left unresolved.` : ""}`,
                               );
                             }
                             issues.refetch();
@@ -380,7 +381,8 @@ function LineListPage() {
                     );
                   }}
                 </QueryBoundary>
-                {AUTO_FIX_ENABLED && activeJob.fixedAt ? (
+                {AUTO_FIX_ENABLED &&
+                (activeJob.fixedAt || (activeJob.decisions ?? []).length > 0) ? (
                   <Button
                     size="sm"
                     variant="outline"
@@ -616,6 +618,13 @@ function LineListPage() {
                       onDecided={() => {
                         jobs.refetch();
                         issues.refetch();
+                      }}
+                    />
+                    <LineListChangesPanel
+                      job={activeJob}
+                      onChanged={() => {
+                        issues.refetch();
+                        jobs.refetch();
                       }}
                     />
                   </div>
