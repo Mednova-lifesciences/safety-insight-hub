@@ -10,9 +10,11 @@ import {
   markReapplied,
   markUndone,
   readCell,
+  stateOf,
   writeCell,
 } from "./linelist-change-log";
 import {
+  decisionCounts,
   decisionFor,
   describeDecision,
   keptOnly,
@@ -20,6 +22,7 @@ import {
   withoutDecision,
   type DecisionInput,
 } from "./linelist-decisions";
+import { buildFixedCsv } from "./linelist-fixed-csv";
 import { createKeyedQueue } from "./keyed-queue";
 import {
   checkCasesForE2b,
@@ -3091,68 +3094,31 @@ export const linelist = {
       throw new Error("This job has no stored row data to export.");
     }
     const { columns } = job;
-    // CSV has no cell colour/formatting of its own — there is no such thing
-    // as a "highlighted cell" in plain CSV. Two extra columns give the same
-    // practical result: filter or sort by "Needs review" in Excel/Sheets to
-    // jump straight to every row still carrying an unresolved issue, and
-    // "Unresolved column(s)" says exactly which field(s) on that row.
     const issues = await linelist.issues(jobId);
-    const issuesByRow = new Map<number, LineListIssue[]>();
-    for (const issue of issues) {
-      const existing = issuesByRow.get(issue.row);
-      if (existing) existing.push(issue);
-      else issuesByRow.set(issue.row, [issue]);
-    }
-    const unresolvedColumnsFor = (rowNumber: number): string => {
-      const rowIssues = issuesByRow.get(rowNumber);
-      if (!rowIssues || rowIssues.length === 0) return "";
-      return [...new Set(rowIssues.map((i) => i.column))].join("; ");
-    };
-    const needsReviewFor = (rowNumber: number): string => (issuesByRow.has(rowNumber) ? "YES" : "");
-    const escapeCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-    const headerRow = [...columns, "Needs review", "Unresolved column(s)"];
-    const dataLines = job.rawRows
-      ? [
-          headerRow.map(escapeCell).join(","),
-          ...job.rawRows.map((row, idx) =>
-            [
-              ...columns.map((header) => escapeCell(row[header] ?? "")),
-              escapeCell(needsReviewFor(idx + 1)),
-              escapeCell(unresolvedColumnsFor(idx + 1)),
-            ].join(","),
-          ),
-        ]
-      : [
-          headerRow.map(escapeCell).join(","),
-          ...job.parsedRows!.map((row, idx) =>
-            [
-              ...columns.map((header) => {
-                const field = job.mapping![header];
-                return escapeCell(field ? (row[field] ?? "") : "");
-              }),
-              escapeCell(needsReviewFor(idx + 1)),
-              escapeCell(unresolvedColumnsFor(idx + 1)),
-            ].join(","),
-          ),
-        ];
-    // Preserve sparse rows from the original upload (usually the source
-    // form's codebook/legend, but also title or instruction text). They were
-    // intentionally excluded from case rows by the parser, yet they are
-    // needed when this fixed file is uploaded again so the same codebook can
-    // be rediscovered. Keep each line in one escaped CSV cell: on re-upload
-    // it remains a sparse, non-case row and is recovered as discardedRows.
-    const preservedSourceText = (job.discardedRows ?? [])
-      .map((entry) => entry.text.trim())
-      .filter(Boolean);
-    const lines = preservedSourceText.length
-      ? [
-          ...dataLines,
-          "",
-          escapeCell("# ORIGINAL SOURCE TEXT — preserved from uploaded file"),
-          ...preservedSourceText.map(escapeCell),
-        ]
-      : dataLines;
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    // createFromCases jobs have no raw rows; rebuild each record from the
+    // canonical fields so the builder always sees original headers.
+    const rows: Record<string, string>[] =
+      job.rawRows ??
+      job.parsedRows!.map((row) =>
+        Object.fromEntries(
+          columns.map((header) => {
+            const field = job.mapping![header] as TargetField | undefined;
+            return [header, field ? (row[field] ?? "") : ""];
+          }),
+        ),
+      );
+    const csv = buildFixedCsv({
+      columns,
+      rows,
+      changeLog: job.changeLog ?? [],
+      decisions: job.decisions ?? [],
+      issues,
+      unresolved: job.lastFixUnresolved ?? [],
+      preservedSourceText: (job.discardedRows ?? [])
+        .map((entry) => entry.text.trim())
+        .filter(Boolean),
+    });
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     try {
       const a = document.createElement("a");
@@ -3245,19 +3211,34 @@ export const linelist = {
       lines.push("");
     }
 
-    if (job.lastFixCorrections || job.lastFixUnresolved) {
+    const logged = job.changeLog ?? [];
+    // Jobs fixed before the change log existed still show what was recorded.
+    const legacyCorrections = job.changeLog ? [] : (job.lastFixCorrections ?? []);
+    if (job.changeLog || job.lastFixCorrections || job.lastFixUnresolved) {
       lines.push(
         `RUN FULL FIX${job.fixedAt ? ` — last applied ${job.fixedAt.slice(0, 16).replace("T", " ")} UTC` : ""}`,
       );
       lines.push(rule);
-      const corrections = job.lastFixCorrections ?? [];
+      const applied = logged.filter((c) => stateOf(c) === "applied");
+      const undone = logged.filter((c) => stateOf(c) === "undone");
       const unresolved = job.lastFixUnresolved ?? [];
-      if (corrections.length === 0 && unresolved.length === 0) {
+      if (applied.length === 0 && legacyCorrections.length === 0 && unresolved.length === 0) {
         lines.push("Fix Issues was run and found nothing it could safely auto-correct.");
       }
-      for (const c of corrections) {
+      for (const c of applied) {
+        lines.push(
+          `CORRECTED — ${rowLabel(job, c.row)}, ${c.column}: "${c.oldValue}" → "${c.newValue}" (${c.reason})`,
+        );
+      }
+      for (const c of legacyCorrections) {
         lines.push(
           `CORRECTED — ${rowLabel(job, c.row)}, ${c.column}: "${c.new_value}" (${c.reason})`,
+        );
+      }
+      for (const c of undone) {
+        const last = c.events[c.events.length - 1]!;
+        lines.push(
+          `UNDONE — ${rowLabel(job, c.row)}, ${c.column}: kept as "${c.oldValue}" by ${last.by}`,
         );
       }
       for (const u of unresolved) {
@@ -3266,7 +3247,18 @@ export const linelist = {
       lines.push("");
     }
 
-    const e2bBlockers = issues.filter((i) => i.blocksE2b && i.row > 0);
+    if ((job.decisions ?? []).length > 0) {
+      const { dropped, held } = decisionCounts(job.decisions);
+      lines.push(`CASE DECISIONS — ${dropped} dropped, ${held} held (left out of the E2B(R3) XML)`);
+      lines.push(rule);
+      for (const d of [...job.decisions!].sort((a, b) => a.row - b.row)) {
+        lines.push(`${rowLabel(job, d.row)}: ${describeDecision(d)} — ${d.by}, ${d.at.slice(0, 10)}`);
+      }
+      lines.push("");
+    }
+
+    // A dropped or held case is not going to VigiFlow, so it blocks nothing.
+    const e2bBlockers = keptOnly(issues, job.decisions).filter((i) => i.blocksE2b && i.row > 0);
     const fileBlockers = issues.filter((i) => i.blocksE2b && i.row === 0);
     lines.push("E2B(R3) / VIGIFLOW READINESS");
     lines.push(rule);
