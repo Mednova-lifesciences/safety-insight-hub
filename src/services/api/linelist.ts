@@ -5,8 +5,21 @@ import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import { discoverAndApplyCodebook, mapJobToCases } from "@/services/e2b-r3/export";
 import { generateRecoveryProposal } from "./linelist-recovery";
-import { appendCorrections, readCell, writeCell } from "./linelist-change-log";
-import { keptOnly } from "./linelist-decisions";
+import {
+  appendCorrections,
+  markReapplied,
+  markUndone,
+  readCell,
+  writeCell,
+} from "./linelist-change-log";
+import {
+  decisionFor,
+  describeDecision,
+  keptOnly,
+  withDecision,
+  withoutDecision,
+  type DecisionInput,
+} from "./linelist-decisions";
 import { createKeyedQueue } from "./keyed-queue";
 import {
   checkCasesForE2b,
@@ -40,6 +53,7 @@ import {
 } from "@/services/e2b-r3/source-profiles/outcome-vocabulary";
 import type { SourceProfile } from "@/services/e2b-r3/source-profiles/types";
 import type {
+  LineListChange,
   LineListFixLocation,
   LineListIssue,
   LineListIssueType,
@@ -2325,6 +2339,50 @@ function normalizeLeftRightValue(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
 
+/**
+ * Writes one restored cell, records the event, and re-runs the
+ * deterministic checks so the screen shows the cell's real state.
+ *
+ * Only the deterministic rules re-run: an issue only the AI had found
+ * returns on the next "Re-run validation". A full AI scan on every Undo
+ * would make Undo slow and its result non-deterministic.
+ */
+async function restoreCell(
+  job: LineListJobRow,
+  changeLog: LineListChange[],
+  cell: { row: number; column: string; value: string },
+  audit: { action: string; previousValue: string; newValue: string },
+): Promise<LineListJobRow> {
+  if (!job.parsedRows || !job.mapping) {
+    throw new Error("This job has no stored row data to change.");
+  }
+  const cellRows = {
+    rawRows: job.rawRows ? [...job.rawRows] : undefined,
+    parsedRows: [...job.parsedRows] as Record<string, string | undefined>[],
+    mapping: job.mapping as Record<string, string>,
+  };
+  writeCell(cellRows, cell.row, cell.column, cell.value);
+  const updated: LineListJobRow = {
+    ...job,
+    parsedRows: cellRows.parsedRows as ParsedRow[],
+    ...(cellRows.rawRows ? { rawRows: cellRows.rawRows } : {}),
+    changeLog,
+  };
+  const currentIssues = await linelist.issues(job.id);
+  const priorAi = currentIssues.filter((i) => i.source === "ai");
+  const finalIssues = mergeFindings(await computeDeterministicIssues(updated), priorAi);
+  const next = await storeIssues(updated, finalIssues, { validatedAt: new Date().toISOString() });
+  await recordAudit({
+    action: audit.action,
+    entity: "LineListJob",
+    entityId: job.id,
+    previousValue: audit.previousValue,
+    newValue: audit.newValue,
+    reason: `${rowLabel(job, cell.row)}, ${cell.column}`,
+  });
+  return next;
+}
+
 export const linelist = {
   jobs: async (): Promise<LineListJob[]> => {
     const { data, error } = await supabase.from("pv_linelist_jobs").select("data");
@@ -2884,6 +2942,81 @@ export const linelist = {
       aiUsed: fixResult.ai_used,
       aiError: fixResult.error ?? undefined,
     };
+    }),
+
+  /** Drop or step down one case. Recounts without re-validating: a
+   *  decision changes what counts, not what is wrong. */
+  decideCase: (jobId: string, input: DecisionInput): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      const actor = currentActor();
+      const decisions = withDecision(
+        job.decisions,
+        input,
+        job.parsedRows?.length ?? job.rows,
+        actor.name,
+        new Date().toISOString(),
+      );
+      const next = await storeIssues({ ...job, decisions }, await linelist.issues(jobId));
+      await recordAudit({
+        action: input.decision === "DROP" ? "LINELIST_CASE_DROPPED" : "LINELIST_CASE_STEPPED_DOWN",
+        entity: "LineListJob",
+        entityId: jobId,
+        newValue: `${rowLabel(job, input.row)}: ${describeDecision(decisionFor(decisions, input.row)!)}`,
+      });
+      return next;
+    }),
+
+  /** Return a dropped or held case to Keep. */
+  keepCase: (jobId: string, row: number): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      const previous = decisionFor(job.decisions, row);
+      if (!previous) return job;
+      const decisions = withoutDecision(job.decisions, row);
+      const next = await storeIssues({ ...job, decisions }, await linelist.issues(jobId));
+      await recordAudit({
+        action: "LINELIST_CASE_KEPT",
+        entity: "LineListJob",
+        entityId: jobId,
+        previousValue: `${rowLabel(job, row)}: ${describeDecision(previous)}`,
+        newValue: `${rowLabel(job, row)}: KEPT`,
+      });
+      return next;
+    }),
+
+  /** A person takes a cell over: the old value returns and Fix leaves the
+   *  cell alone from now on. */
+  undoChange: (jobId: string, changeId: string): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      const actor = currentActor();
+      const { log, cell } = markUndone(job.changeLog ?? [], changeId, actor.name, new Date().toISOString());
+      const entry = log.find((e) => e.id === changeId)!;
+      return restoreCell(job, log, cell, {
+        action: "LINELIST_CHANGE_UNDONE",
+        previousValue: entry.newValue,
+        newValue: entry.oldValue,
+      });
+    }),
+
+  /** Hands the cell back to the tool: its value returns. */
+  reapplyChange: (jobId: string, changeId: string): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      const actor = currentActor();
+      const { log, cell } = markReapplied(
+        job.changeLog ?? [],
+        changeId,
+        actor.name,
+        new Date().toISOString(),
+      );
+      const entry = log.find((e) => e.id === changeId)!;
+      return restoreCell(job, log, cell, {
+        action: "LINELIST_CHANGE_REAPPLIED",
+        previousValue: entry.oldValue,
+        newValue: entry.newValue,
+      });
     }),
 
   /**
