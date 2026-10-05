@@ -1,9 +1,4 @@
-import type {
-  DropReason,
-  LineListDecision,
-  LineListDecisionKind,
-  LineListIssue,
-} from "@/types/pv";
+import type { DropReason, LineListDecision, LineListDecisionKind, LineListIssue } from "@/types/pv";
 
 /**
  * Case decisions on a line list: Keep (no entry), Drop, Step down.
@@ -104,9 +99,10 @@ export function describeDecision(d: LineListDecision): string {
   return `DROPPED — ${reason}${note}`;
 }
 
-export function decisionCounts(
-  decisions: LineListDecision[] | undefined,
-): { dropped: number; held: number } {
+export function decisionCounts(decisions: LineListDecision[] | undefined): {
+  dropped: number;
+  held: number;
+} {
   const all = decisions ?? [];
   return {
     dropped: all.filter((d) => d.decision === "DROP").length,

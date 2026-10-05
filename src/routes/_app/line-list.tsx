@@ -583,7 +583,10 @@ function LineListPage() {
                             {kept.map((i, idx) => renderIssueRow(i, idx, false))}
                             {kept.length > 0 && decided.length + withoutIssues.length > 0 ? (
                               <tr className="border-b border-border bg-muted/30">
-                                <td colSpan={9} className="px-3 py-1.5 text-xs text-muted-foreground">
+                                <td
+                                  colSpan={9}
+                                  className="px-3 py-1.5 text-xs text-muted-foreground"
+                                >
                                   Dropped or held — not counted
                                 </td>
                               </tr>
@@ -604,7 +607,11 @@ function LineListPage() {
                                   No open issues
                                 </td>
                                 <td className="px-3 py-2">
-                                  <LineListDecisionControl job={activeJob} row={row} onChanged={refresh} />
+                                  <LineListDecisionControl
+                                    job={activeJob}
+                                    row={row}
+                                    onChanged={refresh}
+                                  />
                                 </td>
                               </tr>
                             ))}

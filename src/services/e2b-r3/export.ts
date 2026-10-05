@@ -282,11 +282,7 @@ export async function runValidatedPreflightForJob(
   // case without its own ID is numbered by row position, so removing rows
   // before mapping would renumber every later case (spec 5.5). Done before
   // the C.1.7 loop so a dropped case costs no assessment and no AI call.
-  const excluded = excludeDecidedCases(
-    mapped.cases,
-    job.decisions,
-    (job.parsedRows ?? []).length,
-  );
+  const excluded = excludeDecidedCases(mapped.cases, job.decisions, (job.parsedRows ?? []).length);
   const cases = excluded.included;
 
   // Regulatory assessment is deliberately separate from source mapping.

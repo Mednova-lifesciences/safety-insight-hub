@@ -30,7 +30,13 @@ function issue(row: number, overrides: Partial<LineListIssue> = {}): LineListIss
 
 describe("setting a decision", () => {
   it("drops a case with a reason", () => {
-    const out = withDecision([], { row: 3, decision: "DROP", reason: "DUPLICATE", note: "row 14" }, 10, "A. Bello", AT);
+    const out = withDecision(
+      [],
+      { row: 3, decision: "DROP", reason: "DUPLICATE", note: "row 14" },
+      10,
+      "A. Bello",
+      AT,
+    );
     expect(out).toEqual([
       { row: 3, decision: "DROP", reason: "DUPLICATE", note: "row 14", by: "A. Bello", at: AT },
     ]);
@@ -43,7 +49,13 @@ describe("setting a decision", () => {
 
   it("replaces an earlier decision on the same row", () => {
     const first = withDecision([], { row: 2, decision: "STEP_DOWN" }, 10, "A", AT);
-    const second = withDecision(first, { row: 2, decision: "DROP", reason: "NOT_AN_AEFI" }, 10, "B", AT);
+    const second = withDecision(
+      first,
+      { row: 2, decision: "DROP", reason: "NOT_AN_AEFI" },
+      10,
+      "B",
+      AT,
+    );
     expect(second).toHaveLength(1);
     expect(second[0]).toMatchObject({ decision: "DROP", reason: "NOT_AN_AEFI", by: "B" });
   });
@@ -66,7 +78,13 @@ describe("setting a decision", () => {
   });
 
   it("trims the note it stores", () => {
-    const out = withDecision([], { row: 1, decision: "DROP", reason: "OTHER", note: "  test entry  " }, 10, "A", AT);
+    const out = withDecision(
+      [],
+      { row: 1, decision: "DROP", reason: "OTHER", note: "  test entry  " },
+      10,
+      "A",
+      AT,
+    );
     expect(out[0]!.note).toBe("test entry");
   });
 
@@ -110,7 +128,12 @@ describe("what a decision excludes", () => {
   it("always keeps a file-level issue, even when every case is decided", () => {
     // A wrong source form blocks the whole file; dropping cases does not
     // make it go away.
-    const all: LineListDecision[] = [1, 2].map((row) => ({ row, decision: "STEP_DOWN", by: "A", at: AT }));
+    const all: LineListDecision[] = [1, 2].map((row) => ({
+      row,
+      decision: "STEP_DOWN",
+      by: "A",
+      at: AT,
+    }));
     expect(keptOnly([issue(0), issue(1), issue(2)], all).map((i) => i.row)).toEqual([0]);
   });
 
@@ -122,7 +145,14 @@ describe("what a decision excludes", () => {
 describe("describing decisions", () => {
   it("says dropped with the reason and the note", () => {
     expect(
-      describeDecision({ row: 2, decision: "DROP", reason: "DUPLICATE", note: "row 14", by: "A", at: AT }),
+      describeDecision({
+        row: 2,
+        decision: "DROP",
+        reason: "DUPLICATE",
+        note: "row 14",
+        by: "A",
+        at: AT,
+      }),
     ).toBe("DROPPED — Duplicate: row 14");
   });
 
@@ -163,7 +193,10 @@ describe("filtering the issues table", () => {
   });
 
   it("ALL puts decided rows after the kept ones", () => {
-    expect(rowsOf(issuesForFilter(all, decisions, "ALL"))).toEqual({ kept: [0, 1], decided: [2, 3] });
+    expect(rowsOf(issuesForFilter(all, decisions, "ALL"))).toEqual({
+      kept: [0, 1],
+      decided: [2, 3],
+    });
   });
 
   it("KEPT, DROPPED and HELD show only their own rows", () => {
@@ -208,7 +241,11 @@ describe("leaving decided cases out of the XML", () => {
   });
 
   it("returns everything when nothing is decided", () => {
-    expect(excludeDecidedCases(["c1"], undefined, 1)).toEqual({ included: ["c1"], dropped: 0, held: 0 });
+    expect(excludeDecidedCases(["c1"], undefined, 1)).toEqual({
+      included: ["c1"],
+      dropped: 0,
+      held: 0,
+    });
   });
 
   // Review Focus 1.

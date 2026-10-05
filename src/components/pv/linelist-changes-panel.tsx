@@ -31,7 +31,9 @@ export function LineListChangesPanel({
     try {
       if (action === "undo") await linelistApi.undoChange(job.id, id);
       else await linelistApi.reapplyChange(job.id, id);
-      toast.success(action === "undo" ? "Change undone — the cell is yours now." : "Change re-applied.");
+      toast.success(
+        action === "undo" ? "Change undone — the cell is yours now." : "Change re-applied.",
+      );
       onChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not update that change.");
@@ -68,7 +70,9 @@ export function LineListChangesPanel({
                   <td className="mono-num whitespace-nowrap px-3 py-2">{where.caseId ?? "—"}</td>
                   <td className="mono-num px-3 py-2">{entry.column}</td>
                   <td className="px-3 py-2">
-                    <span className="text-muted-foreground line-through">{entry.oldValue || "(blank)"}</span>
+                    <span className="text-muted-foreground line-through">
+                      {entry.oldValue || "(blank)"}
+                    </span>
                     {" → "}
                     <span>{entry.newValue || "(blank)"}</span>
                   </td>

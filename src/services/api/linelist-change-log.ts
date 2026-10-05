@@ -110,7 +110,10 @@ export function markUndone(
 ): { log: LineListChange[]; cell: { row: number; column: string; value: string } } {
   const entry = newestEntryOrThrow(log, id);
   if (stateOf(entry) !== "applied") throw new Error("That change is already undone.");
-  const updated: LineListChange = { ...entry, events: [...entry.events, { kind: "undone", by, at }] };
+  const updated: LineListChange = {
+    ...entry,
+    events: [...entry.events, { kind: "undone", by, at }],
+  };
   return {
     log: log.map((e) => (e.id === id ? updated : e)),
     cell: { row: entry.row, column: entry.column, value: entry.oldValue },

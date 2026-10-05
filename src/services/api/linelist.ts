@@ -2808,143 +2808,145 @@ export const linelist = {
     aiError?: string | undefined;
   }> =>
     inJobQueue(jobId, async () => {
-    const job = await readJob(jobId);
-    if (!job.parsedRows || !job.columns || !job.mapping) {
-      throw new Error(
-        "This job has no stored row data to fix (it predates AI-assisted line-list processing).",
-      );
-    }
-    const currentIssues = await linelist.issues(jobId);
-    // Dropped and held cases are not corrected (spec 5.1). A held case
-    // returned to Keep is picked up by the next run.
-    const allFixable = keptOnly(currentIssues, job.decisions).filter((i) => i.fixable);
-    const autoFixable = allFixable.filter((i) => i.source !== "ai" || i.confidence !== "LOW");
-    const needsReview = allFixable.filter((i) => i.source === "ai" && i.confidence === "LOW");
-    const needsReviewUnresolved = needsReview.map((i) => ({
-      row: i.row,
-      column: i.column,
-      reason:
-        "Low-confidence AI finding — requires human review before an automatic fix is applied.",
-    }));
+      const job = await readJob(jobId);
+      if (!job.parsedRows || !job.columns || !job.mapping) {
+        throw new Error(
+          "This job has no stored row data to fix (it predates AI-assisted line-list processing).",
+        );
+      }
+      const currentIssues = await linelist.issues(jobId);
+      // Dropped and held cases are not corrected (spec 5.1). A held case
+      // returned to Keep is picked up by the next run.
+      const allFixable = keptOnly(currentIssues, job.decisions).filter((i) => i.fixable);
+      const autoFixable = allFixable.filter((i) => i.source !== "ai" || i.confidence !== "LOW");
+      const needsReview = allFixable.filter((i) => i.source === "ai" && i.confidence === "LOW");
+      const needsReviewUnresolved = needsReview.map((i) => ({
+        row: i.row,
+        column: i.column,
+        reason:
+          "Low-confidence AI finding — requires human review before an automatic fix is applied.",
+      }));
 
-    if (autoFixable.length === 0) {
-      // Nothing to actually fix — the data hasn't changed, so there's
-      // nothing for a re-validation to usefully re-discover. Re-running it
-      // anyway used to just burn a full AI pass for no reason.
-      await saveJob({ ...job, lastFixUnresolved: needsReviewUnresolved });
-      return {
-        job,
-        issues: currentIssues,
-        correctionsApplied: 0,
-        unresolved: needsReviewUnresolved,
-        aiUsed: false,
-      };
-    }
+      if (autoFixable.length === 0) {
+        // Nothing to actually fix — the data hasn't changed, so there's
+        // nothing for a re-validation to usefully re-discover. Re-running it
+        // anyway used to just burn a full AI pass for no reason.
+        await saveJob({ ...job, lastFixUnresolved: needsReviewUnresolved });
+        return {
+          job,
+          issues: currentIssues,
+          correctionsApplied: 0,
+          unresolved: needsReviewUnresolved,
+          aiUsed: false,
+        };
+      }
 
-    const fixRows = (job.rawRows ?? job.parsedRows) as Record<string, string>[];
-    const deterministicRecovery = keptOnly(buildRecoveryCorrections(job), job.decisions);
-    const fixResult = await ai.linelist.fix({
-      headers: job.columns,
-      mapping: job.mapping,
-      rows: fixRows,
-      issues: autoFixable,
-    });
-    const combinedUnresolved = [...fixResult.unresolved, ...needsReviewUnresolved];
+      const fixRows = (job.rawRows ?? job.parsedRows) as Record<string, string>[];
+      const deterministicRecovery = keptOnly(buildRecoveryCorrections(job), job.decisions);
+      const fixResult = await ai.linelist.fix({
+        headers: job.columns,
+        mapping: job.mapping,
+        rows: fixRows,
+        issues: autoFixable,
+      });
+      const combinedUnresolved = [...fixResult.unresolved, ...needsReviewUnresolved];
 
-    let updatedJob: LineListJobRow;
-    const recoveredCorrections = deterministicRecovery.map((c) => ({
-      row: c.row,
-      column: c.column,
-      new_value: c.new_value,
-      reason: c.reason,
-    }));
-    const corrections = safeCorrections(
-      [...recoveredCorrections, ...(fixResult.ai_used ? fixResult.corrections : [])],
-      [
-        ...autoFixable.map((i) => ({ row: i.row, column: i.column })),
-        ...recoveredCorrections.map((c) => ({ row: c.row, column: c.column })),
-      ],
-      job.mapping,
-    );
-    // Every correction is recorded with the value it replaced, so it can be
-    // shown, undone and audited. A cell a person has taken over is skipped
-    // (appendCorrections), and so is a correction that changes nothing.
-    const recoveredKeys = new Set(recoveredCorrections.map((c) => `${c.row}:${c.column}`));
-    const cellRows = {
-      rawRows: job.rawRows ? [...job.rawRows] : undefined,
-      parsedRows: [...job.parsedRows] as Record<string, string | undefined>[],
-      mapping: job.mapping as Record<string, string>,
-    };
-    const { log: changeLog, applied } = appendCorrections(
-      job.changeLog ?? [],
-      corrections.map((c) => ({
+      let updatedJob: LineListJobRow;
+      const recoveredCorrections = deterministicRecovery.map((c) => ({
         row: c.row,
         column: c.column,
-        newValue: c.new_value,
+        new_value: c.new_value,
         reason: c.reason,
-        source: recoveredKeys.has(`${c.row}:${c.column}`) ? ("recovery" as const) : ("ai" as const),
-      })),
-      (row, column) => readCell(cellRows, row, column),
-      new Date().toISOString(),
-      () => newId("llc"),
-    );
-    for (const change of applied) writeCell(cellRows, change.row, change.column, change.newValue);
-    if (applied.length > 0) {
-      updatedJob = {
-        ...job,
-        parsedRows: cellRows.parsedRows as ParsedRow[],
-        ...(cellRows.rawRows ? { rawRows: cellRows.rawRows } : {}),
-        fixedAt: new Date().toISOString(),
-        changeLog,
-        lastFixUnresolved: combinedUnresolved,
+      }));
+      const corrections = safeCorrections(
+        [...recoveredCorrections, ...(fixResult.ai_used ? fixResult.corrections : [])],
+        [
+          ...autoFixable.map((i) => ({ row: i.row, column: i.column })),
+          ...recoveredCorrections.map((c) => ({ row: c.row, column: c.column })),
+        ],
+        job.mapping,
+      );
+      // Every correction is recorded with the value it replaced, so it can be
+      // shown, undone and audited. A cell a person has taken over is skipped
+      // (appendCorrections), and so is a correction that changes nothing.
+      const recoveredKeys = new Set(recoveredCorrections.map((c) => `${c.row}:${c.column}`));
+      const cellRows = {
+        rawRows: job.rawRows ? [...job.rawRows] : undefined,
+        parsedRows: [...job.parsedRows] as Record<string, string | undefined>[],
+        mapping: job.mapping as Record<string, string>,
       };
-      await saveJob(updatedJob);
-      await recordAudit({
-        action: "LINELIST_AI_FIX_APPLIED",
-        entity: "LineListJob",
-        entityId: jobId,
-        newValue: `${applied.length} field(s) corrected, ${combinedUnresolved.length} left unresolved`,
-        reason: `Prompt ${fixResult.prompt_version}`,
+      const { log: changeLog, applied } = appendCorrections(
+        job.changeLog ?? [],
+        corrections.map((c) => ({
+          row: c.row,
+          column: c.column,
+          newValue: c.new_value,
+          reason: c.reason,
+          source: recoveredKeys.has(`${c.row}:${c.column}`)
+            ? ("recovery" as const)
+            : ("ai" as const),
+        })),
+        (row, column) => readCell(cellRows, row, column),
+        new Date().toISOString(),
+        () => newId("llc"),
+      );
+      for (const change of applied) writeCell(cellRows, change.row, change.column, change.newValue);
+      if (applied.length > 0) {
+        updatedJob = {
+          ...job,
+          parsedRows: cellRows.parsedRows as ParsedRow[],
+          ...(cellRows.rawRows ? { rawRows: cellRows.rawRows } : {}),
+          fixedAt: new Date().toISOString(),
+          changeLog,
+          lastFixUnresolved: combinedUnresolved,
+        };
+        await saveJob(updatedJob);
+        await recordAudit({
+          action: "LINELIST_AI_FIX_APPLIED",
+          entity: "LineListJob",
+          entityId: jobId,
+          newValue: `${applied.length} field(s) corrected, ${combinedUnresolved.length} left unresolved`,
+          reason: `Prompt ${fixResult.prompt_version}`,
+        });
+      } else {
+        updatedJob = { ...job, lastFixUnresolved: combinedUnresolved };
+        await saveJob(updatedJob);
+      }
+
+      // Reconcile instead of re-running full AI analysis: drop exactly the
+      // issues this pass actually corrected (matched by row+column against
+      // the fix response) and keep every other previously-detected issue —
+      // AI or rule — untouched. A full fresh AI scan here used to be what
+      // made "Fix Issues" both slow (a second complete multi-chunk AI pass
+      // stacked on top of the fix call itself) and unpredictable (the count
+      // could go up as well as down between runs, since a fresh LLM scan of
+      // the whole file is never guaranteed to reproduce its own prior
+      // findings — pure model non-determinism, not an actual change in the
+      // data). Only the fast, fully deterministic rule engine re-runs here;
+      // a complete AI re-scan only ever happens from an explicit "Re-run
+      // validation" click.
+      // Only what was actually applied resolves an issue: a skipped held cell
+      // keeps its finding.
+      const correctedKeys = new Set(applied.map((c) => `${c.row}:${c.column}`));
+      const remainingPriorAiIssues = currentIssues.filter(
+        (i) => i.source === "ai" && !correctedKeys.has(`${i.row}:${i.column}`),
+      );
+      const finalIssues = mergeFindings(
+        await computeDeterministicIssues(updatedJob),
+        remainingPriorAiIssues,
+      );
+      const next = await storeIssues(updatedJob, finalIssues, {
+        validatedAt: new Date().toISOString(),
       });
-    } else {
-      updatedJob = { ...job, lastFixUnresolved: combinedUnresolved };
-      await saveJob(updatedJob);
-    }
 
-    // Reconcile instead of re-running full AI analysis: drop exactly the
-    // issues this pass actually corrected (matched by row+column against
-    // the fix response) and keep every other previously-detected issue —
-    // AI or rule — untouched. A full fresh AI scan here used to be what
-    // made "Fix Issues" both slow (a second complete multi-chunk AI pass
-    // stacked on top of the fix call itself) and unpredictable (the count
-    // could go up as well as down between runs, since a fresh LLM scan of
-    // the whole file is never guaranteed to reproduce its own prior
-    // findings — pure model non-determinism, not an actual change in the
-    // data). Only the fast, fully deterministic rule engine re-runs here;
-    // a complete AI re-scan only ever happens from an explicit "Re-run
-    // validation" click.
-    // Only what was actually applied resolves an issue: a skipped held cell
-    // keeps its finding.
-    const correctedKeys = new Set(applied.map((c) => `${c.row}:${c.column}`));
-    const remainingPriorAiIssues = currentIssues.filter(
-      (i) => i.source === "ai" && !correctedKeys.has(`${i.row}:${i.column}`),
-    );
-    const finalIssues = mergeFindings(
-      await computeDeterministicIssues(updatedJob),
-      remainingPriorAiIssues,
-    );
-    const next = await storeIssues(updatedJob, finalIssues, {
-      validatedAt: new Date().toISOString(),
-    });
-
-    return {
-      job: next,
-      issues: finalIssues,
-      correctionsApplied: applied.length,
-      unresolved: combinedUnresolved,
-      aiUsed: fixResult.ai_used,
-      aiError: fixResult.error ?? undefined,
-    };
+      return {
+        job: next,
+        issues: finalIssues,
+        correctionsApplied: applied.length,
+        unresolved: combinedUnresolved,
+        aiUsed: fixResult.ai_used,
+        aiError: fixResult.error ?? undefined,
+      };
     }),
 
   /** Drop or step down one case. Recounts without re-validating: a
@@ -2994,7 +2996,12 @@ export const linelist = {
     inJobQueue(jobId, async () => {
       const job = await readJob(jobId);
       const actor = currentActor();
-      const { log, cell } = markUndone(job.changeLog ?? [], changeId, actor.name, new Date().toISOString());
+      const { log, cell } = markUndone(
+        job.changeLog ?? [],
+        changeId,
+        actor.name,
+        new Date().toISOString(),
+      );
       const entry = log.find((e) => e.id === changeId)!;
       return restoreCell(job, log, cell, {
         action: "LINELIST_CHANGE_UNDONE",
@@ -3254,7 +3261,9 @@ export const linelist = {
       lines.push(`CASE DECISIONS — ${dropped} dropped, ${held} held (left out of the E2B(R3) XML)`);
       lines.push(rule);
       for (const d of [...job.decisions!].sort((a, b) => a.row - b.row)) {
-        lines.push(`${rowLabel(job, d.row)}: ${describeDecision(d)} — ${d.by}, ${d.at.slice(0, 10)}`);
+        lines.push(
+          `${rowLabel(job, d.row)}: ${describeDecision(d)} — ${d.by}, ${d.at.slice(0, 10)}`,
+        );
       }
       lines.push("");
     }

@@ -35,13 +35,7 @@ function proposal(overrides: Partial<ProposedCorrection> = {}): ProposedCorrecti
 
 describe("appending corrections", () => {
   it("records the value it replaced", () => {
-    const { log, applied } = appendCorrections(
-      [],
-      [proposal()],
-      () => "recoverd",
-      AT,
-      idFactory(),
-    );
+    const { log, applied } = appendCorrections([], [proposal()], () => "recoverd", AT, idFactory());
     expect(applied).toHaveLength(1);
     expect(log[0]).toMatchObject({
       id: "llc-1",
@@ -64,7 +58,13 @@ describe("appending corrections", () => {
   it("never touches a cell a person has taken over", () => {
     const first = appendCorrections([], [proposal()], () => "recoverd", AT, idFactory());
     const { log: undone } = markUndone(first.log, "llc-1", "A. Bello", AT);
-    const again = appendCorrections(undone, [proposal({ newValue: "Recovered" })], () => "recoverd", AT, idFactory());
+    const again = appendCorrections(
+      undone,
+      [proposal({ newValue: "Recovered" })],
+      () => "recoverd",
+      AT,
+      idFactory(),
+    );
     expect(again.applied).toEqual([]);
     expect(again.log).toHaveLength(1);
   });
@@ -224,7 +224,10 @@ describe("reading and writing a cell", () => {
   });
 
   it("falls back to parsedRows through the mapping when there is no raw row", () => {
-    const r = { parsedRows: [{ outcome: "2" }] as Record<string, string | undefined>[], mapping: { Outcome: "outcome" } };
+    const r = {
+      parsedRows: [{ outcome: "2" }] as Record<string, string | undefined>[],
+      mapping: { Outcome: "outcome" },
+    };
     expect(readCell(r, 1, "Outcome")).toBe("2");
   });
 

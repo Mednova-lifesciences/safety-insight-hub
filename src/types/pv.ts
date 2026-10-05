@@ -1309,14 +1309,7 @@ export interface PsurV4SectionAnswers {
 }
 
 /** The rows of Section 1's table other than the therapeutic indication. */
-export type V4Section1Row =
-  | "dateOfReview"
-  | "product"
-  | "mah"
-  | "regNo"
-  | "period"
-  | "ibd"
-  | "nbd";
+export type V4Section1Row = "dateOfReview" | "product" | "mah" | "regNo" | "period" | "ibd" | "nbd";
 
 /** Section 3: "Disease | Mortality | Severity". */
 export interface V4DiseaseRow {

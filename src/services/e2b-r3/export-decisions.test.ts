@@ -63,7 +63,10 @@ describe("dropping a case leaves every other case's ID where it was", () => {
     );
 
     expect({ dropped, held }).toEqual({ dropped: 1, held: 1 });
-    expect(included.map((c) => [c.internalCaseId, c.sendersCaseId])).toEqual([before[1], before[3]]);
+    expect(included.map((c) => [c.internalCaseId, c.sendersCaseId])).toEqual([
+      before[1],
+      before[3],
+    ]);
   });
 
   it("would have renumbered them had rows been removed first — the trap this avoids", async () => {

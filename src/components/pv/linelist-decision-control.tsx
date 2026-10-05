@@ -92,14 +92,22 @@ export function LineListDecisionControl({
       )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={busy} aria-label="Decide this case">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0"
+            disabled={busy}
+            aria-label="Decide this case"
+          >
             <MoreHorizontal className="size-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {current ? (
             <DropdownMenuItem
-              onSelect={() => void run(() => linelistApi.keepCase(job.id, row), "Case returned to Keep.")}
+              onSelect={() =>
+                void run(() => linelistApi.keepCase(job.id, row), "Case returned to Keep.")
+              }
             >
               Keep
             </DropdownMenuItem>
