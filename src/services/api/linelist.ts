@@ -329,7 +329,6 @@ interface LineListJobRow extends LineListJob {
    *  executive summary always reflects the job's real current state
    *  rather than a stale pre-fix snapshot. Present (possibly empty) once
    *  fixIssues() has run at least once. */
-  lastFixCorrections?: { row: number; column: string; new_value: string; reason: string }[];
   lastFixUnresolved?: { row: number; column: string; reason: string }[];
 }
 
@@ -3349,8 +3348,10 @@ export const linelist = {
     }
 
     const logged = job.changeLog ?? [];
-    // Jobs fixed before the change log existed still show what was recorded.
-    const legacyCorrections = job.changeLog ? [] : (job.lastFixCorrections ?? []);
+    // Corrections recorded before the change log existed are always shown,
+    // read-only, after the logged ones (spec 4.3) — even once a later Fix
+    // has started a change log on the same job.
+    const legacyCorrections = job.lastFixCorrections ?? [];
     if (job.changeLog || job.lastFixCorrections || job.lastFixUnresolved) {
       lines.push(
         `RUN FULL FIX${job.fixedAt ? ` — last applied ${job.fixedAt.slice(0, 16).replace("T", " ")} UTC` : ""}`,
@@ -3369,7 +3370,7 @@ export const linelist = {
       }
       for (const c of legacyCorrections) {
         lines.push(
-          `CORRECTED — ${rowLabel(job, c.row)}, ${c.column}: "${c.new_value}" (${c.reason})`,
+          `CORRECTED (before change tracking) — ${rowLabel(job, c.row)}, ${c.column}: "${c.new_value}" (${c.reason})`,
         );
       }
       for (const c of undone) {

@@ -440,6 +440,10 @@ export interface LineListJob {
    *  recent run and never the old value. Absent until Fix first changes a
    *  cell. */
   changeLog?: LineListChange[] | undefined;
+  /** What Fix recorded before the change log existed: new values only, no
+   *  old value, so shown read-only without Undo (spec 4.3). */
+  lastFixCorrections?:
+    { row: number; column: string; new_value: string; reason: string }[] | undefined;
   /** The current Drop / Step down decision per case. No entry means Keep.
    *  History lives in the audit trail. */
   decisions?: LineListDecision[] | undefined;
