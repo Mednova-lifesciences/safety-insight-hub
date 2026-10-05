@@ -40,6 +40,16 @@ export function isCellHeld(log: LineListChange[], row: number, column: string): 
   return !!newest && stateOf(newest) === "undone";
 }
 
+/** The items whose cell no person holds — what Fix may still touch and
+ *  what the Fix count may show. */
+export function notHeld<T extends { row: number; column: string }>(
+  items: T[],
+  log: LineListChange[] | undefined,
+): T[] {
+  if (!log || log.length === 0) return items;
+  return items.filter((i) => !isCellHeld(log, i.row, i.column));
+}
+
 export interface ProposedCorrection {
   row: number;
   column: string;

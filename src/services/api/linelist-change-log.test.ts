@@ -7,6 +7,7 @@ import {
   markReapplied,
   markUndone,
   newestFor,
+  notHeld,
   panelEntries,
   readCell,
   stateOf,
@@ -365,5 +366,29 @@ describe("reading and writing a cell", () => {
     writeCell(r, 1, "Remarks", "checked");
     expect(r.rawRows![0]!.Remarks).toBe("checked");
     expect(r.parsedRows[0]).toEqual({ outcome: "recoverd" });
+  });
+});
+
+describe("leaving held cells out", () => {
+  it("drops items whose cell a person holds, keeps the rest", () => {
+    const { log } = appendCorrections(
+      [],
+      [proposal(), proposal({ row: 2 })],
+      () => "x",
+      AT,
+      idFactory(),
+    );
+    const held = markUndone(log, "llc-1", "A", AT).log;
+    const items = [
+      { row: 1, column: "Outcome", code: "a" },
+      { row: 2, column: "Outcome", code: "b" },
+      { row: 3, column: "Age", code: "c" },
+    ];
+    expect(notHeld(items, held).map((i) => i.code)).toEqual(["b", "c"]);
+  });
+
+  it("keeps everything when there is no log", () => {
+    const items = [{ row: 1, column: "Outcome" }];
+    expect(notHeld(items, undefined)).toEqual(items);
   });
 });

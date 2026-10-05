@@ -39,6 +39,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { LineListDecisionControl } from "@/components/pv/linelist-decision-control";
 import { LineListChangesPanel } from "@/components/pv/linelist-changes-panel";
+import { notHeld } from "@/services/api/linelist-change-log";
 import {
   decidedRowsWithoutIssues,
   decisionCounts,
@@ -340,9 +341,11 @@ function LineListPage() {
                 <QueryBoundary query={issues}>
                   {(rows) => {
                     if (!AUTO_FIX_ENABLED) return null;
-                    // Dropped and held cases are not fixed (spec 5.1).
-                    const fixableCount = keptOnly(rows, activeJob.decisions).filter(
-                      (i) => i.fixable,
+                    // Dropped and held cases are not fixed (spec 5.1), and
+                    // neither is a cell a person took over with Undo.
+                    const fixableCount = notHeld(
+                      keptOnly(rows, activeJob.decisions).filter((i) => i.fixable),
+                      activeJob.changeLog,
                     ).length;
                     if (fixableCount === 0) return null;
                     return (

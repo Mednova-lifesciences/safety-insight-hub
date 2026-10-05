@@ -7,8 +7,10 @@ import { discoverAndApplyCodebook, mapJobToCases } from "@/services/e2b-r3/expor
 import { generateRecoveryProposal } from "./linelist-recovery";
 import {
   appendCorrections,
+  isCellHeld,
   markReapplied,
   markUndone,
+  notHeld,
   readCell,
   stateOf,
   writeCell,
@@ -2282,6 +2284,22 @@ type RecoveryCorrection = {
   group: string;
 };
 
+const HELD_CELL_REASON =
+  "Kept by a person — Fix leaves this cell alone (Re-apply to hand it back).";
+
+/** One {row, column} per distinct cell, first occurrence order. */
+function uniqueCells(items: { row: number; column: string }[]): { row: number; column: string }[] {
+  const seen = new Set<string>();
+  const out: { row: number; column: string }[] = [];
+  for (const i of items) {
+    const key = `${i.row}:${i.column}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ row: i.row, column: i.column });
+  }
+  return out;
+}
+
 function buildRecoveryCorrections(job: LineListJobRow): RecoveryCorrection[] {
   const rows = job.rawRows ?? job.parsedRows ?? [];
   const mapping = job.mapping ?? {};
@@ -2884,15 +2902,24 @@ export const linelist = {
       const currentIssues = await linelist.issues(jobId);
       // Dropped and held cases are not corrected (spec 5.1). A held case
       // returned to Keep is picked up by the next run.
-      const allFixable = keptOnly(currentIssues, job.decisions).filter((i) => i.fixable);
+      const keptFixable = keptOnly(currentIssues, job.decisions).filter((i) => i.fixable);
+      // A cell a person took over with Undo is never sent to the AI fix call
+      // nor counted: it is reported instead, so the count can reach zero.
+      const allFixable = notHeld(keptFixable, job.changeLog);
+      const heldUnresolved = uniqueCells(
+        keptFixable.filter((i) => isCellHeld(job.changeLog ?? [], i.row, i.column)),
+      ).map((c) => ({ ...c, reason: HELD_CELL_REASON }));
       const autoFixable = allFixable.filter((i) => i.source !== "ai" || i.confidence !== "LOW");
       const needsReview = allFixable.filter((i) => i.source === "ai" && i.confidence === "LOW");
-      const needsReviewUnresolved = needsReview.map((i) => ({
-        row: i.row,
-        column: i.column,
-        reason:
-          "Low-confidence AI finding — requires human review before an automatic fix is applied.",
-      }));
+      const needsReviewUnresolved = [
+        ...needsReview.map((i) => ({
+          row: i.row,
+          column: i.column,
+          reason:
+            "Low-confidence AI finding — requires human review before an automatic fix is applied.",
+        })),
+        ...heldUnresolved,
+      ];
 
       if (autoFixable.length === 0) {
         // Nothing to actually fix — the data hasn't changed, so there's
@@ -2916,8 +2943,6 @@ export const linelist = {
         rows: fixRows,
         issues: autoFixable,
       });
-      const combinedUnresolved = [...fixResult.unresolved, ...needsReviewUnresolved];
-
       let updatedJob: LineListJobRow;
       // Group ids are unique to this run, so a move made by a later Fix on
       // the same row never joins an earlier move.
@@ -2969,6 +2994,41 @@ export const linelist = {
         () => newId("llc"),
       );
       for (const change of applied) writeCell(cellRows, change.row, change.column, change.newValue);
+      // A proposal that did not become a change is reported, never silently
+      // dropped: a held cell (already reported above), a move that touches a
+      // held cell, or a value equal to what the cell already holds.
+      const appliedKeys = new Set(applied.map((c) => `${c.row}:${c.column}`));
+      const reportedKeys = new Set(
+        [...fixResult.unresolved, ...needsReviewUnresolved].map((u) => `${u.row}:${u.column}`),
+      );
+      const blockedGroups = new Set(
+        corrections
+          .filter((c) => c.group && isCellHeld(job.changeLog ?? [], c.row, c.column))
+          .map((c) => c.group),
+      );
+      const skippedUnresolved = uniqueCells(
+        corrections.filter(
+          (c) =>
+            !appliedKeys.has(`${c.row}:${c.column}`) &&
+            !reportedKeys.has(`${c.row}:${c.column}`) &&
+            !isCellHeld(job.changeLog ?? [], c.row, c.column),
+        ),
+      ).map((c) => {
+        const inBlockedMove = corrections.some(
+          (m) => m.row === c.row && m.column === c.column && m.group && blockedGroups.has(m.group),
+        );
+        return {
+          ...c,
+          reason: inBlockedMove
+            ? "Part of a move that includes a cell kept by a person — Fix leaves the whole move alone."
+            : "The AI proposed no change for this cell.",
+        };
+      });
+      const combinedUnresolved = [
+        ...fixResult.unresolved,
+        ...needsReviewUnresolved,
+        ...skippedUnresolved,
+      ];
       if (applied.length > 0) {
         updatedJob = {
           ...job,
