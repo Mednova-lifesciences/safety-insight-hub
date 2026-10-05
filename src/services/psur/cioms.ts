@@ -34,6 +34,21 @@ export function rowTotal(row: CiomsScoreRow): number | undefined {
  * side and compares them; a matrix with one column missing invites a
  * comparison against a blank.
  */
+/**
+ * True when nobody has entered a score yet.
+ *
+ * Every cell zero and no reaction listed is the shape of a default,
+ * untouched matrix — not a finding. It matters because 0 is a legitimate
+ * score for a single cell (the supplied memo scores Effectiveness ->
+ * Incidence as 0), so zero alone cannot mean "unscored"; only zero
+ * everywhere with nothing to compare can.
+ */
+export function isUnscored(m: CiomsMatrix): boolean {
+  const rows = [m.epidemiologyOfDisease, m.effectivenessOfProduct];
+  const allZero = rows.every((r) => r.seriousness === 0 && r.duration === 0 && r.incidence === 0);
+  return allZero && m.adrs.length === 0;
+}
+
 export function matrixTotals(
   m: CiomsMatrix,
 ): { epidemiology: number; effectiveness: number; adrs: number[] } | undefined {

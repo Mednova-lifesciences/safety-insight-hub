@@ -136,3 +136,26 @@ describe("the rendered memo", () => {
     expect(out).toContain("Not assessed");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Review finding I1: a confirmed judgement must never be dropped because
+// its free-text prose happens to be empty.
+// ---------------------------------------------------------------------------
+
+describe("a confirmed judgement always reaches the document (finding I1)", () => {
+  it("prints the benefit-risk verdict even with no conclusion prose", () => {
+    const out = renderAssessmentMemoText(model({ conclusion: "" }));
+    expect(out).toContain("CONCLUSION");
+    expect(out).toContain("Positive Benefit-Risk Balance");
+  });
+
+  it("prints the band even with no analysis prose", () => {
+    const out = renderAssessmentMemoText(model({ analysisOfMatrix: "" }));
+    expect(out.toLowerCase()).toContain("medium efficacy score");
+  });
+
+  it("still omits the conclusion section when the assessor confirmed nothing", () => {
+    const out = renderAssessmentMemoText(model({ conclusion: "", benefitRiskVerdict: "" }));
+    expect(out).not.toContain("CONCLUSION");
+  });
+});

@@ -3750,11 +3750,15 @@ export function renderAssessmentMemoText(m: AssessmentMemoModel): string {
     lines.push("");
   }
 
-  if (m.conclusion) {
+  // Gated on EITHER field. An assessor who confirms the benefit-risk
+  // verdict but leaves the prose blank has still made the judgement the
+  // whole memo exists to record; dropping the section because the optional
+  // paragraph is empty would silently omit it from a signed document.
+  if (m.conclusion || m.benefitRiskVerdict) {
     lines.push("CONCLUSION");
     lines.push(thin);
     if (m.benefitRiskVerdict) lines.push(m.benefitRiskVerdict);
-    lines.push(m.conclusion);
+    if (m.conclusion) lines.push(m.conclusion);
     lines.push("");
   }
 
@@ -4042,14 +4046,16 @@ export function buildAssessmentMemoDocx(m: AssessmentMemoModel): Document {
                 ),
               ]
             : []),
-          ...(m.conclusion
+          ...(m.conclusion || m.benefitRiskVerdict
             ? [
                 memoPara("", { after: 120 }),
                 memoPara("Conclusion", { bold: true }),
                 memoPara(
-                  m.benefitRiskVerdict && !m.conclusion.includes(m.benefitRiskVerdict)
-                    ? `${m.benefitRiskVerdict}. ${m.conclusion}`
-                    : m.conclusion,
+                  !m.conclusion
+                    ? m.benefitRiskVerdict
+                    : m.benefitRiskVerdict && !m.conclusion.includes(m.benefitRiskVerdict)
+                      ? `${m.benefitRiskVerdict}. ${m.conclusion}`
+                      : m.conclusion,
                 ),
               ]
             : []),

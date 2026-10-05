@@ -30,12 +30,23 @@ export function isAccepted(e: EvidenceEntry): boolean {
  * store.
  */
 export function renderableEvidence(entries: EvidenceEntry[]): EvidenceEntry[] {
+  // Decide what is renderable FIRST, then let only those entries supersede.
+  //
+  // Doing it the other way round loses evidence: a draft correction nobody
+  // accepted (or one left uncited, or since withdrawn) would retire the
+  // figure the assessor actually accepted, while being unrenderable itself
+  // — so the criterion would read "not assessed" when NAFDAC holds
+  // accepted, cited evidence for it. The memo would deny its own record.
+  const live = entries.filter((e) => !e.withdrawnBy && isCited(e) && isAccepted(e));
   const superseded = new Set(
-    entries.map((e) => e.supersedes).filter((id): id is string => !!id),
+    live
+      // An entry pointing at itself supersedes nothing; honouring it would
+      // delete the entry on the strength of its own pointer.
+      .filter((e) => e.supersedes !== e.id)
+      .map((e) => e.supersedes)
+      .filter((id): id is string => !!id),
   );
-  return entries.filter(
-    (e) => !superseded.has(e.id) && !e.withdrawnBy && isCited(e) && isAccepted(e),
-  );
+  return live.filter((e) => !superseded.has(e.id));
 }
 
 /**
