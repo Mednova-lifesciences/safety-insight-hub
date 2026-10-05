@@ -3143,22 +3143,24 @@ export const linelist = {
   downloadExecutiveSummary: async (jobId: string): Promise<void> => {
     const job = await readJob(jobId);
     const issues = await linelist.issues(jobId);
+    // Dropped and held cases are not counted (spec 5.4); their decisions are listed in CASE DECISIONS.
+    const counted = keptOnly(issues, job.decisions);
 
     const bySeverity = {
-      CRITICAL: issues.filter((i) => i.severity === "CRITICAL").length,
-      HIGH: issues.filter((i) => i.severity === "HIGH").length,
-      MEDIUM: issues.filter((i) => i.severity === "MEDIUM").length,
-      LOW: issues.filter((i) => i.severity === "LOW").length,
+      CRITICAL: counted.filter((i) => i.severity === "CRITICAL").length,
+      HIGH: counted.filter((i) => i.severity === "HIGH").length,
+      MEDIUM: counted.filter((i) => i.severity === "MEDIUM").length,
+      LOW: counted.filter((i) => i.severity === "LOW").length,
     };
 
     const byCode = new Map<string, LineListIssue[]>();
-    for (const issue of issues) {
+    for (const issue of counted) {
       const list = byCode.get(issue.code) ?? [];
       list.push(issue);
       byCode.set(issue.code, list);
     }
     const codeGroups = [...byCode.entries()].sort((a, b) => b[1].length - a[1].length);
-    const duplicateGroups = issues.filter(
+    const duplicateGroups = counted.filter(
       (i) => i.code === "DUPLICATE_CASE_ID" || i.code === "CASE_ID_FORMAT_INCONSISTENT",
     );
 
@@ -3258,7 +3260,7 @@ export const linelist = {
     }
 
     // A dropped or held case is not going to VigiFlow, so it blocks nothing.
-    const e2bBlockers = keptOnly(issues, job.decisions).filter((i) => i.blocksE2b && i.row > 0);
+    const e2bBlockers = counted.filter((i) => i.blocksE2b && i.row > 0);
     const fileBlockers = issues.filter((i) => i.blocksE2b && i.row === 0);
     lines.push("E2B(R3) / VIGIFLOW READINESS");
     lines.push(rule);
