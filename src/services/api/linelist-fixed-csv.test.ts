@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildFixedCsv,
+  decisionsFromFixedFile,
   escapeCsvCell,
+  FIXED_FILE_ANNOTATION_COLUMNS,
   FIXED_FILE_COLUMNS,
+  isFixedFileAnnotationColumn,
   stillNeedsReviewFor,
 } from "./linelist-fixed-csv";
 import type { LineListChange, LineListDecision, LineListIssue } from "@/types/pv";
@@ -192,3 +195,84 @@ function parseCsv(text: string): string[][] {
   records.push(record);
   return records;
 }
+
+describe("re-uploading a fixed file", () => {
+  it("recognises the annotation columns, current and legacy, after trimming", () => {
+    for (const h of [...FIXED_FILE_COLUMNS, "Needs review", "Unresolved column(s)", " Decision "]) {
+      expect(isFixedFileAnnotationColumn(h)).toBe(true);
+    }
+    expect(FIXED_FILE_ANNOTATION_COLUMNS).toHaveLength(5);
+    expect(isFixedFileAnnotationColumn("Outcome")).toBe(false);
+    expect(isFixedFileAnnotationColumn("decision")).toBe(false);
+  });
+
+  const headers = ["ID", "Outcome", "Decision"];
+  const parse = (cells: string[]) =>
+    decisionsFromFixedFile(
+      headers,
+      cells.map((d, i) => [`NIE-${i + 1}`, "1", d]),
+      "A. Bello",
+      AT,
+    );
+
+  it("brings back each drop reason by its label", () => {
+    expect(
+      parse([
+        "DROPPED — Duplicate",
+        "DROPPED — Not an AEFI",
+        "DROPPED — insufficient information",
+        "DROPPED — Other: withdrawn by reporter",
+      ]),
+    ).toEqual([
+      { row: 1, decision: "DROP", reason: "DUPLICATE", by: "A. Bello", at: AT },
+      { row: 2, decision: "DROP", reason: "NOT_AN_AEFI", by: "A. Bello", at: AT },
+      { row: 3, decision: "DROP", reason: "INSUFFICIENT_INFORMATION", by: "A. Bello", at: AT },
+      {
+        row: 4,
+        decision: "DROP",
+        reason: "OTHER",
+        note: "withdrawn by reporter",
+        by: "A. Bello",
+        at: AT,
+      },
+    ]);
+  });
+
+  it("keeps a note written after the colon", () => {
+    expect(parse(["DROPPED — Duplicate: same as NIE-7"])[0]).toMatchObject({
+      reason: "DUPLICATE",
+      note: "same as NIE-7",
+    });
+  });
+
+  it("an unknown reason becomes Other with the whole text as the note", () => {
+    expect(parse(["DROPPED — Withdrawn: per sponsor"])[0]).toMatchObject({
+      reason: "OTHER",
+      note: "Withdrawn: per sponsor",
+    });
+  });
+
+  it("accepts a plain hyphen and a bare DROPPED", () => {
+    const [hyphen, bare] = parse(["DROPPED - Duplicate", "DROPPED"]);
+    expect(hyphen).toMatchObject({ row: 1, reason: "DUPLICATE" });
+    expect(bare).toMatchObject({ row: 2, decision: "DROP", reason: "OTHER" });
+    expect(bare!.note).toBeTruthy();
+  });
+
+  it("ignores rows that are not dropped", () => {
+    expect(parse(["", "HELD — stepped down", "kept", "DROPPEDX"])).toEqual([]);
+  });
+
+  it("returns nothing when the file has no Decision column", () => {
+    expect(decisionsFromFixedFile(["ID"], [["DROPPED — Duplicate"]], "A", AT)).toEqual([]);
+  });
+
+  it("does not duplicate annotation columns the input already has", () => {
+    const csv = buildFixedCsv(
+      input({
+        columns: ["ID", "Outcome", "Sex", ...FIXED_FILE_COLUMNS, "Needs review"],
+      }),
+    );
+    expect(linesOf(csv)[0]).toBe(["ID", "Outcome", "Sex", ...FIXED_FILE_COLUMNS].join(","));
+  });
+});

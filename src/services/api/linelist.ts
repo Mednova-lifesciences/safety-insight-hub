@@ -24,7 +24,11 @@ import {
   withoutDecision,
   type DecisionInput,
 } from "./linelist-decisions";
-import { buildFixedCsv } from "./linelist-fixed-csv";
+import {
+  buildFixedCsv,
+  decisionsFromFixedFile,
+  isFixedFileAnnotationColumn,
+} from "./linelist-fixed-csv";
 import { createKeyedQueue } from "./keyed-queue";
 import {
   checkCasesForE2b,
@@ -2501,9 +2505,18 @@ export const linelist = {
         sourceRowNumbers,
       } = await parseTabularFile(file);
       const rawRows = toRawRows(headers, rows);
+      // A re-uploaded fixed file carries this tool's own annotation columns
+      // (Changes made, Decision, ...). They are notes about the data, never
+      // data: neither mapper sees them, so they stay unmapped. They remain in
+      // rawRows and columns untouched (spec 6.4).
+      const dataHeaders = headers.filter((h) => !isFixedFileAnnotationColumn(h));
+      const mapperRows =
+        dataHeaders.length === headers.length
+          ? rawRows
+          : rawRows.map((r) => Object.fromEntries(dataHeaders.map((h) => [h, r[h] ?? ""])));
       // Keyword mapping first, always — it is the floor the AI pass is
       // merged onto and the whole mapping if that pass is unavailable.
-      const keywordMapping = mapColumns(headers);
+      const keywordMapping = mapColumns(dataHeaders);
       let proposals: {
         column: string;
         field?: string | null;
@@ -2517,8 +2530,11 @@ export const linelist = {
       // Two attempts is the whole budget — this sits in the upload path.
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const proposed = await ai.linelist.mapColumns({ headers, rows: rawRows });
-          proposals = proposed.proposals;
+          const proposed = await ai.linelist.mapColumns({
+            headers: dataHeaders,
+            rows: mapperRows,
+          });
+          proposals = proposed.proposals.filter((p) => !isFixedFileAnnotationColumn(p.column));
           aiMappingUsed = proposed.ai_used;
           break;
         } catch {
@@ -2529,9 +2545,17 @@ export const linelist = {
           aiMappingUsed = false;
         }
       }
-      const decision = mergeColumnMapping(keywordMapping, proposals, aiMappingUsed, headers);
+      const decision = mergeColumnMapping(keywordMapping, proposals, aiMappingUsed, dataHeaders);
       const mapping = decision.mapping;
       const parsedRows = toParsedRows(headers, rows, mapping);
+      // Cases dropped in the file stay dropped. In place before the job is
+      // first stored, so every count (and the first storeIssues) sees them.
+      const restoredDecisions = decisionsFromFixedFile(
+        headers,
+        rows,
+        actor.name,
+        new Date().toISOString(),
+      );
       job = {
         id: newId("ll"),
         filename: file.name,
@@ -2556,6 +2580,7 @@ export const linelist = {
         sheetName,
         headerRowNumber,
         sourceRowNumbers,
+        ...(restoredDecisions.length > 0 ? { decisions: restoredDecisions } : {}),
       };
     } catch (err) {
       job = {
@@ -2611,6 +2636,15 @@ export const linelist = {
       entityId: job.id,
       newValue: `${file.name} (${job.rows} rows, ${Object.keys(job.mapping ?? {}).length}/${TARGET_FIELDS.length} canonical columns matched, ${job.columns?.length ?? 0} total columns retained)${parseNote}`,
     });
+    for (const d of job.decisions ?? []) {
+      await recordAudit({
+        action: "LINELIST_CASE_DROPPED",
+        entity: "LineListJob",
+        entityId: job.id,
+        newValue: `${rowLabel(job, d.row)}: ${describeDecision(d)}`,
+        reason: "Restored from the Decision column of a re-uploaded fixed file",
+      });
+    }
     return job;
   },
 
