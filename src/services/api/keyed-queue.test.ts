@@ -36,6 +36,24 @@ describe("the keyed queue", () => {
     expect(order).toEqual(["job-2", "job-1"]);
   });
 
+  // The final review's Critical finding: re-validation read the whole job,
+  // spent seconds in the AI pass, then saved its stale copy back — undoing a
+  // drop made meanwhile. Queued on the same key, the drop runs after it.
+  it("a long read-modify-write cannot overwrite a change queued behind it", async () => {
+    const inQueue = createKeyedQueue();
+    let stored: { rows: number; decisions?: string[] } = { rows: 3 };
+    const validate = inQueue("job-1", async () => {
+      const stale = { ...stored };
+      await tick();
+      stored = { ...stale, rows: 4 };
+    });
+    const drop = inQueue("job-1", async () => {
+      stored = { ...stored, decisions: ["row 2 dropped"] };
+    });
+    await Promise.all([validate, drop]);
+    expect(stored).toEqual({ rows: 4, decisions: ["row 2 dropped"] });
+  });
+
   it("keeps going after a failure, and still reports the failure", async () => {
     const inQueue = createKeyedQueue();
     const failed = inQueue("job-1", async () => {
