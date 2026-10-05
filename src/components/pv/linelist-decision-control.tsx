@@ -47,14 +47,16 @@ export function LineListDecisionControl({
 
   if (row < 1) return <span className="text-xs text-muted-foreground">Whole file</span>;
 
-  const run = async (work: () => Promise<unknown>, done: string) => {
+  const run = async (work: () => Promise<unknown>, done: string): Promise<boolean> => {
     setBusy(true);
     try {
       await work();
       toast.success(done);
       onChanged();
+      return true;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save the decision.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -62,7 +64,7 @@ export function LineListDecisionControl({
 
   const confirmDrop = async () => {
     if (!reason) return;
-    await run(
+    const ok = await run(
       () =>
         linelistApi.decideCase(job.id, {
           row,
@@ -72,9 +74,11 @@ export function LineListDecisionControl({
         }),
       "Case dropped — it will not be in the XML.",
     );
-    setDropOpen(false);
-    setReason("");
-    setNote("");
+    if (ok) {
+      setDropOpen(false);
+      setReason("");
+      setNote("");
+    }
   };
 
   return (

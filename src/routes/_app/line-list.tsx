@@ -426,18 +426,21 @@ function LineListPage() {
             <QueryBoundary query={issues}>
               {(allRows) => {
                 const counted = keptOnly(allRows, activeJob.decisions);
+                // The filter row is hidden when there are no decisions, so a stale filter must not apply.
+                const effectiveFilter: DecisionFilter =
+                  (activeJob.decisions ?? []).length > 0 ? decisionFilter : "ALL";
                 const base = onlyE2bBlockers ? allRows.filter((i) => i.blocksE2b) : allRows;
                 const { kept, decided } = issuesForFilter(
                   base,
                   activeJob.decisions,
-                  decisionFilter,
+                  effectiveFilter,
                 );
                 const rows = [...kept, ...decided];
                 const { held } = decisionCounts(activeJob.decisions);
                 const withoutIssues = decidedRowsWithoutIssues(
                   allRows,
                   activeJob.decisions,
-                  decisionFilter,
+                  effectiveFilter,
                 );
                 const refresh = () => {
                   issues.refetch();
@@ -543,11 +546,13 @@ function LineListPage() {
                     {rows.length === 0 && withoutIssues.length === 0 ? (
                       <EmptyState
                         title={
-                          activeJob.stage === "VALIDATED" || activeJob.stage === "E2B_GENERATED"
-                            ? "Validation completed. No issues were detected in this file."
-                            : activeJob.stage === "FAILED"
-                              ? "This file could not be parsed — see the job's status above."
-                              : 'This file has not been validated yet — click "Re-run validation" above to check it.'
+                          effectiveFilter !== "ALL"
+                            ? "No cases match this filter."
+                            : activeJob.stage === "VALIDATED" || activeJob.stage === "E2B_GENERATED"
+                              ? "Validation completed. No issues were detected in this file."
+                              : activeJob.stage === "FAILED"
+                                ? "This file could not be parsed — see the job's status above."
+                                : 'This file has not been validated yet — click "Re-run validation" above to check it.'
                         }
                       />
                     ) : (
