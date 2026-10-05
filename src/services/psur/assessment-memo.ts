@@ -3,13 +3,14 @@ import type {
   AssessmentSection,
   CiomsMatrix,
   CiomsRubric,
+  EvidenceSourceType,
   MemoAnswers,
   MemoCriterion,
   MemoCriterionId,
   PsurSubmissionDetails,
   PsurV4SectionId,
 } from "@/types/pv";
-import { matrixTotals, PROVISIONAL_CIOMS_RUBRIC } from "./cioms";
+import { isUnscored, matrixTotals, PROVISIONAL_CIOMS_RUBRIC } from "./cioms";
 import { renderableEvidence } from "./evidence";
 
 /**
@@ -159,8 +160,64 @@ export const CRITERION_SECTIONS: Record<MemoCriterionId, PsurV4SectionId[]> = {
   WORLDWIDE_ACTIONS: ["S2_WORLDWIDE_STATUS", "S5_EXPOSURE_ACTIONS"],
   PATIENT_EXPOSURE: ["S5_EXPOSURE_ACTIONS", "S7_AGGREGATE_SAFETY_DATA"],
   RELEVANT_STUDIES: ["S6_LITERATURE", "S3_THERAPEUTIC_CONTEXT"],
-  OVERALL_SAFETY_EVALUATION: ["S8_SIGNAL_EVALUATION", "S10_BENEFIT_RISK", "S11_UNCERTAINTIES"],
+  OVERALL_SAFETY_EVALUATION: [
+    "S8_SIGNAL_EVALUATION",
+    "S9_SPECIAL_POPULATIONS",
+    "S10_BENEFIT_RISK",
+    "S11_UNCERTAINTIES",
+  ],
 };
+
+/**
+ * Sections that deliberately feed no memo criterion.
+ *
+ * Named rather than merely absent, because absence is indistinguishable
+ * from an oversight: an assessor who accepts cited evidence under an
+ * unmapped section would see it vanish from the memo with no warning. A
+ * test asserts every template section is either mapped above or named
+ * here, so adding a section to the template cannot silently create a
+ * fourth category.
+ */
+export const SECTIONS_NOT_IN_MEMO: PsurV4SectionId[] = [
+  // The screening step's own record. Quoting a screening note in the memo
+  // would present it as something an assessor researched.
+  "ADMIN_SCREENING",
+  // Product and interval facts — they reach the memo as criteria 1-6, read
+  // off the submission details, not as cited evidence.
+  "S1_PRODUCT_REGULATORY",
+  // The regulatory decision and the sign-off are the memo's OUTCOME, not
+  // input to its review criteria: they are carried by the conclusion,
+  // benefit-risk verdict and signatory fields.
+  "S12_REGULATORY_DECISION",
+  "S13_CONCLUSION_SIGNOFF",
+];
+
+/**
+ * Which source types an UNTAGGED entry may answer a criterion with.
+ *
+ * Only the two criteria that share a section need this: without it, every
+ * entry under S5_EXPOSURE_ACTIONS prints under both criterion 8 (worldwide
+ * actions) and criterion 9 (patient exposure), and the reader cannot tell
+ * which of the two the assessor meant. A criterion absent from this map
+ * accepts any source type.
+ */
+const CRITERION_SOURCE_TYPES: Partial<Record<MemoCriterionId, EvidenceSourceType[]>> = {
+  WORLDWIDE_ACTIONS: [
+    "WORLDWIDE_REGULATORY_ACTIONS",
+    "REFERENCE_SAFETY_INFORMATION",
+    "RISK_MANAGEMENT_PLAN",
+    "OTHER",
+  ],
+  PATIENT_EXPOSURE: ["VIGIFLOW_NIGERIA", "SUBMITTED_PSUR", "PATIENT_HCP_FEEDBACK", "OTHER"],
+};
+
+function fitsCriterionBySource(
+  id: MemoCriterionId,
+  sourceType: EvidenceSourceType,
+): boolean {
+  const allowed = CRITERION_SOURCE_TYPES[id];
+  return !allowed || allowed.includes(sourceType);
+}
 
 const EVIDENCE_CRITERIA: MemoCriterionId[] = [
   "RSI_CHANGES",
@@ -185,6 +242,13 @@ export function evidenceCriteria(sections: AssessmentSection[]): MemoCriterion[]
     const entries = CRITERION_SECTIONS[id]
       .flatMap((sectionId) => renderableEvidence(byId.get(sectionId)?.evidence ?? []))
       .filter((e) => !e.criterion || e.criterion === id)
+      // Two criteria share S5_EXPOSURE_ACTIONS, so an UNTAGGED entry there
+      // would otherwise print under both — and a VigiFlow exposure count
+      // appearing under "worldwide regulatory authority or MAH actions
+      // taken for safety reasons" reads as a regulatory action NAFDAC
+      // never found. An explicit criterion tag is the assessor's own
+      // routing decision and is left alone.
+      .filter((e) => !!e.criterion || fitsCriterionBySource(id, e.sourceType))
       .filter((e) => e.content.trim().length > 0);
     const remarks = entries.map((e) => e.content.trim()).join("\n\n");
     const def = MEMO_CRITERIA.find((c) => c.id === id)!;
@@ -310,6 +374,10 @@ export interface AssessmentMemoInput {
 export function buildAssessmentMemoModel(
   input: AssessmentMemoInput,
 ): AssessmentMemoModel | null {
+  // A matrix nobody has scored would total 0 / 0 with no reactions, and
+  // printing that reads as a scored finding of zero risk rather than an
+  // empty table. Refuse, the same way an untotalable matrix is refused.
+  if (isUnscored(input.matrix)) return null;
   const totals = matrixTotals(input.matrix);
   if (!totals) return null;
   const rubric = input.rubric ?? PROVISIONAL_CIOMS_RUBRIC;

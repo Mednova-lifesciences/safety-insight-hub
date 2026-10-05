@@ -96,3 +96,44 @@ describe("supersede", () => {
     expect(old.supersedes).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Review finding C1: a non-renderable superseder must not delete the
+// evidence it claims to replace.
+// ---------------------------------------------------------------------------
+
+describe("only renderable evidence may supersede (finding C1)", () => {
+  it("keeps accepted evidence when its superseder was never accepted", () => {
+    // An unapproved draft correction must not delete the figure the
+    // assessor actually accepted — that would make the memo deny
+    // NAFDAC's own evidence.
+    const accepted = entry({ id: "A", content: "38,400 courses." });
+    const draft = entry({ id: "B", content: "oops", supersedes: "A" });
+    delete (draft as { acceptedBy?: string }).acceptedBy;
+    expect(renderableEvidence([accepted, draft]).map((e) => e.id)).toEqual(["A"]);
+  });
+
+  it("keeps accepted evidence when its superseder carries no citation", () => {
+    const accepted = entry({ id: "A" });
+    const uncited = entry({ id: "B", citation: "  ", supersedes: "A" });
+    expect(renderableEvidence([accepted, uncited]).map((e) => e.id)).toEqual(["A"]);
+  });
+
+  it("keeps accepted evidence when its superseder was withdrawn", () => {
+    const accepted = entry({ id: "A" });
+    const withdrawn = entry({ id: "B", supersedes: "A", withdrawnBy: "Evaluator" });
+    expect(renderableEvidence([accepted, withdrawn]).map((e) => e.id)).toEqual(["A"]);
+  });
+
+  it("renders only the last entry of a supersession chain", () => {
+    const a = entry({ id: "A" });
+    const b = entry({ id: "B", supersedes: "A" });
+    const c = entry({ id: "C", supersedes: "B" });
+    expect(renderableEvidence([a, b, c]).map((e) => e.id)).toEqual(["C"]);
+  });
+
+  it("does not let an entry supersede itself into nothing", () => {
+    const self = entry({ id: "A", supersedes: "A" });
+    expect(renderableEvidence([self]).map((e) => e.id)).toEqual(["A"]);
+  });
+});

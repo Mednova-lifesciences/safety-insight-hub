@@ -316,3 +316,134 @@ describe("the brief highlights", () => {
     expect(criteria[1]!.unestablished).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Review finding I4: no working section may lose its evidence silently.
+// ---------------------------------------------------------------------------
+
+import { SECTIONS_NOT_IN_MEMO } from "./assessment-memo";
+import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
+
+describe("every template section is accounted for (finding I4)", () => {
+  it("is either mapped to a criterion or named in the exclusion list", () => {
+    for (const section of PSUR_V4_TEMPLATE_SECTIONS) {
+      const mapped = Object.values(CRITERION_SECTIONS).some((ids) => ids.includes(section.id));
+      const excluded = SECTIONS_NOT_IN_MEMO.includes(section.id);
+      expect(
+        mapped || excluded,
+        `${section.id} is neither mapped to a memo criterion nor named in SECTIONS_NOT_IN_MEMO`,
+      ).toBe(true);
+    }
+  });
+
+  it("never maps a section both ways", () => {
+    for (const section of PSUR_V4_TEMPLATE_SECTIONS) {
+      const mapped = Object.values(CRITERION_SECTIONS).some((ids) => ids.includes(section.id));
+      expect(mapped && SECTIONS_NOT_IN_MEMO.includes(section.id)).toBe(false);
+    }
+  });
+
+  it("carries special-populations evidence into the memo", () => {
+    // S9 was absent from the original projection, so an accepted, cited
+    // paediatric signal recorded there vanished with no warning anywhere.
+    const out = evidenceCriteria([
+      {
+        section: "S9_SPECIAL_POPULATIONS",
+        evidence: [
+          ev({ id: "s9", section: "S9_SPECIAL_POPULATIONS", content: "Paediatric seizure risk." }),
+        ],
+      },
+    ]);
+    expect(out.some((c) => c.remarks.includes("Paediatric seizure risk."))).toBe(true);
+  });
+
+  it("excludes the screening step by name, not by omission", () => {
+    expect(SECTIONS_NOT_IN_MEMO).toContain("ADMIN_SCREENING");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review finding I3: S5 feeds criteria 8 and 9, so an untagged exposure
+// count printed as a worldwide regulatory action.
+// ---------------------------------------------------------------------------
+
+describe("an untagged entry only answers the criterion it fits (finding I3)", () => {
+  const exposure = () =>
+    ev({
+      id: "x",
+      section: "S5_EXPOSURE_ACTIONS",
+      sourceType: "VIGIFLOW_NIGERIA",
+      content: "38,400 treatment courses in Nigeria.",
+    });
+
+  it("does not print a VigiFlow exposure count as a worldwide regulatory action", () => {
+    const out = evidenceCriteria([{ section: "S5_EXPOSURE_ACTIONS", evidence: [exposure()] }]);
+    expect(out.find((c) => c.id === "PATIENT_EXPOSURE")!.remarks).toContain("38,400");
+    expect(out.find((c) => c.id === "WORLDWIDE_ACTIONS")!.remarks).not.toContain("38,400");
+  });
+
+  it("does not print a regulatory action as patient exposure data", () => {
+    const action = ev({
+      id: "a",
+      section: "S5_EXPOSURE_ACTIONS",
+      sourceType: "WORLDWIDE_REGULATORY_ACTIONS",
+      content: "Health Canada restricted the indication.",
+    });
+    const out = evidenceCriteria([{ section: "S5_EXPOSURE_ACTIONS", evidence: [action] }]);
+    expect(out.find((c) => c.id === "WORLDWIDE_ACTIONS")!.remarks).toContain("Health Canada");
+    expect(out.find((c) => c.id === "PATIENT_EXPOSURE")!.remarks).not.toContain("Health Canada");
+  });
+
+  it("still honours an explicit criterion tag over the source type", () => {
+    // The assessor's own routing decision wins: they may have a reason to
+    // file a VigiFlow figure under the actions criterion.
+    const tagged = { ...exposure(), criterion: "WORLDWIDE_ACTIONS" as const };
+    const out = evidenceCriteria([{ section: "S5_EXPOSURE_ACTIONS", evidence: [tagged] }]);
+    expect(out.find((c) => c.id === "WORLDWIDE_ACTIONS")!.remarks).toContain("38,400");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review finding I7: a matrix nobody has scored must not render as a
+// table of zeros that reads like a finding of zero risk.
+// ---------------------------------------------------------------------------
+
+describe("an unscored matrix does not render as zeros (finding I7)", () => {
+  const blank = {
+    epidemiologyOfDisease: { seriousness: 0, duration: 0, incidence: 0 },
+    effectivenessOfProduct: { seriousness: 0, duration: 0, incidence: 0 },
+    adrs: [],
+  };
+
+  it("refuses to build a memo from a matrix nobody has scored", () => {
+    expect(buildAssessmentMemoModel(input({ matrix: blank }))).toBeNull();
+  });
+
+  it("builds once a reaction has been scored, even with the other rows at zero", () => {
+    const m = buildAssessmentMemoModel(
+      input({
+        matrix: {
+          ...blank,
+          adrs: [{ reaction: "Seizures", scores: { seriousness: 2, duration: 1, incidence: 1 } }],
+        },
+      }),
+    );
+    expect(m).not.toBeNull();
+  });
+
+  it("builds when the disease rows are scored even before any reaction is", () => {
+    const m = buildAssessmentMemoModel(
+      input({
+        matrix: {
+          ...blank,
+          epidemiologyOfDisease: { seriousness: 2, duration: 2, incidence: 2 },
+        },
+      }),
+    );
+    expect(m).not.toBeNull();
+  });
+
+  it("still builds the supplied memo's own matrix, which scores one cell zero", () => {
+    expect(buildAssessmentMemoModel(input())).not.toBeNull();
+  });
+});
