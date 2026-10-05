@@ -46,6 +46,9 @@ export interface ProposedCorrection {
   newValue: string;
   reason: string;
   source: LineListChangeSource;
+  /** Same value for every correction of one recovery move; see
+   *  LineListChange.group. */
+  group?: string | undefined;
 }
 
 /**
@@ -53,8 +56,11 @@ export interface ProposedCorrection {
  *
  * Skips a cell a person holds, and a correction that would leave the value
  * as it is. Two corrections to one cell in one batch chain: the second's
- * old value is the first's new value. Pure — the given log is not mutated;
- * the caller writes `applied` into the job's rows.
+ * old value is the first's new value. A grouped move is all or nothing: if
+ * a person holds any of its cells, none of it is applied (clearing the
+ * source while the held target keeps its own value would lose the value).
+ * Pure — the given log is not mutated; the caller writes `applied` into the
+ * job's rows.
  */
 export function appendCorrections(
   log: LineListChange[],
@@ -66,7 +72,11 @@ export function appendCorrections(
   const working = [...log];
   const applied: LineListChange[] = [];
   const writtenThisBatch = new Map<string, string>();
+  const blockedGroups = new Set(
+    proposed.filter((p) => p.group && isCellHeld(log, p.row, p.column)).map((p) => p.group),
+  );
   for (const p of proposed) {
+    if (p.group && blockedGroups.has(p.group)) continue;
     if (isCellHeld(working, p.row, p.column)) continue;
     const key = cellKey(p.row, p.column);
     const oldValue = writtenThisBatch.get(key) ?? currentValue(p.row, p.column);
@@ -81,6 +91,7 @@ export function appendCorrections(
       source: p.source,
       appliedAt: at,
       events: [],
+      ...(p.group ? { group: p.group } : {}),
     };
     working.push(entry);
     applied.push(entry);
@@ -89,54 +100,75 @@ export function appendCorrections(
   return { log: working, applied };
 }
 
-function newestEntryOrThrow(log: LineListChange[], id: string): LineListChange {
-  const entry = log.find((e) => e.id === id);
-  if (!entry) throw new Error("That change no longer exists.");
-  // Only the newest entry for a cell may be reversed: undoing an older one
-  // underneath a newer one would leave the cell in a state no entry
-  // describes.
-  if (newestFor(log, entry.row, entry.column) !== entry) {
-    throw new Error("Only the latest change to a cell can be undone or re-applied.");
-  }
-  return entry;
+/** The entries that are undone and re-applied with this one: its whole
+ *  group, or just itself when it has none. Log order. */
+function membersOf(log: LineListChange[], entry: LineListChange): LineListChange[] {
+  return entry.group ? log.filter((e) => e.group === entry.group) : [entry];
 }
 
-/** A person takes the cell over: the old value goes back. */
+export type CellWrite = { row: number; column: string; value: string };
+
+/**
+ * Flips one entry, or its whole group, to `to`. Every member must be the
+ * newest entry for its cell: undoing an older one underneath a newer one
+ * would leave the cell in a state no entry describes, and undoing only half
+ * of a move would lose or duplicate the value it moved.
+ */
+function toggle(
+  log: LineListChange[],
+  id: string,
+  to: "undone" | "reapplied",
+  by: string,
+  at: string,
+): { log: LineListChange[]; cells: CellWrite[]; entries: LineListChange[] } {
+  const entry = log.find((e) => e.id === id);
+  if (!entry) throw new Error("That change no longer exists.");
+  const members = membersOf(log, entry);
+  for (const m of members) {
+    if (newestFor(log, m.row, m.column) !== m) {
+      throw new Error("Only the latest change to a cell can be undone or re-applied.");
+    }
+  }
+  const from: ChangeState = to === "undone" ? "applied" : "undone";
+  for (const m of members) {
+    if (stateOf(m) !== from) {
+      throw new Error(
+        to === "undone" ? "That change is already undone." : "That change is not undone.",
+      );
+    }
+  }
+  const updated = new Map(
+    members.map((m) => [m.id, { ...m, events: [...m.events, { kind: to, by, at }] }]),
+  );
+  return {
+    log: log.map((e) => updated.get(e.id) ?? e),
+    cells: members.map((m) => ({
+      row: m.row,
+      column: m.column,
+      value: to === "undone" ? m.oldValue : m.newValue,
+    })),
+    entries: [...updated.values()],
+  };
+}
+
+/** A person takes the cell (or the whole move) over: the old values go back. */
 export function markUndone(
   log: LineListChange[],
   id: string,
   by: string,
   at: string,
-): { log: LineListChange[]; cell: { row: number; column: string; value: string } } {
-  const entry = newestEntryOrThrow(log, id);
-  if (stateOf(entry) !== "applied") throw new Error("That change is already undone.");
-  const updated: LineListChange = {
-    ...entry,
-    events: [...entry.events, { kind: "undone", by, at }],
-  };
-  return {
-    log: log.map((e) => (e.id === id ? updated : e)),
-    cell: { row: entry.row, column: entry.column, value: entry.oldValue },
-  };
+): { log: LineListChange[]; cells: CellWrite[]; entries: LineListChange[] } {
+  return toggle(log, id, "undone", by, at);
 }
 
-/** A person hands the cell back: the tool's value returns. */
+/** A person hands the cell (or the whole move) back: the tool's values return. */
 export function markReapplied(
   log: LineListChange[],
   id: string,
   by: string,
   at: string,
-): { log: LineListChange[]; cell: { row: number; column: string; value: string } } {
-  const entry = newestEntryOrThrow(log, id);
-  if (stateOf(entry) !== "undone") throw new Error("That change is not undone.");
-  const updated: LineListChange = {
-    ...entry,
-    events: [...entry.events, { kind: "reapplied", by, at }],
-  };
-  return {
-    log: log.map((e) => (e.id === id ? updated : e)),
-    cell: { row: entry.row, column: entry.column, value: entry.newValue },
-  };
+): { log: LineListChange[]; cells: CellWrite[]; entries: LineListChange[] } {
+  return toggle(log, id, "reapplied", by, at);
 }
 
 export function appliedChangesForRow(log: LineListChange[], row: number): LineListChange[] {
@@ -155,19 +187,26 @@ export interface PanelEntry {
   state: ChangeState;
   /** A newer entry exists for the same cell; no action is offered. */
   superseded: boolean;
+  /** Part of a recovery move: its action acts on every cell of the move,
+   *  and is offered only when the whole move can take it. */
+  group: { id: string; size: number } | null;
   action: "undo" | "reapply" | null;
 }
 
 /** Newest first, as the Changes made panel lists them. */
 export function panelEntries(log: LineListChange[]): PanelEntry[] {
+  const isNewest = (e: LineListChange) => newestFor(log, e.row, e.column) === e;
   return [...log].reverse().map((entry) => {
-    const newest = newestFor(log, entry.row, entry.column) === entry;
+    const newest = isNewest(entry);
     const state = stateOf(entry);
+    const members = membersOf(log, entry);
+    const whole = members.every((m) => isNewest(m) && stateOf(m) === state);
     return {
       entry,
       state,
       superseded: !newest,
-      action: !newest ? null : state === "applied" ? "undo" : "reapply",
+      group: entry.group ? { id: entry.group, size: members.length } : null,
+      action: !newest || !whole ? null : state === "applied" ? "undo" : "reapply",
     };
   });
 }

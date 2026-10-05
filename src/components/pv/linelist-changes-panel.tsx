@@ -13,7 +13,8 @@ const MADE_BY = { ai: "AI", rule: "rule", recovery: "recovery" } as const;
  *
  * Undo means "I'm taking this cell over": the old value returns and Fix
  * leaves the cell alone. Re-apply hands it back. Only the newest change to
- * a cell can be reversed; older ones are shown as superseded.
+ * a cell can be reversed; older ones are shown as superseded. The cells of
+ * one recovery move are undone and re-applied together.
  */
 export function LineListChangesPanel({
   job,
@@ -59,7 +60,7 @@ export function LineListChangesPanel({
             </tr>
           </thead>
           <tbody>
-            {entries.map(({ entry, state, superseded, action }) => {
+            {entries.map(({ entry, state, superseded, group, action }) => {
               const where = describeRow(job, entry.row);
               return (
                 <tr
@@ -76,7 +77,14 @@ export function LineListChangesPanel({
                     {" → "}
                     <span>{entry.newValue || "(blank)"}</span>
                   </td>
-                  <td className="px-3 py-2 text-xs">{entry.reason}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {entry.reason}
+                    {group ? (
+                      <div className="mt-1 text-muted-foreground">
+                        Part of a move ({group.size} cells) — undone and re-applied together.
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-2">
                     <StatusPill tone={entry.source === "ai" ? "assist" : "neutral"}>
                       {MADE_BY[entry.source]}
@@ -94,11 +102,15 @@ export function LineListChangesPanel({
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={busy === entry.id}
+                            disabled={busy !== null}
                             onClick={() => void act(entry.id, action)}
                           >
                             {action === "undo" ? "Undo" : "Re-apply"}
                           </Button>
+                        ) : group ? (
+                          <span className="text-xs text-muted-foreground">
+                            Another cell of this move changed since
+                          </span>
                         ) : null}
                       </div>
                     )}

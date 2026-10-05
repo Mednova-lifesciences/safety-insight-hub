@@ -366,6 +366,10 @@ export interface LineListChange {
   appliedAt: string;
   /** Oldest first. The last event decides the entry's state. */
   events: LineListChangeEvent[];
+  /** Entries sharing a group are one recovery move (the value written to
+   *  its column and cleared from where it was) and are undone and
+   *  re-applied together. */
+  group?: string | undefined;
 }
 
 export interface LineListJob {

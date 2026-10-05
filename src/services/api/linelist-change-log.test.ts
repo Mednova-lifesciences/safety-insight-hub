@@ -126,8 +126,8 @@ describe("state and the newest entry", () => {
 describe("undo and re-apply", () => {
   it("undo returns the old value to write back, and appends an event", () => {
     const { log } = appendCorrections([], [proposal()], () => "recoverd", AT, idFactory());
-    const { log: next, cell } = markUndone(log, "llc-1", "A. Bello", "2026-10-05T11:00:00Z");
-    expect(cell).toEqual({ row: 1, column: "Outcome", value: "recoverd" });
+    const { log: next, cells } = markUndone(log, "llc-1", "A. Bello", "2026-10-05T11:00:00Z");
+    expect(cells).toEqual([{ row: 1, column: "Outcome", value: "recoverd" }]);
     expect(next[0]!.events).toEqual([
       { kind: "undone", by: "A. Bello", at: "2026-10-05T11:00:00Z" },
     ]);
@@ -137,7 +137,7 @@ describe("undo and re-apply", () => {
   it("re-apply returns the new value to write back", () => {
     const { log } = appendCorrections([], [proposal()], () => "recoverd", AT, idFactory());
     const undone = markUndone(log, "llc-1", "A", AT).log;
-    expect(markReapplied(undone, "llc-1", "A", AT).cell.value).toBe("1");
+    expect(markReapplied(undone, "llc-1", "A", AT).cells[0]!.value).toBe("1");
   });
 
   it("refuses to undo an entry that is not the newest for its cell", () => {
@@ -160,6 +160,128 @@ describe("undo and re-apply", () => {
 
   it("refuses an id that does not exist", () => {
     expect(() => markUndone([], "nope", "A", AT)).toThrow(/no longer exists/i);
+  });
+});
+
+describe("a recovery move, undone and re-applied as one unit", () => {
+  // A move writes the target and clears the source. Undoing only one half
+  // would lose the value (both blank) or duplicate it (both filled).
+  const move = () =>
+    appendCorrections(
+      [],
+      [
+        proposal({
+          column: "Onset Date",
+          newValue: "2024-03-01",
+          reason: "date moved",
+          source: "recovery",
+          group: "g1",
+        }),
+        proposal({
+          column: "Age",
+          newValue: "",
+          reason: "cleared",
+          source: "recovery",
+          group: "g1",
+        }),
+      ],
+      (_row, column) => (column === "Age" ? "2024-03-01" : ""),
+      AT,
+      idFactory(),
+    ).log;
+
+  it("records the group on each entry", () => {
+    expect(move().map((e) => e.group)).toEqual(["g1", "g1"]);
+  });
+
+  it("undoing the target restores both cells", () => {
+    const { log, cells } = markUndone(move(), "llc-1", "A", AT);
+    expect(cells).toEqual([
+      { row: 1, column: "Onset Date", value: "" },
+      { row: 1, column: "Age", value: "2024-03-01" },
+    ]);
+    expect(log.every((e) => stateOf(e) === "undone")).toBe(true);
+  });
+
+  it("undoing the source half does the same", () => {
+    const { cells } = markUndone(move(), "llc-2", "A", AT);
+    expect(cells).toHaveLength(2);
+  });
+
+  it("re-applying restores both cells", () => {
+    const undone = markUndone(move(), "llc-1", "A", AT).log;
+    const { log, cells } = markReapplied(undone, "llc-2", "A", AT);
+    expect(cells).toEqual([
+      { row: 1, column: "Onset Date", value: "2024-03-01" },
+      { row: 1, column: "Age", value: "" },
+    ]);
+    expect(log.every((e) => stateOf(e) === "applied")).toBe(true);
+  });
+
+  it("refuses when any member of the group is not the newest for its cell", () => {
+    const later = appendCorrections(
+      move(),
+      [proposal({ column: "Age", newValue: "34" })],
+      () => "",
+      AT,
+      () => "llc-3",
+    ).log;
+    expect(() => markUndone(later, "llc-1", "A", AT)).toThrow(/latest change/i);
+  });
+
+  it("the panel offers no action on any member while one is superseded", () => {
+    const later = appendCorrections(
+      move(),
+      [proposal({ column: "Age", newValue: "34" })],
+      () => "",
+      AT,
+      () => "llc-3",
+    ).log;
+    const byId = new Map(panelEntries(later).map((p) => [p.entry.id, p]));
+    expect(byId.get("llc-1")).toMatchObject({ superseded: false, action: null });
+    expect(byId.get("llc-1")!.group).toEqual({ id: "g1", size: 2 });
+    expect(byId.get("llc-3")).toMatchObject({ action: "undo", group: null });
+  });
+
+  it("the panel offers the action on every member when the group is whole", () => {
+    const rows = panelEntries(move());
+    expect(rows.map((r) => r.action)).toEqual(["undo", "undo"]);
+  });
+
+  it("a move with a cell a person holds is not applied at all", () => {
+    // Clearing the source while the held target keeps its own value would
+    // lose the moved value.
+    const held = markUndone(
+      appendCorrections(
+        [],
+        [proposal({ column: "Onset Date" })],
+        () => "x",
+        AT,
+        () => "llc-0",
+      ).log,
+      "llc-0",
+      "A",
+      AT,
+    ).log;
+    const { applied } = appendCorrections(
+      held,
+      [
+        proposal({ column: "Onset Date", newValue: "2024-03-01", group: "g2" }),
+        proposal({ column: "Age", newValue: "", group: "g2" }),
+      ],
+      (_row, column) => (column === "Age" ? "2024-03-01" : "x"),
+      AT,
+      idFactory(),
+    );
+    expect(applied).toEqual([]);
+  });
+
+  it("an ungrouped entry still returns one cell", () => {
+    const { log } = appendCorrections([], [proposal()], () => "recoverd", AT, idFactory());
+    expect(log[0]).not.toHaveProperty("group");
+    expect(markUndone(log, "llc-1", "A", AT).cells).toEqual([
+      { row: 1, column: "Outcome", value: "recoverd" },
+    ]);
   });
 });
 

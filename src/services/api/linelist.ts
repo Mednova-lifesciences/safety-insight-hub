@@ -2272,14 +2272,22 @@ export function safeCorrections<C extends { row: number; column: string }>(
   );
 }
 
-function buildRecoveryCorrections(
-  job: LineListJobRow,
-): { row: number; column: string; new_value: string; reason: string }[] {
+type RecoveryCorrection = {
+  row: number;
+  column: string;
+  new_value: string;
+  reason: string;
+  /** One id per move (or swap or chain of moves sharing columns) within
+   *  the row: its writes and clears are undone and re-applied together. */
+  group: string;
+};
+
+function buildRecoveryCorrections(job: LineListJobRow): RecoveryCorrection[] {
   const rows = job.rawRows ?? job.parsedRows ?? [];
   const mapping = job.mapping ?? {};
   if (rows.length === 0 || Object.keys(mapping).length === 0) return [];
 
-  const corrections: { row: number; column: string; new_value: string; reason: string }[] = [];
+  const corrections: RecoveryCorrection[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = (rows[i] ?? {}) as Record<string, string>;
@@ -2294,6 +2302,19 @@ function buildRecoveryCorrections(
     // straight swap both columns receive a value, so neither is cleared.
     const targetWrites = new Map<string, { value: string; reason: string }>();
     const sourceColumns = new Set<string>();
+    // Columns linked by a move (source and target) are one unit; a swap or
+    // a chain links more than two. Union-find over column names.
+    const parent = new Map<string, string>();
+    const find = (c: string): string => {
+      let root = c;
+      while (parent.has(root) && parent.get(root) !== root) root = parent.get(root)!;
+      return root;
+    };
+    const link = (a: string, b: string) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent.set(ra, rb);
+    };
 
     for (const move of proposal.moves) {
       const targetHeader = Object.entries(mapping).find(
@@ -2310,7 +2331,18 @@ function buildRecoveryCorrections(
       }
       targetWrites.set(targetHeader, { value: move.sourceValue, reason: move.reason });
       sourceColumns.add(move.sourceColumn);
+      link(move.sourceColumn, targetHeader);
     }
+    const groupIds = new Map<string, string>();
+    const groupOf = (column: string): string => {
+      const root = find(column);
+      let id = groupIds.get(root);
+      if (!id) {
+        id = `move-${i + 1}-${groupIds.size + 1}`;
+        groupIds.set(root, id);
+      }
+      return id;
+    };
 
     for (const [targetHeader, write] of targetWrites) {
       const current = row[targetHeader] ?? "";
@@ -2320,6 +2352,7 @@ function buildRecoveryCorrections(
         column: targetHeader,
         new_value: write.value,
         reason: write.reason,
+        group: groupOf(targetHeader),
       });
     }
 
@@ -2331,6 +2364,7 @@ function buildRecoveryCorrections(
         column: sourceColumn,
         new_value: "",
         reason: `Value moved to the column it belongs in; cleared here so it is not counted twice.`,
+        group: groupOf(sourceColumn),
       });
     }
   }
@@ -2350,11 +2384,11 @@ function normalizeLeftRightValue(value: string): string {
  * returns on the next "Re-run validation". A full AI scan on every Undo
  * would make Undo slow and its result non-deterministic.
  */
-async function restoreCell(
+async function restoreCells(
   job: LineListJobRow,
   changeLog: LineListChange[],
-  cell: { row: number; column: string; value: string },
-  audit: { action: string; previousValue: string; newValue: string },
+  cells: { row: number; column: string; value: string }[],
+  audits: { action: string; previousValue: string; newValue: string; cell: string }[],
 ): Promise<LineListJobRow> {
   if (!job.parsedRows || !job.mapping) {
     throw new Error("This job has no stored row data to change.");
@@ -2364,7 +2398,7 @@ async function restoreCell(
     parsedRows: [...job.parsedRows] as Record<string, string | undefined>[],
     mapping: job.mapping as Record<string, string>,
   };
-  writeCell(cellRows, cell.row, cell.column, cell.value);
+  for (const cell of cells) writeCell(cellRows, cell.row, cell.column, cell.value);
   const updated: LineListJobRow = {
     ...job,
     parsedRows: cellRows.parsedRows as ParsedRow[],
@@ -2375,15 +2409,35 @@ async function restoreCell(
   const priorAi = currentIssues.filter((i) => i.source === "ai");
   const finalIssues = mergeFindings(await computeDeterministicIssues(updated), priorAi);
   const next = await storeIssues(updated, finalIssues, { validatedAt: new Date().toISOString() });
-  await recordAudit({
-    action: audit.action,
-    entity: "LineListJob",
-    entityId: job.id,
-    previousValue: audit.previousValue,
-    newValue: audit.newValue,
-    reason: `${rowLabel(job, cell.row)}, ${cell.column}`,
-  });
+  for (const audit of audits) {
+    await recordAudit({
+      action: audit.action,
+      entity: "LineListJob",
+      entityId: job.id,
+      previousValue: audit.previousValue,
+      newValue: audit.newValue,
+      reason: audit.cell,
+    });
+  }
   return next;
+}
+
+/** One audit event per cell undone or re-applied; each cell of a move
+ *  says it was part of one. */
+function changeAudits(
+  job: LineListJobRow,
+  entries: LineListChange[],
+  action: "LINELIST_CHANGE_UNDONE" | "LINELIST_CHANGE_REAPPLIED",
+): { action: string; previousValue: string; newValue: string; cell: string }[] {
+  const undo = action === "LINELIST_CHANGE_UNDONE";
+  const moveNote =
+    entries.length > 1 ? ` (part of a move of ${entries.length} cells, reversed together)` : "";
+  return entries.map((e) => ({
+    action,
+    previousValue: undo ? e.newValue : e.oldValue,
+    newValue: undo ? e.oldValue : e.newValue,
+    cell: `${rowLabel(job, e.row)}, ${e.column}${moveNote}`,
+  }));
 }
 
 /**
@@ -2865,13 +2919,23 @@ export const linelist = {
       const combinedUnresolved = [...fixResult.unresolved, ...needsReviewUnresolved];
 
       let updatedJob: LineListJobRow;
+      // Group ids are unique to this run, so a move made by a later Fix on
+      // the same row never joins an earlier move.
+      const fixRun = newId("llg");
       const recoveredCorrections = deterministicRecovery.map((c) => ({
         row: c.row,
         column: c.column,
         new_value: c.new_value,
         reason: c.reason,
+        group: `${fixRun}-${c.group}`,
       }));
-      const corrections = safeCorrections(
+      const corrections = safeCorrections<{
+        row: number;
+        column: string;
+        new_value: string;
+        reason: string;
+        group?: string;
+      }>(
         [...recoveredCorrections, ...(fixResult.ai_used ? fixResult.corrections : [])],
         [
           ...autoFixable.map((i) => ({ row: i.row, column: i.column })),
@@ -2898,6 +2962,7 @@ export const linelist = {
           source: recoveredKeys.has(`${c.row}:${c.column}`)
             ? ("recovery" as const)
             : ("ai" as const),
+          ...(c.group ? { group: c.group } : {}),
         })),
         (row, column) => readCell(cellRows, row, column),
         new Date().toISOString(),
@@ -3009,18 +3074,13 @@ export const linelist = {
     inJobQueue(jobId, async () => {
       const job = await readJob(jobId);
       const actor = currentActor();
-      const { log, cell } = markUndone(
+      const { log, cells, entries } = markUndone(
         job.changeLog ?? [],
         changeId,
         actor.name,
         new Date().toISOString(),
       );
-      const entry = log.find((e) => e.id === changeId)!;
-      return restoreCell(job, log, cell, {
-        action: "LINELIST_CHANGE_UNDONE",
-        previousValue: entry.newValue,
-        newValue: entry.oldValue,
-      });
+      return restoreCells(job, log, cells, changeAudits(job, entries, "LINELIST_CHANGE_UNDONE"));
     }),
 
   /** Hands the cell back to the tool: its value returns. */
@@ -3028,18 +3088,13 @@ export const linelist = {
     inJobQueue(jobId, async () => {
       const job = await readJob(jobId);
       const actor = currentActor();
-      const { log, cell } = markReapplied(
+      const { log, cells, entries } = markReapplied(
         job.changeLog ?? [],
         changeId,
         actor.name,
         new Date().toISOString(),
       );
-      const entry = log.find((e) => e.id === changeId)!;
-      return restoreCell(job, log, cell, {
-        action: "LINELIST_CHANGE_REAPPLIED",
-        previousValue: entry.oldValue,
-        newValue: entry.newValue,
-      });
+      return restoreCells(job, log, cells, changeAudits(job, entries, "LINELIST_CHANGE_REAPPLIED"));
     }),
 
   /**
