@@ -188,7 +188,7 @@ So: **every row is mapped with its original position, and decided cases are remo
 
 In this order:
 
-1. **Open** the stored original and select `layout.sheetName`. Every other sheet is left exactly as it was.
+1. **Open** the stored original and select the job's `sheetName`. Every other sheet is left exactly as it was.
 2. **Correct each changed cell in place.** A cell is written when it has at least one *applied* entry. Its value comes from the job's current `rawRows` — the single source of truth, which Undo has already restored where needed.
    - **Value type follows the original cell:** a number cell given a numeric value is written as a number; a date cell given a date is written as a date and keeps its number format; anything else is written as text. Without this, Excel shows corrected numbers as text with a warning triangle.
    - **Fill:** light yellow (`FFFFF2CC`). Font and borders are not touched.
