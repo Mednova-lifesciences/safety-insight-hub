@@ -320,6 +320,58 @@ export interface LineListParsingOptions {
   setAt?: string | undefined;
 }
 
+/** Why a case was dropped from a line list. */
+export type DropReason = "DUPLICATE" | "NOT_AN_AEFI" | "INSUFFICIENT_INFORMATION" | "OTHER";
+
+/** DROP leaves a case out of the XML but keeps it, marked, in the fixed
+ *  file. STEP_DOWN holds it for later: out of the XML and out of the fixed
+ *  file, until someone returns it to Keep. No decision means Keep. */
+export type LineListDecisionKind = "DROP" | "STEP_DOWN";
+
+export interface LineListDecision {
+  /** 1-based data-row index — the same numbering LineListIssue.row uses. */
+  row: number;
+  decision: LineListDecisionKind;
+  /** Required when decision is DROP. */
+  reason?: DropReason | undefined;
+  /** Required when reason is OTHER. Optional otherwise. */
+  note?: string | undefined;
+  by: string;
+  at: string;
+}
+
+export type LineListChangeSource = "rule" | "ai" | "recovery";
+
+export interface LineListChangeEvent {
+  kind: "undone" | "reapplied";
+  by: string;
+  at: string;
+}
+
+/**
+ * One automatic correction to one cell. Append-only: an entry is never
+ * edited or deleted. Undo and Re-apply append to `events`, so the record of
+ * what the tool changed — and what a person did about it — survives.
+ */
+export interface LineListChange {
+  id: string;
+  /** 1-based data-row index. */
+  row: number;
+  /** Original header text, as in rawRows. */
+  column: string;
+  oldValue: string;
+  newValue: string;
+  reason: string;
+  source: LineListChangeSource;
+  appliedAt: string;
+  /** Oldest first. The last event decides the entry's state. */
+  events: LineListChangeEvent[];
+  /** Entries sharing a group are one recovery move (the value written to
+   *  its column and cleared from where it was) and are undone and
+   *  re-applied together. */
+  group?: string | undefined;
+}
+
 export interface LineListJob {
   id: string;
   filename: string;
@@ -383,6 +435,18 @@ export interface LineListJob {
   /** Where those blockers are fixed — lets a Settings change recheck only
    *  the line lists it can affect. */
   openFixIn?: LineListFixLocation[] | undefined;
+  /** Every automatic correction ever applied to this job, with the value
+   *  it replaced. Supersedes lastFixCorrections, which kept only the most
+   *  recent run and never the old value. Absent until Fix first changes a
+   *  cell. */
+  changeLog?: LineListChange[] | undefined;
+  /** What Fix recorded before the change log existed: new values only, no
+   *  old value, so shown read-only without Undo (spec 4.3). */
+  lastFixCorrections?:
+    { row: number; column: string; new_value: string; reason: string }[] | undefined;
+  /** The current Drop / Step down decision per case. No entry means Keep.
+   *  History lives in the audit trail. */
+  decisions?: LineListDecision[] | undefined;
   /** When the deterministic + E2B checks last ran. */
   checkedAt?: string | undefined;
 }
@@ -1253,14 +1317,7 @@ export interface PsurV4SectionAnswers {
 }
 
 /** The rows of Section 1's table other than the therapeutic indication. */
-export type V4Section1Row =
-  | "dateOfReview"
-  | "product"
-  | "mah"
-  | "regNo"
-  | "period"
-  | "ibd"
-  | "nbd";
+export type V4Section1Row = "dateOfReview" | "product" | "mah" | "regNo" | "period" | "ibd" | "nbd";
 
 /** Section 3: "Disease | Mortality | Severity". */
 export interface V4DiseaseRow {

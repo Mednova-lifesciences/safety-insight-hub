@@ -1,5 +1,6 @@
 import { readJob, type ParsedRow } from "@/services/api/e2b";
 import { currentActor, recordAudit } from "@/services/api/db";
+import { excludeDecidedCases } from "@/services/api/linelist-decisions";
 import { mapSourceRecordToPVCase, type MappingWarning } from "./mapping";
 import {
   runPreflight,
@@ -95,6 +96,9 @@ export interface ValidatedExportResult {
   jobId: string;
   sourceProfileId: string;
   totalCases: number;
+  /** Cases left out of preflight and the XML by a person's decision on the
+   *  line list. Never counted in totalCases. */
+  excludedByDecision: { dropped: number; held: number };
   cases: PVCase[];
   businessRuleErrors: ValidationError[];
   preflight: PreflightSummary;
@@ -272,11 +276,14 @@ export async function runValidatedPreflightForJob(
   explicitProfile?: SourceProfile,
 ): Promise<ValidatedExportResult> {
   const job = await readJob(jobId);
-  const { cases, mappingWarnings, sourceProfile, discovered } = await mapJobToCases(
-    job,
-    regulatoryConfig,
-    explicitProfile,
-  );
+  const mapped = await mapJobToCases(job, regulatoryConfig, explicitProfile);
+  const { mappingWarnings, sourceProfile, discovered } = mapped;
+  // Every row is mapped first and decided cases are left out afterwards: a
+  // case without its own ID is numbered by row position, so removing rows
+  // before mapping would renumber every later case (spec 5.5). Done before
+  // the C.1.7 loop so a dropped case costs no assessment and no AI call.
+  const excluded = excludeDecidedCases(mapped.cases, job.decisions, (job.parsedRows ?? []).length);
+  const cases = excluded.included;
 
   // Regulatory assessment is deliberately separate from source mapping.
   // Missing assessments remain unresolved and therefore continue to block
@@ -387,6 +394,7 @@ export async function runValidatedPreflightForJob(
     jobId,
     sourceProfileId: sourceProfile.id,
     totalCases: cases.length,
+    excludedByDecision: { dropped: excluded.dropped, held: excluded.held },
     cases,
     businessRuleErrors,
     preflight,

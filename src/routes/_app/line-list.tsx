@@ -37,7 +37,17 @@ import {
   StatusPill,
 } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
-import type { LineListJob } from "@/types/pv";
+import { LineListDecisionControl } from "@/components/pv/linelist-decision-control";
+import { LineListChangesPanel } from "@/components/pv/linelist-changes-panel";
+import { notHeld } from "@/services/api/linelist-change-log";
+import {
+  decidedRowsWithoutIssues,
+  decisionCounts,
+  issuesForFilter,
+  keptOnly,
+  type DecisionFilter,
+} from "@/services/api/linelist-decisions";
+import type { LineListIssue, LineListJob } from "@/types/pv";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/line-list")({
@@ -97,6 +107,7 @@ function LineListPage() {
   const [uploading, setUploading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [fixing, setFixing] = useState(false);
+  const [decisionFilter, setDecisionFilter] = useState<DecisionFilter>("ALL");
   const [aiNotice, setAiNotice] = useState<string | null>(null);
   const [jobsPage, setJobsPage] = useState(1);
   const [onlyE2bBlockers, setOnlyE2bBlockers] = useState(false);
@@ -330,7 +341,12 @@ function LineListPage() {
                 <QueryBoundary query={issues}>
                   {(rows) => {
                     if (!AUTO_FIX_ENABLED) return null;
-                    const fixableCount = rows.filter((i) => i.fixable).length;
+                    // Dropped and held cases are not fixed (spec 5.1), and
+                    // neither is a cell a person took over with Undo.
+                    const fixableCount = notHeld(
+                      keptOnly(rows, activeJob.decisions).filter((i) => i.fixable),
+                      activeJob.changeLog,
+                    ).length;
                     if (fixableCount === 0) return null;
                     return (
                       <Button
@@ -346,7 +362,7 @@ function LineListPage() {
                               );
                             } else {
                               toast.success(
-                                `${result.correctionsApplied} field(s) corrected.${result.unresolved.length ? ` ${result.unresolved.length} left unresolved.` : ""}`,
+                                `${result.correctionsApplied} field(s) corrected — see Changes made below.${result.unresolved.length ? ` ${result.unresolved.length} left unresolved.` : ""}`,
                               );
                             }
                             issues.refetch();
@@ -368,7 +384,8 @@ function LineListPage() {
                     );
                   }}
                 </QueryBoundary>
-                {AUTO_FIX_ENABLED && activeJob.fixedAt ? (
+                {AUTO_FIX_ENABLED &&
+                (activeJob.fixedAt || (activeJob.decisions ?? []).length > 0) ? (
                   <Button
                     size="sm"
                     variant="outline"
@@ -413,10 +430,91 @@ function LineListPage() {
             ) : null}
             <QueryBoundary query={issues}>
               {(allRows) => {
-                const rows = onlyE2bBlockers ? allRows.filter((i) => i.blocksE2b) : allRows;
+                const counted = keptOnly(allRows, activeJob.decisions);
+                // The filter row is hidden when there are no decisions, so a stale filter must not apply.
+                const effectiveFilter: DecisionFilter =
+                  (activeJob.decisions ?? []).length > 0 ? decisionFilter : "ALL";
+                const base = onlyE2bBlockers ? allRows.filter((i) => i.blocksE2b) : allRows;
+                const { kept, decided } = issuesForFilter(
+                  base,
+                  activeJob.decisions,
+                  effectiveFilter,
+                );
+                const rows = [...kept, ...decided];
+                const { held } = decisionCounts(activeJob.decisions);
+                const withoutIssues = decidedRowsWithoutIssues(
+                  allRows,
+                  activeJob.decisions,
+                  effectiveFilter,
+                );
+                const refresh = () => {
+                  issues.refetch();
+                  jobs.refetch();
+                };
+                const renderIssueRow = (i: LineListIssue, idx: number, muted: boolean) => (
+                  <tr
+                    key={`${i.row}-${i.column}-${idx}`}
+                    className={cn("border-b border-border last:border-0", muted && "opacity-60")}
+                  >
+                    <td className="mono-num px-3 py-2">
+                      {i.row < 1 ? "—" : (describeRow(activeJob, i.row).fileRow ?? `#${i.row}`)}
+                    </td>
+                    <td className="mono-num whitespace-nowrap px-3 py-2">
+                      {describeRow(activeJob, i.row).caseId ?? "—"}
+                    </td>
+                    <td className="mono-num px-3 py-2">{i.column}</td>
+                    <td className="px-3 py-2">
+                      <StatusPill
+                        tone={
+                          i.severity === "CRITICAL"
+                            ? "critical"
+                            : i.severity === "HIGH"
+                              ? "warning"
+                              : i.severity === "MEDIUM"
+                                ? "info"
+                                : "neutral"
+                        }
+                      >
+                        {i.severity.toLowerCase()}
+                      </StatusPill>
+                    </td>
+                    <td className="px-3 py-2">
+                      {i.blocksE2b ? (
+                        <StatusPill tone="critical">Blocks</StatusPill>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      <p>{i.message}</p>
+                      <FixAction fixIn={i.fixIn} />
+                    </td>
+                    <td className="mono-num px-3 py-2 text-muted-foreground">{i.value ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <StatusPill
+                        tone={
+                          i.sources && i.sources.length > 1
+                            ? "success"
+                            : i.source === "ai"
+                              ? "assist"
+                              : "neutral"
+                        }
+                      >
+                        {i.sources && i.sources.length > 1
+                          ? "rule + AI"
+                          : i.source === "ai"
+                            ? "AI"
+                            : "rule"}
+                      </StatusPill>
+                    </td>
+                    <td className="px-3 py-2">
+                      <LineListDecisionControl job={activeJob} row={i.row} onChanged={refresh} />
+                    </td>
+                  </tr>
+                );
                 return (
                   <div className="space-y-3">
-                    <E2bReadinessBanner job={activeJob} issues={allRows} />
+                    <E2bReadinessBanner job={activeJob} issues={counted} />
                     {allRows.some((i) => i.blocksE2b) ? (
                       <label className="flex items-center gap-2 text-xs">
                         <input
@@ -427,14 +525,39 @@ function LineListPage() {
                         Show only what blocks E2B(R3) / VigiFlow
                       </label>
                     ) : null}
-                    {rows.length === 0 ? (
+                    {(activeJob.decisions ?? []).length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="text-muted-foreground">Show:</span>
+                        {(
+                          [
+                            ["ALL", "All"],
+                            ["KEPT", "Kept"],
+                            ["DROPPED", "Dropped"],
+                            ["HELD", `Held (${held})`],
+                          ] as [DecisionFilter, string][]
+                        ).map(([value, label]) => (
+                          <Button
+                            key={value}
+                            size="sm"
+                            variant={decisionFilter === value ? "default" : "outline"}
+                            className="h-7 px-2.5 text-xs"
+                            onClick={() => setDecisionFilter(value)}
+                          >
+                            {label}
+                          </Button>
+                        ))}
+                      </div>
+                    ) : null}
+                    {rows.length === 0 && withoutIssues.length === 0 ? (
                       <EmptyState
                         title={
-                          activeJob.stage === "VALIDATED" || activeJob.stage === "E2B_GENERATED"
-                            ? "Validation completed. No issues were detected in this file."
-                            : activeJob.stage === "FAILED"
-                              ? "This file could not be parsed — see the job's status above."
-                              : 'This file has not been validated yet — click "Re-run validation" above to check it.'
+                          effectiveFilter !== "ALL"
+                            ? "No cases match this filter."
+                            : activeJob.stage === "VALIDATED" || activeJob.stage === "E2B_GENERATED"
+                              ? "Validation completed. No issues were detected in this file."
+                              : activeJob.stage === "FAILED"
+                                ? "This file could not be parsed — see the job's status above."
+                                : 'This file has not been validated yet — click "Re-run validation" above to check it.'
                         }
                       />
                     ) : (
@@ -451,6 +574,7 @@ function LineListPage() {
                                 "Problem",
                                 "Value",
                                 "Source",
+                                "Decision",
                               ].map((h) => (
                                 <th key={h} className="label-caps px-3 py-2">
                                   {h}
@@ -459,65 +583,38 @@ function LineListPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {rows.map((i, idx) => (
+                            {kept.map((i, idx) => renderIssueRow(i, idx, false))}
+                            {kept.length > 0 && decided.length + withoutIssues.length > 0 ? (
+                              <tr className="border-b border-border bg-muted/30">
+                                <td
+                                  colSpan={9}
+                                  className="px-3 py-1.5 text-xs text-muted-foreground"
+                                >
+                                  Dropped or held — not counted
+                                </td>
+                              </tr>
+                            ) : null}
+                            {decided.map((i, idx) => renderIssueRow(i, kept.length + idx, true))}
+                            {withoutIssues.map((row) => (
                               <tr
-                                key={`${i.row}-${i.column}-${idx}`}
-                                className="border-b border-border last:border-0"
+                                key={`decided-${row}`}
+                                className="border-b border-border last:border-0 opacity-60"
                               >
                                 <td className="mono-num px-3 py-2">
-                                  {i.row < 1
-                                    ? "—"
-                                    : (describeRow(activeJob, i.row).fileRow ?? `#${i.row}`)}
+                                  {describeRow(activeJob, row).fileRow ?? `#${row}`}
                                 </td>
                                 <td className="mono-num whitespace-nowrap px-3 py-2">
-                                  {describeRow(activeJob, i.row).caseId ?? "—"}
+                                  {describeRow(activeJob, row).caseId ?? "—"}
                                 </td>
-                                <td className="mono-num px-3 py-2">{i.column}</td>
-                                <td className="px-3 py-2">
-                                  <StatusPill
-                                    tone={
-                                      i.severity === "CRITICAL"
-                                        ? "critical"
-                                        : i.severity === "HIGH"
-                                          ? "warning"
-                                          : i.severity === "MEDIUM"
-                                            ? "info"
-                                            : "neutral"
-                                    }
-                                  >
-                                    {i.severity.toLowerCase()}
-                                  </StatusPill>
+                                <td colSpan={6} className="px-3 py-2 text-xs text-muted-foreground">
+                                  No open issues
                                 </td>
                                 <td className="px-3 py-2">
-                                  {i.blocksE2b ? (
-                                    <StatusPill tone="critical">Blocks</StatusPill>
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground">—</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-2">
-                                  <p>{i.message}</p>
-                                  <FixAction fixIn={i.fixIn} />
-                                </td>
-                                <td className="mono-num px-3 py-2 text-muted-foreground">
-                                  {i.value ?? "—"}
-                                </td>
-                                <td className="px-3 py-2">
-                                  <StatusPill
-                                    tone={
-                                      i.sources && i.sources.length > 1
-                                        ? "success"
-                                        : i.source === "ai"
-                                          ? "assist"
-                                          : "neutral"
-                                    }
-                                  >
-                                    {i.sources && i.sources.length > 1
-                                      ? "rule + AI"
-                                      : i.source === "ai"
-                                        ? "AI"
-                                        : "rule"}
-                                  </StatusPill>
+                                  <LineListDecisionControl
+                                    job={activeJob}
+                                    row={row}
+                                    onChanged={refresh}
+                                  />
                                 </td>
                               </tr>
                             ))}
@@ -531,6 +628,13 @@ function LineListPage() {
                       onDecided={() => {
                         jobs.refetch();
                         issues.refetch();
+                      }}
+                    />
+                    <LineListChangesPanel
+                      job={activeJob}
+                      onChanged={() => {
+                        issues.refetch();
+                        jobs.refetch();
                       }}
                     />
                   </div>

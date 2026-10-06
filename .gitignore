@@ -80,3 +80,6 @@ JUSTEEN TRAMADOL 50 CAPSULE PSUR REPORT BY JUSTEEN PHARM R..docx
 *ONDO STATE AEFI*.xlsx
 /linelists/
 ondo-report.txt
+
+# Supabase CLI scratch (version cache etc.) — local only.
+supabase/.temp/

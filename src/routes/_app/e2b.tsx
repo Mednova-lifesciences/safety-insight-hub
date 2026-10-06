@@ -30,6 +30,7 @@ import {
   type OrgRegulatoryConfig,
 } from "@/services/e2b-r3/regulatory-config";
 import { describeRow, linelist as linelistApi, rowLabel } from "@/services/api/linelist";
+import { describeExcluded } from "@/services/api/linelist-decisions";
 import { demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { isNotConfigured } from "@/services/api/client";
@@ -156,6 +157,7 @@ function E2bPage() {
       const job = (jobs.data?.data ?? []).find((item) => item.id === jobId);
       setPreflightBasis((prev) => ({ ...prev, [jobId]: job?.checkedAt ?? "" }));
       setPreflightResults((prev) => ({ ...prev, [jobId]: result }));
+      const leftOut = describeExcluded(result.excludedByDecision);
       // Only each case's newest assessment is actionable; superseded
       // versions are history and must never be decided in its place.
       const assessments = latestC17AssessmentsByCase(await listC17Assessments(jobId));
@@ -164,15 +166,15 @@ function E2bPage() {
       setC17AiAssessments((prev) => ({ ...prev, [jobId]: aiAssessments }));
       if (result.readyForValidatedExport && result.transmissionConfigConfirmed) {
         toast.success(
-          `${result.totalCases} case(s) passed VigiFlow preflight — ready for real E2B(R3) export.`,
+          `${result.totalCases} case(s) passed VigiFlow preflight — ready for real E2B(R3) export.${leftOut ? ` ${leftOut}` : ""}`,
         );
       } else if (result.readyForValidatedExport) {
         toast.warning(
-          "All cases passed VigiFlow preflight, but transmission configuration (sender/receiver identifiers) is not yet confirmed by NAFDAC/Ondo — export still blocked.",
+          `All cases passed VigiFlow preflight, but transmission configuration (sender/receiver identifiers) is not yet confirmed by NAFDAC/Ondo — export still blocked.${leftOut ? ` ${leftOut}` : ""}`,
         );
       } else {
         toast.warning(
-          `${result.preflight.blockedCases}/${result.totalCases} case(s) blocked — see reasons below. Not ready for validated export.`,
+          `${result.preflight.blockedCases}/${result.totalCases} case(s) blocked — see reasons below. Not ready for validated export.${leftOut ? ` ${leftOut}` : ""}`,
         );
       }
     } catch (err) {

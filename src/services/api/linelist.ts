@@ -6,6 +6,31 @@ import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import { discoverAndApplyCodebook, mapJobToCases } from "@/services/e2b-r3/export";
 import { generateRecoveryProposal } from "./linelist-recovery";
 import {
+  appendCorrections,
+  isCellHeld,
+  markReapplied,
+  markUndone,
+  notHeld,
+  readCell,
+  stateOf,
+  writeCell,
+} from "./linelist-change-log";
+import {
+  decisionCounts,
+  decisionFor,
+  describeDecision,
+  keptOnly,
+  withDecision,
+  withoutDecision,
+  type DecisionInput,
+} from "./linelist-decisions";
+import {
+  buildFixedCsv,
+  decisionsFromFixedFile,
+  isFixedFileAnnotationColumn,
+} from "./linelist-fixed-csv";
+import { createKeyedQueue } from "./keyed-queue";
+import {
   checkCasesForE2b,
   e2bCheckIncomplete,
   mergeE2bIssues,
@@ -37,6 +62,7 @@ import {
 } from "@/services/e2b-r3/source-profiles/outcome-vocabulary";
 import type { SourceProfile } from "@/services/e2b-r3/source-profiles/types";
 import type {
+  LineListChange,
   LineListFixLocation,
   LineListIssue,
   LineListIssueType,
@@ -307,9 +333,11 @@ interface LineListJobRow extends LineListJob {
    *  executive summary always reflects the job's real current state
    *  rather than a stale pre-fix snapshot. Present (possibly empty) once
    *  fixIssues() has run at least once. */
-  lastFixCorrections?: { row: number; column: string; new_value: string; reason: string }[];
   lastFixUnresolved?: { row: number; column: string; reason: string }[];
 }
+
+/** Every write to one job — Fix, decisions, undo — runs one at a time. */
+const inJobQueue = createKeyedQueue();
 
 async function readJob(jobId: string): Promise<LineListJobRow> {
   const { data, error } = await supabase
@@ -2202,13 +2230,18 @@ async function storeIssues(
       .insert(issues.map((i) => ({ id: newId("lli"), job_id: job.id, data: toJson(i) })));
     if (error) throw new Error(error.message);
   }
-  const blocking = issues.filter((i) => i.severity === "CRITICAL" || i.severity === "HIGH");
-  const advisory = issues.filter((i) => i.severity === "MEDIUM" || i.severity === "LOW");
+  // Dropped and held cases are left out of the XML, so they are left out
+  // of every count that says how ready the file is. Their issues are still
+  // stored and still shown, under the "not counted" divider.
+  const counted = keptOnly(issues, job.decisions);
+  const keptRows = Math.max(job.rows - (job.decisions?.length ?? 0), 0);
+  const blocking = counted.filter((i) => i.severity === "CRITICAL" || i.severity === "HIGH");
+  const advisory = counted.filter((i) => i.severity === "MEDIUM" || i.severity === "LOW");
   const invalidCases = new Set(blocking.filter((i) => i.row > 0).map((i) => i.row)).size;
   // A blocker recorded against the file rather than a row (the wrong
   // source form, say) stops every case in it, so it is never counted as
   // zero blocked cases.
-  const e2bBlocked = issues.filter((i) => i.blocksE2b);
+  const e2bBlocked = counted.filter((i) => i.blocksE2b);
   const wholeFileBlocked = e2bBlocked.some((i) => i.row === 0);
   const next: LineListJobRow = {
     ...job,
@@ -2216,12 +2249,12 @@ async function storeIssues(
     stage: job.stage === "E2B_GENERATED" ? "E2B_GENERATED" : "VALIDATED",
     invalidCases,
     warnings: advisory.length,
-    criticalCount: issues.filter((i) => i.severity === "CRITICAL").length,
-    highCount: issues.filter((i) => i.severity === "HIGH").length,
-    mediumCount: issues.filter((i) => i.severity === "MEDIUM").length,
-    lowCount: issues.filter((i) => i.severity === "LOW").length,
-    validCases: Math.max(job.rows - invalidCases, 0),
-    e2bBlockedCases: wholeFileBlocked ? job.rows : new Set(e2bBlocked.map((i) => i.row)).size,
+    criticalCount: counted.filter((i) => i.severity === "CRITICAL").length,
+    highCount: counted.filter((i) => i.severity === "HIGH").length,
+    mediumCount: counted.filter((i) => i.severity === "MEDIUM").length,
+    lowCount: counted.filter((i) => i.severity === "LOW").length,
+    validCases: Math.max(keptRows - invalidCases, 0),
+    e2bBlockedCases: wholeFileBlocked ? keptRows : new Set(e2bBlocked.map((i) => i.row)).size,
     openFixIn: [...new Set(e2bBlocked.map((i) => i.fixIn ?? "FILE"))],
     checkedAt: new Date().toISOString(),
   };
@@ -2244,14 +2277,38 @@ export function safeCorrections<C extends { row: number; column: string }>(
   );
 }
 
-function buildRecoveryCorrections(
-  job: LineListJobRow,
-): { row: number; column: string; new_value: string; reason: string }[] {
+type RecoveryCorrection = {
+  row: number;
+  column: string;
+  new_value: string;
+  reason: string;
+  /** One id per move (or swap or chain of moves sharing columns) within
+   *  the row: its writes and clears are undone and re-applied together. */
+  group: string;
+};
+
+const HELD_CELL_REASON =
+  "Kept by a person — Fix leaves this cell alone (Re-apply to hand it back).";
+
+/** One {row, column} per distinct cell, first occurrence order. */
+function uniqueCells(items: { row: number; column: string }[]): { row: number; column: string }[] {
+  const seen = new Set<string>();
+  const out: { row: number; column: string }[] = [];
+  for (const i of items) {
+    const key = `${i.row}:${i.column}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ row: i.row, column: i.column });
+  }
+  return out;
+}
+
+function buildRecoveryCorrections(job: LineListJobRow): RecoveryCorrection[] {
   const rows = job.rawRows ?? job.parsedRows ?? [];
   const mapping = job.mapping ?? {};
   if (rows.length === 0 || Object.keys(mapping).length === 0) return [];
 
-  const corrections: { row: number; column: string; new_value: string; reason: string }[] = [];
+  const corrections: RecoveryCorrection[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = (rows[i] ?? {}) as Record<string, string>;
@@ -2266,6 +2323,19 @@ function buildRecoveryCorrections(
     // straight swap both columns receive a value, so neither is cleared.
     const targetWrites = new Map<string, { value: string; reason: string }>();
     const sourceColumns = new Set<string>();
+    // Columns linked by a move (source and target) are one unit; a swap or
+    // a chain links more than two. Union-find over column names.
+    const parent = new Map<string, string>();
+    const find = (c: string): string => {
+      let root = c;
+      while (parent.has(root) && parent.get(root) !== root) root = parent.get(root)!;
+      return root;
+    };
+    const link = (a: string, b: string) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent.set(ra, rb);
+    };
 
     for (const move of proposal.moves) {
       const targetHeader = Object.entries(mapping).find(
@@ -2282,7 +2352,18 @@ function buildRecoveryCorrections(
       }
       targetWrites.set(targetHeader, { value: move.sourceValue, reason: move.reason });
       sourceColumns.add(move.sourceColumn);
+      link(move.sourceColumn, targetHeader);
     }
+    const groupIds = new Map<string, string>();
+    const groupOf = (column: string): string => {
+      const root = find(column);
+      let id = groupIds.get(root);
+      if (!id) {
+        id = `move-${i + 1}-${groupIds.size + 1}`;
+        groupIds.set(root, id);
+      }
+      return id;
+    };
 
     for (const [targetHeader, write] of targetWrites) {
       const current = row[targetHeader] ?? "";
@@ -2292,6 +2373,7 @@ function buildRecoveryCorrections(
         column: targetHeader,
         new_value: write.value,
         reason: write.reason,
+        group: groupOf(targetHeader),
       });
     }
 
@@ -2303,6 +2385,7 @@ function buildRecoveryCorrections(
         column: sourceColumn,
         new_value: "",
         reason: `Value moved to the column it belongs in; cleared here so it is not counted twice.`,
+        group: groupOf(sourceColumn),
       });
     }
   }
@@ -2312,6 +2395,85 @@ function buildRecoveryCorrections(
 
 function normalizeLeftRightValue(value: string): string {
   return value.trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Writes one restored cell, records the event, and re-runs the
+ * deterministic checks so the screen shows the cell's real state.
+ *
+ * Only the deterministic rules re-run: an issue only the AI had found
+ * returns on the next "Re-run validation". A full AI scan on every Undo
+ * would make Undo slow and its result non-deterministic.
+ */
+async function restoreCells(
+  job: LineListJobRow,
+  changeLog: LineListChange[],
+  cells: { row: number; column: string; value: string }[],
+  audits: { action: string; previousValue: string; newValue: string; cell: string }[],
+): Promise<LineListJobRow> {
+  if (!job.parsedRows || !job.mapping) {
+    throw new Error("This job has no stored row data to change.");
+  }
+  const cellRows = {
+    rawRows: job.rawRows ? [...job.rawRows] : undefined,
+    parsedRows: [...job.parsedRows] as Record<string, string | undefined>[],
+    mapping: job.mapping as Record<string, string>,
+  };
+  for (const cell of cells) writeCell(cellRows, cell.row, cell.column, cell.value);
+  const updated: LineListJobRow = {
+    ...job,
+    parsedRows: cellRows.parsedRows as ParsedRow[],
+    ...(cellRows.rawRows ? { rawRows: cellRows.rawRows } : {}),
+    changeLog,
+  };
+  const currentIssues = await linelist.issues(job.id);
+  const priorAi = currentIssues.filter((i) => i.source === "ai");
+  const finalIssues = mergeFindings(await computeDeterministicIssues(updated), priorAi);
+  const next = await storeIssues(updated, finalIssues, { validatedAt: new Date().toISOString() });
+  for (const audit of audits) {
+    await recordAudit({
+      action: audit.action,
+      entity: "LineListJob",
+      entityId: job.id,
+      previousValue: audit.previousValue,
+      newValue: audit.newValue,
+      reason: audit.cell,
+    });
+  }
+  return next;
+}
+
+/** One audit event per cell undone or re-applied; each cell of a move
+ *  says it was part of one. */
+function changeAudits(
+  job: LineListJobRow,
+  entries: LineListChange[],
+  action: "LINELIST_CHANGE_UNDONE" | "LINELIST_CHANGE_REAPPLIED",
+): { action: string; previousValue: string; newValue: string; cell: string }[] {
+  const undo = action === "LINELIST_CHANGE_UNDONE";
+  const moveNote =
+    entries.length > 1 ? ` (part of a move of ${entries.length} cells, reversed together)` : "";
+  return entries.map((e) => ({
+    action,
+    previousValue: undo ? e.newValue : e.oldValue,
+    newValue: undo ? e.oldValue : e.newValue,
+    cell: `${rowLabel(job, e.row)}, ${e.column}${moveNote}`,
+  }));
+}
+
+/**
+ * Re-runs the deterministic checks against the job's current data. Not
+ * queued itself: every caller is either the queued public `recheck` or
+ * another queued write on the same job, and a queued body must never await
+ * a queued call on its own job (it would wait on itself forever).
+ */
+async function recheckJob(jobId: string): Promise<LineListJob> {
+  const job = await readJob(jobId);
+  if (!job.parsedRows) return job;
+  const previous = await linelist.issues(jobId);
+  const priorAi = previous.filter((i) => i.source === "ai" && !(i.sources ?? []).includes("rule"));
+  const issues = mergeFindings(await computeDeterministicIssues(job), priorAi);
+  return storeIssues(job, issues);
 }
 
 export const linelist = {
@@ -2343,9 +2505,18 @@ export const linelist = {
         sourceRowNumbers,
       } = await parseTabularFile(file);
       const rawRows = toRawRows(headers, rows);
+      // A re-uploaded fixed file carries this tool's own annotation columns
+      // (Changes made, Decision, ...). They are notes about the data, never
+      // data: neither mapper sees them, so they stay unmapped. They remain in
+      // rawRows and columns untouched (spec 6.4).
+      const dataHeaders = headers.filter((h) => !isFixedFileAnnotationColumn(h));
+      const mapperRows =
+        dataHeaders.length === headers.length
+          ? rawRows
+          : rawRows.map((r) => Object.fromEntries(dataHeaders.map((h) => [h, r[h] ?? ""])));
       // Keyword mapping first, always — it is the floor the AI pass is
       // merged onto and the whole mapping if that pass is unavailable.
-      const keywordMapping = mapColumns(headers);
+      const keywordMapping = mapColumns(dataHeaders);
       let proposals: {
         column: string;
         field?: string | null;
@@ -2359,8 +2530,11 @@ export const linelist = {
       // Two attempts is the whole budget — this sits in the upload path.
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const proposed = await ai.linelist.mapColumns({ headers, rows: rawRows });
-          proposals = proposed.proposals;
+          const proposed = await ai.linelist.mapColumns({
+            headers: dataHeaders,
+            rows: mapperRows,
+          });
+          proposals = proposed.proposals.filter((p) => !isFixedFileAnnotationColumn(p.column));
           aiMappingUsed = proposed.ai_used;
           break;
         } catch {
@@ -2371,9 +2545,17 @@ export const linelist = {
           aiMappingUsed = false;
         }
       }
-      const decision = mergeColumnMapping(keywordMapping, proposals, aiMappingUsed, headers);
+      const decision = mergeColumnMapping(keywordMapping, proposals, aiMappingUsed, dataHeaders);
       const mapping = decision.mapping;
       const parsedRows = toParsedRows(headers, rows, mapping);
+      // Cases dropped in the file stay dropped. In place before the job is
+      // first stored, so every count (and the first storeIssues) sees them.
+      const restoredDecisions = decisionsFromFixedFile(
+        headers,
+        rows,
+        actor.name,
+        new Date().toISOString(),
+      );
       job = {
         id: newId("ll"),
         filename: file.name,
@@ -2398,6 +2580,7 @@ export const linelist = {
         sheetName,
         headerRowNumber,
         sourceRowNumbers,
+        ...(restoredDecisions.length > 0 ? { decisions: restoredDecisions } : {}),
       };
     } catch (err) {
       job = {
@@ -2453,6 +2636,15 @@ export const linelist = {
       entityId: job.id,
       newValue: `${file.name} (${job.rows} rows, ${Object.keys(job.mapping ?? {}).length}/${TARGET_FIELDS.length} canonical columns matched, ${job.columns?.length ?? 0} total columns retained)${parseNote}`,
     });
+    for (const d of job.decisions ?? []) {
+      await recordAudit({
+        action: "LINELIST_CASE_DROPPED",
+        entity: "LineListJob",
+        entityId: job.id,
+        newValue: `${rowLabel(job, d.row)}: ${describeDecision(d)}`,
+        reason: "Restored from the Decision column of a re-uploaded fixed file",
+      });
+    }
     return job;
   },
 
@@ -2472,22 +2664,24 @@ export const linelist = {
     };
   },
 
-  map: async (jobId: string, mapping: Record<string, string>): Promise<LineListJob> => {
-    const job = await readJob(jobId);
-    await recordAudit({
-      action: "LINELIST_MAPPED",
-      entity: "LineListJob",
-      entityId: jobId,
-      newValue: Object.keys(mapping).join(", "),
-    });
-    return saveJob({ ...job, stage: "MAPPED", mapping: mapping as Record<string, TargetField> });
-  },
+  map: (jobId: string, mapping: Record<string, string>): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      await recordAudit({
+        action: "LINELIST_MAPPED",
+        entity: "LineListJob",
+        entityId: jobId,
+        newValue: Object.keys(mapping).join(", "),
+      });
+      return saveJob({ ...job, stage: "MAPPED", mapping: mapping as Record<string, TargetField> });
+    }),
 
-  normalize: async (jobId: string): Promise<LineListJob> => {
-    const job = await readJob(jobId);
-    await recordAudit({ action: "LINELIST_NORMALISED", entity: "LineListJob", entityId: jobId });
-    return saveJob({ ...job, stage: "NORMALISED" });
-  },
+  normalize: (jobId: string): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      await recordAudit({ action: "LINELIST_NORMALISED", entity: "LineListJob", entityId: jobId });
+      return saveJob({ ...job, stage: "NORMALISED" });
+    }),
 
   /**
    * OpenAI is the primary validation engine here: for a real upload, its
@@ -2501,93 +2695,96 @@ export const linelist = {
    * just the ones the deterministic matcher recognised — a column outside
    * the app's canonical field list is never invisible to the AI pass.
    */
-  validate: async (
+  validate: (
     jobId: string,
   ): Promise<{
     job: LineListJob;
     issues: LineListIssue[];
     aiUsed: boolean;
     aiError?: string | undefined;
-  }> => {
-    const job = await readJob(jobId);
-    let issues: LineListIssue[];
-    let aiUsed = false;
-    let aiError: string | undefined;
-    let promptVersion: string | undefined = job.promptVersion;
+  }> =>
+    // Queued: the AI pass below takes seconds to minutes while the issues
+    // table stays live, and this saves the job it read at the start.
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      let issues: LineListIssue[];
+      let aiUsed = false;
+      let aiError: string | undefined;
+      let promptVersion: string | undefined = job.promptVersion;
 
-    if (job.parsedRows) {
-      // Real upload — re-run validation against the actual parsed content
-      // every time, so the result always reflects the current data.
-      // Line-list rules plus every E2B(R3)/VigiFlow blocker in this file's
-      // data, from the same engine export runs — so nothing new appears on
-      // the E2B page once this list is clean. Words nothing could resolve
-      // (outcomes, reactions, designations) are recorded for the
-      // organization to decide once.
-      const ruleIssues = await computeDeterministicIssues(job);
-      const parsedRows = job.parsedRows;
+      if (job.parsedRows) {
+        // Real upload — re-run validation against the actual parsed content
+        // every time, so the result always reflects the current data.
+        // Line-list rules plus every E2B(R3)/VigiFlow blocker in this file's
+        // data, from the same engine export runs — so nothing new appears on
+        // the E2B page once this list is clean. Words nothing could resolve
+        // (outcomes, reactions, designations) are recorded for the
+        // organization to decide once.
+        const ruleIssues = await computeDeterministicIssues(job);
+        const parsedRows = job.parsedRows;
 
-      const analysisRows = (job.rawRows ?? parsedRows) as Record<string, string>[];
-      let aiIssues: LineListIssue[] = [];
-      try {
-        const analysis = await ai.linelist.analyze({
-          headers: job.columns ?? [],
-          mapping: job.mapping ?? {},
-          rows: analysisRows,
-        });
-        aiUsed = analysis.ai_used;
-        aiError = analysis.error ?? undefined;
-        promptVersion = analysis.prompt_version;
-        aiIssues = analysis.findings.map((f) => ({
-          row: f.row,
-          column: f.column,
-          severity: f.severity,
-          confidence: f.confidence,
-          code: f.code,
-          message: f.message,
-          value: f.value,
-          fixable: f.fixable,
-          source: "ai" as const,
-          sources: ["ai"] as const,
-          ...(f.issueType ? { issueType: f.issueType as LineListIssueType } : {}),
-          ...(f.affectedFields && f.affectedFields.length > 0
-            ? { affectedFields: f.affectedFields }
-            : {}),
-        }));
-      } catch (err) {
-        // The AI endpoint itself is unreachable (network/deploy issue,
-        // not just "no key") — rule-based findings still stand alone.
-        aiUsed = false;
-        aiError = err instanceof Error ? err.message : "AI analysis unavailable.";
+        const analysisRows = (job.rawRows ?? parsedRows) as Record<string, string>[];
+        let aiIssues: LineListIssue[] = [];
+        try {
+          const analysis = await ai.linelist.analyze({
+            headers: job.columns ?? [],
+            mapping: job.mapping ?? {},
+            rows: analysisRows,
+          });
+          aiUsed = analysis.ai_used;
+          aiError = analysis.error ?? undefined;
+          promptVersion = analysis.prompt_version;
+          aiIssues = analysis.findings.map((f) => ({
+            row: f.row,
+            column: f.column,
+            severity: f.severity,
+            confidence: f.confidence,
+            code: f.code,
+            message: f.message,
+            value: f.value,
+            fixable: f.fixable,
+            source: "ai" as const,
+            sources: ["ai"] as const,
+            ...(f.issueType ? { issueType: f.issueType as LineListIssueType } : {}),
+            ...(f.affectedFields && f.affectedFields.length > 0
+              ? { affectedFields: f.affectedFields }
+              : {}),
+          }));
+        } catch (err) {
+          // The AI endpoint itself is unreachable (network/deploy issue,
+          // not just "no key") — rule-based findings still stand alone.
+          aiUsed = false;
+          aiError = err instanceof Error ? err.message : "AI analysis unavailable.";
+        }
+
+        // Rule-based findings are authoritative for the deterministic facts
+        // they check (missing fields, malformed dates, chronology, invalid
+        // codes, possible column shifts) and are never suppressed just
+        // because AI also ran — AI can only add findings on top, never erase
+        // one. Where both land on the exact same cell, that's the same
+        // underlying issue seen twice, so the AI-worded duplicate is dropped
+        // in favour of the rule's version (see mergeFindings).
+        issues = mergeFindings(ruleIssues, aiIssues);
+      } else {
+        // Legacy/seeded demo job with no stored raw parse — preserve its
+        // existing issues rather than silently erasing them.
+        issues = await linelist.issues(jobId);
       }
 
-      // Rule-based findings are authoritative for the deterministic facts
-      // they check (missing fields, malformed dates, chronology, invalid
-      // codes, possible column shifts) and are never suppressed just
-      // because AI also ran — AI can only add findings on top, never erase
-      // one. Where both land on the exact same cell, that's the same
-      // underlying issue seen twice, so the AI-worded duplicate is dropped
-      // in favour of the rule's version (see mergeFindings).
-      issues = mergeFindings(ruleIssues, aiIssues);
-    } else {
-      // Legacy/seeded demo job with no stored raw parse — preserve its
-      // existing issues rather than silently erasing them.
-      issues = await linelist.issues(jobId);
-    }
-
-    const next = await storeIssues(job, issues, {
-      validatedAt: new Date().toISOString(),
-      ...(promptVersion ? { promptVersion } : {}),
-    });
-    const invalidCases = next.invalidCases;
-    const advisory = { length: next.warnings };
-    await recordAudit({
-      action: "LINELIST_VALIDATED",
-      entity: "LineListJob",
-      entityId: jobId,
-      newValue: `${next.validCases} valid / ${invalidCases} invalid / ${advisory.length} warning(s)${aiUsed ? (RULE_BASED_DETECTION_ENABLED ? " (AI + rule-based)" : " (AI only — rule-based detection disabled)") : RULE_BASED_DETECTION_ENABLED ? " (rule-based only — AI unavailable)" : " (no detection engine available)"}`,
-    });
-    return { job: next, issues, aiUsed, aiError };
-  },
+      const next = await storeIssues(job, issues, {
+        validatedAt: new Date().toISOString(),
+        ...(promptVersion ? { promptVersion } : {}),
+      });
+      const invalidCases = next.invalidCases;
+      const advisory = { length: next.warnings };
+      await recordAudit({
+        action: "LINELIST_VALIDATED",
+        entity: "LineListJob",
+        entityId: jobId,
+        newValue: `${next.validCases} valid / ${invalidCases} invalid / ${advisory.length} warning(s)${aiUsed ? (RULE_BASED_DETECTION_ENABLED ? " (AI + rule-based)" : " (AI only — rule-based detection disabled)") : RULE_BASED_DETECTION_ENABLED ? " (rule-based only — AI unavailable)" : " (no detection engine available)"}`,
+      });
+      return { job: next, issues, aiUsed, aiError };
+    }),
 
   /**
    * Re-runs the fast, deterministic checks (line-list rules + E2B
@@ -2596,16 +2793,7 @@ export const linelist = {
    * change or a data fix show up immediately on both pages, without a slow
    * full AI re-analysis.
    */
-  recheck: async (jobId: string): Promise<LineListJob> => {
-    const job = await readJob(jobId);
-    if (!job.parsedRows) return job;
-    const previous = await linelist.issues(jobId);
-    const priorAi = previous.filter(
-      (i) => i.source === "ai" && !(i.sources ?? []).includes("rule"),
-    );
-    const issues = mergeFindings(await computeDeterministicIssues(job), priorAi);
-    return storeIssues(job, issues);
-  },
+  recheck: (jobId: string): Promise<LineListJob> => inJobQueue(jobId, () => recheckJob(jobId)),
 
   /** Rechecks every line list with an open blocker a decision at `fixIn`
    *  can clear — e.g. after an outcome word is mapped in Settings. */
@@ -2619,7 +2807,7 @@ export const linelist = {
   /** Saves how this line list's ambiguous separators are read. Applies to
    *  line-list checks, E2B preflight and export alike, and survives reloads
    *  — so cases (and any C.1.7 decision bound to them) stay stable. */
-  setParsingOptions: async (
+  setParsingOptions: (
     jobId: string,
     options: {
       slashSeparatesReactions: boolean;
@@ -2628,40 +2816,41 @@ export const linelist = {
        *  `null` clears a previous decision back to undecided. */
       patientRecordNumberSource?: PatientRecordNumberSource | null | undefined;
     },
-  ): Promise<LineListJob> => {
-    const actor = currentActor();
-    const job = await readJob(jobId);
-    const previous = job.parsingOptions;
-    const { patientRecordNumberSource, ...reading } = options;
-    // undefined means "leave whatever was decided before"; null is a person
-    // saying not to export one, which is itself a decision and is recorded
-    // as one so the column's name stops answering for them.
-    const untouched = patientRecordNumberSource === undefined;
-    const decided = untouched
-      ? previous?.patientRecordNumberSource
-      : (patientRecordNumberSource ?? undefined);
-    const declined = untouched
-      ? previous?.patientRecordNumberDeclined
-      : patientRecordNumberSource === null;
-    const parsingOptions = {
-      ...reading,
-      ...(decided ? { patientRecordNumberSource: decided } : {}),
-      ...(declined ? { patientRecordNumberDeclined: true } : {}),
-      setBy: actor.name,
-      setAt: new Date().toISOString(),
-    };
-    await saveJob({ ...job, parsingOptions });
-    await recordAudit({
-      action: "LINELIST_PARSING_OPTIONS_CHANGED",
-      entity: "LineListJob",
-      entityId: jobId,
-      previousValue: previous
-        ? `slash separates reactions: ${!!previous.slashSeparatesReactions}; product cell is one name: ${!!previous.productCellIsOneName}`
-        : "defaults",
-      newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}; patient record number source: ${declined ? "declined — not exported" : (decided ?? "undecided")}`,
-    });
-    return linelist.recheck(jobId);
-  },
+  ): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const actor = currentActor();
+      const job = await readJob(jobId);
+      const previous = job.parsingOptions;
+      const { patientRecordNumberSource, ...reading } = options;
+      // undefined means "leave whatever was decided before"; null is a person
+      // saying not to export one, which is itself a decision and is recorded
+      // as one so the column's name stops answering for them.
+      const untouched = patientRecordNumberSource === undefined;
+      const decided = untouched
+        ? previous?.patientRecordNumberSource
+        : (patientRecordNumberSource ?? undefined);
+      const declined = untouched
+        ? previous?.patientRecordNumberDeclined
+        : patientRecordNumberSource === null;
+      const parsingOptions = {
+        ...reading,
+        ...(decided ? { patientRecordNumberSource: decided } : {}),
+        ...(declined ? { patientRecordNumberDeclined: true } : {}),
+        setBy: actor.name,
+        setAt: new Date().toISOString(),
+      };
+      await saveJob({ ...job, parsingOptions });
+      await recordAudit({
+        action: "LINELIST_PARSING_OPTIONS_CHANGED",
+        entity: "LineListJob",
+        entityId: jobId,
+        previousValue: previous
+          ? `slash separates reactions: ${!!previous.slashSeparatesReactions}; product cell is one name: ${!!previous.productCellIsOneName}`
+          : "defaults",
+        newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}; patient record number source: ${declined ? "declined — not exported" : (decided ?? "undecided")}`,
+      });
+      return recheckJob(jobId);
+    }),
 
   /** Reads an already-uploaded file as a different source form. The form
    *  decides whether the reaction column holds local codes or reactions
@@ -2671,20 +2860,21 @@ export const linelist = {
    *
    *  Cases are rebuilt, so a C.1.7 decision taken against the old reading
    *  is superseded exactly as it is for any other change to the data. */
-  setSourceProfile: async (jobId: string, sourceProfileId: string): Promise<LineListJob> => {
-    const job = await readJob(jobId);
-    const previous = job.sourceProfileId || DEFAULT_SOURCE_PROFILE_ID;
-    if (previous === sourceProfileId) return job;
-    await saveJob({ ...job, sourceProfileId });
-    await recordAudit({
-      action: "LINELIST_SOURCE_PROFILE_CHANGED",
-      entity: "LineListJob",
-      entityId: jobId,
-      previousValue: previous,
-      newValue: sourceProfileId,
-    });
-    return linelist.recheck(jobId);
-  },
+  setSourceProfile: (jobId: string, sourceProfileId: string): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      const previous = job.sourceProfileId || DEFAULT_SOURCE_PROFILE_ID;
+      if (previous === sourceProfileId) return job;
+      await saveJob({ ...job, sourceProfileId });
+      await recordAudit({
+        action: "LINELIST_SOURCE_PROFILE_CHANGED",
+        entity: "LineListJob",
+        entityId: jobId,
+        previousValue: previous,
+        newValue: sourceProfileId,
+      });
+      return recheckJob(jobId);
+    }),
 
   /** A person confirms the MedDRA term for a reaction word from this line
    *  list. Remembered for the organization; every affected line list is
@@ -2725,7 +2915,7 @@ export const linelist = {
    * anything OpenAI can't safely determine is left unchanged and reported
    * as unresolved too.
    */
-  fixIssues: async (
+  fixIssues: (
     jobId: string,
   ): Promise<{
     job: LineListJob;
@@ -2734,135 +2924,271 @@ export const linelist = {
     unresolved: { row: number; column: string; reason: string }[];
     aiUsed: boolean;
     aiError?: string | undefined;
-  }> => {
-    const job = await readJob(jobId);
-    if (!job.parsedRows || !job.columns || !job.mapping) {
-      throw new Error(
-        "This job has no stored row data to fix (it predates AI-assisted line-list processing).",
-      );
-    }
-    const currentIssues = await linelist.issues(jobId);
-    const allFixable = currentIssues.filter((i) => i.fixable);
-    const autoFixable = allFixable.filter((i) => i.source !== "ai" || i.confidence !== "LOW");
-    const needsReview = allFixable.filter((i) => i.source === "ai" && i.confidence === "LOW");
-    const needsReviewUnresolved = needsReview.map((i) => ({
-      row: i.row,
-      column: i.column,
-      reason:
-        "Low-confidence AI finding — requires human review before an automatic fix is applied.",
-    }));
-
-    if (autoFixable.length === 0) {
-      // Nothing to actually fix — the data hasn't changed, so there's
-      // nothing for a re-validation to usefully re-discover. Re-running it
-      // anyway used to just burn a full AI pass for no reason.
-      await saveJob({
-        ...job,
-        lastFixCorrections: [],
-        lastFixUnresolved: needsReviewUnresolved,
-      });
-      return {
-        job,
-        issues: currentIssues,
-        correctionsApplied: 0,
-        unresolved: needsReviewUnresolved,
-        aiUsed: false,
-      };
-    }
-
-    const fixRows = (job.rawRows ?? job.parsedRows) as Record<string, string>[];
-    const deterministicRecovery = buildRecoveryCorrections(job);
-    const fixResult = await ai.linelist.fix({
-      headers: job.columns,
-      mapping: job.mapping,
-      rows: fixRows,
-      issues: autoFixable,
-    });
-    const combinedUnresolved = [...fixResult.unresolved, ...needsReviewUnresolved];
-
-    let updatedJob: LineListJobRow;
-    const recoveredCorrections = deterministicRecovery.map((c) => ({
-      row: c.row,
-      column: c.column,
-      new_value: c.new_value,
-      reason: c.reason,
-    }));
-    const corrections = safeCorrections(
-      [...recoveredCorrections, ...(fixResult.ai_used ? fixResult.corrections : [])],
-      [
-        ...autoFixable.map((i) => ({ row: i.row, column: i.column })),
-        ...recoveredCorrections.map((c) => ({ row: c.row, column: c.column })),
-      ],
-      job.mapping,
-    );
-    if (corrections.length > 0) {
-      const parsedRows = [...job.parsedRows];
-      const rawRows = job.rawRows ? [...job.rawRows] : undefined;
-      for (const correction of corrections) {
-        const idx = correction.row - 1;
-        if (idx < 0) continue;
-        if (rawRows && idx < rawRows.length && correction.column in rawRows[idx]!) {
-          rawRows[idx] = { ...rawRows[idx]!, [correction.column]: correction.new_value };
-        }
-        const canonicalField = job.mapping[correction.column];
-        if (canonicalField && idx < parsedRows.length) {
-          parsedRows[idx] = { ...parsedRows[idx], [canonicalField]: correction.new_value };
-        }
+  }> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      if (!job.parsedRows || !job.columns || !job.mapping) {
+        throw new Error(
+          "This job has no stored row data to fix (it predates AI-assisted line-list processing).",
+        );
       }
-      updatedJob = {
-        ...job,
-        parsedRows,
-        ...(rawRows ? { rawRows } : {}),
-        fixedAt: new Date().toISOString(),
-        lastFixCorrections: corrections,
-        lastFixUnresolved: combinedUnresolved,
+      const currentIssues = await linelist.issues(jobId);
+      // Dropped and held cases are not corrected (spec 5.1). A held case
+      // returned to Keep is picked up by the next run.
+      const keptFixable = keptOnly(currentIssues, job.decisions).filter((i) => i.fixable);
+      // A cell a person took over with Undo is never sent to the AI fix call
+      // nor counted: it is reported instead, so the count can reach zero.
+      const allFixable = notHeld(keptFixable, job.changeLog);
+      const heldUnresolved = uniqueCells(
+        keptFixable.filter((i) => isCellHeld(job.changeLog ?? [], i.row, i.column)),
+      ).map((c) => ({ ...c, reason: HELD_CELL_REASON }));
+      const autoFixable = allFixable.filter((i) => i.source !== "ai" || i.confidence !== "LOW");
+      const needsReview = allFixable.filter((i) => i.source === "ai" && i.confidence === "LOW");
+      const needsReviewUnresolved = [
+        ...needsReview.map((i) => ({
+          row: i.row,
+          column: i.column,
+          reason:
+            "Low-confidence AI finding — requires human review before an automatic fix is applied.",
+        })),
+        ...heldUnresolved,
+      ];
+
+      if (autoFixable.length === 0) {
+        // Nothing to actually fix — the data hasn't changed, so there's
+        // nothing for a re-validation to usefully re-discover. Re-running it
+        // anyway used to just burn a full AI pass for no reason.
+        await saveJob({ ...job, lastFixUnresolved: needsReviewUnresolved });
+        return {
+          job,
+          issues: currentIssues,
+          correctionsApplied: 0,
+          unresolved: needsReviewUnresolved,
+          aiUsed: false,
+        };
+      }
+
+      const fixRows = (job.rawRows ?? job.parsedRows) as Record<string, string>[];
+      const deterministicRecovery = keptOnly(buildRecoveryCorrections(job), job.decisions);
+      const fixResult = await ai.linelist.fix({
+        headers: job.columns,
+        mapping: job.mapping,
+        rows: fixRows,
+        issues: autoFixable,
+      });
+      let updatedJob: LineListJobRow;
+      // Group ids are unique to this run, so a move made by a later Fix on
+      // the same row never joins an earlier move.
+      const fixRun = newId("llg");
+      const recoveredCorrections = deterministicRecovery.map((c) => ({
+        row: c.row,
+        column: c.column,
+        new_value: c.new_value,
+        reason: c.reason,
+        group: `${fixRun}-${c.group}`,
+      }));
+      const corrections = safeCorrections<{
+        row: number;
+        column: string;
+        new_value: string;
+        reason: string;
+        group?: string;
+      }>(
+        [...recoveredCorrections, ...(fixResult.ai_used ? fixResult.corrections : [])],
+        [
+          ...autoFixable.map((i) => ({ row: i.row, column: i.column })),
+          ...recoveredCorrections.map((c) => ({ row: c.row, column: c.column })),
+        ],
+        job.mapping,
+      );
+      // Every correction is recorded with the value it replaced, so it can be
+      // shown, undone and audited. A cell a person has taken over is skipped
+      // (appendCorrections), and so is a correction that changes nothing.
+      const recoveredKeys = new Set(recoveredCorrections.map((c) => `${c.row}:${c.column}`));
+      const cellRows = {
+        rawRows: job.rawRows ? [...job.rawRows] : undefined,
+        parsedRows: [...job.parsedRows] as Record<string, string | undefined>[],
+        mapping: job.mapping as Record<string, string>,
       };
-      await saveJob(updatedJob);
+      const { log: changeLog, applied } = appendCorrections(
+        job.changeLog ?? [],
+        corrections.map((c) => ({
+          row: c.row,
+          column: c.column,
+          newValue: c.new_value,
+          reason: c.reason,
+          source: recoveredKeys.has(`${c.row}:${c.column}`)
+            ? ("recovery" as const)
+            : ("ai" as const),
+          ...(c.group ? { group: c.group } : {}),
+        })),
+        (row, column) => readCell(cellRows, row, column),
+        new Date().toISOString(),
+        () => newId("llc"),
+      );
+      for (const change of applied) writeCell(cellRows, change.row, change.column, change.newValue);
+      // A proposal that did not become a change is reported, never silently
+      // dropped: a held cell (already reported above), a move that touches a
+      // held cell, or a value equal to what the cell already holds.
+      const appliedKeys = new Set(applied.map((c) => `${c.row}:${c.column}`));
+      const reportedKeys = new Set(
+        [...fixResult.unresolved, ...needsReviewUnresolved].map((u) => `${u.row}:${u.column}`),
+      );
+      const blockedGroups = new Set(
+        corrections
+          .filter((c) => c.group && isCellHeld(job.changeLog ?? [], c.row, c.column))
+          .map((c) => c.group),
+      );
+      const skippedUnresolved = uniqueCells(
+        corrections.filter(
+          (c) =>
+            !appliedKeys.has(`${c.row}:${c.column}`) &&
+            !reportedKeys.has(`${c.row}:${c.column}`) &&
+            !isCellHeld(job.changeLog ?? [], c.row, c.column),
+        ),
+      ).map((c) => {
+        const inBlockedMove = corrections.some(
+          (m) => m.row === c.row && m.column === c.column && m.group && blockedGroups.has(m.group),
+        );
+        return {
+          ...c,
+          reason: inBlockedMove
+            ? "Part of a move that includes a cell kept by a person — Fix leaves the whole move alone."
+            : "The AI proposed no change for this cell.",
+        };
+      });
+      const combinedUnresolved = [
+        ...fixResult.unresolved,
+        ...needsReviewUnresolved,
+        ...skippedUnresolved,
+      ];
+      if (applied.length > 0) {
+        updatedJob = {
+          ...job,
+          parsedRows: cellRows.parsedRows as ParsedRow[],
+          ...(cellRows.rawRows ? { rawRows: cellRows.rawRows } : {}),
+          fixedAt: new Date().toISOString(),
+          changeLog,
+          lastFixUnresolved: combinedUnresolved,
+        };
+        await saveJob(updatedJob);
+        await recordAudit({
+          action: "LINELIST_AI_FIX_APPLIED",
+          entity: "LineListJob",
+          entityId: jobId,
+          newValue: `${applied.length} field(s) corrected, ${combinedUnresolved.length} left unresolved`,
+          reason: `Prompt ${fixResult.prompt_version}`,
+        });
+      } else {
+        updatedJob = { ...job, lastFixUnresolved: combinedUnresolved };
+        await saveJob(updatedJob);
+      }
+
+      // Reconcile instead of re-running full AI analysis: drop exactly the
+      // issues this pass actually corrected (matched by row+column against
+      // the fix response) and keep every other previously-detected issue —
+      // AI or rule — untouched. A full fresh AI scan here used to be what
+      // made "Fix Issues" both slow (a second complete multi-chunk AI pass
+      // stacked on top of the fix call itself) and unpredictable (the count
+      // could go up as well as down between runs, since a fresh LLM scan of
+      // the whole file is never guaranteed to reproduce its own prior
+      // findings — pure model non-determinism, not an actual change in the
+      // data). Only the fast, fully deterministic rule engine re-runs here;
+      // a complete AI re-scan only ever happens from an explicit "Re-run
+      // validation" click.
+      // Only what was actually applied resolves an issue: a skipped held cell
+      // keeps its finding.
+      const correctedKeys = new Set(applied.map((c) => `${c.row}:${c.column}`));
+      const remainingPriorAiIssues = currentIssues.filter(
+        (i) => i.source === "ai" && !correctedKeys.has(`${i.row}:${i.column}`),
+      );
+      const finalIssues = mergeFindings(
+        await computeDeterministicIssues(updatedJob),
+        remainingPriorAiIssues,
+      );
+      const next = await storeIssues(updatedJob, finalIssues, {
+        validatedAt: new Date().toISOString(),
+      });
+
+      return {
+        job: next,
+        issues: finalIssues,
+        correctionsApplied: applied.length,
+        unresolved: combinedUnresolved,
+        aiUsed: fixResult.ai_used,
+        aiError: fixResult.error ?? undefined,
+      };
+    }),
+
+  /** Drop or step down one case. Recounts without re-validating: a
+   *  decision changes what counts, not what is wrong. */
+  decideCase: (jobId: string, input: DecisionInput): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      const actor = currentActor();
+      const decisions = withDecision(
+        job.decisions,
+        input,
+        job.parsedRows?.length ?? job.rows,
+        actor.name,
+        new Date().toISOString(),
+      );
+      const next = await storeIssues({ ...job, decisions }, await linelist.issues(jobId));
       await recordAudit({
-        action: "LINELIST_AI_FIX_APPLIED",
+        action: input.decision === "DROP" ? "LINELIST_CASE_DROPPED" : "LINELIST_CASE_STEPPED_DOWN",
         entity: "LineListJob",
         entityId: jobId,
-        newValue: `${corrections.length} field(s) corrected, ${combinedUnresolved.length} left unresolved`,
-        reason: `Prompt ${fixResult.prompt_version}`,
+        newValue: `${rowLabel(job, input.row)}: ${describeDecision(decisionFor(decisions, input.row)!)}`,
       });
-    } else {
-      updatedJob = { ...job, lastFixCorrections: [], lastFixUnresolved: combinedUnresolved };
-      await saveJob(updatedJob);
-    }
+      return next;
+    }),
 
-    // Reconcile instead of re-running full AI analysis: drop exactly the
-    // issues this pass actually corrected (matched by row+column against
-    // the fix response) and keep every other previously-detected issue —
-    // AI or rule — untouched. A full fresh AI scan here used to be what
-    // made "Fix Issues" both slow (a second complete multi-chunk AI pass
-    // stacked on top of the fix call itself) and unpredictable (the count
-    // could go up as well as down between runs, since a fresh LLM scan of
-    // the whole file is never guaranteed to reproduce its own prior
-    // findings — pure model non-determinism, not an actual change in the
-    // data). Only the fast, fully deterministic rule engine re-runs here;
-    // a complete AI re-scan only ever happens from an explicit "Re-run
-    // validation" click.
-    const correctedKeys = new Set(corrections.map((c) => `${c.row}:${c.column}`));
-    const remainingPriorAiIssues = currentIssues.filter(
-      (i) => i.source === "ai" && !correctedKeys.has(`${i.row}:${i.column}`),
-    );
-    const finalIssues = mergeFindings(
-      await computeDeterministicIssues(updatedJob),
-      remainingPriorAiIssues,
-    );
-    const next = await storeIssues(updatedJob, finalIssues, {
-      validatedAt: new Date().toISOString(),
-    });
+  /** Return a dropped or held case to Keep. */
+  keepCase: (jobId: string, row: number): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      const previous = decisionFor(job.decisions, row);
+      if (!previous) return job;
+      const decisions = withoutDecision(job.decisions, row);
+      const next = await storeIssues({ ...job, decisions }, await linelist.issues(jobId));
+      await recordAudit({
+        action: "LINELIST_CASE_KEPT",
+        entity: "LineListJob",
+        entityId: jobId,
+        previousValue: `${rowLabel(job, row)}: ${describeDecision(previous)}`,
+        newValue: `${rowLabel(job, row)}: KEPT`,
+      });
+      return next;
+    }),
 
-    return {
-      job: next,
-      issues: finalIssues,
-      correctionsApplied: corrections.length,
-      unresolved: combinedUnresolved,
-      aiUsed: fixResult.ai_used,
-      aiError: fixResult.error ?? undefined,
-    };
-  },
+  /** A person takes a cell over: the old value returns and Fix leaves the
+   *  cell alone from now on. */
+  undoChange: (jobId: string, changeId: string): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      const actor = currentActor();
+      const { log, cells, entries } = markUndone(
+        job.changeLog ?? [],
+        changeId,
+        actor.name,
+        new Date().toISOString(),
+      );
+      return restoreCells(job, log, cells, changeAudits(job, entries, "LINELIST_CHANGE_UNDONE"));
+    }),
+
+  /** Hands the cell back to the tool: its value returns. */
+  reapplyChange: (jobId: string, changeId: string): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      const actor = currentActor();
+      const { log, cells, entries } = markReapplied(
+        job.changeLog ?? [],
+        changeId,
+        actor.name,
+        new Date().toISOString(),
+      );
+      return restoreCells(job, log, cells, changeAudits(job, entries, "LINELIST_CHANGE_REAPPLIED"));
+    }),
 
   /**
    * Creates a new line-list processing job directly from case data already
@@ -2936,68 +3262,31 @@ export const linelist = {
       throw new Error("This job has no stored row data to export.");
     }
     const { columns } = job;
-    // CSV has no cell colour/formatting of its own — there is no such thing
-    // as a "highlighted cell" in plain CSV. Two extra columns give the same
-    // practical result: filter or sort by "Needs review" in Excel/Sheets to
-    // jump straight to every row still carrying an unresolved issue, and
-    // "Unresolved column(s)" says exactly which field(s) on that row.
     const issues = await linelist.issues(jobId);
-    const issuesByRow = new Map<number, LineListIssue[]>();
-    for (const issue of issues) {
-      const existing = issuesByRow.get(issue.row);
-      if (existing) existing.push(issue);
-      else issuesByRow.set(issue.row, [issue]);
-    }
-    const unresolvedColumnsFor = (rowNumber: number): string => {
-      const rowIssues = issuesByRow.get(rowNumber);
-      if (!rowIssues || rowIssues.length === 0) return "";
-      return [...new Set(rowIssues.map((i) => i.column))].join("; ");
-    };
-    const needsReviewFor = (rowNumber: number): string => (issuesByRow.has(rowNumber) ? "YES" : "");
-    const escapeCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-    const headerRow = [...columns, "Needs review", "Unresolved column(s)"];
-    const dataLines = job.rawRows
-      ? [
-          headerRow.map(escapeCell).join(","),
-          ...job.rawRows.map((row, idx) =>
-            [
-              ...columns.map((header) => escapeCell(row[header] ?? "")),
-              escapeCell(needsReviewFor(idx + 1)),
-              escapeCell(unresolvedColumnsFor(idx + 1)),
-            ].join(","),
-          ),
-        ]
-      : [
-          headerRow.map(escapeCell).join(","),
-          ...job.parsedRows!.map((row, idx) =>
-            [
-              ...columns.map((header) => {
-                const field = job.mapping![header];
-                return escapeCell(field ? (row[field] ?? "") : "");
-              }),
-              escapeCell(needsReviewFor(idx + 1)),
-              escapeCell(unresolvedColumnsFor(idx + 1)),
-            ].join(","),
-          ),
-        ];
-    // Preserve sparse rows from the original upload (usually the source
-    // form's codebook/legend, but also title or instruction text). They were
-    // intentionally excluded from case rows by the parser, yet they are
-    // needed when this fixed file is uploaded again so the same codebook can
-    // be rediscovered. Keep each line in one escaped CSV cell: on re-upload
-    // it remains a sparse, non-case row and is recovered as discardedRows.
-    const preservedSourceText = (job.discardedRows ?? [])
-      .map((entry) => entry.text.trim())
-      .filter(Boolean);
-    const lines = preservedSourceText.length
-      ? [
-          ...dataLines,
-          "",
-          escapeCell("# ORIGINAL SOURCE TEXT — preserved from uploaded file"),
-          ...preservedSourceText.map(escapeCell),
-        ]
-      : dataLines;
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    // createFromCases jobs have no raw rows; rebuild each record from the
+    // canonical fields so the builder always sees original headers.
+    const rows: Record<string, string>[] =
+      job.rawRows ??
+      job.parsedRows!.map((row) =>
+        Object.fromEntries(
+          columns.map((header) => {
+            const field = job.mapping![header] as TargetField | undefined;
+            return [header, field ? (row[field] ?? "") : ""];
+          }),
+        ),
+      );
+    const csv = buildFixedCsv({
+      columns,
+      rows,
+      changeLog: job.changeLog ?? [],
+      decisions: job.decisions ?? [],
+      issues,
+      unresolved: job.lastFixUnresolved ?? [],
+      preservedSourceText: (job.discardedRows ?? [])
+        .map((entry) => entry.text.trim())
+        .filter(Boolean),
+    });
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     try {
       const a = document.createElement("a");
@@ -3022,22 +3311,24 @@ export const linelist = {
   downloadExecutiveSummary: async (jobId: string): Promise<void> => {
     const job = await readJob(jobId);
     const issues = await linelist.issues(jobId);
+    // Dropped and held cases are not counted (spec 5.4); their decisions are listed in CASE DECISIONS.
+    const counted = keptOnly(issues, job.decisions);
 
     const bySeverity = {
-      CRITICAL: issues.filter((i) => i.severity === "CRITICAL").length,
-      HIGH: issues.filter((i) => i.severity === "HIGH").length,
-      MEDIUM: issues.filter((i) => i.severity === "MEDIUM").length,
-      LOW: issues.filter((i) => i.severity === "LOW").length,
+      CRITICAL: counted.filter((i) => i.severity === "CRITICAL").length,
+      HIGH: counted.filter((i) => i.severity === "HIGH").length,
+      MEDIUM: counted.filter((i) => i.severity === "MEDIUM").length,
+      LOW: counted.filter((i) => i.severity === "LOW").length,
     };
 
     const byCode = new Map<string, LineListIssue[]>();
-    for (const issue of issues) {
+    for (const issue of counted) {
       const list = byCode.get(issue.code) ?? [];
       list.push(issue);
       byCode.set(issue.code, list);
     }
     const codeGroups = [...byCode.entries()].sort((a, b) => b[1].length - a[1].length);
-    const duplicateGroups = issues.filter(
+    const duplicateGroups = counted.filter(
       (i) => i.code === "DUPLICATE_CASE_ID" || i.code === "CASE_ID_FORMAT_INCONSISTENT",
     );
 
@@ -3090,19 +3381,36 @@ export const linelist = {
       lines.push("");
     }
 
-    if (job.lastFixCorrections || job.lastFixUnresolved) {
+    const logged = job.changeLog ?? [];
+    // Corrections recorded before the change log existed are always shown,
+    // read-only, after the logged ones (spec 4.3) — even once a later Fix
+    // has started a change log on the same job.
+    const legacyCorrections = job.lastFixCorrections ?? [];
+    if (job.changeLog || job.lastFixCorrections || job.lastFixUnresolved) {
       lines.push(
         `RUN FULL FIX${job.fixedAt ? ` — last applied ${job.fixedAt.slice(0, 16).replace("T", " ")} UTC` : ""}`,
       );
       lines.push(rule);
-      const corrections = job.lastFixCorrections ?? [];
+      const applied = logged.filter((c) => stateOf(c) === "applied");
+      const undone = logged.filter((c) => stateOf(c) === "undone");
       const unresolved = job.lastFixUnresolved ?? [];
-      if (corrections.length === 0 && unresolved.length === 0) {
+      if (applied.length === 0 && legacyCorrections.length === 0 && unresolved.length === 0) {
         lines.push("Fix Issues was run and found nothing it could safely auto-correct.");
       }
-      for (const c of corrections) {
+      for (const c of applied) {
         lines.push(
-          `CORRECTED — ${rowLabel(job, c.row)}, ${c.column}: "${c.new_value}" (${c.reason})`,
+          `CORRECTED — ${rowLabel(job, c.row)}, ${c.column}: "${c.oldValue}" → "${c.newValue}" (${c.reason})`,
+        );
+      }
+      for (const c of legacyCorrections) {
+        lines.push(
+          `CORRECTED (before change tracking) — ${rowLabel(job, c.row)}, ${c.column}: "${c.new_value}" (${c.reason})`,
+        );
+      }
+      for (const c of undone) {
+        const last = c.events[c.events.length - 1]!;
+        lines.push(
+          `UNDONE — ${rowLabel(job, c.row)}, ${c.column}: kept as "${c.oldValue}" by ${last.by}`,
         );
       }
       for (const u of unresolved) {
@@ -3111,7 +3419,20 @@ export const linelist = {
       lines.push("");
     }
 
-    const e2bBlockers = issues.filter((i) => i.blocksE2b && i.row > 0);
+    if ((job.decisions ?? []).length > 0) {
+      const { dropped, held } = decisionCounts(job.decisions);
+      lines.push(`CASE DECISIONS — ${dropped} dropped, ${held} held (left out of the E2B(R3) XML)`);
+      lines.push(rule);
+      for (const d of [...job.decisions!].sort((a, b) => a.row - b.row)) {
+        lines.push(
+          `${rowLabel(job, d.row)}: ${describeDecision(d)} — ${d.by}, ${d.at.slice(0, 10)}`,
+        );
+      }
+      lines.push("");
+    }
+
+    // A dropped or held case is not going to VigiFlow, so it blocks nothing.
+    const e2bBlockers = counted.filter((i) => i.blocksE2b && i.row > 0);
     const fileBlockers = issues.filter((i) => i.blocksE2b && i.row === 0);
     lines.push("E2B(R3) / VIGIFLOW READINESS");
     lines.push(rule);
