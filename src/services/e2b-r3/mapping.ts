@@ -78,6 +78,16 @@ export interface RawLineListRow {
   patient_id?: string | undefined;
   /** C.2.r.1 — the reporter's own name, when the file has one. */
   reporter_name?: string | undefined;
+  /** Sub-project 1 fields: see TARGET_FIELDS in services/api/linelist.ts. */
+  age_months?: string | undefined;
+  vaccination_time?: string | undefined;
+  medical_history?: string | undefined;
+  diluent_batch?: string | undefined;
+  other_vaccines?: string | undefined;
+  reporter_address?: string | undefined;
+  reporter_email?: string | undefined;
+  national_received_date?: string | undefined;
+  state_received_date?: string | undefined;
   is_followup?: string | undefined;
   previous_case_id?: string | undefined;
 }
@@ -120,6 +130,15 @@ export function applyColumnMap(
     reporter_city: get(profile.columnMap.reporterCity),
     reporter_state: get(profile.columnMap.reporterState),
     route: get(profile.columnMap.route),
+    age_months: get(profile.columnMap.ageMonths),
+    vaccination_time: get(profile.columnMap.vaccinationTime),
+    medical_history: get(profile.columnMap.medicalHistory),
+    diluent_batch: get(profile.columnMap.diluentBatch),
+    other_vaccines: get(profile.columnMap.otherVaccines),
+    reporter_address: get(profile.columnMap.reporterAddress),
+    reporter_email: get(profile.columnMap.reporterEmail),
+    national_received_date: get(profile.columnMap.nationalReceivedDate),
+    state_received_date: get(profile.columnMap.stateReceivedDate),
     reporter_country: get(profile.columnMap.reporterCountry),
     reaction_country: get(profile.columnMap.reactionCountry),
     patient_id: get(profile.columnMap.patientId),
@@ -358,6 +377,51 @@ export function mapAgeUnit(raw: string | undefined): NonNullable<PVPatient["ageU
     .replace(/[\s._-]+/g, "");
   if (!v) return undefined;
   return AGE_UNIT_WORDS[v];
+}
+
+/**
+ * A form that splits age into Years and Months sub-columns, as one D.2.2
+ * age. Under two years the age is given in months, so an infant is never
+ * reported as "0 years" (Years 0 + Months 8 = 8 months; Years 1 +
+ * Months 8 = 20 months). From two years the Years value stands as it is.
+ * Returns nothing when there is no usable months value, or when the age
+ * is already stated in a unit other than years.
+ */
+export function combineAgeWithMonths(
+  ageRaw: string | undefined,
+  monthsRaw: string | undefined,
+  statedUnit: NonNullable<PVPatient["ageUnit"]> | undefined,
+): { value: string; unit: NonNullable<PVPatient["ageUnit"]> } | undefined {
+  const m = /^(\d{1,3})$/.exec(monthsRaw?.trim() ?? "");
+  if (!m) return undefined;
+  if (statedUnit && statedUnit !== "801") return undefined;
+  const ageCell = splitAgeValue(ageRaw);
+  if (ageCell?.unit && ageCell.unit !== "801") return undefined;
+  const years = ageCell ? Number(ageCell.value) : 0;
+  if (!Number.isFinite(years) || years >= 2) return undefined;
+  return { value: String(Math.round(years * 12) + Number(m[1])), unit: "802" };
+}
+
+/** True when a value from an "other vaccines" cell can name a product.
+ *  The real Ondo column also holds "0", "NON" and "Hours" (an onset unit
+ *  in the wrong column); none of those is a vaccine, and each would
+ *  otherwise go to VigiFlow as a concomitant product. */
+export function isConcomitantName(raw: string | undefined): boolean {
+  const v = meaningfulText(raw);
+  if (!v || !/[a-z]/i.test(v)) return false;
+  return !/^(no|non|nope|nothing given|none given|(hours?|hrs?|days?|mins?|minutes?|weeks?|wks?))\.?$/i.test(
+    v,
+  );
+}
+
+/** A free-text cell's value, or nothing when it only says "none" /
+ *  "unknown" in one of the ways forms do. */
+export function meaningfulText(raw: string | undefined): string | undefined {
+  const v = raw?.trim();
+  if (!v) return undefined;
+  return /^(nil|nill|none|null|n\/?a|-+|unknown|unk|not applicable|not known|nothing)\.?$/i.test(v)
+    ? undefined
+    : v;
 }
 
 /** An age cell that carries its own unit ("18 months", "6/12", "3 yrs").
@@ -888,6 +952,15 @@ export async function mapSourceRecordToPVCase(
     });
   }
   const reportDate = parseSourceDate(row.report_date) ?? undefined;
+  // C.1.4 — the date the report reached the sender. The national-level
+  // received date is that date; when the form left it blank, the
+  // state-level date is the closest earlier receipt in the reporting
+  // chain, and only then the generic report date. (User decision,
+  // 2026-10-09.)
+  const receivedDate =
+    parseSourceDate(row.national_received_date) ??
+    parseSourceDate(row.state_received_date) ??
+    reportDate;
 
   // --- Reactions: decode (source codebook) -> code (MedDRA), never the
   // other way around, never skipping the decode step.
@@ -1015,10 +1088,39 @@ export async function mapSourceRecordToPVCase(
           // what happened while this field went unpopulated.
           route: row.route?.trim() || undefined,
           startDate: drugStartDate,
+          // G.k.11 — the diluent belongs with the vaccine it reconstituted:
+          // the form records one, beside the primary suspect.
+          ...(i === 0 && meaningfulText(row.diluent_batch)
+            ? { additionalInformation: `Diluent batch/lot: ${meaningfulText(row.diluent_batch)}` }
+            : {}),
         } satisfies PVProduct;
       },
     ),
   );
+
+  // G.k (characterisation 2) — other vaccines given just before the AEFI,
+  // verbatim and coded like any product. "nil" means none were given.
+  const otherVaccinesRaw = meaningfulText(row.other_vaccines);
+  const otherVaccines = otherVaccinesRaw
+    ? splitBySourceProfile(
+        otherVaccinesRaw,
+        profile,
+        profile.productDelimiter ?? profile.reactionDelimiter,
+      )
+    : undefined;
+  const concomitantNames = otherVaccines
+    ? (otherVaccines.quarantined ? [otherVaccines.rawValue] : otherVaccines.values)
+        .map((v) => v.trim())
+        .filter((v) => isConcomitantName(v))
+    : [];
+  const concomitants: PVProduct[] = await Promise.all(
+    concomitantNames.map(async (value, i) => ({
+      id: `${sendersCaseId}-c${i + 1}`,
+      characterization: "CONCOMITANT" as DrugCharacterization,
+      product: await codeProductTerm(providers.whodrug, value),
+    })),
+  );
+  products.push(...concomitants);
 
   const patientIdentifierRaw = row.patient_identifier?.trim();
   const identity: RequiredValue<{ kind: "INITIALS"; initials: string }> = patientIdentifierRaw
@@ -1084,12 +1186,15 @@ export async function mapSourceRecordToPVCase(
 
   // The unit may be in its own column, or inside the age cell itself
   // ("18 months"). A unit stated anywhere beats the default.
-  const parsedAge = splitAgeValue(row.age);
+  // A Months sub-column is the file stating the unit in a column of its
+  // own, so it counts as a source-stated unit.
+  const ageWithMonths = combineAgeWithMonths(row.age, row.age_months, mapAgeUnit(row.age_unit));
+  const parsedAge = ageWithMonths ?? splitAgeValue(row.age);
   // Resolution order, most authoritative first. Each branch records WHERE
   // the unit came from, because "the file said months" and "we assumed
   // years" are different claims and the export has to be able to tell
   // them apart (PVPatient.ageUnitCorrection).
-  const unitFromColumn = mapAgeUnit(row.age_unit);
+  const unitFromColumn = ageWithMonths?.unit ?? mapAgeUnit(row.age_unit);
   const unitFromAgeCell = parsedAge?.unit;
   const statedAgeUnit = unitFromColumn ?? unitFromAgeCell ?? profile.ageUnit;
   const age = parsedAge?.value;
@@ -1141,8 +1246,10 @@ export async function mapSourceRecordToPVCase(
   const dateOfBirthRaw = row.date_of_birth?.trim() || undefined;
   const dateOfBirth = parseSourceDate(dateOfBirthRaw) ?? undefined;
 
+  const medicalHistoryText = meaningfulText(row.medical_history);
   const patient: PVCase["patient"] = {
     identity,
+    ...(medicalHistoryText ? { medicalHistoryText } : {}),
     ...(recordNumbers.length ? { recordNumbers } : {}),
     ...(sex ? { sex } : {}),
     ...(sexRaw && !sex ? { sexVerbatim: sexRaw } : {}),
@@ -1178,8 +1285,8 @@ export async function mapSourceRecordToPVCase(
     // fabricated historical date.
     // C.1.4 / C.1.5: when the report was received, taken from the source
     // when it says; otherwise the processing date is the best available.
-    dateFirstReceived: reportDate ?? context.processedAt,
-    dateMostRecentInfo: reportDate ?? context.processedAt,
+    dateFirstReceived: receivedDate ?? context.processedAt,
+    dateMostRecentInfo: receivedDate ?? context.processedAt,
     additionalDocumentsAvailable: false,
     // C.1.7 requires a genuine clinical/regulatory determination this
     // pipeline has no basis to make on its own — left unresolved rather
@@ -1201,6 +1308,9 @@ export async function mapSourceRecordToPVCase(
       // and simply absent when the file has no such column.
       ...(row.reporter_organization?.trim()
         ? { organization: row.reporter_organization.trim() }
+        : {}),
+      ...(meaningfulText(row.reporter_address)
+        ? { street: meaningfulText(row.reporter_address) }
         : {}),
       ...(row.reporter_city?.trim() ? { city: row.reporter_city.trim() } : {}),
       ...(row.reporter_state?.trim() ? { state: row.reporter_state.trim() } : {}),

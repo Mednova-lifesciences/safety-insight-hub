@@ -138,6 +138,10 @@ export const PATIENT_RECORD_NUMBER_OIDS: Readonly<
 };
 
 export interface PVPatient {
+  /** D.7.2 — relevant medical history and concurrent conditions, as the
+   *  source wrote them. Never coded to MedDRA here; placeholders such as
+   *  "nil" or "UNKNOWN" are not carried. */
+  medicalHistoryText?: string | undefined;
   /** D.1 — at least one element in this section must be populated; full
    *  names must not be carried here (spec 5.4 / decision D1). Which of
    *  (a) derived initials, (b) a medical-record-number OID, or (c) a
@@ -288,6 +292,9 @@ export interface PVReporter {
   /** C.2.r.2.4 / C.2.r.2.5 — the reporter's city and state/province.
    *  Carried only when the source states them; never derived from a
    *  country, an LGA or a facility name. */
+  /** C.2.r.2.3 — the reporter's street address, verbatim, when the
+   *  source states one (e.g. a reporting-facility address column). */
+  street?: string | undefined;
   city?: string | undefined;
   state?: string | undefined;
   /** C.2.r.2.7 — the reporter's telephone, verbatim as the source wrote
@@ -463,6 +470,9 @@ export interface NormalizedDosage {
 export interface PVProduct {
   id: string;
   characterization: DrugCharacterization;
+  /** G.k.11 — additional information on the drug, free text (e.g. the
+   *  diluent batch an AEFI form records beside the vaccine batch). */
+  additionalInformation?: string | undefined;
   /** WHODrug Global C3-shaped, not a generic CodedTerm — see
    *  WhoDrugCodedProduct's doc comment for why. */
   product: WhoDrugCodedProduct;

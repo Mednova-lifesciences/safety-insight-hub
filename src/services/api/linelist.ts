@@ -245,6 +245,34 @@ export const TARGET_FIELDS = [
    *  is a different fact. */
   "reporter_city",
   "reporter_state",
+  /** D.2.2a — the MONTHS part of an age a form splits into Years and
+   *  Months sub-columns. Combined with `age`; on its own it is the age of
+   *  an infant, who must never be reported as "0 years". */
+  "age_months",
+  /** The time of day the vaccine was given ("11:00"), so an onset interval
+   *  in hours can cross midnight correctly. Never written to the XML
+   *  itself — the reaction start date is date-precision. */
+  "vaccination_time",
+  /** D.7.2 — relevant medical history, free text. */
+  "medical_history",
+  /** G.k.11 — the diluent batch/lot, kept beside the vaccine it was mixed
+   *  with as additional drug information. */
+  "diluent_batch",
+  /** G.k (characterisation 2) — other vaccines given just before the
+   *  AEFI, carried as concomitant products, verbatim. */
+  "other_vaccines",
+  /** C.2.r.2.3 — the reporting facility's ADDRESS (as opposed to its
+   *  name, which is reporter_organization). */
+  "reporter_address",
+  /** The reporter's e-mail. E2B(R3) C.2.r has no e-mail element, so a
+   *  real address goes to the narrative; anything else is flagged. */
+  "reporter_email",
+  /** C.1.4 — when the report reached the national level (the sender).
+   *  Preferred over every other received date. */
+  "national_received_date",
+  /** When the report reached the state level — C.1.4's fallback when
+   *  the national date was not recorded. */
+  "state_received_date",
 ] as const;
 export type TargetField = (typeof TARGET_FIELDS)[number];
 
@@ -447,6 +475,7 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
   ],
   // C.2.r.1 — who the reporter is, as opposed to what they are.
   reporter_name: [
+    ["initialreporter", 90],
     ["reportername", 95],
     ["reporterfullname", 95],
     ["primaryreporter", 88],
@@ -771,6 +800,65 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
   // below therefore names the facility's NAME or ties it to the reporter,
   // and a bare "Health Facility" column is left to the AI mapper — the
   // same treatment a bare "Country" or "Reporter" column already gets.
+  // D.2.2a months sub-column. Higher than age_unit's "agein" so
+  // "Age in months" is the months value, not a unit column.
+  age_months: [
+    ["agemonths", 95],
+    ["ageinmonths", 95],
+    ["agemths", 92],
+    [["age", "month"], 90],
+  ],
+  // Weighted above vaccination_date's 95 so the Time sub-column of
+  // "Date of Last immunisation" is never taken as the date.
+  vaccination_time: [
+    ["immunisationtime", 98],
+    ["immunizationtime", 98],
+    ["vaccinationtime", 98],
+    ["timeofvaccination", 98],
+    ["timeofimmunisation", 98],
+    ["timeofimmunization", 98],
+  ],
+  medical_history: [
+    ["medicalhistory", 95],
+    ["pastmedicalhistory", 95],
+    ["medicalhx", 90],
+    ["relevanthistory", 85],
+  ],
+  diluent_batch: [
+    ["diluentbatch", 95],
+    ["diluentlot", 95],
+    ["diluent", 80],
+  ],
+  other_vaccines: [
+    ["othervaccines", 95],
+    ["othervaccine", 95],
+    ["concomitantvaccine", 95],
+    ["concomitantmedication", 92],
+    ["concomitantdrug", 92],
+  ],
+  // Address of the reporting facility. Both spellings real forms use.
+  reporter_address: [
+    ["facilityaddress", 92],
+    [["address", "report"], 90],
+    [["adress", "report"], 90],
+  ],
+  reporter_email: [
+    ["emailaddress", 95],
+    ["email", 90],
+  ],
+  // "Date report recived at the national level" — misspellings included.
+  national_received_date: [
+    [["national", "receiv"], 95],
+    [["national", "reciev"], 95],
+    [["national", "recived"], 95],
+    [["national", "level"], 85],
+  ],
+  state_received_date: [
+    [["state", "receiv"], 95],
+    [["state", "reciev"], 95],
+    [["state", "recived"], 95],
+    [["state", "level"], 85],
+  ],
   reporter_organization: [
     ["reporterorganization", 95],
     ["reporterorganisation", 95],
@@ -979,7 +1067,7 @@ export function onsetUsedForRows(
   if (!fields.has("onset_date") && !fields.has("onset_interval")) return undefined;
   return parsedRows.map((row) => {
     if (fields.has("onset_date") && row.onset_date) return { date: row.onset_date };
-    const resolved = resolveOnset(row.vaccination_date, row.onset_interval);
+    const resolved = resolveOnset(row.vaccination_date, row.onset_interval, row.vaccination_time);
     return resolved ? { date: resolved.date, note: resolved.note } : undefined;
   });
 }
@@ -1004,7 +1092,11 @@ export function toParsedRows(
     // every consumer (validation, E2B mapping, the fix pass) sees one
     // consistent value rather than each re-deriving its own.
     if (!parsed.onset_date) {
-      const derived = deriveOnsetDate(parsed.vaccination_date, parsed.onset_interval);
+      const derived = deriveOnsetDate(
+        parsed.vaccination_date,
+        parsed.onset_interval,
+        parsed.vaccination_time,
+      );
       if (derived) parsed.onset_date = derived;
     }
     return parsed;
@@ -1277,7 +1369,38 @@ export function runValidation(
   // E2B needs the date each report was first received (C.1.4). Without a
   // column for it, the export can only use the date it was processed —
   // worth knowing, not worth a finding on every row.
-  if (!mappedFields.has("report_date") && rows.length > 0) {
+  // C.1.4 is the national-level received date (user decision, 2026-10-09).
+  // Where a case lacks it, say once, for the file, what was used instead.
+  if (mappedFields.has("national_received_date") && rows.length > 0) {
+    const noNational = rows.filter((r) => !r.national_received_date?.trim());
+    const usedState = noNational.filter((r) => r.state_received_date?.trim()).length;
+    const neither = noNational.length - usedState;
+    if (noNational.length > 0) {
+      issues.push({
+        row: 0,
+        column: col("national_received_date"),
+        severity: "LOW",
+        confidence: "HIGH",
+        code: "NATIONAL_RECEIVED_DATE_MISSING",
+        message:
+          `${noNational.length} case(s) have no national received date, which is what E2B C.1.4 uses. ` +
+          (usedState > 0 ? `The state-level received date was used for ${usedState}. ` : "") +
+          (neither > 0
+            ? `${neither} have neither, so the report date (or, failing that, the processing date) was used.`
+            : ""),
+        value: null,
+        source: "rule",
+        sources: ["rule"],
+        fixable: false,
+      });
+    }
+  }
+
+  const hasReceivedDate =
+    mappedFields.has("report_date") ||
+    mappedFields.has("national_received_date") ||
+    mappedFields.has("state_received_date");
+  if (!hasReceivedDate && rows.length > 0) {
     issues.push({
       row: 0,
       column: "(file)",
@@ -1575,6 +1698,32 @@ export function runValidation(
           });
         }
       }
+    }
+
+    // The e-mail column often holds an address or a place. E2B(R3) has no
+    // reporter e-mail element, so nothing here reaches the XML; a value
+    // that is not an e-mail is pointed out so the record can be corrected.
+    const email = row.reporter_email?.trim();
+    if (
+      email &&
+      !isNoSeriousnessCode(email) &&
+      !/^nil+$/i.test(email) &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    ) {
+      issues.push({
+        row: rowNum,
+        column: col("reporter_email"),
+        severity: "LOW",
+        confidence: "HIGH",
+        code: "REPORTER_EMAIL_NOT_AN_EMAIL",
+        message: `"${email}" is not an e-mail address. If it is the facility's address, it belongs in the facility address column.`,
+        value: email,
+        source: "rule",
+        sources: ["rule"],
+        issueType: "FIELD_FORMAT_INVALID",
+        affectedFields: ["reporter_email"],
+        fixable: false,
+      });
     }
 
     if (mappedFields.has("serious_code") && row.seriousness) {

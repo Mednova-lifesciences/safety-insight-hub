@@ -177,9 +177,24 @@ export interface ResolvedOnset {
  * used as it stands (no vaccination date needed); otherwise the interval
  * is added to the vaccination date.
  */
+/** A time of day as a form writes it ("11:00", "9:30AM", "14;25", "4.00
+ *  pm"), as hours and minutes; null when it cannot be read. */
+export function readTimeOfDay(raw: string | undefined): { h: number; m: number } | null {
+  const t = /^(\d{1,2})\s*[:;.]\s*(\d{2})\s*(am|pm|a\.m\.|p\.m\.)?$/i.exec((raw ?? "").trim());
+  if (!t) return null;
+  let h = Number(t[1]);
+  const m = Number(t[2]);
+  const meridiem = t[3]?.toLowerCase().replace(/\./g, "");
+  if (m > 59 || (meridiem ? h < 1 || h > 12 : h > 23)) return null;
+  if (meridiem === "pm" && h < 12) h += 12;
+  if (meridiem === "am" && h === 12) h = 0;
+  return { h, m };
+}
+
 export function resolveOnset(
   vaccinationDate: string | undefined,
   onsetInterval: string | undefined,
+  vaccinationTime?: string | undefined,
 ): ResolvedOnset | null {
   if (!onsetInterval?.trim()) return null;
   const written = readDateInIntervalCell(onsetInterval);
@@ -198,12 +213,17 @@ export function resolveOnset(
   if (!base) return null;
   const interval = readOnsetInterval(onsetInterval);
   if (!interval) return null;
+  // The time of vaccination, when the form records it, so an interval in
+  // hours can carry the onset into the next day.
+  const time = readTimeOfDay(vaccinationTime);
+  if (time) base.setHours(time.h, time.m, 0, 0);
   const d = new Date(base.getTime() + interval.ms);
   if (Number.isNaN(d.getTime())) return null;
   const readAs = interval.interpreted ? ` (read as ${interval.readAs})` : "";
+  const at = time ? ` at ${pad(time.h)}:${pad(time.m)}` : "";
   return {
     date: isoDate(d),
-    note: `Onset date ${isoDate(d)} worked out from vaccination date "${stripSpreadsheetTextMarkers(vaccinationDate)}" + onset interval "${onsetInterval.trim()}"${readAs}.`,
+    note: `Onset date ${isoDate(d)} worked out from vaccination date "${stripSpreadsheetTextMarkers(vaccinationDate)}"${at} + onset interval "${onsetInterval.trim()}"${readAs}.`,
   };
 }
 
@@ -211,8 +231,9 @@ export function resolveOnset(
 export function deriveOnsetDate(
   vaccinationDate: string | undefined,
   onsetInterval: string | undefined,
+  vaccinationTime?: string | undefined,
 ): string | null {
-  return resolveOnset(vaccinationDate, onsetInterval)?.date ?? null;
+  return resolveOnset(vaccinationDate, onsetInterval, vaccinationTime)?.date ?? null;
 }
 
 /** Why an onset interval that is present cannot be used, in words the

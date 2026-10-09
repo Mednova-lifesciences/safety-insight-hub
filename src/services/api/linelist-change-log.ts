@@ -254,8 +254,15 @@ export function writeCell(rows: CellRows, row: number, column: string, value: st
     // A worked-out onset date follows its inputs. Without this, correcting
     // the vaccination date left the onset date computed from the old one.
     const onsetIsWorkedOut = !Object.values(rows.mapping).includes("onset_date");
-    if (onsetIsWorkedOut && (field === "vaccination_date" || field === "onset_interval")) {
-      const derived = deriveOnsetDate(next["vaccination_date"], next["onset_interval"]);
+    if (
+      onsetIsWorkedOut &&
+      (field === "vaccination_date" || field === "onset_interval" || field === "vaccination_time")
+    ) {
+      const derived = deriveOnsetDate(
+        next["vaccination_date"],
+        next["onset_interval"],
+        next["vaccination_time"],
+      );
       if (derived) next["onset_date"] = derived;
       else delete next["onset_date"];
     }
