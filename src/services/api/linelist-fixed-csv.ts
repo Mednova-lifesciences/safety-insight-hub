@@ -14,11 +14,17 @@ import { decisionFor, describeDecision, DROP_REASON_LABELS } from "./linelist-de
 
 export const FIXED_FILE_COLUMNS = ["Changes made", "Decision", "Still needs review"] as const;
 
+/** The onset date each case goes to E2B with. AEFI forms record an
+ *  interval, not a date, so the date is worked out; this column shows the
+ *  result so a reader can check it against the source. */
+export const ONSET_USED_COLUMN = "Onset date (used for E2B)";
+
 /** Columns this tool writes into a fixed file, now and in earlier versions.
  *  When that file is uploaded again they are notes about the data, not
  *  data: never mapped, and replaced (not repeated) in the next fixed file. */
 export const FIXED_FILE_ANNOTATION_COLUMNS: readonly string[] = [
   ...FIXED_FILE_COLUMNS,
+  ONSET_USED_COLUMN,
   "Needs review",
   "Unresolved column(s)",
 ];
@@ -96,13 +102,17 @@ export interface FixedCsvInput {
   unresolved: { row: number; column: string; reason: string }[];
   /** The sparse rows the parser preserved — usually the code list. */
   preservedSourceText: string[];
+  /** When given, the onset date used for each row (row N is index N-1),
+   *  with a note on how it was worked out when it was not in the source. */
+  onsetUsed?: ({ date: string; note?: string } | undefined)[] | undefined;
 }
 
 export function buildFixedCsv(input: FixedCsvInput): string {
   // A job made from a re-uploaded fixed file already has these columns;
   // fresh ones are appended, so the old ones are left out.
   const columns = input.columns.filter((c) => !isFixedFileAnnotationColumn(c));
-  const header = [...columns, ...FIXED_FILE_COLUMNS].map(escapeCsvCell).join(",");
+  const onsetColumn = input.onsetUsed ? [ONSET_USED_COLUMN] : [];
+  const header = [...columns, ...onsetColumn, ...FIXED_FILE_COLUMNS].map(escapeCsvCell).join(",");
   const body: string[] = [];
   input.rows.forEach((record, idx) => {
     const row = idx + 1;
@@ -111,7 +121,10 @@ export function buildFixedCsv(input: FixedCsvInput): string {
     body.push(
       [
         ...columns.map((c) => record[c] ?? ""),
-        describeChangesForRow(input.changeLog, row),
+        ...(input.onsetUsed ? [input.onsetUsed[idx]?.date ?? ""] : []),
+        [describeChangesForRow(input.changeLog, row), input.onsetUsed?.[idx]?.note ?? ""]
+          .filter(Boolean)
+          .join(" · "),
         decision ? describeDecision(decision) : "",
         stillNeedsReviewFor(row, input.issues, input.unresolved),
       ]

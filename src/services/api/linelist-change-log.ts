@@ -1,4 +1,5 @@
 import type { LineListChange, LineListChangeSource } from "@/types/pv";
+import { deriveOnsetDate } from "./linelist-onset";
 
 /**
  * The line-list change log.
@@ -249,6 +250,15 @@ export function writeCell(rows: CellRows, row: number, column: string, value: st
   }
   const field = rows.mapping[column];
   if (field && idx < rows.parsedRows.length) {
-    rows.parsedRows[idx] = { ...rows.parsedRows[idx], [field]: value };
+    const next = { ...rows.parsedRows[idx], [field]: value };
+    // A worked-out onset date follows its inputs. Without this, correcting
+    // the vaccination date left the onset date computed from the old one.
+    const onsetIsWorkedOut = !Object.values(rows.mapping).includes("onset_date");
+    if (onsetIsWorkedOut && (field === "vaccination_date" || field === "onset_interval")) {
+      const derived = deriveOnsetDate(next["vaccination_date"], next["onset_interval"]);
+      if (derived) next["onset_date"] = derived;
+      else delete next["onset_date"];
+    }
+    rows.parsedRows[idx] = next;
   }
 }

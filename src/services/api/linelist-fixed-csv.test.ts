@@ -201,7 +201,7 @@ describe("re-uploading a fixed file", () => {
     for (const h of [...FIXED_FILE_COLUMNS, "Needs review", "Unresolved column(s)", " Decision "]) {
       expect(isFixedFileAnnotationColumn(h)).toBe(true);
     }
-    expect(FIXED_FILE_ANNOTATION_COLUMNS).toHaveLength(5);
+    expect(FIXED_FILE_ANNOTATION_COLUMNS).toHaveLength(6);
     expect(isFixedFileAnnotationColumn("Outcome")).toBe(false);
     expect(isFixedFileAnnotationColumn("decision")).toBe(false);
   });
