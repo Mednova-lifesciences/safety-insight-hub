@@ -229,3 +229,49 @@ describe("architecture: runtime profiles never leak between sources or mutate th
     expect(ondoAefiProfile.reactionCodebook.entries).toEqual({});
   });
 });
+
+describe("seriousness — the contradiction blocks, a 'no code' placeholder does not", () => {
+  const base = { reaction: "19", product: "MR", outcome: "1", patient_identifier: "A B" };
+  const errorsFor = async (seriousness: string, serious_code: string) => {
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { ...base, seriousness, serious_code },
+      ondoRuntimeProfile(),
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    return {
+      pvCase,
+      errors: [...validateSourceDecoding(pvCase), ...validateBusinessRules(pvCase)],
+    };
+  };
+
+  it("NON SERIOUS + code 1 (life-threatening) is a blocking contradiction that no override can pass", async () => {
+    const { errors } = await errorsFor("NON SERIOUS", "1");
+    const e = errors.find((x) => x.code === "E2B-SERIOUSNESS-CONTRADICTION");
+    expect(e?.severity).toBe("BLOCKING");
+    expect(e?.message).toContain("life-threatening");
+    const { E2B_NON_OVERRIDABLE_CODES } = await import("./validation");
+    expect(E2B_NON_OVERRIDABLE_CODES.has("E2B-SERIOUSNESS-CONTRADICTION")).toBe(true);
+  });
+
+  it("SERIOUS + code 1 is consistent", async () => {
+    const { errors } = await errorsFor("SERIOUS", "1");
+    expect(errors.some((x) => x.code === "E2B-SERIOUSNESS-CONTRADICTION")).toBe(false);
+  });
+
+  it.each(["NIL", "-", "0", "N/A", "none", "nil"])(
+    "NON SERIOUS + %s reads as no criterion: no unknown-code blocker, nothing written",
+    async (code) => {
+      const { pvCase, errors } = await errorsFor("NON SERIOUS", code);
+      expect(errors.some((x) => x.code === "E2B-SERIOUSNESS-CODE-UNMAPPED")).toBe(false);
+      expect(errors.some((x) => x.code === "E2B-SERIOUSNESS-CONTRADICTION")).toBe(false);
+      expect(pvCase.reactions[0]!.seriousnessCriteria).toEqual({});
+    },
+  );
+
+  it("a real unknown code still blocks", async () => {
+    const { errors } = await errorsFor("SERIOUS", "9");
+    expect(errors.some((x) => x.code === "E2B-SERIOUSNESS-CODE-UNMAPPED")).toBe(true);
+  });
+});

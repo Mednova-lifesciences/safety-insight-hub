@@ -114,6 +114,12 @@ const PRESENTATION: Record<string, Presentation> = {
     message: (v) =>
       `Seriousness code "${v}" does not correspond to any of the six E2B seriousness criteria.`,
   },
+  "E2B-SERIOUSNESS-CONTRADICTION": {
+    field: "serious_code",
+    fixIn: "FILE",
+    message: (v) =>
+      `Marked non-serious, but seriousness code "${v}" means a serious criterion. Decide which is right and correct the file; the case is held out of the XML until then.`,
+  },
   "E2B-C1.10-FOLLOWUP-REF-MISSING": {
     field: "previous_case_id",
     fixIn: "FILE",
@@ -133,6 +139,7 @@ const PRESENTATION: Record<string, Presentation> = {
 const SAME_PROBLEM_AS: Record<string, string[]> = {
   "E2B-OUTCOME-NOT-MAPPABLE": ["OUTCOME_REQUIRES_HUMAN_REVIEW"],
   "E2B-OUTCOME-UNMAPPED": ["UNRECOGNISED_OUTCOME_VALUE"],
+  "E2B-SERIOUSNESS-CONTRADICTION": ["SERIOUSNESS_CONTRADICTION"],
   "E2B-REACTION-CODEBOOK-UNRESOLVED": ["INVALID_REACTION_CODE", "REACTION_CODEBOOK_MISSING"],
   "E2B-PATIENT-MISSING": ["MISSING_PATIENT_IDENTIFIER"],
   "E2B-PRODUCT-MISSING": ["MISSING_PRODUCT"],

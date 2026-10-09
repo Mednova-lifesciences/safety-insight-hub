@@ -1,5 +1,6 @@
 import type { PVCase, ReactionOutcome } from "./types";
 import { MAX_ICSRS_PER_BATCH } from "./batching";
+import { mapSeriousness } from "./mapping";
 
 export type ValidationSeverity = "BLOCKING" | "WARNING" | "INFO";
 
@@ -103,6 +104,15 @@ export function validateSourceDecoding(pvCase: PVCase): ValidationError[] {
  * term is actually MedDRA/WHODrug coded — see validateVigiFlowPreflight
  * for that stricter, VigiFlow-specific layer.
  */
+const CRITERION_WORDS: Record<string, string> = {
+  resultsInDeath: "death",
+  lifeThreatening: "life-threatening",
+  hospitalization: "hospitalisation",
+  disabling: "disability",
+  congenitalAnomaly: "congenital anomaly",
+  otherMedicallyImportant: "medically important",
+};
+
 export function validateBusinessRules(pvCase: PVCase): ValidationError[] {
   const errors: ValidationError[] = [];
   const id = pvCase.sendersCaseId;
@@ -381,6 +391,34 @@ export function validateBusinessRules(pvCase: PVCase): ValidationError[] {
   // event), so checking it inside the reaction loop above would report
   // the same finding once per reaction instead of once per case.
   const seriousnessCodeResolution = pvCase.reactions[0]?.seriousnessCodeResolution;
+  // The case says non-serious, yet its criterion code decodes to a real
+  // criterion (Ondo: "NON SERIOUS" + "1" = life-threatening). The XML would
+  // assert the criterion, so the case must not go until a person decides
+  // which of the two is true. Never resolved automatically.
+  const criteria = pvCase.reactions[0]?.seriousnessCriteria ?? {};
+  const assertedCriteria = Object.entries(criteria)
+    .filter(([, on]) => on === true)
+    .map(([name]) => CRITERION_WORDS[name] ?? name);
+  if (
+    mapSeriousness(pvCase.aggregateSeriousnessAsReported) === false &&
+    assertedCriteria.length > 0
+  ) {
+    errors.push(
+      err(
+        id,
+        "E2B-SERIOUSNESS-CONTRADICTION",
+        "BLOCKING",
+        L,
+        `The case is marked "${pvCase.aggregateSeriousnessAsReported}" but its seriousness code "${seriousnessCodeResolution?.rawSourceValue ?? ""}" means ${assertedCriteria.join(", ")}.`,
+        "Decide which is right and correct the file: either the case is serious, or the code is wrong.",
+        {
+          e2bField: "E.i.3.2",
+          sourceField: "serious_code",
+          sourceValue: seriousnessCodeResolution?.rawSourceValue ?? "",
+        },
+      ),
+    );
+  }
   if (seriousnessCodeResolution?.status === "UNKNOWN_SOURCE_CODE") {
     errors.push(
       err(
@@ -720,6 +758,7 @@ export const E2B_NON_OVERRIDABLE_CODES = new Set([
   "E2B-C1.1-MISSING",
   "E2B-C1.5-MISSING",
   "E2B-C1.8-MISSING",
+  "E2B-SERIOUSNESS-CONTRADICTION",
 ]);
 
 /** True when every BLOCKING error on this case is one an explicit,
