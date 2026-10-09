@@ -253,6 +253,11 @@ function serializeDrugComponent(p: PVProduct): string {
   const batch = p.batchNumber
     ? `<consumable typeCode="CSM"><instanceOfKind classCode="INST"><productInstanceInstance classCode="MMAT" determinerCode="INSTANCE"><lotNumberText>${esc(p.batchNumber)}</lotNumberText></productInstanceInstance></instanceOfKind></consumable>`
     : "";
+  // G.k.11 — free-text additional information, placed after the dosage
+  // block as in the ICH reference instance.
+  const additionalInfo = p.additionalInformation
+    ? `<outboundRelationship2 typeCode="REFR"><observation classCode="OBS" moodCode="EVN"><code code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="additionalInformation"/><value xsi:type="ST">${esc(p.additionalInformation)}</value></observation></outboundRelationship2>`
+    : "";
   const startDate = p.startDate
     ? `<effectiveTime xsi:type="IVL_TS"><low value="${toHl7Ts(p.startDate)}"/></effectiveTime>`
     : "";
@@ -260,7 +265,7 @@ function serializeDrugComponent(p: PVProduct): string {
     route || doseQuantity || doseText || batch || startDate
       ? `<outboundRelationship2 typeCode="COMP"><substanceAdministration classCode="SBADM" moodCode="EVN">${doseText}${startDate}${route}${doseQuantity}${batch}</substanceAdministration></outboundRelationship2>`
       : ""
-  }</substanceAdministration></component>`;
+  }${additionalInfo}</substanceAdministration></component>`;
 }
 
 function serializeCausality(p: PVProduct): string {
@@ -349,6 +354,11 @@ export function serializeCaseToMessage(
     hasDateOfBirth: !!pvCase.patient.dateOfBirth,
     hasPreciseAge: !!(pvCase.patient.age && pvCase.patient.ageUnit),
   });
+  // D.7.2 — medical history as free text, in the D.7 organizer exactly as
+  // the ICH reference instance nests it.
+  const medicalHistory = pvCase.patient.medicalHistoryText
+    ? `<subjectOf2 typeCode="SBJ"><organizer classCode="CATEGORY" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.20" codeSystemVersion="1.0" displayName="relevantMedicalHistoryAndConcurrentConditions"/><component typeCode="COMP"><observation classCode="OBS" moodCode="EVN"><code code="18" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="historyAndConcurrentConditionText"/><value xsi:type="ED">${esc(pvCase.patient.medicalHistoryText)}</value></observation></component></organizer></subjectOf2>`
+    : "";
   const ageGroup = ageGroupBand
     ? `<subjectOf2 typeCode="SBJ"><observation classCode="OBS" moodCode="EVN"><code code="4" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="ageGroup"/><value xsi:type="CE" code="${esc(ageGroupBand.band.code)}" codeSystem="${AGE_GROUP_CODE_SYSTEM}" codeSystemVersion="1.0"/></observation></subjectOf2>`
     : "";
@@ -399,6 +409,9 @@ export function serializeCaseToMessage(
   // and inside <assignedEntity> follows the ICH reference instance:
   // addr, telecom, assignedPerson, representedOrganization.
   const addrParts = [
+    pvCase.reporter.street
+      ? `<streetAddressLine>${esc(pvCase.reporter.street)}</streetAddressLine>`
+      : "",
     pvCase.reporter.city ? `<city>${esc(pvCase.reporter.city)}</city>` : "",
     pvCase.reporter.state ? `<state>${esc(pvCase.reporter.state)}</state>` : "",
   ].join("");
@@ -457,7 +470,7 @@ export function serializeCaseToMessage(
     pvCase.narrative && pvCase.narrative.trim() ? pvCase.narrative : "No narrative provided.",
   );
 
-  return `<PORR_IN049016UV><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}${birthTime}${patientIds}</player1>${age}${ageGroup}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${followUpBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
+  return `<PORR_IN049016UV><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><creationTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><interactionId extension="PORR_IN049016UV" root="2.16.840.1.113883.1.6"/><processingCode code="P"/><processingModeCode code="T"/><acceptAckCode code="AL"/><receiver typeCode="RCV"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.receiverId)}" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver><sender typeCode="SND"><device classCode="DEV" determinerCode="INSTANCE"><id extension="${esc(opts.senderId)}" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender><controlActProcess classCode="CACT" moodCode="EVN"><code code="PORR_TE049016UV" codeSystem="2.16.840.1.113883.1.18"/><effectiveTime value="${toHl7Ts(pvCase.dateOfCreation, true)}"/><subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN"><id extension="${esc(pvCase.caseSafetyReportId)}" root="2.16.840.1.113883.3.989.2.1.3.1"/><id extension="${esc(pvCase.worldwideUniqueId)}" root="2.16.840.1.113883.3.989.2.1.3.2"/><code code="PAT_ADV_EVNT" codeSystem="2.16.840.1.113883.5.4"/><text>${narrative}</text><statusCode code="active"/><effectiveTime><low value="${toHl7Ts(pvCase.dateFirstReceived)}"/></effectiveTime><availabilityTime value="${toHl7Ts(pvCase.dateMostRecentInfo)}"/><component typeCode="COMP"><adverseEventAssessment classCode="INVSTG" moodCode="EVN"><subject1 typeCode="SBJ"><primaryRole classCode="INVSBJ"><player1 classCode="PSN" determinerCode="INSTANCE">${name}${sex}${birthTime}${patientIds}</player1>${age}${ageGroup}${medicalHistory}${reactionsXml}${drugOrganizer}</primaryRole></subject1>${causalityXml}</adverseEventAssessment></component><component typeCode="COMP"><observationEvent classCode="OBS" moodCode="EVN"><code code="23" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" displayName="localCriteriaForExpedited"/><value xsi:type="BL" ${c17}/></observationEvent></component><outboundRelationship typeCode="SPRT"><relatedInvestigation classCode="INVSTG" moodCode="EVN"><code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" codeSystemVersion="1.0" displayName="initialReport"/><subjectOf2 typeCode="SUBJ"><controlActEvent classCode="CACT" moodCode="EVN"><author typeCode="AUT"><assignedEntity classCode="ASSIGNED"><code code="${pvCase.firstSenderOfCase}" codeSystem="2.16.840.1.113883.3.989.2.1.1.3" codeSystemVersion="1.0"/></assignedEntity></author></controlActEvent></subjectOf2></relatedInvestigation></outboundRelationship>${reporterBlock}${followUpBlock}${senderBlock}${reportTypeBlock}${otherIdsBlock}</investigationEvent></subject></controlActProcess></PORR_IN049016UV>`;
 }
 
 export interface BatchOptions {

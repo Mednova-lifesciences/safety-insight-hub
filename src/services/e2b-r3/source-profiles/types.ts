@@ -93,6 +93,15 @@ export interface ColumnMap {
   reporterOrganization?: string;
   /** C.2.r.2.4 / C.2.r.2.5 — the reporter's city and state/province. */
   reporterCity?: string;
+  ageMonths?: string;
+  vaccinationTime?: string;
+  medicalHistory?: string;
+  diluentBatch?: string;
+  otherVaccines?: string;
+  reporterAddress?: string;
+  reporterEmail?: string;
+  nationalReceivedDate?: string;
+  stateReceivedDate?: string;
   reporterState?: string;
   /** G.k.4.r.10 — how the product was administered. */
   route?: string;

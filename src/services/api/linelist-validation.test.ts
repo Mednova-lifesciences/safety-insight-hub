@@ -273,7 +273,9 @@ describe("runValidation — seriousness value spelling variants", () => {
       ];
       const mapping = mapColumnsByKeywords(headers, FIELD_KEYWORDS);
       expect(mapping["Reaction type (Codes -see 1 below )"]).toBe("reaction");
-      expect(mapping["Adress of reporting health facility"]).toBeUndefined();
+      // It is the facility's address (C.2.r.2.3) — never the reaction,
+      // and never the organisation name.
+      expect(mapping["Adress of reporting health facility"]).toBe("reporter_address");
     });
   });
 
