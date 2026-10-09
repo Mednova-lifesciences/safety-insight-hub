@@ -1,3 +1,11 @@
+import {
+  deriveOnsetDate,
+  explainUnreadableInterval,
+  parseDateLoose,
+  parseOnsetIntervalMs,
+  resolveOnset,
+  stripSpreadsheetTextMarkers,
+} from "./linelist-onset";
 import { supabase } from "@/integrations/supabase/client";
 import { currentActor, newId, recordAudit, toJson } from "./db";
 import { mapColumnsByKeywords, parseTabularFile, type KeywordEntry } from "./tabular-parse";
@@ -52,6 +60,7 @@ import {
 } from "@/services/e2b-r3/source-profiles/patient-record-number";
 import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
 import {
+  isNoSeriousnessCode,
   resolveFieldConcept,
   mapConceptToOutcome,
   splitBySourceProfile,
@@ -956,74 +965,23 @@ export function mergeColumnMapping(
   return { mapping, source, notes, aiUsed: true };
 }
 
-/**
- * Strips the artefacts a spreadsheet leaves on a value that was stored as
- * text — most commonly Excel's leading/trailing apostrophe, which is its
- * "treat this as text" marker and not part of the data. Observed on a real
- * Ondo AEFI upload as `02/02/2026'`, which failed INVALID_DATE_FORMAT on 13
- * rows for a character the user never typed and cannot see in Excel.
- *
- * Deliberately narrow: only the apostrophes and surrounding whitespace. It
- * never repairs the date itself — a genuinely malformed date must still
- * fail, because silently "correcting" a date in a safety report is far
- * worse than rejecting it.
- */
-export function stripSpreadsheetTextMarkers(value: string): string {
-  return value.trim().replace(/^'+/, "").replace(/'+$/, "").trim();
-}
+export { deriveOnsetDate, parseOnsetIntervalMs, resolveOnset, stripSpreadsheetTextMarkers };
 
-/** Converts an AEFI onset INTERVAL ("30 mins", "2 days", "1 week", "10HRS")
- *  into milliseconds. Returns null for anything it cannot read confidently —
- *  a guess here would move a reaction's start date, so an unparseable
- *  interval must leave onset_date underived rather than approximated. */
-export function parseOnsetIntervalMs(raw: string): number | null {
-  const v = raw.trim().toLowerCase();
-  if (!v) return null;
-  const m = /^(\d+(?:\.\d+)?)\s*([a-z]+)\.?$/.exec(v);
-  if (!m) return null;
-  const n = Number(m[1]);
-  if (!Number.isFinite(n) || n < 0) return null;
-  const unit = m[2]!;
-  const MIN = 60_000,
-    HOUR = 60 * MIN,
-    DAY = 24 * HOUR;
-  if (/^(min|mins|minute|minutes|m)$/.test(unit)) return n * MIN;
-  if (/^(h|hr|hrs|hour|hours)$/.test(unit)) return n * HOUR;
-  if (/^(d|day|days)$/.test(unit)) return n * DAY;
-  if (/^(w|wk|wks|week|weeks)$/.test(unit)) return n * 7 * DAY;
-  return null;
-}
-
-/**
- * Derives the reaction onset DATE from the vaccination date plus the onset
- * interval — the two things AEFI forms actually record.
- *
- * The NAFDAC/Ondo AEFI form has no onset-date column by design: it captures
- * "Date of Last immunisation" and "Onset Time interval (hours, days,
- * weeks)". The validator nonetheless demanded onset_date, so
- * MISSING_ONSET_DATE fired on 231 of 231 rows of a real upload — a warning
- * on every row, which is the same as no warning at all, and it buried the
- * genuine findings underneath it. E2B(R3) does need a reaction start date
- * (E.i.4), so the right answer is to compute the value the form implies
- * rather than to demand a column that was never going to exist or to drop
- * the check.
- *
- * Derives only when both inputs parse. Returns ISO yyyy-mm-dd so the result
- * is indistinguishable in shape from a directly-supplied onset date.
- */
-export function deriveOnsetDate(
-  vaccinationDate: string | undefined,
-  onsetInterval: string | undefined,
-): string | null {
-  if (!vaccinationDate || !onsetInterval) return null;
-  const base = parseDateLoose(stripSpreadsheetTextMarkers(vaccinationDate));
-  if (!base) return null;
-  const offsetMs = parseOnsetIntervalMs(onsetInterval);
-  if (offsetMs === null) return null;
-  const d = new Date(base.getTime() + offsetMs);
-  if (Number.isNaN(d.getTime())) return null;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/** The onset date each row goes to E2B with, for the fixed file — from the
+ *  rows as they stand now, corrections included. A date the source states
+ *  is shown as it is; one worked out from the interval carries a note. */
+export function onsetUsedForRows(
+  parsedRows: ParsedRow[] | undefined,
+  mapping: Record<string, string> | undefined,
+): ({ date: string; note?: string } | undefined)[] | undefined {
+  if (!parsedRows || !mapping) return undefined;
+  const fields = new Set(Object.values(mapping));
+  if (!fields.has("onset_date") && !fields.has("onset_interval")) return undefined;
+  return parsedRows.map((row) => {
+    if (fields.has("onset_date") && row.onset_date) return { date: row.onset_date };
+    const resolved = resolveOnset(row.vaccination_date, row.onset_interval);
+    return resolved ? { date: resolved.date, note: resolved.note } : undefined;
+  });
 }
 
 /** Exported for tests: proves the onset-date derivation and the
@@ -1068,36 +1026,6 @@ function toRawRows(headers: string[], rows: string[][]): Record<string, string>[
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$|^\d{1,2}-\d{1,2}-\d{2,4}$/;
-
-/** Best-effort parse of the same shapes DATE_RE accepts, for chronology/
- *  future-date comparisons only — day/month order in a D/M vs M/D form is
- *  inherently ambiguous without knowing the source locale, so this uses a
- *  day-first assumption (common on African AEFI forms) and only swaps to
- *  month-first when day-first is out of range. A wrong guess here only
- *  affects this supplementary chronology check, not the core
- *  INVALID_DATE_FORMAT check, which just tests the shape. */
-function parseDateLoose(value: string): Date | null {
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (iso) {
-    const [, y, m, d] = iso;
-    const parsed = new Date(Number(y), Number(m) - 1, Number(d));
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-  const slashOrDash = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/.exec(value);
-  if (slashOrDash) {
-    const [, a, b, y] = slashOrDash;
-    const year = y!.length === 2 ? Number(y) + 2000 : Number(y);
-    let day = Number(a);
-    let month = Number(b);
-    if (day <= 12 && month > 12) {
-      [day, month] = [month, day];
-    }
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    const parsed = new Date(year, month - 1, day);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-  return null;
-}
 
 /** Reduces a case/report ID to a shape signature (letters -> "A", digits ->
  *  "9", separators kept as-is) so IDs following the same structural
@@ -1437,7 +1365,9 @@ export function runValidation(
             ? "An onset interval was provided but no vaccination date to measure it from, so the onset date cannot be derived."
             : !hasInterval
               ? "A vaccination date was provided but no onset interval, so the onset date cannot be derived."
-              : `The onset interval "${row.onset_interval}" could not be read as a duration, so the onset date cannot be derived.`;
+              : parseOnsetIntervalMs(row.onset_interval!) !== null
+                ? `The vaccination date "${row.vaccination_date}" could not be read as a date, so the onset date cannot be derived from the interval "${row.onset_interval}".`
+                : explainUnreadableInterval(row.onset_interval!);
       issues.push({
         row: rowNum,
         column: col("onset_date") || col("onset_interval"),
@@ -1648,9 +1578,7 @@ export function runValidation(
     }
 
     if (mappedFields.has("serious_code") && row.seriousness) {
-      const hasSeriousCode =
-        !!row.serious_code &&
-        !["0", "none", "n/a", "-", "nil"].includes(row.serious_code.trim().toLowerCase());
+      const hasSeriousCode = !!row.serious_code && !isNoSeriousnessCode(row.serious_code);
       const isNonSerious = NON_SERIOUS_VALUES.has(normalizeSeriousness(row.seriousness));
       const isSerious = SERIOUS_TEXT_VALUES.has(normalizeSeriousness(row.seriousness));
       if (isNonSerious && hasSeriousCode) {
@@ -3285,6 +3213,7 @@ export const linelist = {
       preservedSourceText: (job.discardedRows ?? [])
         .map((entry) => entry.text.trim())
         .filter(Boolean),
+      onsetUsed: onsetUsedForRows(job.parsedRows, job.mapping),
     });
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);

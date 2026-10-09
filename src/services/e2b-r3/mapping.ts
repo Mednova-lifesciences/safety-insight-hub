@@ -393,6 +393,15 @@ const DEFAULT_SERIOUSNESS_WORDS: Record<string, boolean> = {
   N: false,
 };
 
+/** What reporters write in a seriousness-criterion code column to mean
+ *  "no criterion": "NIL", "-", "0", "N/A", "none". None of these is a code
+ *  (the Ondo legend's codes run 1-5), so reading them as unknown codes
+ *  blocked non-serious cases for saying nothing. */
+export function isNoSeriousnessCode(raw: string | undefined): boolean {
+  const v = (raw ?? "").trim().toLowerCase();
+  return /^(0|-+|nil|none|nill|null|n\/?a|not applicable)$/.test(v);
+}
+
 /** Only fires on a value already unambiguously meaning serious/non-serious
  *  — this is the source's case-level AGGREGATE value only; per the spec it
  *  must never itself become an E2B seriousness element (see
@@ -926,7 +935,7 @@ export async function mapSourceRecordToPVCase(
   // captures seriousness at case level with no basis to attribute it to
   // one specific reaction over another.
   const seriousnessCodeResolution = resolveFieldConcept(
-    row.serious_code,
+    isNoSeriousnessCode(row.serious_code) ? undefined : row.serious_code,
     profile,
     "seriousness",
     mapConceptToSeriousnessCriteria,

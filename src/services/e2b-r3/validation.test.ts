@@ -270,6 +270,7 @@ describe("isOverridable / computeCaseEligibility — the validated-export overri
         "E2B-C1.5-MISSING",
         "E2B-C1.8-MISSING",
         "E2B-C1.7-UNRESOLVED",
+        "E2B-SERIOUSNESS-CONTRADICTION",
       ].sort(),
     );
   });
