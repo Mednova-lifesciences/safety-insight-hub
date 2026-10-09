@@ -4,14 +4,19 @@ import { join } from "node:path";
 import { mapColumnsByKeywords } from "../api/tabular-parse";
 import { FIELD_KEYWORDS, runValidation, type ParsedRow, type TargetField } from "../api/linelist";
 import { resolveOnset } from "../api/linelist-onset";
-import { combineAgeWithMonths, mapSourceRecordToPVCase, meaningfulText } from "./mapping";
+import {
+  combineAgeWithMonths,
+  isConcomitantName,
+  mapSourceRecordToPVCase,
+  meaningfulText,
+} from "./mapping";
 import { serializeBatchToXml } from "./serializer";
 import { genericVerbatimProfile } from "./source-profiles/generic-verbatim";
 import { unavailableMedDraProvider, unavailableWhoDrugProvider } from "./coding-provider";
 import { UNCONFIRMED_DEFAULT_CONFIG, type E2bTransmissionConfig } from "./transmission-config";
 
 // The real Ondo AEFI headers as the parser names them (merged sub-headers
-// included); every VALUE below is invented — no patient data.
+// included); every VALUE below is invented â€” no patient data.
 const ROW: Record<string, string> = {
   ID: "NIE-TST-001",
   "PATIENT'S NAME": "TEST CHILD",
@@ -89,7 +94,7 @@ describe("Ondo columns that used to be dropped now map", () => {
   });
 });
 
-describe("C.1.4 — the national received date", () => {
+describe("C.1.4 â€” the national received date", () => {
   it("uses the national date", async () => {
     const { pvCase } = await ingest();
     expect(pvCase.dateFirstReceived).toBe("2026-02-09");
@@ -109,7 +114,7 @@ describe("C.1.4 — the national received date", () => {
   });
 });
 
-describe("D.2.2 — Years and Months sub-columns", () => {
+describe("D.2.2 â€” Years and Months sub-columns", () => {
   it.each([
     ["0", "8", "8"],
     ["1", "8", "20"],
@@ -159,6 +164,20 @@ describe("medical history, diluent, other vaccines, facility address", () => {
     expect(pvCase.products.filter((p) => p.characterization === "SUSPECT")).toHaveLength(1);
     const none = await ingest({ "Other vaccines given just prior to AEFI": "nil" });
     expect(none.pvCase.products).toHaveLength(1);
+  });
+  it("junk in the other-vaccines column never becomes a product", async () => {
+    // Values seen in the real Ondo column.
+    for (const junk of ["0", "NON", "Non", "Hours", "no", "-"]) {
+      const { pvCase } = await ingest({ "Other vaccines given just prior to AEFI": junk });
+      expect(pvCase.products, junk).toHaveLength(1);
+    }
+    const mixed = await ingest({ "Other vaccines given just prior to AEFI": "HPV, 0" });
+    expect(
+      mixed.pvCase.products
+        .filter((p) => p.characterization === "CONCOMITANT")
+        .map((p) => p.product.sourceValue),
+    ).toEqual(["HPV"]);
+    expect(isConcomitantName("Malaria vaccine")).toBe(true);
   });
   it("C.2.r.2.3 carries the facility address", async () => {
     const { xml } = await ingest();

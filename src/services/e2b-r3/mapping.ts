@@ -402,6 +402,18 @@ export function combineAgeWithMonths(
   return { value: String(Math.round(years * 12) + Number(m[1])), unit: "802" };
 }
 
+/** True when a value from an "other vaccines" cell can name a product.
+ *  The real Ondo column also holds "0", "NON" and "Hours" (an onset unit
+ *  in the wrong column); none of those is a vaccine, and each would
+ *  otherwise go to VigiFlow as a concomitant product. */
+export function isConcomitantName(raw: string | undefined): boolean {
+  const v = meaningfulText(raw);
+  if (!v || !/[a-z]/i.test(v)) return false;
+  return !/^(no|non|nope|nothing given|none given|(hours?|hrs?|days?|mins?|minutes?|weeks?|wks?))\.?$/i.test(
+    v,
+  );
+}
+
 /** A free-text cell's value, or nothing when it only says "none" /
  *  "unknown" in one of the ways forms do. */
 export function meaningfulText(raw: string | undefined): string | undefined {
@@ -1099,7 +1111,7 @@ export async function mapSourceRecordToPVCase(
   const concomitantNames = otherVaccines
     ? (otherVaccines.quarantined ? [otherVaccines.rawValue] : otherVaccines.values)
         .map((v) => v.trim())
-        .filter((v) => v && meaningfulText(v))
+        .filter((v) => isConcomitantName(v))
     : [];
   const concomitants: PVProduct[] = await Promise.all(
     concomitantNames.map(async (value, i) => ({
