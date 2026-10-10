@@ -43,7 +43,7 @@ import {
   applyParsingOptions,
   resolveRuntimeSourceProfile,
 } from "./source-profiles/runtime-profile";
-import type { LineListParsingOptions } from "@/types/pv";
+import type { LineListCodeList, LineListParsingOptions } from "@/types/pv";
 import {
   fieldsCovered,
   type DiscoveredSourceCodebook,
@@ -71,6 +71,7 @@ export function discoverAndApplyCodebook(
   baseProfile: SourceProfile,
   discardedRows: { row: number; text: string }[] | undefined,
   evidence: { file?: string | undefined; sheet?: string | undefined },
+  codeList?: LineListCodeList | undefined,
 ): { runtimeProfile: SourceProfile; discovered: DiscoveredSourceCodebook } {
   const discovered = validateDiscoveredCodebook(
     parseDiscoveredLegend({
@@ -79,7 +80,28 @@ export function discoverAndApplyCodebook(
       evidence,
     }),
   );
-  const runtimeProfile = resolveRuntimeSourceProfile(baseProfile, discovered);
+  // Precedence, lowest first: the code list saved for this form, the
+  // file's own legend, a code list a person confirmed for this file. A
+  // field the file's own legend covers ignores the saved form list
+  // entirely — a file that brings its codes is the authority on them.
+  const asCodebook = (entries: LineListCodeList["entries"]): DiscoveredSourceCodebook => ({
+    sourceId: `${baseProfile.id}:code-list`,
+    entries: entries.map((e) => ({ ...e, sourceEvidence: { rawText: codeList?.text } })),
+    rejectedEntries: [],
+    discoveryStatus: entries.length ? "DISCOVERED" : "NOT_FOUND",
+  });
+  const fileFields = new Set(fieldsCovered(discovered));
+  let runtimeProfile = baseProfile;
+  if (codeList?.origin === "FORM") {
+    runtimeProfile = resolveRuntimeSourceProfile(
+      runtimeProfile,
+      asCodebook(codeList.entries.filter((e) => !fileFields.has(e.field))),
+    );
+  }
+  runtimeProfile = resolveRuntimeSourceProfile(runtimeProfile, discovered);
+  if (codeList?.origin === "PERSON") {
+    runtimeProfile = resolveRuntimeSourceProfile(runtimeProfile, asCodebook(codeList.entries));
+  }
   return { runtimeProfile, discovered };
 }
 
@@ -174,6 +196,7 @@ export interface MappableJob {
   outcomeVocabulary?: OutcomeVocabulary | undefined;
   parsingOptions?: LineListParsingOptions | undefined;
   discardedRows?: { row: number; text: string }[] | undefined;
+  codeList?: LineListCodeList | undefined;
   parsedRows?: ParsedRow[] | undefined;
   /** Column header -> canonical field. Needed here because which record a
    *  patient number came from can be read from the column's own name. */
@@ -213,6 +236,7 @@ export async function mapJobToCases(
     sourceProfile,
     job.discardedRows,
     { file: job.filename, sheet: job.sheetName },
+    job.codeList,
   );
   const runtimeProfile = mergeOrgRegulatoryConfigIntoProfile(discoveredProfile, regulatoryConfig);
 

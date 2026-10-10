@@ -59,6 +59,7 @@ import {
   resolvePatientRecordNumberSource,
 } from "@/services/e2b-r3/source-profiles/patient-record-number";
 import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
+import { decodeCodedFields } from "@/services/e2b-r3/source-profiles/code-list-text";
 import {
   isNoSeriousnessCode,
   resolveFieldConcept,
@@ -111,6 +112,7 @@ function resolveJobRuntimeProfile(job: {
   outcomeVocabulary?: OutcomeVocabulary | undefined;
   mapping?: Record<string, TargetField> | undefined;
   parsingOptions?: LineListJob["parsingOptions"];
+  codeList?: LineListJob["codeList"];
 }): SourceProfile {
   // An unregistered id would throw from getSourceProfile and take the whole
   // job down; a job is not worth losing over a stale profile reference, so
@@ -121,10 +123,12 @@ function resolveJobRuntimeProfile(job: {
   } catch {
     baseProfile = getSourceProfile(DEFAULT_SOURCE_PROFILE_ID);
   }
-  const { runtimeProfile } = discoverAndApplyCodebook(baseProfile, job.discardedRows, {
-    file: job.filename,
-    sheet: job.sheetName,
-  });
+  const { runtimeProfile } = discoverAndApplyCodebook(
+    baseProfile,
+    job.discardedRows,
+    { file: job.filename, sheet: job.sheetName },
+    job.codeList,
+  );
   // Layered last so it can only fill outcome words nothing else resolved —
   // the profile's own configured outcomeMap still wins inside
   // withOutcomeVocabulary.
@@ -1335,9 +1339,12 @@ function detectColumnShifts(
 export function runValidation(
   headers: string[],
   mapping: Record<string, TargetField>,
-  rows: ParsedRow[],
+  rawRows: ParsedRow[],
   runtimeProfile: SourceProfile = getSourceProfile("ondo-aefi"),
 ): LineListIssue[] {
+  // Coded cells read as their meaning ("1" → "Male") wherever this file's
+  // code list defines them, exactly as export will read them.
+  const rows = rawRows.map((r) => decodeCodedFields(r, runtimeProfile.fieldCodebooks));
   const issues: LineListIssue[] = [];
   const mappedFields = new Set(Object.values(mapping));
   const headerForField = new Map<TargetField, string>();
