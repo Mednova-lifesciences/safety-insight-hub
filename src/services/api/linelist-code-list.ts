@@ -2,6 +2,14 @@ import { supabase } from "@/integrations/supabase/client";
 import type { LineListCodeList, LineListCodeListEntry } from "@/types/pv";
 import { isFixedFileAnnotationColumn } from "./linelist-fixed-csv";
 import { toJson } from "./db";
+import { ai } from "./ai";
+import {
+  codebookKeyForField,
+  fieldForCodebookKey,
+  findCodeListConflicts,
+  readCodeListText,
+} from "@/services/e2b-r3/source-profiles/code-list-text";
+import { parseDiscoveredLegend } from "@/services/e2b-r3/source-profiles/legend-parser";
 
 /**
  * Code lists a person supplies for a line list, and the ones saved for a
@@ -93,6 +101,164 @@ export function codeListFooterLines(codeList: LineListCodeList | undefined): str
     lines.push(`${n++}) ${name}: ${entries.map((e) => `${e.sourceCode}=${e.meaning}`).join(", ")}`);
   }
   return lines;
+}
+
+/** The fields a code list can cover, in plain words — shown on the page and
+ *  given to the AI as the only field names it may use. Any other mapped
+ *  column is added per file (codeListFieldsFor). */
+export const CODE_LIST_FIELDS: { name: string; label: string; description: string }[] = [
+  { name: "reaction", label: "Reaction", description: "the reaction / adverse event type code" },
+  { name: "outcome", label: "Outcome", description: "how the reaction ended" },
+  {
+    name: "seriousness",
+    label: "Serious criterion",
+    description:
+      "which serious criterion applies (life-threatening, hospitalisation, death, disability, congenital anomaly)",
+  },
+  {
+    name: "seriousness_aggregate",
+    label: "Serious or not",
+    description: "whether the case is serious or non-serious",
+  },
+  { name: "sex", label: "Sex", description: "patient sex" },
+  { name: "age_unit", label: "Age unit", description: "the unit an age is given in" },
+  { name: "age_group", label: "Age group", description: "the patient's age group" },
+  { name: "route", label: "Route", description: "route of administration" },
+  { name: "dose_unit", label: "Dose unit", description: "the unit of the dose" },
+  {
+    name: "reporter_designation",
+    label: "Reporter designation",
+    description: "the reporter's role or cadre",
+  },
+  { name: "product", label: "Vaccine / product", description: "the suspect vaccine or product" },
+];
+
+export function codeListFieldsFor(mapping: Record<string, string> | undefined) {
+  const known = new Set(CODE_LIST_FIELDS.map((f) => f.name));
+  const extra = [...new Set(Object.values(mapping ?? {}).map(codebookKeyForField))]
+    .filter((k) => !known.has(k))
+    .map((k) => ({ name: k, label: k.replace(/_/g, " "), description: `the "${k}" column` }));
+  return [...CODE_LIST_FIELDS, ...extra];
+}
+
+export interface CodeListPreviewRow extends LineListCodeListEntry {
+  readBy: "rule" | "ai";
+}
+
+export interface CodeListPreview {
+  entries: CodeListPreviewRow[];
+  /** One code given more than one meaning under a field. */
+  conflicts: { field: string; sourceCode: string; meanings: string[] }[];
+  /** Codes that occur in this file under a covered field but that the list
+   *  does not define — those cells stay unread. */
+  uncovered: { field: string; codes: string[] }[];
+  /** Where the list and the file's own legend disagree; the list wins for
+   *  this file once confirmed. */
+  differsFromFile: { field: string; sourceCode: string; inFile: string; inList: string }[];
+  unplaced: string[];
+  aiUsed: boolean;
+  aiError?: string | undefined;
+}
+
+/**
+ * What the page shows before a person confirms: rules first, the AI only
+ * for what the rules could not place, then every problem worth a look.
+ * Nothing is saved here.
+ */
+export async function previewCodeList(
+  job: {
+    mapping?: Record<string, string> | undefined;
+    parsedRows?: Record<string, string | undefined>[] | undefined;
+    discardedRows?: { row: number; text: string }[] | undefined;
+  },
+  text: string,
+): Promise<CodeListPreview> {
+  const columns = Object.entries(job.mapping ?? {}).map(([header, field]) => ({ header, field }));
+  const rules = readCodeListText(text, columns);
+  let aiRows: CodeListPreviewRow[] = [];
+  let unplaced = rules.unplaced;
+  let aiUsed = false;
+  let aiError: string | undefined;
+  if (rules.unplaced.length > 0) {
+    try {
+      const res = await ai.linelist.readCodeList({
+        text: rules.unplaced.join("\n"),
+        columns,
+        fields: codeListFieldsFor(job.mapping).map(({ name, description }) => ({
+          name,
+          description,
+        })),
+      });
+      aiUsed = res.ai_used;
+      aiError = res.error ?? undefined;
+      if (res.ai_used) {
+        aiRows = res.entries.map((e) => ({
+          field: e.field,
+          sourceCode: e.code,
+          meaning: e.meaning,
+          readBy: "ai",
+        }));
+        unplaced = res.unplaced;
+      }
+    } catch (err) {
+      aiError = err instanceof Error ? err.message : "AI reading was unavailable.";
+    }
+  }
+  const all: CodeListPreviewRow[] = [
+    ...rules.entries.map((e) => ({ ...e, readBy: "rule" as const })),
+    ...aiRows,
+  ];
+  const { conflicts } = findCodeListConflicts(all);
+  // Keep one row per (field, code, meaning); conflicting rows all stay so
+  // the person sees both meanings.
+  const seen = new Set<string>();
+  const entries = all.filter((e) => {
+    const k = `${e.field}\u0000${e.sourceCode.toUpperCase()}\u0000${e.meaning}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+
+  const uncovered: CodeListPreview["uncovered"] = [];
+  for (const key of new Set(entries.map((e) => e.field))) {
+    const field = fieldForCodebookKey(key === "reaction" ? "reaction" : key);
+    const defined = new Set(
+      entries.filter((e) => e.field === key).map((e) => e.sourceCode.toUpperCase()),
+    );
+    const used = new Set<string>();
+    for (const row of job.parsedRows ?? []) {
+      const cell = (
+        key === "reaction" ? (row["reaction_code"] ?? row["reaction"]) : row[field]
+      )?.trim();
+      if (!cell) continue;
+      for (const part of cell.split(/[,;]/).map((p) => p.trim().toUpperCase())) {
+        if (/^\d{1,3}$/.test(part) && !defined.has(part)) used.add(part);
+      }
+    }
+    if (used.size)
+      uncovered.push({ field: key, codes: [...used].sort((a, b) => Number(a) - Number(b)) });
+  }
+
+  const legend = parseDiscoveredLegend({
+    sourceId: "preview",
+    lines: (job.discardedRows ?? []).map((d) => ({ text: d.text, row: d.row })),
+  });
+  const differsFromFile: CodeListPreview["differsFromFile"] = [];
+  for (const l of legend.entries) {
+    const mine = entries.find(
+      (e) => e.field === l.field && e.sourceCode.toUpperCase() === l.sourceCode.toUpperCase(),
+    );
+    if (mine && mine.meaning.trim().toLowerCase() !== l.meaning.trim().toLowerCase()) {
+      differsFromFile.push({
+        field: l.field,
+        sourceCode: l.sourceCode,
+        inFile: l.meaning,
+        inList: mine.meaning,
+      });
+    }
+  }
+
+  return { entries, conflicts, uncovered, differsFromFile, unplaced, aiUsed, aiError };
 }
 
 export async function readFormCodeList(formKey: string): Promise<FormCodeListRow | null> {

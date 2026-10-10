@@ -21,12 +21,14 @@ from ..ai.client import AiNotConfiguredError, AiRequestError, VALIDATION_MODEL, 
 from ..ai.prompts import (
     LINELIST_ADVERSARIAL_REVIEW_PROMPT,
     LINELIST_ANALYSIS_PROMPT,
+    LINELIST_CODE_LIST_PROMPT,
     LINELIST_COLUMN_MAPPING_PROMPT,
     LINELIST_FIX_PROMPT,
     LINELIST_OUTCOME_VOCABULARY_PROMPT,
     PROMPT_VERSION,
 )
 from ..ai.schemas import (
+    AiCodeList,
     AiColumnMapping,
     AiOutcomeVocabulary,
     AiLineListAdversarialReview,
@@ -495,6 +497,101 @@ async def map_outcomes(
             ai_used=False,
             prompt_version=PROMPT_VERSION,
             error="AI outcome resolution was unavailable; values were left for human review.",
+        )
+
+
+# A code list is short; this bounds a paste of something that is not one.
+MAX_CODE_LIST_CHARS = 20000
+
+
+class CodeListColumnIn(BaseModel):
+    header: str
+    field: str
+
+
+class CodeListFieldIn(BaseModel):
+    name: str
+    description: str = ""
+
+
+class ReadCodeListRequest(BaseModel):
+    text: str
+    columns: list[CodeListColumnIn] = []
+    fields: list[CodeListFieldIn]
+
+
+class CodeListEntryOut(BaseModel):
+    field: str
+    code: str
+    meaning: str
+
+
+class ReadCodeListResponse(BaseModel):
+    entries: list[CodeListEntryOut]
+    unplaced: list[str]
+    ai_used: bool
+    prompt_version: str
+    model: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/read-code-list", response_model=ReadCodeListResponse)
+async def read_code_list(
+    request: ReadCodeListRequest,
+    user: AuthenticatedUser = Depends(require_permission("linelist.process")),
+):
+    """Restructures a code list a person typed into (field, code, meaning)
+    rows. The AI only restructures: rows naming a field outside the allowed
+    list are dropped here, and a person confirms every row before use.
+
+    Like the other line-list endpoints, a failure answers 200 with
+    ai_used=False — the person can still use what the rule reader found."""
+    text = request.text.strip()[:MAX_CODE_LIST_CHARS]
+    allowed = {f.name for f in request.fields}
+    if not text or not allowed:
+        return ReadCodeListResponse(entries=[], unplaced=[], ai_used=False, prompt_version=PROMPT_VERSION)
+    try:
+        completion = await structured_completion(
+            system_prompt=LINELIST_CODE_LIST_PROMPT,
+            user_content=json.dumps(
+                {
+                    "text": text,
+                    "columns": [c.model_dump() for c in request.columns],
+                    "fields": [f.model_dump() for f in request.fields],
+                }
+            ),
+            model=VALIDATION_MODEL,
+        )
+        parsed = AiCodeList.model_validate(completion.data)
+        entries = [
+            CodeListEntryOut(field=e.field, code=e.code.strip(), meaning=e.meaning.strip())
+            for e in parsed.entries
+            if e.field in allowed and e.code.strip() and e.meaning.strip()
+        ]
+        dropped = [f"{e.field}: {e.code} = {e.meaning}" for e in parsed.entries if e.field not in allowed]
+        return ReadCodeListResponse(
+            entries=entries,
+            unplaced=[*parsed.unplaced, *dropped],
+            ai_used=True,
+            prompt_version=PROMPT_VERSION,
+            model=completion.model,
+        )
+    except AiNotConfiguredError:
+        return ReadCodeListResponse(
+            entries=[],
+            unplaced=[],
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="AI is not configured; only the lines the rules could read were used.",
+        )
+    except Exception as exc:
+        logger.warning("AI code-list reading failed: %s", exc)
+        return ReadCodeListResponse(
+            entries=[],
+            unplaced=[],
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="AI reading was unavailable; only the lines the rules could read were used.",
         )
 
 
