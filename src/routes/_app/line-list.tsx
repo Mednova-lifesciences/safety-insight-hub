@@ -115,7 +115,10 @@ function LineListPage() {
   async function onFile(file: File) {
     setUploading(true);
     try {
-      await linelistApi.upload(file, sourceProfileId);
+      const created = await linelistApi.upload(file, sourceProfileId);
+      // Show the file just uploaded, so Re-run validation acts on it and
+      // not on whichever job happened to be on screen before.
+      setSelected(created.id);
       toast.success("File uploaded.");
       setJobsPage(1);
       jobs.refetch();
@@ -333,7 +336,9 @@ function LineListPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={validating}
+                  // Not while a file is uploading: until it lands, the job on
+                  // screen is the previous one.
+                  disabled={validating || uploading}
                   onClick={() => runValidate(activeJob.id)}
                 >
                   {validating ? "Re-running…" : "Re-run validation"}
@@ -351,7 +356,7 @@ function LineListPage() {
                     return (
                       <Button
                         size="sm"
-                        disabled={fixing}
+                        disabled={fixing || uploading}
                         onClick={async () => {
                           setFixing(true);
                           try {
@@ -384,8 +389,14 @@ function LineListPage() {
                     );
                   }}
                 </QueryBoundary>
+                {/* Offered once the file is validated, whether or not Fix changed
+                    anything: the fixed file also carries the onset date used
+                    for E2B and what still needs review. */}
                 {AUTO_FIX_ENABLED &&
-                (activeJob.fixedAt || (activeJob.decisions ?? []).length > 0) ? (
+                (activeJob.fixedAt ||
+                  (activeJob.decisions ?? []).length > 0 ||
+                  activeJob.stage === "VALIDATED" ||
+                  activeJob.stage === "E2B_GENERATED") ? (
                   <Button
                     size="sm"
                     variant="outline"
