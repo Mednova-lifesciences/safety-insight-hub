@@ -14,6 +14,7 @@ import {
   ParsingOptionsPanel,
   ReactionTermsPanel,
 } from "@/components/pv/linelist-e2b-panels";
+import { CodeListPanel } from "@/components/pv/linelist-code-list-panel";
 import { listSourceProfiles } from "@/services/e2b-r3/source-profiles/registry";
 import {
   Select,
@@ -319,6 +320,16 @@ function LineListPage() {
         {activeJob ? <ColumnMappingPanel job={activeJob} /> : null}
         {activeJob ? (
           <ParsingOptionsPanel
+            job={activeJob}
+            onSaved={() => {
+              jobs.refetch();
+              issues.refetch();
+            }}
+          />
+        ) : null}
+        {activeJob && activeJob.stage !== "FAILED" ? (
+          <CodeListPanel
+            key={activeJob.id}
             job={activeJob}
             onSaved={() => {
               jobs.refetch();

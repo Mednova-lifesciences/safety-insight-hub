@@ -85,8 +85,10 @@ import {
   deleteFormCodeList,
   formKeyFor,
   isFormCodeListRow,
+  previewCodeList,
   readFormCodeList,
   saveFormCodeList,
+  type CodeListPreview,
 } from "./linelist-code-list";
 
 /**
@@ -2964,6 +2966,12 @@ export const linelist = {
       });
       return recheckJob(jobId);
     }),
+
+  /** Reads a typed, pasted or uploaded code list for this file and shows
+   *  what would apply — rules first, the AI for what they cannot place —
+   *  with every problem a person should see. Nothing is saved. */
+  previewCodeList: async (jobId: string, text: string): Promise<CodeListPreview> =>
+    previewCodeList(await readJob(jobId), text),
 
   /** A person confirms a code list for this file. With `saveForForm`, it is
    *  also saved for every later file with the same column layout. Applies

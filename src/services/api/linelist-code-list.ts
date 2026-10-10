@@ -261,6 +261,62 @@ export async function previewCodeList(
   return { entries, conflicts, uncovered, differsFromFile, unplaced, aiUsed, aiError };
 }
 
+/** A code list uploaded as a file, as text the readers understand. A
+ *  spreadsheet row of exactly "code | meaning" becomes "code = meaning";
+ *  any other row keeps its cells, separated, so headings survive. */
+export async function codeListFileToText(file: File): Promise<string> {
+  if (!/\.xlsx$/i.test(file.name)) return file.text();
+  const XLSX = await import("xlsx");
+  const book = XLSX.read(await file.arrayBuffer(), { type: "array" });
+  const lines: string[] = [];
+  for (const name of book.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name]!, {
+      header: 1,
+      defval: "",
+      raw: false,
+    });
+    for (const row of rows) {
+      const cells = row.map((c) => String(c ?? "").trim()).filter(Boolean);
+      if (cells.length === 0) continue;
+      lines.push(
+        cells.length === 2 && /^\w{1,3}$/.test(cells[0]!)
+          ? `${cells[0]} = ${cells[1]}`
+          : cells.join(", "),
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+/** The code list the file itself carries (its legend, or a fixed file's
+ *  CODE LIST block), for showing beside anything a person adds. */
+export function fileOwnCodes(
+  discardedRows: { row: number; text: string }[] | undefined,
+): LineListCodeListEntry[] {
+  const rows = discardedRows ?? [];
+  const legend = parseDiscoveredLegend({
+    sourceId: "file",
+    lines: rows.map((d) => ({ text: d.text, row: d.row })),
+  }).entries.map(({ field, sourceCode, meaning }) => ({ field, sourceCode, meaning }));
+  const start = rows.findIndex((d) => /^CODE LIST\s+—/.test(d.text.trim()));
+  const block =
+    start < 0
+      ? []
+      : readCodeListText(
+          rows
+            .slice(start + 1)
+            .map((d) => d.text)
+            .join("\n"),
+        ).entries;
+  const seen = new Set<string>();
+  return [...legend, ...block].filter((e) => {
+    const k = `${e.field}\u0000${e.sourceCode}\u0000${e.meaning}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 export async function readFormCodeList(formKey: string): Promise<FormCodeListRow | null> {
   const { data, error } = await supabase
     .from("pv_linelist_jobs")

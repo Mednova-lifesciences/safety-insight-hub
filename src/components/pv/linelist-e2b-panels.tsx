@@ -51,7 +51,7 @@ const FIX_IN_LABEL: Record<LineListFixLocation, string> = {
   OUTCOME_TERMS: "Settings → Outcome terms",
   REPORTER_DESIGNATIONS: "Settings → Reporter qualifications",
   REACTION_TERMS: "Choose MedDRA term below",
-  SOURCE_CODEBOOK: "Correct the code or add the form's legend",
+  SOURCE_CODEBOOK: "Correct the code or add the code list",
   SOURCE_FORM: "Change how this file is read",
   PATIENT_RECORD_NUMBER: "Say which record this number is",
 };
@@ -71,10 +71,21 @@ export function FixAction({ fixIn }: { fixIn: LineListFixLocation | undefined })
       </Link>
     );
   }
-  if (fixIn === "REACTION_TERMS" || fixIn === "SOURCE_FORM" || fixIn === "PATIENT_RECORD_NUMBER") {
+  if (
+    fixIn === "REACTION_TERMS" ||
+    fixIn === "SOURCE_FORM" ||
+    fixIn === "PATIENT_RECORD_NUMBER" ||
+    fixIn === "SOURCE_CODEBOOK"
+  ) {
     return (
       <a
-        href={fixIn === "REACTION_TERMS" ? "#reaction-terms" : "#how-to-read"}
+        href={
+          fixIn === "REACTION_TERMS"
+            ? "#reaction-terms"
+            : fixIn === "SOURCE_CODEBOOK"
+              ? "#code-list"
+              : "#how-to-read"
+        }
         className="text-xs font-medium text-primary underline-offset-2 hover:underline"
       >
         {FIX_IN_LABEL[fixIn]} ↓
