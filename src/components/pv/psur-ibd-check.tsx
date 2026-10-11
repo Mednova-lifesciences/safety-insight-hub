@@ -42,6 +42,12 @@ export function IbdCheck({
     () => [],
   );
   const [busy, setBusy] = useState(false);
+  // The decision just made, shown at once: the page's copy of the report is
+  // the one loaded before the change.
+  const [madeNow, setMadeNow] = useState<PsurDocument["ibdDecision"]>(undefined);
+  // A countersigned report is complete; its IBD is not changed from here.
+  const complete = !!doc.signOff?.peerReviewedAt;
+  const mayApply = canApply && !complete;
   const entries = register.data?.data ?? [];
   if (register.isLoading) return null;
   const c = compareIbd(entries, details);
@@ -50,7 +56,8 @@ export function IbdCheck({
     if (c.status === "NOT_IN_REGISTER") return;
     setBusy(true);
     try {
-      await psurApi.useRegisteredIbd(doc.id, c.match.entry);
+      const next = await psurApi.useRegisteredIbd(doc.id, c.match.entry);
+      setMadeNow(next.ibdDecision);
       onApplied(showDate(c.match.entry.ibd));
       toast.success(
         `The registered IBD (${showDate(c.match.entry.ibd)}) is now used for this report.`,
@@ -82,7 +89,7 @@ export function IbdCheck({
     }
   }
 
-  const decision = doc.ibdDecision;
+  const decision = madeNow ?? doc.ibdDecision;
   const ibdForDlp =
     c.status === "NOT_IN_REGISTER" ? c.stated : (c.registered ?? readDocumentDate(details.ibd));
   const dlpCheck = ibdForDlp ? checkDlpAgainstIbd(ibdForDlp, dlp) : null;
@@ -102,7 +109,7 @@ export function IbdCheck({
         <p className="flex flex-wrap items-start gap-1.5 text-muted-foreground">
           <Info className="mt-0.5 size-3.5 shrink-0" />
           <span>This product is not in the IBD register, so this IBD cannot be checked.</span>
-          {c.stated && canApply ? (
+          {c.stated && mayApply ? (
             <Button
               size="sm"
               variant="link"
@@ -124,7 +131,7 @@ export function IbdCheck({
                 ? `Not stated in the PSUR. The registered IBD is ${showDate(c.registered)}${where}.`
                 : `"${c.statedText}" could not be read as a date. The registered IBD is ${showDate(c.registered)}${where}.`}
           </span>
-          {canApply ? (
+          {mayApply ? (
             <Button
               size="sm"
               variant="outline"

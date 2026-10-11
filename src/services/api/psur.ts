@@ -2275,6 +2275,9 @@ export const psur = {
     const doc = await readDocument(documentId);
     const screening = doc.administrativeScreening;
     if (!screening) throw new Error("This report has no screening record to update.");
+    if (doc.signOff?.peerReviewedAt) {
+      throw new Error("This assessment is countersigned and complete; its IBD cannot be changed.");
+    }
     const statedInPsur = doc.ibdDecision?.statedInPsur ?? screening.submissionDetails.ibd ?? "";
     const shown = showIbdDate(entry.ibd);
     const s1 = doc.v4SectionAnswers?.s1;
