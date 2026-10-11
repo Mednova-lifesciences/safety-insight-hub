@@ -42,9 +42,12 @@ function SuggestionRow({ s, caseId }: { s: CodingSuggestion; caseId: string }) {
       // won't see that until its cache is invalidated. Reject only flips
       // this suggestion's status, but that status lives in the same
       // ["coding", caseId] query these rows are rendered from.
-      await queryClient.invalidateQueries({ queryKey: ["case", caseId] });
-      await queryClient.invalidateQueries({ queryKey: ["coding", caseId] });
-      await queryClient.invalidateQueries({ queryKey: ["coding-history", caseId] });
+      // Independent of one another, so refreshed together.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["case", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["coding", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["coding-history", caseId] }),
+      ]);
     } catch (err) {
       toast.error(
         isNotConfigured(err)

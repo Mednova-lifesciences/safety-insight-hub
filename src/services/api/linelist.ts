@@ -7,7 +7,7 @@ import {
   stripSpreadsheetTextMarkers,
 } from "./linelist-onset";
 import { supabase } from "@/integrations/supabase/client";
-import { currentActor, newId, recordAudit, toJson } from "./db";
+import { currentActor, fromDataFields, newId, recordAudit, selectDataFields, toJson } from "./db";
 import { mapColumnsByKeywords, parseTabularFile, type KeywordEntry } from "./tabular-parse";
 import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
@@ -2572,15 +2572,63 @@ async function recheckJob(jobId: string): Promise<LineListJob> {
   return storeIssues(job, issues);
 }
 
+/** Every field of LineListJob — the compiler insists a new one is added
+ *  here — and `kind`, which tells a saved code list from a job. Not the
+ *  stored rows (rawRows, parsedRows, discardedRows…), which are most of
+ *  each record and are read only by the actions that use them. */
+const JOB_LIST_FIELDS = [
+  ...Object.keys({
+    id: true,
+    filename: true,
+    uploadedAt: true,
+    uploadedBy: true,
+    rows: true,
+    stage: true,
+    validCases: true,
+    invalidCases: true,
+    warnings: true,
+    sourceProfileId: true,
+    mapping: true,
+    fixedAt: true,
+    criticalCount: true,
+    highCount: true,
+    mediumCount: true,
+    lowCount: true,
+    e2bOverride: true,
+    validatedE2bOverride: true,
+    parsingOptions: true,
+    codeList: true,
+    sourceRowNumbers: true,
+    e2bBlockedCases: true,
+    openFixIn: true,
+    changeLog: true,
+    lastFixCorrections: true,
+    decisions: true,
+    checkedAt: true,
+  } satisfies Record<keyof LineListJob, true>),
+  "kind",
+  // Read off the listed job by the code-list panel (the file's own legend
+  // rows) and the Map columns panel. All small.
+  "discardedRows",
+  "columns",
+  "mappingSource",
+  "mappingNotes",
+  "mappingAiUsed",
+];
+
 export const linelist = {
+  /** Every job, without its rows: the list shows names and counts, and
+   *  each action reads the job it acts on in full. */
   jobs: async (): Promise<LineListJob[]> => {
-    const { data, error } = await supabase.from("pv_linelist_jobs").select("data");
+    const { data, error } = await supabase
+      .from("pv_linelist_jobs")
+      .select(selectDataFields(JOB_LIST_FIELDS));
     if (error) throw new Error(error.message);
     return (
-      (data ?? [])
+      ((data ?? []) as unknown as Record<string, unknown>[])
+        .map((r) => fromDataFields<LineListJob & { kind?: string }>(r))
         // Saved form code lists share the table; they are not jobs.
-        .filter((r) => !isFormCodeListRow(r.data))
-        .map((r) => r.data as unknown as LineListJob)
+        .filter((j) => !isFormCodeListRow(j))
         .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
     );
   },

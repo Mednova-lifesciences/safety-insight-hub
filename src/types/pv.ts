@@ -857,6 +857,24 @@ export interface PsurDocument {
   workflowStage?: PsurWorkflowStage | undefined;
 }
 
+/** The large parts of a report, left out of lists: its full text and the
+ *  AI's working. Lists show names, statuses and decisions; the report that
+ *  is opened is read in full. */
+export type PsurListOmittedField =
+  | "extractedText"
+  | "v4Prefill"
+  | "benefitRisk"
+  | "assessmentSections"
+  | "specialPopulations"
+  | "uncertainties"
+  | "nigerianContext"
+  | "memoDraft"
+  | "ciomsMatrix"
+  | "aiRecommendation";
+
+/** A report as lists carry it. */
+export type PsurDocumentSummary = Omit<PsurDocument, PsurListOmittedField>;
+
 /**
  * Whose queue a periodic report is sitting in.
  *

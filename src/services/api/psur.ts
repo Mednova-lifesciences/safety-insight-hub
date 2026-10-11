@@ -19,7 +19,7 @@ import {
   WidthType,
 } from "docx";
 import { supabase } from "@/integrations/supabase/client";
-import { currentActor, newId, recordAudit, toJson } from "./db";
+import { currentActor, fromDataFields, newId, recordAudit, selectDataFields, toJson } from "./db";
 import { isSpreadsheetFile, mapColumnsByKeywords, parseTabularFile } from "./tabular-parse";
 import { ai } from "./ai";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
@@ -35,6 +35,7 @@ import type {
   PsurBenefitRiskAssessment,
   PsurDeficiencyType,
   PsurDocument,
+  PsurDocumentSummary,
   PsurEvidenceQuality,
   PsurFinding,
   PsurIntegratedEffectsRow,
@@ -250,6 +251,39 @@ interface PsurDocumentRow extends PsurDocument {
   fixResolvedCount?: number;
   fixUnresolvedCount?: number;
 }
+
+/** The fields lists carry — every PsurDocument field but the large ones
+ *  (the compiler insists a new field is listed) — and `kind`, which tells
+ *  the IBD register from a report. */
+const PSUR_LIST_FIELDS = [
+  ...Object.keys({
+    id: true,
+    filename: true,
+    product: true,
+    ibdDecision: true,
+    mah: true,
+    reportingPeriod: true,
+    uploadedAt: true,
+    uploadedBy: true,
+    stage: true,
+    pages: true,
+    pagesEstimated: true,
+    sourceType: true,
+    screening: true,
+    // Each row's screening status pill reads it.
+    administrativeScreening: true,
+    evaluatorComments: true,
+    uncertaintiesNoneConfirmed: true,
+    regulatoryDecision: true,
+    v4SectionAnswers: true,
+    // The V4 report borrows the last saved header from the list.
+    v4PageText: true,
+    decisionInputsEditedAt: true,
+    signOff: true,
+    workflowStage: true,
+  } satisfies Record<keyof PsurDocumentSummary, true>),
+  "kind",
+];
 
 async function readDocument(documentId: string): Promise<PsurDocumentRow> {
   const { data, error } = await supabase
@@ -2250,17 +2284,25 @@ export const psur = {
     );
   },
 
-  documents: async (): Promise<PsurDocument[]> => {
-    const { data, error } = await supabase.from("pv_psur_documents").select("data");
+  /** Every report, without its full text and the AI's working: the lists
+   *  show names, statuses and decisions. Open one with `document`. */
+  documents: async (): Promise<PsurDocumentSummary[]> => {
+    const { data, error } = await supabase
+      .from("pv_psur_documents")
+      .select(selectDataFields(PSUR_LIST_FIELDS));
     if (error) throw new Error(error.message);
     return (
-      (data ?? [])
+      ((data ?? []) as unknown as Record<string, unknown>[])
+        .map((r) => fromDataFields<PsurDocumentSummary & { kind?: string }>(r))
         // The IBD register shares this table; it is not a document.
-        .filter((r) => !isPsurRegisterRow(r.data))
-        .map((r) => r.data as unknown as PsurDocument)
+        .filter((d) => !isPsurRegisterRow(d))
         .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
     );
   },
+
+  /** One report in full — the one that is open. */
+  document: async (documentId: string): Promise<PsurDocument> =>
+    (await readDocument(documentId)) as PsurDocument,
 
   /**
    * A person replaces the PSUR's stated IBD with the registered one. The

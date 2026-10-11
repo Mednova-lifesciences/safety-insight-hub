@@ -21,6 +21,7 @@ import { psur as psurApi } from "@/services/api/psur";
 import { AUTO_FIX_ENABLED } from "@/services/api/feature-flags";
 import { demoPsurDocuments, demoPsurFindings } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
+import { usePsurDocument } from "@/lib/use-psur-document";
 import { isNotConfigured } from "@/services/api/client";
 import {
   AssistLabel,
@@ -100,9 +101,6 @@ export const Route = createFileRoute("/_app/psur")({
 
 const FLOW = ["Upload PDF or XLSX/CSV", "AI review", "Findings displayed", "Accept / dismiss"];
 
-
-
-
 const riskMinimisationActionLabel: Record<PsurRiskMinimisationAction, string> = {
   NO_ACTION_REQUIRED: "No action required",
   CONTINUE_ROUTINE_PV: "Continue routine pharmacovigilance",
@@ -128,8 +126,10 @@ const uncertaintyCategoryLabel: Record<PsurUncertaintyCategory, string> = {
   LIMITED_NIGERIAN_EXPOSURE: "Limited data on local (Nigerian) exposure",
   MISSING_SUBPOPULATION_DATA: "Missing subpopulation data",
   SHORT_FOLLOWUP_DURATION: "Short follow-up duration",
-  STUDY_DESIGN_LIMITATIONS: "Study design limitations (e.g. comparator choice, randomisation, blinding)",
-  LIMITED_GENERALISABILITY: "Limited generalisability of the studied population to the target population",
+  STUDY_DESIGN_LIMITATIONS:
+    "Study design limitations (e.g. comparator choice, randomisation, blinding)",
+  LIMITED_GENERALISABILITY:
+    "Limited generalisability of the studied population to the target population",
   OTHER: "Other",
 };
 
@@ -180,7 +180,6 @@ const SPECIAL_POPULATION_AREAS = Object.keys(
   specialPopulationAreaLabel,
 ) as PsurSpecialPopulationArea[];
 
-
 function PsurPage() {
   // Three different people open this page and may do three different
   // things on it. `psur.review` got them through the door (see the
@@ -214,14 +213,19 @@ function PsurPage() {
   );
 
   const [selected, setSelected] = useState<string | null>(null);
-  const activeDoc = visible.find((d) => d.id === selected) ?? visible[0];
+  const activeSummary = visible.find((d) => d.id === selected) ?? visible[0];
+  // The list carries summaries; the open report is read in full.
+  const opened = usePsurDocument(activeSummary?.id);
+  const activeDoc = opened.doc;
+  /** After a change: the light list, and the one open report. */
+  const refreshDocs = () => Promise.all([allDocs.refetch(), opened.refetch()]);
   const findings = usePvQuery(
-    ["psur", "findings", activeDoc?.id ?? "none", activeDoc?.stage ?? "none"],
+    ["psur", "findings", activeSummary?.id ?? "none", activeSummary?.stage ?? "none"],
     async () =>
-      activeDoc?.stage === "REVIEWED" ? (await psurApi.review(activeDoc.id)).findings : [],
+      activeSummary?.stage === "REVIEWED" ? (await psurApi.review(activeSummary.id)).findings : [],
     () => demoPsurFindings,
   );
-  const activeWorkflowStage = activeDoc ? deriveWorkflowStage(activeDoc) : null;
+  const activeWorkflowStage = activeSummary ? deriveWorkflowStage(activeSummary) : null;
   /**
    * Saving Sections 9-11 can SYNTHESIZE new findings server-side — those
    * sections' coverage status is derived from their own data, and
@@ -233,8 +237,8 @@ function PsurPage() {
    * yet — this should not happen" diagnostic against stale data.
    */
   const refreshDocAndFindings = () => {
-    allDocs.refetch();
-    findings.refetch();
+    void refreshDocs();
+    void findings.refetch();
   };
   const [uploading, setUploading] = useState(false);
   const [runningScientificReview, setRunningScientificReview] = useState(false);
@@ -306,7 +310,7 @@ function PsurPage() {
                         : "Document uploaded.",
                     );
                     setDocsPage(1);
-                    docs.refetch();
+                    void refreshDocs();
                   } catch (err) {
                     toast.error(
                       isNotConfigured(err)
@@ -347,8 +351,8 @@ function PsurPage() {
                                 : deriveWorkflowStage(d) === "AWAITING_EVALUATION"
                                   ? "info"
                                   : d.stage === "FAILED"
-                              ? "critical"
-                              : "neutral"
+                                    ? "critical"
+                                    : "neutral"
                           }
                         >
                           {deriveWorkflowStage(d) === "PEER_REVIEWED"
@@ -386,7 +390,7 @@ function PsurPage() {
                               setRunningScientificReview(true);
                               try {
                                 await psurApi.runScientificReview(d.id);
-                                await allDocs.refetch();
+                                await refreshDocs();
                                 await findings.refetch();
                                 toast.success("AI scientific review completed.");
                               } catch (err) {
@@ -413,6 +417,13 @@ function PsurPage() {
           </QueryBoundary>
         </Section>
 
+        {activeSummary && !activeDoc ? (
+          <Section title={activeSummary.filename}>
+            <p className="text-sm text-muted-foreground">
+              {opened.error ? "Could not open this report." : "Opening the report…"}
+            </p>
+          </Section>
+        ) : null}
         {activeDoc && activeDoc.stage !== "REVIEWED" ? (
           <Section
             title="Scientific review pending"
@@ -422,7 +433,9 @@ function PsurPage() {
               {runningScientificReview ? (
                 <span>Running AI validation against the retained PDF text…</span>
               ) : (
-                <span>Open review starts the evaluator's AI validation. If it fails, use retry below.</span>
+                <span>
+                  Open review starts the evaluator's AI validation. If it fails, use retry below.
+                </span>
               )}
               {canEvaluate ? (
                 <Button
@@ -432,7 +445,7 @@ function PsurPage() {
                     setRunningScientificReview(true);
                     try {
                       await psurApi.runScientificReview(activeDoc.id);
-                      await allDocs.refetch();
+                      await refreshDocs();
                       await findings.refetch();
                       toast.success("AI scientific review completed.");
                     } catch (err) {
@@ -504,7 +517,7 @@ function PsurPage() {
                         try {
                           await psurApi.runScientificReview(activeDoc.id);
                           toast.success("AI scientific review completed.");
-                          await allDocs.refetch();
+                          await refreshDocs();
                           await findings.refetch();
                         } catch (err) {
                           toast.error(
@@ -548,7 +561,7 @@ function PsurPage() {
                                     );
                                   }
                                   findings.refetch();
-                                  docs.refetch();
+                                  void refreshDocs();
                                 } catch (err) {
                                   toast.error(
                                     err instanceof Error ? err.message : "Run Full Fix failed.",
@@ -602,10 +615,7 @@ function PsurPage() {
                       >
                         <FileText className="size-4" /> Download Executive Summary (Word)
                       </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => downloadV4Report(activeDoc.id)}
-                      >
+                      <Button size="sm" onClick={() => downloadV4Report(activeDoc.id)}>
                         <FileText className="size-4" /> Generate V4 Evaluation Report (Word)
                       </Button>
                       <Button
@@ -845,9 +855,7 @@ function AdministrativeScreeningPanel({
                     <StatusPill tone={sectionStatusTone(s.status)}>
                       {sectionStatusLabel[s.status]}
                     </StatusPill>
-                    <span className="font-medium">
-                      {SECTION_NAME.get(s.section) ?? s.section}
-                    </span>
+                    <span className="font-medium">{SECTION_NAME.get(s.section) ?? s.section}</span>
                     <StatusPill tone={s.source === "assessor" ? "success" : "assist"}>
                       {s.source === "assessor" ? "assessor" : s.source === "rule" ? "rule" : "AI"}
                     </StatusPill>
@@ -996,7 +1004,9 @@ function SpecialPopulationsPanel({
             </colgroup>
             <thead className="bg-muted/50 text-xs">
               <tr>
-                <th className="border-b border-r border-border p-2 text-left">Population / Category</th>
+                <th className="border-b border-r border-border p-2 text-left">
+                  Population / Category
+                </th>
                 <th className="border-b border-r border-border p-2 text-left">Data Adequacy</th>
                 <th className="border-b border-border p-2 text-left">Comments</th>
               </tr>
@@ -1756,8 +1766,8 @@ function RegulatoryDecisionPanel({
           <p className="label-caps mb-1">Advice to the MAH for the next PSUR</p>
           <Textarea rows={3} value={followUp} onChange={(e) => setFollowUp(e.target.value)} />
           <p className="mt-1 text-xs text-muted-foreground">
-            Advisory only — printed on the MAH feedback letter, which asks for no response. Gaps
-            you resolved during this assessment are listed in that letter automatically.
+            Advisory only — printed on the MAH feedback letter, which asks for no response. Gaps you
+            resolved during this assessment are listed in that letter automatically.
           </p>
         </div>
         <div className="sm:max-w-xs">

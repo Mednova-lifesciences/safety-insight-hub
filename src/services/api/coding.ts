@@ -372,30 +372,41 @@ async function setStatus(
     action: status === "ACCEPTED" ? "Accepted coding suggestion" : "Rejected coding suggestion",
     detail: `${next.dictionary} ${next.code} — ${next.term}. ${rationale}`,
   };
-  await supabase
-    .from("pv_coding_history")
-    .insert({ id: entry.id, case_id: caseId, data: toJson(entry) });
-  await recordAudit({
-    action: status === "ACCEPTED" ? "CODING_ACCEPTED" : "CODING_REJECTED",
-    entity: "Case",
-    entityId: caseId,
-    newValue: `${next.dictionary} ${next.code}`,
-    reason: rationale,
-  });
-
+  // The decision is saved. Its history entry, its audit entry and the
+  // change to the case do not depend on one another, so they are written
+  // together rather than one after another (each is a round trip).
+  const writes: Promise<unknown>[] = [
+    (async () => {
+      await supabase
+        .from("pv_coding_history")
+        .insert({ id: entry.id, case_id: caseId, data: toJson(entry) });
+    })(),
+    recordAudit({
+      action: status === "ACCEPTED" ? "CODING_ACCEPTED" : "CODING_REJECTED",
+      entity: "Case",
+      entityId: caseId,
+      newValue: `${next.dictionary} ${next.code}`,
+      reason: rationale,
+    }),
+  ];
   if (status === "ACCEPTED") {
     // Accepting isn't just a status flag on the suggestion row — it has to
     // actually change the case, or "accepted" doesn't mean anything to a
     // reviewer reading the case detail page afterwards.
-    const { cases } = await import("./cases");
-    await cases.applyCodedTerm(caseId, next.kind, {
-      term: next.term,
-      code: next.code,
-      dictionary: next.dictionary,
-      dictionaryVersion: next.dictionaryVersion,
-      acceptedBy: actor.name,
-      acceptedAt: new Date().toISOString(),
-    });
+    writes.push(
+      (async () => {
+        const { cases } = await import("./cases");
+        await cases.applyCodedTerm(caseId, next.kind, {
+          term: next.term,
+          code: next.code,
+          dictionary: next.dictionary,
+          dictionaryVersion: next.dictionaryVersion,
+          acceptedBy: actor.name,
+          acceptedAt: new Date().toISOString(),
+        });
+      })(),
+    );
   }
+  await Promise.all(writes);
   return next;
 }

@@ -286,19 +286,22 @@ export const cases = {
     const product = detail.product;
     const reaction = detail.reaction;
 
-    await recordAudit({
-      action: "CASE_CREATED",
-      entity: "Case",
-      entityId: caseId,
-      newValue: `${product} / ${reaction}`,
-      reason: "ICSR captured through the intake form",
-    });
-    await pushNotification({
-      type: "CASE_ASSIGNED",
-      title: `Case ${caseId} created`,
-      body: `${product} — ${reaction}. Assigned to ${actor.name}.`,
-      link: `/cases/${caseId}`,
-    });
+    // The case is saved; its audit entry and notification are independent.
+    await Promise.all([
+      recordAudit({
+        action: "CASE_CREATED",
+        entity: "Case",
+        entityId: caseId,
+        newValue: `${product} / ${reaction}`,
+        reason: "ICSR captured through the intake form",
+      }),
+      pushNotification({
+        type: "CASE_ASSIGNED",
+        title: `Case ${caseId} created`,
+        body: `${product} — ${reaction}. Assigned to ${actor.name}.`,
+        link: `/cases/${caseId}`,
+      }),
+    ]);
 
     return { caseId, workflowStep: "INTAKE" };
   },
