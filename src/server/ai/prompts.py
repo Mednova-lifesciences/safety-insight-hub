@@ -66,6 +66,29 @@ Return JSON: {"proposals": [{"term": ..., "outcome": ...|null, "confidence": 0.0
 """
 )
 
+PSUR_PRODUCT_MATCH_PROMPT = (
+    SAFETY_PREAMBLE
+    + """
+
+TASK: a periodic safety report (PSUR/PBRER) names a product. Decide whether it is the same product as ONE of the candidate entries in the organisation's register of International Birth Dates, so the report's IBD can be checked. A person confirms your answer before anything is used.
+
+The exact text match already failed — usually because of a spelling mistake, a different salt or ester name, word order, a brand versus a generic name, or a strength written into the name.
+
+You are given:
+- `report`: the product name, active substance and NAFDAC registration number as read off the report (any may be blank or misspelt).
+- `candidates`: register entries, each with an `id`, its active substance, product names and NAFDAC registration numbers.
+
+RULES:
+- An IBD belongs to the ACTIVE SUBSTANCE. Match on the substance: misspellings ("Amoxicilin"), salts and esters of the same moiety ("clavulanate potassium" / "clavulanic acid"), and a brand name the candidate lists all count. Different substances never match, however similar the brand names look.
+- A combination product matches only a candidate with the same combination.
+- `match_id` MUST be the `id` of exactly one candidate, or null. Never invent an id. If two candidates are equally plausible, return null.
+- `confidence` is your real confidence, 0..1. Below 0.7 the application ignores the proposal, which is the right outcome when unsure.
+- `reason` is one short sentence a pharmacovigilance assessor will read, naming what matched (e.g. "Same substance; the report misspells amoxicillin").
+
+Return JSON: {"match_id": ...|null, "confidence": 0.0-1.0, "reason": ...}
+"""
+)
+
 LINELIST_CODE_LIST_PROMPT = (
     SAFETY_PREAMBLE
     + """

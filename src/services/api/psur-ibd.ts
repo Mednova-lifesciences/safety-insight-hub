@@ -98,6 +98,38 @@ export const ibdRegister = {
     return entry;
   },
 
+  /** A person confirmed a report's product is this entry (usually after
+   *  the AI suggested it despite a misspelling). The report's spellings are
+   *  remembered on the entry, so this report and later ones match it
+   *  without asking again. Who entered the IBD is unchanged; this is
+   *  audited on its own. */
+  addSpellings: async (
+    id: string,
+    spellings: { productName?: string; nafdacRegNo?: string },
+  ): Promise<IbdRegisterEntry> => {
+    const entries = await read();
+    const e = entries.find((x) => x.id === id);
+    if (!e) throw new Error("That register entry no longer exists.");
+    const has = (list: string[], v: string) =>
+      list.some((x) => x.trim().toLowerCase() === v.trim().toLowerCase());
+    const name = spellings.productName?.trim();
+    const reg = spellings.nafdacRegNo?.trim();
+    const next: IbdRegisterEntry = {
+      ...e,
+      productNames: name && !has(e.productNames, name) ? [...e.productNames, name] : e.productNames,
+      nafdacRegNos: reg && !has(e.nafdacRegNos, reg) ? [...e.nafdacRegNos, reg] : e.nafdacRegNos,
+    };
+    await write(entries.map((x) => (x.id === id ? next : x)));
+    await recordAudit({
+      action: "PSUR_IBD_REGISTER_SPELLING_ADDED",
+      entity: "PsurIbdRegister",
+      entityId: id,
+      previousValue: describe(e),
+      newValue: `confirmed as the same product: ${[name, reg].filter(Boolean).join(" / ")}`,
+    });
+    return next;
+  },
+
   remove: async (id: string): Promise<void> => {
     const entries = await read();
     const gone = entries.find((e) => e.id === id);

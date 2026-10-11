@@ -235,3 +235,30 @@ describe("the outcome the answers imply", () => {
     expect(r.reason).toMatch(/could not be answered/);
   });
 });
+
+describe("dates are read day-first, as Nigerian and international documents write them", () => {
+  it("05/06/2026 is 5 June, not 6 May", () => {
+    // DLP 5 June, received 20 July: 45 days, on time. Read US-style
+    // (6 May) it would be 75 days — wrongly late.
+    const t = assessTimeliness({
+      dlp: "05/06/2026",
+      dateReceived: "2026-07-20T10:00:00Z",
+      intervalCovered: "06/12/2025 - 05/06/2026",
+    });
+    expect(t.daysToReceipt).toBe(45);
+    expect(t.status).toBe("YES");
+  });
+
+  it("a day-first interval is read, not rejected", () => {
+    expect(intervalMonths("01/07/2025 - 30/06/2026")).toBe(11);
+    expect(intervalMonths("01/07/2025 to 31/12/2025")).toBe(5);
+  });
+
+  it("written-out and ISO dates still read", () => {
+    expect(intervalMonths("01 Sep 2025 – 31 Aug 2026")).toBe(11);
+    expect(
+      assessTimeliness({ dlp: "31 August 2026", dateReceived: "2026-10-09T08:00:00Z", intervalCovered: "01 Sep 2025 – 31 Aug 2026" })
+        .daysToReceipt,
+    ).toBe(39);
+  });
+});

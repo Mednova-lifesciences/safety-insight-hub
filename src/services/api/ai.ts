@@ -491,6 +491,16 @@ export interface AiC17Evidence {
   sourceFields: string[];
 }
 
+export interface AiPsurProductMatchResponse {
+  match_id: string | null;
+  confidence: number;
+  reason: string;
+  ai_used: boolean;
+  prompt_version: string;
+  model?: string | null;
+  error?: string | null;
+}
+
 export interface AiReadCodeListResponse {
   entries: { field: string; code: string; meaning: string }[];
   unplaced: string[];
@@ -599,6 +609,22 @@ export const ai = {
     /** Which memo criterion pasted text belongs to — a proposal. */
     routeEvidence: (body: { text: string }) =>
       apiRequest<AiPsurRouteEvidenceResponse>("/api/ai/psur/route-evidence", {
+        method: "POST",
+        body,
+      }),
+    /** Which IBD-register entry is the report's product, when the exact
+     *  match failed (misspellings, salts, brand vs generic) — a proposal a
+     *  person confirms. */
+    matchProduct: (body: {
+      report: { product_name: string; active_substance: string; nafdac_reg_no: string };
+      candidates: {
+        id: string;
+        active_substance: string;
+        product_names: string[];
+        nafdac_reg_nos: string[];
+      }[];
+    }) =>
+      apiRequest<AiPsurProductMatchResponse>("/api/ai/psur/match-product", {
         method: "POST",
         body,
       }),

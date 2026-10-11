@@ -23,16 +23,29 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 
-from ..ai.client import AiNotConfiguredError, AiRequestError, is_ai_configured, structured_completion
+from ..ai.client import (
+    VALIDATION_MODEL,
+    AiNotConfiguredError,
+    AiRequestError,
+    is_ai_configured,
+    structured_completion,
+)
 from ..ai.prompts import (
     PROMPT_VERSION,
     PSUR_FULL_FIX_PROMPT,
+    PSUR_PRODUCT_MATCH_PROMPT,
     PSUR_REVIEW_PDF_PROMPT,
     PSUR_REVIEW_SPREADSHEET_PROMPT,
     PSUR_SCREENING_PDF_PROMPT,
     PSUR_V4_PREFILL_PROMPT,
 )
-from ..ai.schemas import AiPsurAdministrativeScreening, AiPsurFix, AiPsurReview, AiPsurV4Prefill
+from ..ai.schemas import (
+    AiPsurAdministrativeScreening,
+    AiPsurFix,
+    AiPsurProductMatch,
+    AiPsurReview,
+    AiPsurV4Prefill,
+)
 from ..dependencies import AuthenticatedUser, require_any_permission, require_permission
 
 logger = logging.getLogger(__name__)
@@ -783,4 +796,90 @@ async def v4_prefill(
             ai_used=False,
             prompt_version=PROMPT_VERSION,
             error="The AI returned an unusable response.",
+        )
+
+
+# --- Product match for the IBD register ---------------------------------
+
+# The application ignores a proposal below this; the prompt says so too.
+PRODUCT_MATCH_CONFIDENCE_FLOOR = 0.7
+MAX_PRODUCT_MATCH_CANDIDATES = 200
+
+
+class ProductMatchReportIn(BaseModel):
+    product_name: str = ""
+    active_substance: str = ""
+    nafdac_reg_no: str = ""
+
+
+class ProductMatchCandidateIn(BaseModel):
+    id: str
+    active_substance: str
+    product_names: list[str] = []
+    nafdac_reg_nos: list[str] = []
+
+
+class ProductMatchRequest(BaseModel):
+    report: ProductMatchReportIn
+    candidates: list[ProductMatchCandidateIn]
+
+
+class ProductMatchResponse(BaseModel):
+    match_id: Optional[str] = None
+    confidence: float = 0.0
+    reason: str = ""
+    ai_used: bool
+    prompt_version: str
+    model: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/match-product", response_model=ProductMatchResponse)
+async def match_product(
+    request: ProductMatchRequest,
+    user: AuthenticatedUser = Depends(require_any_permission("psur.screen", "psur.review", "psur.evaluate")),
+):
+    """Proposes which IBD-register entry is the report's product when the
+    exact match failed (misspellings, salts, brand vs generic). Only a
+    proposal: a person confirms it. A match_id outside the candidates, or
+    below the confidence floor, comes back as no match.
+
+    Like the other assistive endpoints, a failure answers 200 with
+    ai_used=False — the page then simply says the product is not in the
+    register, which is what the rules already found."""
+    report = request.report
+    candidates = request.candidates[:MAX_PRODUCT_MATCH_CANDIDATES]
+    if not candidates or not (report.product_name.strip() or report.active_substance.strip()):
+        return ProductMatchResponse(ai_used=False, prompt_version=PROMPT_VERSION)
+    try:
+        completion = await structured_completion(
+            system_prompt=PSUR_PRODUCT_MATCH_PROMPT,
+            user_content=json.dumps(
+                {"report": report.model_dump(), "candidates": [c.model_dump() for c in candidates]}
+            ),
+            model=VALIDATION_MODEL,
+        )
+        parsed = AiPsurProductMatch.model_validate(completion.data)
+        ids = {c.id for c in candidates}
+        accepted = (
+            parsed.match_id is not None
+            and parsed.match_id in ids
+            and parsed.confidence >= PRODUCT_MATCH_CONFIDENCE_FLOOR
+        )
+        return ProductMatchResponse(
+            match_id=parsed.match_id if accepted else None,
+            confidence=parsed.confidence,
+            reason=parsed.reason,
+            ai_used=True,
+            prompt_version=PROMPT_VERSION,
+            model=completion.model,
+        )
+    except AiNotConfiguredError:
+        return ProductMatchResponse(
+            ai_used=False, prompt_version=PROMPT_VERSION, error="AI is not configured."
+        )
+    except Exception as exc:
+        logger.warning("AI product match failed: %s", exc)
+        return ProductMatchResponse(
+            ai_used=False, prompt_version=PROMPT_VERSION, error="AI matching was unavailable."
         )
