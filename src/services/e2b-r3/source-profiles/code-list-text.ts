@@ -127,6 +127,13 @@ export function readCodeListText(text: string, columns: CodeListColumn[] = []): 
       continue;
     }
 
+    // Numbers in a line the rules found no codes in mean codes written in
+    // prose ("uses 1 for non-serious and 2 for serious"). Taking it as a
+    // heading would drop them silently; the AI reads it instead.
+    if (!listPart && /\b\d{1,3}\b/.test(line)) {
+      unplaced.push(line);
+      continue;
+    }
     const headingKey =
       letters(headingPart).length >= 3 ? keyForHeading(headingPart, columns) : null;
     if (headingKey) currentKey = headingKey;

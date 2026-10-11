@@ -24,7 +24,14 @@ import type { LineListCodeListEntry, LineListJob } from "@/types/pv";
  *  record, including the text the parser kept outside the case table. */
 type JobWithLegend = LineListJob & { discardedRows?: { row: number; text: string }[] };
 
-export function CodeListPanel({ job, onSaved }: { job: JobWithLegend; onSaved: () => void }) {
+export function CodeListPanel({
+  job,
+  onSaved,
+}: {
+  job: JobWithLegend;
+  /** Refreshes the page's job and issues; awaited before confirming. */
+  onSaved: () => Promise<unknown> | void;
+}) {
   const fields = useMemo(() => codeListFieldsFor(job.mapping), [job.mapping]);
   const label = (key: string) => fields.find((f) => f.name === key)?.label ?? key;
   const inFile = useMemo(() => fileOwnCodes(job.discardedRows), [job.discardedRows]);
@@ -68,12 +75,14 @@ export function CodeListPanel({ job, onSaved }: { job: JobWithLegend; onSaved: (
         }),
       );
       await linelistApi.setCodeList(job.id, { entries, text, saveForForm });
+      // Wait for the page to show the rechecked results before saying so —
+      // live, the toast arrived while the old blockers were still on screen.
+      await onSaved();
       toast.success(
         `Code list applied${saveForForm ? " and saved for files from this form" : ""}. This line list has been rechecked.`,
       );
       setEditing(false);
       setPreview(null);
-      onSaved();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save the code list.");
     } finally {
@@ -85,12 +94,12 @@ export function CodeListPanel({ job, onSaved }: { job: JobWithLegend; onSaved: (
     setSaving(true);
     try {
       await linelistApi.clearCodeList(job.id, alsoForForm);
+      await onSaved();
       toast.success(
         alsoForForm
           ? "Code list removed from this file and no longer saved for this form."
           : "Code list removed from this file.",
       );
-      onSaved();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not remove the code list.");
     } finally {
@@ -212,6 +221,13 @@ export function CodeListPanel({ job, onSaved }: { job: JobWithLegend; onSaved: (
                   Check what was read before using it ({preview.entries.length} codes)
                 </p>
                 {preview.aiError ? <p className="text-xs text-warning">{preview.aiError}</p> : null}
+                {preview.entries.length === 0 ? (
+                  <p className="text-xs text-warning">
+                    No codes could be read from this text. Write each code with its meaning (for
+                    example &ldquo;1 = Male&rdquo;) under the column&rsquo;s name, then read it
+                    again.
+                  </p>
+                ) : null}
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="text-left text-muted-foreground">
