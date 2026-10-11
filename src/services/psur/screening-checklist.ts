@@ -1,3 +1,4 @@
+import { readDocumentDate } from "./ibd-register";
 import type {
   PsurScreeningCheckId,
   PsurScreeningCheckItem,
@@ -296,11 +297,17 @@ export interface TimelinessAssessment {
   note: string;
 }
 
+/**
+ * A document date, as a UTC midnight. Day-first for numeric dates, as
+ * Nigerian and international documents write them: the browser's own
+ * parser read "05/06/2026" as 6 May, which moved the DLP by a month and
+ * could wrongly make a punctual submission late (item 8).
+ */
 function parseDate(value: string): Date | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = new Date(trimmed);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  const isoDate = readDocumentDate(value);
+  if (!isoDate) return null;
+  const [y, m, d] = isoDate.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d));
 }
 
 /**
@@ -321,9 +328,9 @@ export function intervalMonths(intervalCovered: string): number | null {
   const to = parseDate(parts[parts.length - 1]!);
   if (!from || !to || to < from) return null;
   const months =
-    (to.getFullYear() - from.getFullYear()) * 12 +
-    (to.getMonth() - from.getMonth()) +
-    (to.getDate() >= from.getDate() ? 0 : -1);
+    (to.getUTCFullYear() - from.getUTCFullYear()) * 12 +
+    (to.getUTCMonth() - from.getUTCMonth()) +
+    (to.getUTCDate() >= from.getUTCDate() ? 0 : -1);
   return months;
 }
 
