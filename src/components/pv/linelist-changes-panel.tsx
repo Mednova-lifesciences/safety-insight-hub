@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Section, StatusPill } from "@/components/pv/primitives";
 import { describeRow, linelist as linelistApi } from "@/services/api/linelist";
+import type { FullLineListJob } from "@/lib/use-linelist-job";
 import { panelEntries } from "@/services/api/linelist-change-log";
 import type { LineListJob } from "@/types/pv";
 
@@ -20,7 +21,8 @@ export function LineListChangesPanel({
   job,
   onChanged,
 }: {
-  job: LineListJob;
+  /** In full, rows included, for the case IDs it shows. */
+  job: FullLineListJob;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);

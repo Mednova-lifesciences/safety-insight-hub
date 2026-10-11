@@ -2665,6 +2665,10 @@ const JOB_LIST_FIELDS = [
 ];
 
 export const linelist = {
+  /** One job in full, rows included — the one that is open, whose case IDs
+   *  the issues table and the change log show. */
+  job: async (jobId: string): Promise<LineListJob & { parsedRows?: ParsedRow[] }> => readJob(jobId),
+
   /** Every job, without its rows: the list shows names and counts, and
    *  each action reads the job it acts on in full. */
   jobs: async (): Promise<LineListJob[]> => {

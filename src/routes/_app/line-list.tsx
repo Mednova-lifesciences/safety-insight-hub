@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { demoLineListIssues, demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
+import { useLineListJob } from "@/lib/use-linelist-job";
 import { isNotConfigured } from "@/services/api/client";
 import { AUTO_FIX_ENABLED, RULE_BASED_DETECTION_ENABLED } from "@/services/api/feature-flags";
 import {
@@ -93,6 +94,9 @@ function LineListPage() {
   );
   const [selected, setSelected] = useState<string | null>(null);
   const activeJob = (jobs.data?.data ?? []).find((j) => j.id === selected) ?? jobs.data?.data?.[0];
+  // The list leaves each job's rows out; the open one is read in full for
+  // the case IDs beside its issues and changes.
+  const fullJob = useLineListJob(activeJob);
   const issues = usePvQuery(
     ["linelist", "issues", activeJob?.id ?? "none"],
     () => linelistApi.issues(activeJob!.id),
@@ -466,6 +470,7 @@ function LineListPage() {
                   activeJob.decisions,
                   effectiveFilter,
                 );
+                const rowSource = fullJob ?? activeJob;
                 const refresh = () => {
                   issues.refetch();
                   jobs.refetch();
@@ -476,10 +481,10 @@ function LineListPage() {
                     className={cn("border-b border-border last:border-0", muted && "opacity-60")}
                   >
                     <td className="mono-num px-3 py-2">
-                      {i.row < 1 ? "—" : (describeRow(activeJob, i.row).fileRow ?? `#${i.row}`)}
+                      {i.row < 1 ? "—" : (describeRow(rowSource, i.row).fileRow ?? `#${i.row}`)}
                     </td>
                     <td className="mono-num whitespace-nowrap px-3 py-2">
-                      {describeRow(activeJob, i.row).caseId ?? "—"}
+                      {describeRow(rowSource, i.row).caseId ?? "—"}
                     </td>
                     <td className="mono-num px-3 py-2">{i.column}</td>
                     <td className="px-3 py-2">
@@ -620,10 +625,10 @@ function LineListPage() {
                                 className="border-b border-border last:border-0 opacity-60"
                               >
                                 <td className="mono-num px-3 py-2">
-                                  {describeRow(activeJob, row).fileRow ?? `#${row}`}
+                                  {describeRow(rowSource, row).fileRow ?? `#${row}`}
                                 </td>
                                 <td className="mono-num whitespace-nowrap px-3 py-2">
-                                  {describeRow(activeJob, row).caseId ?? "—"}
+                                  {describeRow(rowSource, row).caseId ?? "—"}
                                 </td>
                                 <td colSpan={6} className="px-3 py-2 text-xs text-muted-foreground">
                                   No open issues
@@ -650,7 +655,7 @@ function LineListPage() {
                       }}
                     />
                     <LineListChangesPanel
-                      job={activeJob}
+                      job={rowSource}
                       onChanged={() => {
                         issues.refetch();
                         jobs.refetch();

@@ -1,6 +1,9 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { useEffect, useState } from "react";
+import { useQueries } from "@tanstack/react-query";
+import type { FullLineListJob } from "@/lib/use-linelist-job";
+import type { LineListJob } from "@/types/pv";
 import { Download, FileStack, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 import { e2b as e2bApi } from "@/services/api/e2b";
@@ -146,6 +149,23 @@ function E2bPage() {
          * correctly blocked either way. */
       });
   }, []);
+
+  // Lists leave each job's rows out. A preflight result names its cases
+  // with the line list's own case IDs, which come from those rows, so the
+  // jobs with results are read in full.
+  const fullJobs = useQueries({
+    queries: Object.keys(preflightResults).map((id) => {
+      const listed = (jobs.data?.data ?? []).find((j) => j.id === id);
+      return {
+        queryKey: ["linelist", "job", id, listed?.checkedAt ?? "", listed?.fixedAt ?? ""],
+        queryFn: () => linelistApi.job(id),
+        retry: false,
+        placeholderData: (previous: FullLineListJob | undefined) => previous,
+      };
+    }),
+  });
+  const withRows = (job: LineListJob): FullLineListJob =>
+    fullJobs.find((q) => q.data?.id === job.id)?.data ?? job;
 
   async function checkValidatedPreflight(jobId: string) {
     setPreflightBusy(jobId);
@@ -585,7 +605,7 @@ function E2bPage() {
                                   );
                                   const sourceRow = currentCase?.sourceInformation?.sourceRow;
                                   const fileRow = sourceRow
-                                    ? describeRow(j, sourceRow).fileRow
+                                    ? describeRow(withRows(j), sourceRow).fileRow
                                     : undefined;
                                   return (
                                     <div
@@ -773,7 +793,11 @@ function E2bPage() {
                                     <p className="font-mono font-medium">
                                       {c.caseId} — EXCLUDED
                                       <span className="ml-2 font-sans font-normal text-muted-foreground">
-                                        {caseLocation(j, preflightResults[j.id]!, c.caseId)}
+                                        {caseLocation(
+                                          withRows(j),
+                                          preflightResults[j.id]!,
+                                          c.caseId,
+                                        )}
                                       </span>
                                     </p>
                                     {c.nonOverridableErrors.map((e, i) => (
@@ -882,7 +906,11 @@ function E2bPage() {
                                     <p className="font-mono font-medium">
                                       {r.caseId} — BLOCKED
                                       <span className="ml-2 font-sans font-normal text-muted-foreground">
-                                        {caseLocation(j, preflightResults[j.id]!, r.caseId)}
+                                        {caseLocation(
+                                          withRows(j),
+                                          preflightResults[j.id]!,
+                                          r.caseId,
+                                        )}
                                       </span>
                                     </p>
                                     {r.errors
