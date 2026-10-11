@@ -25,6 +25,7 @@ import {
   screeningCheck,
 } from "@/services/psur/screening-checklist";
 import { missingSubmissionDetails } from "@/services/psur/screening-directive";
+import { IbdCheck } from "@/components/pv/psur-ibd-check";
 import type {
   PsurAdministrativeScreening,
   PsurDocument,
@@ -171,6 +172,7 @@ export function PsurScreeningChecklist({
     <div className="space-y-4">
       {decisionSummary}
       <SubmissionDetailsPanel
+        doc={doc}
         details={details}
         onChange={(patch) => setDetails((d) => ({ ...d, ...patch }))}
         daysToReceipt={timeliness.daysToReceipt}
@@ -473,11 +475,13 @@ const DETAIL_FIELDS: { key: keyof PsurSubmissionDetails; label: string }[] = [
 ];
 
 function SubmissionDetailsPanel({
+  doc,
   details,
   onChange,
   daysToReceipt,
   locked,
 }: {
+  doc: PsurDocument;
   details: PsurSubmissionDetails;
   onChange: (patch: Partial<PsurSubmissionDetails>) => void;
   daysToReceipt: number | undefined;
@@ -503,6 +507,15 @@ function SubmissionDetailsPanel({
                 onChange({ [key]: e.target.value } as Partial<PsurSubmissionDetails>)
               }
             />
+            {key === "ibd" ? (
+              <IbdCheck
+                doc={doc}
+                details={details}
+                dlp={details.dlp}
+                canApply={!locked}
+                onApplied={(ibd) => onChange({ ibd })}
+              />
+            ) : null}
           </div>
         ))}
         <div className="space-y-1">

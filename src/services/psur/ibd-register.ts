@@ -27,7 +27,18 @@ export interface IbdRegisterEntry {
 }
 
 const MONTHS: Record<string, number> = {
-  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
 };
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -45,19 +56,27 @@ function iso(y: number, m: number, d: number): string | null {
  * month-first only when day-first is impossible (03/17/2014).
  */
 export function readDocumentDate(raw: string | undefined): string | null {
-  const v = (raw ?? "").trim().replace(/(\d)(st|nd|rd|th)\b/gi, "$1").replace(/,/g, " ").replace(/\s+/g, " ");
+  const v = (raw ?? "")
+    .trim()
+    .replace(/(\d)(st|nd|rd|th)\b/gi, "$1")
+    .replace(/,/g, " ")
+    .replace(/\s+/g, " ");
   if (!v) return null;
   let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(v);
   if (m) return iso(+m[1]!, +m[2]!, +m[3]!);
   m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(v);
   if (m) {
-    const a = +m[1]!, b = +m[2]!, y = +m[3]!;
+    const a = +m[1]!,
+      b = +m[2]!,
+      y = +m[3]!;
     return a > 12 ? iso(y, b, a) : b > 12 ? iso(y, a, b) : iso(y, b, a);
   }
   m = /^(\d{1,2}) ([A-Za-z]{3,}) (\d{4})$/.exec(v); // 17 March 2014
-  if (m && MONTHS[m[2]!.slice(0, 3).toLowerCase()]) return iso(+m[3]!, MONTHS[m[2]!.slice(0, 3).toLowerCase()]!, +m[1]!);
+  if (m && MONTHS[m[2]!.slice(0, 3).toLowerCase()])
+    return iso(+m[3]!, MONTHS[m[2]!.slice(0, 3).toLowerCase()]!, +m[1]!);
   m = /^([A-Za-z]{3,}) (\d{1,2}) (\d{4})$/.exec(v); // March 17 2014
-  if (m && MONTHS[m[1]!.slice(0, 3).toLowerCase()]) return iso(+m[3]!, MONTHS[m[1]!.slice(0, 3).toLowerCase()]!, +m[2]!);
+  if (m && MONTHS[m[1]!.slice(0, 3).toLowerCase()])
+    return iso(+m[3]!, MONTHS[m[1]!.slice(0, 3).toLowerCase()]!, +m[2]!);
   return null;
 }
 
@@ -69,7 +88,14 @@ export function showDate(isoDate: string): string {
 }
 
 const substanceKey = (s: string) =>
-  s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean).sort().join(" ");
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .sort()
+    .join(" ");
 const regKey = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
 const nameKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -215,15 +241,33 @@ export function parseRegisterCsv(text: string): {
   const rows: Omit<IbdRegisterEntry, "id" | "by" | "at">[] = [];
   const rejected: { line: number; reason: string }[] = [];
   if (iSub < 0 || iIbd < 0) {
-    return { rows, rejected: [{ line: 1, reason: "The first row must name an active substance column and an IBD column." }] };
+    return {
+      rows,
+      rejected: [
+        {
+          line: 1,
+          reason: "The first row must name an active substance column and an IBD column.",
+        },
+      ],
+    };
   }
-  const list = (v: string | undefined) => (v ?? "").split(/;|\|/).map((s) => s.trim()).filter(Boolean);
+  const list = (v: string | undefined) =>
+    (v ?? "")
+      .split(/;|\|/)
+      .map((s) => s.trim())
+      .filter(Boolean);
   lines.slice(1).forEach((l, i) => {
     const c = cells(l);
     const activeSubstance = (c[iSub] ?? "").trim();
     const ibd = readDocumentDate(c[iIbd]);
-    if (!activeSubstance) return rejected.push({ line: i + 2, reason: "No active substance." });
-    if (!ibd) return rejected.push({ line: i + 2, reason: `"${c[iIbd] ?? ""}" is not a date.` });
+    if (!activeSubstance) {
+      rejected.push({ line: i + 2, reason: "No active substance." });
+      return;
+    }
+    if (!ibd) {
+      rejected.push({ line: i + 2, reason: `"${c[iIbd] ?? ""}" is not a date.` });
+      return;
+    }
     rows.push({
       activeSubstance,
       ibd,

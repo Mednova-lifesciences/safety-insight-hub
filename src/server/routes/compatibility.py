@@ -323,7 +323,10 @@ async def convert_intake_conversation(
 async def list_psur_documents(
     user: AuthenticatedUser = Depends(require_permission("psur.review")),
 ):
-    return await _list_data_table("pv_psur_documents")
+    # The IBD register shares this table (kind PSUR_IBD_REGISTER); it is not
+    # a document. See src/services/api/psur-ibd.ts.
+    rows = await _list_data_table("pv_psur_documents")
+    return [r for r in rows if not (isinstance(r, dict) and r.get("kind") == "PSUR_IBD_REGISTER")]
 
 
 @router.get("/notifications")

@@ -33,15 +33,27 @@ describe("reading the dates PSURs write", () => {
     ["17.03.2014", "2014-03-17"],
   ])("%s → %s", (raw, want) => expect(readDocumentDate(raw)).toBe(want));
   it("does not invent a date", () => {
-    for (const bad of ["", "unknown", "31/02/2014", "2014"]) expect(readDocumentDate(bad), bad).toBeNull();
+    for (const bad of ["", "unknown", "31/02/2014", "2014"])
+      expect(readDocumentDate(bad), bad).toBeNull();
   });
   it("shows dates as people read them", () => expect(showDate("2014-03-17")).toBe("17 Mar 2014"));
 });
 
 describe("finding a report's register entry", () => {
-  const reg = [entry({}), entry({ id: "e2", activeSubstance: "Tramadol", ibd: "1977-01-01", productNames: ["Tramadol 50"], nafdacRegNos: ["B1-2"] })];
+  const reg = [
+    entry({}),
+    entry({
+      id: "e2",
+      activeSubstance: "Tramadol",
+      ibd: "1977-01-01",
+      productNames: ["Tramadol 50"],
+      nafdacRegNos: ["B1-2"],
+    }),
+  ];
   it("by registration number first, ignoring punctuation", () => {
-    expect(findRegisterEntry(reg, { nafdacRegNo: "a4 100123", activeSubstance: "Tramadol" })?.entry.id).toBe("e1");
+    expect(
+      findRegisterEntry(reg, { nafdacRegNo: "a4 100123", activeSubstance: "Tramadol" })?.entry.id,
+    ).toBe("e1");
   });
   it("then by active substance, in any order", () => {
     const m = findRegisterEntry(reg, { activeSubstance: "clavulanate potassium, amoxicillin" });
@@ -49,7 +61,9 @@ describe("finding a report's register entry", () => {
     expect(m?.matchedOn).toBe("active substance");
   });
   it("then by product name", () => {
-    expect(findRegisterEntry(reg, { productName: "Tramadol 50 mg capsules" })?.matchedOn).toBe("product name");
+    expect(findRegisterEntry(reg, { productName: "Tramadol 50 mg capsules" })?.matchedOn).toBe(
+      "product name",
+    );
   });
   it("never guesses between two candidates", () => {
     const two = [entry({}), entry({ id: "e3", nafdacRegNos: [], productNames: ["Amoxiclav 625"] })];
@@ -70,13 +84,19 @@ describe("the PSUR's IBD against the register", () => {
   it("not stated, unreadable, not in the register", () => {
     expect(compareIbd(reg, { ...base, ibd: "" }).status).toBe("NOT_STATED");
     expect(compareIbd(reg, { ...base, ibd: "see annex" }).status).toBe("UNREADABLE");
-    expect(compareIbd(reg, { nafdacRegNo: "Z9-9", ibd: "1 Jan 2000" })).toEqual({ status: "NOT_IN_REGISTER", stated: "2000-01-01" });
+    expect(compareIbd(reg, { nafdacRegNo: "Z9-9", ibd: "1 Jan 2000" })).toEqual({
+      status: "NOT_IN_REGISTER",
+      stated: "2000-01-01",
+    });
   });
 });
 
 describe("the DLP against the IBD's cycle", () => {
   it("IBD 17 Mar → DLPs 16 Mar or 16 Sep", () => {
-    expect(checkDlpAgainstIbd("2014-03-17", "16 September 2026")).toEqual({ aligned: true, expected: ["16 Mar", "16 Sep"] });
+    expect(checkDlpAgainstIbd("2014-03-17", "16 September 2026")).toEqual({
+      aligned: true,
+      expected: ["16 Mar", "16 Sep"],
+    });
     expect(checkDlpAgainstIbd("2014-03-17", "16/03/2026")?.aligned).toBe(true);
     expect(checkDlpAgainstIbd("2014-03-17", "31 August 2026")?.aligned).toBe(false);
   });
@@ -84,13 +104,17 @@ describe("the DLP against the IBD's cycle", () => {
     expect(checkDlpAgainstIbd("2014-03-17", "15 September 2026")?.aligned).toBe(true);
   });
   it("IBD on the 31st rolls to the month's last day", () => {
-    expect(checkDlpAgainstIbd("2010-03-31", "30 September 2026")).toEqual({ aligned: true, expected: ["30 Mar", "30 Sep"] });
+    expect(checkDlpAgainstIbd("2010-03-31", "30 September 2026")).toEqual({
+      aligned: true,
+      expected: ["30 Mar", "30 Sep"],
+    });
   });
   it("IBD on the 1st → the last day of the previous month", () => {
     expect(checkDlpAgainstIbd("2010-01-01", "31 December 2025")?.aligned).toBe(true);
     expect(checkDlpAgainstIbd("2010-01-01", "30 June 2026")?.aligned).toBe(true);
   });
-  it("no answer without a readable DLP", () => expect(checkDlpAgainstIbd("2014-03-17", "")).toBeNull());
+  it("no answer without a readable DLP", () =>
+    expect(checkDlpAgainstIbd("2014-03-17", "")).toBeNull());
 });
 
 describe("importing a register CSV", () => {

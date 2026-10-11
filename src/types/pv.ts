@@ -725,10 +725,28 @@ export const PSUR_V4_TEMPLATE_SECTIONS: PsurV4Section[] = [
   },
 ];
 
+/** A person replaced the PSUR's stated IBD with the organisation's
+ *  registered one. What the PSUR said is kept: a wrongly stated IBD may
+ *  mean the interval was counted from the wrong date, which is itself a
+ *  finding. Kept on the document, outside the screening record, so a later
+ *  checklist save does not lose it. */
+export interface PsurIbdDecision {
+  /** The IBD as the PSUR stated it ("" when it stated none). */
+  statedInPsur: string;
+  /** The registered IBD used instead, ISO yyyy-mm-dd. */
+  used: string;
+  registerEntryId: string;
+  activeSubstance: string;
+  source: string;
+  by: string;
+  at: string;
+}
+
 export interface PsurDocument {
   id: string;
   filename: string;
   product: string;
+  ibdDecision?: PsurIbdDecision | undefined;
   /** Marketing Authorisation Holder — Section 1 (Product & Regulatory
    *  Information) requires this, but it is only ever populated from what
    *  the AI could actually read off the submitted document's own text
