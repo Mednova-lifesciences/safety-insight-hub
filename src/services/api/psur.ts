@@ -1276,14 +1276,18 @@ function renderScreeningDirectiveText(m: ScreeningDirectiveModel): string {
   return lines.join("\n");
 }
 
-function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
+/** Exported for tests, which open the generated file and check its tables. */
+export function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
   // A real table: requirement | reason | action. The MAH's copy of this
   // letter is what they work from, so each defect carries its remedy on the
   // same row rather than somewhere further down the page.
+  // Fixed widths, not "100%": viewers other than desktop Word (Google Docs
+  // on a Chromebook, LibreOffice) lay a table out from its stored column
+  // widths, and a percentage table stores none — every column came out a
+  // sliver and the text ran down the page a word at a time.
   const deficiencyTable = (rows: typeof m.failedRows, reasonHeading: string) =>
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: [
+    memoTable(
+      [
         new TableRow({
           tableHeader: true,
           children: [
@@ -1305,7 +1309,8 @@ function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
             }),
         ),
       ],
-    });
+      [8, 34, 29, 29],
+    );
 
   const deficiencyParagraphs =
     m.failedRows.length === 0
@@ -1344,9 +1349,8 @@ function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
               }),
             ],
           }),
-          new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: [
+          memoTable(
+            [
               new TableRow({
                 tableHeader: true,
                 children: [headerCell("Detail not stated"), headerCell("Action required")],
@@ -1355,7 +1359,8 @@ function buildScreeningDirectiveDocx(m: ScreeningDirectiveModel): Document {
                 (r) => new TableRow({ children: [cell(r.label), cell(r.action)] }),
               ),
             ],
-          }),
+            [40, 60],
+          ),
         ];
 
   return new Document({
@@ -1513,9 +1518,7 @@ function renderComplianceDirectiveText(m: ComplianceDirectiveModel): string {
     lines.push("FOR THE NEXT REPORTING CYCLE");
     lines.push(rule);
     if (m.followUp.adviceForNextPsur) lines.push(m.followUp.adviceForNextPsur);
-    lines.push(
-      `Next PSUR/PBRER due: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`,
-    );
+    lines.push(`Next PSUR/PBRER due: ${m.followUp.nextPsurDueDate ?? "not yet determined"}`);
     lines.push("");
   }
 
@@ -1756,9 +1759,8 @@ function buildExecutiveSummaryDocx(m: ExecutiveSummaryModel): Document {
 function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
   const table =
     m.deficiencies.length > 0
-      ? new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
+      ? memoTable(
+          [
             new TableRow({
               tableHeader: true,
               children: [
@@ -1798,7 +1800,9 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
                 }),
             ),
           ],
-        })
+          // Ref. | V4 Section | Severity | What was identified | For the next PSUR | Status
+          [8, 14, 10, 28, 28, 12],
+        )
       : new Paragraph({
           text: "No shortcomings in the submission were identified for the MAH to address.",
         });
@@ -1892,9 +1896,7 @@ function buildComplianceDirectiveDocx(m: ComplianceDirectiveModel): Document {
 
   children.push(
     new Paragraph({
-      children: [
-        new TextRun({ text: feedbackFootnote(m), italics: true }),
-      ],
+      children: [new TextRun({ text: feedbackFootnote(m), italics: true })],
     }),
   );
 
@@ -1910,10 +1912,7 @@ export const psur = {
    * psur/evidence.ts): a corrected entry arrives as a new entry carrying
    * `supersedes`, never as an edit over the old one.
    */
-  saveAssessmentSection: (
-    documentId: string,
-    section: AssessmentSection,
-  ): Promise<PsurDocument> =>
+  saveAssessmentSection: (documentId: string, section: AssessmentSection): Promise<PsurDocument> =>
     inDocumentQueue(documentId, async () => {
       const doc = await readDocument(documentId);
       const existing = doc.assessmentSections ?? [];
@@ -1968,7 +1967,11 @@ export const psur = {
       const doc = await readDocument(documentId);
       return saveDocument({
         ...doc,
-        memoDraft: { ...draft, updatedBy: currentActor().name, updatedAt: new Date().toISOString() },
+        memoDraft: {
+          ...draft,
+          updatedBy: currentActor().name,
+          updatedAt: new Date().toISOString(),
+        },
       });
     }),
 
@@ -2014,7 +2017,12 @@ export const psur = {
     inDocumentQueue(documentId, async () => {
       const doc = await readDocument(documentId);
       const actor = currentActor();
-      const section = acceptEvidence(doc.assessmentSections ?? [], entryId, actor.name, new Date().toISOString());
+      const section = acceptEvidence(
+        doc.assessmentSections ?? [],
+        entryId,
+        actor.name,
+        new Date().toISOString(),
+      );
       const saved = await saveDocument(withSection(doc, section));
       await recordAudit({
         action: "PSUR_EVIDENCE_ACCEPTED",
@@ -2029,7 +2037,12 @@ export const psur = {
     inDocumentQueue(documentId, async () => {
       const doc = await readDocument(documentId);
       const actor = currentActor();
-      const section = rejectEvidence(doc.assessmentSections ?? [], entryId, actor.name, new Date().toISOString());
+      const section = rejectEvidence(
+        doc.assessmentSections ?? [],
+        entryId,
+        actor.name,
+        new Date().toISOString(),
+      );
       const saved = await saveDocument(withSection(doc, section));
       await recordAudit({
         action: "PSUR_EVIDENCE_REJECTED",
@@ -2128,12 +2141,7 @@ export const psur = {
       if (!note.trim()) throw new Error("Say what you corrected on the form.");
       const finding = (await readFindings(documentId)).find((f) => f.id === findingId);
       if (!finding) throw new Error("Finding not found");
-      const next = formFixedFinding(
-        finding,
-        note,
-        currentActor().name,
-        new Date().toISOString(),
-      );
+      const next = formFixedFinding(finding, note, currentActor().name, new Date().toISOString());
       await saveFinding(documentId, next);
       await recordAudit({
         action: "PSUR_FINDING_RESOLVED_ON_FORM",
@@ -2160,7 +2168,12 @@ export const psur = {
       const evidenceId = finding.researchResolution?.evidenceId;
       const sections = doc.assessmentSections ?? [];
       if (evidenceId && sections.some((s) => s.evidence.some((e) => e.id === evidenceId))) {
-        const section = withdrawEvidence(sections, evidenceId, actor.name, new Date().toISOString());
+        const section = withdrawEvidence(
+          sections,
+          evidenceId,
+          actor.name,
+          new Date().toISOString(),
+        );
         await saveDocument(withSection(doc, section));
       }
       const next = reopenedFinding(finding);
@@ -2183,7 +2196,8 @@ export const psur = {
     const draft = doc.memoDraft ?? defaultMemoDraft(doc);
     const blockers = memoBlockers(draft, doc.ciomsMatrix);
     const model = buildAssessmentMemoModel(memoInputFromDocument(doc, draft));
-    if (!model && blockers.length === 0) blockers.push("Every CIOMS score must be a whole number of 0 or more.");
+    if (!model && blockers.length === 0)
+      blockers.push("Every CIOMS score must be a whole number of 0 or more.");
     return { model, blockers };
   },
 
@@ -2209,8 +2223,12 @@ export const psur = {
   downloadAssessmentMemo: async (documentId: string): Promise<void> => {
     const doc = await readDocument(documentId);
     const { model, blockers } = await psur.assessmentMemo(documentId);
-    if (!model || blockers.length > 0) throw new Error(blockers[0] ?? "The memo cannot be generated yet.");
-    await downloadBlob(await Packer.toBlob(buildAssessmentMemoDocx(model)), docBaseName(doc) + "-assessment-memo.docx");
+    if (!model || blockers.length > 0)
+      throw new Error(blockers[0] ?? "The memo cannot be generated yet.");
+    await downloadBlob(
+      await Packer.toBlob(buildAssessmentMemoDocx(model)),
+      docBaseName(doc) + "-assessment-memo.docx",
+    );
     await recordAudit({
       action: "PSUR_ASSESSMENT_MEMO_GENERATED",
       entity: "PsurDocument",
@@ -2222,7 +2240,8 @@ export const psur = {
   downloadAssessmentMemoText: async (documentId: string): Promise<void> => {
     const doc = await readDocument(documentId);
     const { model, blockers } = await psur.assessmentMemo(documentId);
-    if (!model || blockers.length > 0) throw new Error(blockers[0] ?? "The memo cannot be generated yet.");
+    if (!model || blockers.length > 0)
+      throw new Error(blockers[0] ?? "The memo cannot be generated yet.");
     await downloadBlob(
       new Blob([renderAssessmentMemoText(model)], { type: "text/plain" }),
       docBaseName(doc) + "-assessment-memo.txt",
@@ -3479,10 +3498,6 @@ export const psur = {
         children: columns.map(
           (h) =>
             new TableCell({
-              width: {
-                size: Math.max(1, Math.floor(100 / columns.length)),
-                type: WidthType.PERCENTAGE,
-              },
               children: [new Paragraph({ children: [new TextRun({ text: h, bold: true })] })],
             }),
         ),
@@ -3504,10 +3519,11 @@ export const psur = {
           text: `Case data (${dataRows.length} row(s)) — reflects any AI corrections applied.`,
         }),
         new Paragraph({ text: "" }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [headerRow, ...dataTableRows],
-        }),
+        // The spreadsheet's own columns, sharing the page width evenly.
+        memoTable(
+          [headerRow, ...dataTableRows],
+          columns.map(() => 100 / columns.length),
+        ),
       ];
     } else if (accepted.length === 0) {
       bodyChildren = [
@@ -3671,7 +3687,6 @@ export const psur = {
     );
   },
 };
-
 
 /**
  * NAFDAC's internal assessment memo.
@@ -3846,7 +3861,10 @@ function analysisParagraphs(m: AssessmentMemoModel): { text: string; bullet: boo
 
 const MEMO_FONT = "Times New Roman";
 
-function memoRun(text: string, opts: { bold?: boolean; italics?: boolean; size?: number } = {}): TextRun {
+function memoRun(
+  text: string,
+  opts: { bold?: boolean; italics?: boolean; size?: number } = {},
+): TextRun {
   return new TextRun({
     text,
     font: MEMO_FONT,
@@ -3900,9 +3918,7 @@ function memoCell(
   const paragraphs = blocks.flatMap((b, i) => {
     const ps = b.text
       .split("\n")
-      .map((line) =>
-        memoPara(line, { bold: !!b.bold, italics: !!b.italics, after: 60, keepNext }),
-      );
+      .map((line) => memoPara(line, { bold: !!b.bold, italics: !!b.italics, after: 60, keepNext }));
     return i < blocks.length - 1 && b.text ? [...ps, memoPara("", { after: 0, keepNext })] : ps;
   });
   return new TableCell({
@@ -3988,11 +4004,21 @@ export function buildAssessmentMemoDocx(m: AssessmentMemoModel): Document {
           }),
           memoPara("Pharmacovigilance Directorate", { bold: true, center: true, after: 40 }),
           ...(m.locationAddress
-            ? [memoPara(`Location Address: ${m.locationAddress}`, { bold: true, center: true, after: 200 })]
+            ? [
+                memoPara(`Location Address: ${m.locationAddress}`, {
+                  bold: true,
+                  center: true,
+                  after: 200,
+                }),
+              ]
             : []),
           memoPara("INTERNAL MEMO", { bold: true, size: 28, center: true, after: 240 }),
           new Paragraph({
-            children: [memoRun(m.referenceNumber, { bold: true }), memoRun("\t"), memoRun(m.memoDate, { bold: true })],
+            children: [
+              memoRun(m.referenceNumber, { bold: true }),
+              memoRun("\t"),
+              memoRun(m.memoDate, { bold: true }),
+            ],
             tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
             spacing: { after: 240 },
           }),
@@ -4184,15 +4210,7 @@ export function buildV4ReportDocx(m: V4ReportModel): Document {
       ],
       { center: true, after: 160 },
     ),
-    v4Para(
-      [
-        v4Run(
-          m.instructions,
-          { italics: true, size: 20 },
-        ),
-      ],
-      { after: 200 },
-    ),
+    v4Para([v4Run(m.instructions, { italics: true, size: 20 })], { after: 200 }),
   ];
 
   for (const s of m.sections) {
