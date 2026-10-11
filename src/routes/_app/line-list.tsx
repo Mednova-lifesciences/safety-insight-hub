@@ -331,10 +331,7 @@ function LineListPage() {
           <CodeListPanel
             key={activeJob.id}
             job={activeJob}
-            onSaved={() => {
-              jobs.refetch();
-              issues.refetch();
-            }}
+            onSaved={() => Promise.all([jobs.refetch(), issues.refetch()])}
           />
         ) : null}
 

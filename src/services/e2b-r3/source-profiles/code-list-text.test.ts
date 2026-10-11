@@ -95,6 +95,19 @@ describe("reading a code list a person typed", () => {
     expect(r.unplaced).toEqual(["Colour of card", "1 = Red", "2 = Blue"]);
   });
 
+  it("a sentence with codes in it is never taken as a bare heading — it goes to the AI", () => {
+    // Found live: "seriousness" made the whole sentence a heading and its
+    // codes vanished, so nothing reached the AI.
+    const r = readCodeListText(
+      "On this form the seriousness column uses 1 for non-serious and 2 for serious.",
+      ONDO_COLUMNS,
+    );
+    expect(r.entries).toEqual([]);
+    expect(r.unplaced).toEqual([
+      "On this form the seriousness column uses 1 for non-serious and 2 for serious.",
+    ]);
+  });
+
   it("knows the ordinary names of the other coded fields", () => {
     expect(keyForHeading("Route of administration")).toBe("route");
     expect(keyForHeading("Age unit")).toBe("age_unit");
