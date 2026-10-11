@@ -60,9 +60,9 @@ export function OutcomeTermsSection() {
     setSaving(term.id);
     try {
       await termMappings.decide(term, value);
-      const rechecked = await linelistApi.recheckAffected("OUTCOME_TERMS");
+      const { others } = await linelistApi.recheckAffected("OUTCOME_TERMS");
       toast.success(
-        `"${term.term}" → ${REACTION_OUTCOME_LABELS[value]}.${rechecked ? ` ${rechecked} line list(s) rechecked.` : ""}`,
+        `"${term.term}" → ${REACTION_OUTCOME_LABELS[value]}.${others ? ` ${others} line list(s) are being updated.` : ""}`,
       );
       setDraft(({ [term.id]: _saved, ...rest }) => rest);
       await load();

@@ -438,10 +438,14 @@ export function ReactionTermsPanel({
   async function accept(term: string, llt: Llt) {
     setBusy(term);
     try {
-      await linelistApi.codeReactionTerm(job.id, term, llt);
-      toast.success(`"${term}" will be coded as ${llt.term} (${llt.code}) in every line list.`);
+      const { others, done } = await linelistApi.codeReactionTerm(job.id, term, llt);
+      toast.success(
+        `"${term}" will be coded as ${llt.term} (${llt.code}) in every line list.${others ? ` ${others} other line list(s) are being updated.` : ""}`,
+      );
       setSearchFor(null);
       onDecided();
+      // The other line lists finish in the background; refresh once they have.
+      void done.then(onDecided);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save that term.");
     } finally {

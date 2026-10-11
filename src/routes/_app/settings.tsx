@@ -834,9 +834,9 @@ function RegulatoryProfileSection() {
     try {
       await regulatoryConfig.upsertReporterQualificationMapping(mapping.designation, code);
       // Clears this designation's errors on every line list that uses it.
-      const rechecked = await linelistApi.recheckAffected("REPORTER_DESIGNATIONS");
+      const { others } = await linelistApi.recheckAffected("REPORTER_DESIGNATIONS");
       toast.success(
-        `"${mapping.designation}" configured.${rechecked ? ` ${rechecked} line list(s) rechecked.` : ""}`,
+        `"${mapping.designation}" configured.${others ? ` ${others} line list(s) are being updated.` : ""}`,
       );
       await load();
     } catch (err) {
