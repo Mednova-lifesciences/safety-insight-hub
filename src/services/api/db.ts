@@ -12,6 +12,24 @@ import type { AuditEvent, Role, WorkflowStep, WorkflowStepState } from "@/types/
 /** Domain objects are stored in a jsonb `data` column. */
 export const toJson = (value: unknown): Json => value as unknown as Json;
 
+/**
+ * A select for only these top-level fields of `data`, for lists. Reading
+ * `data` whole sent every line list's raw rows (megabytes) and every
+ * report's full text to pages that show a name and a status — and again
+ * after each save. Read rows back with fromDataFields.
+ */
+export function selectDataFields(fields: readonly string[]): string {
+  return fields.map((f) => `${f}:data->${f}`).join(",");
+}
+
+/** A row read with selectDataFields, as the object it was stored as. A
+ *  field that is absent comes back null and is left out again. */
+export function fromDataFields<T>(row: Record<string, unknown>): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) if (v !== null && v !== undefined) out[k] = v;
+  return out as T;
+}
+
 const SESSION_KEY = "mednova.pv.session";
 
 export interface ActorInfo {

@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { usePvQuery } from "@/lib/data-source";
+import { usePsurDocument } from "@/lib/use-psur-document";
 import { psur as psurApi } from "@/services/api/psur";
 import { demoPsurDocuments } from "@/services/demo/dataset";
 import {
@@ -92,7 +93,15 @@ function ScreeningPage() {
   // no fall-back to the first in the queue: a sixteen-item form appearing
   // by itself, already attached to some report nobody picked, is an easy
   // way to screen the wrong submission.
-  const active = selectedId ? all.find((d) => d.id === selectedId) : undefined;
+  const activeSummary = selectedId ? all.find((d) => d.id === selectedId) : undefined;
+  // The list carries summaries; the open report is read in full.
+  const opened = usePsurDocument(selectedId ?? undefined);
+  const active = opened.doc;
+  /** After a change: the light list, and the one open report. */
+  const refresh = () => {
+    void docs.refetch();
+    void opened.refetch();
+  };
 
   function open(id: string) {
     setJustScreened(null);
@@ -162,7 +171,7 @@ function ScreeningPage() {
                   const created = await psurApi.upload(file);
                   open(created.id);
                   toast.success("Received. The screening checklist is ready for your review.");
-                  docs.refetch();
+                  refresh();
                 } catch (err) {
                   toast.error(err instanceof Error ? err.message : "Could not receive this file.");
                 } finally {
@@ -200,7 +209,7 @@ function ScreeningPage() {
                           <QueueRow
                             key={doc.id}
                             doc={doc}
-                            selected={doc.id === active?.id}
+                            selected={doc.id === selectedId}
                             onSelect={() => open(doc.id)}
                           />
                         ))}
@@ -214,6 +223,13 @@ function ScreeningPage() {
                   )}
                 </Section>
 
+                {activeSummary && !active ? (
+                  <Section title={`Screening: ${activeSummary.filename}`}>
+                    <p className="text-sm text-muted-foreground">
+                      {opened.error ? "Could not open this report." : "Opening the report…"}
+                    </p>
+                  </Section>
+                ) : null}
                 {active ? (
                   <Section
                     title={`Screening: ${active.filename}`}
@@ -222,11 +238,11 @@ function ScreeningPage() {
                     <PsurScreeningChecklist
                       key={active.id}
                       doc={active}
-                      onChanged={() => docs.refetch()}
+                      onChanged={refresh}
                       onScreened={(decision) => {
                         setJustScreened({ filename: active.filename, decision });
                         setSelectedId(null);
-                        docs.refetch();
+                        void docs.refetch();
                       }}
                     />
                   </Section>

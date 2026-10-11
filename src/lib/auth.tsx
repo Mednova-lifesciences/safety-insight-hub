@@ -312,6 +312,9 @@ interface AuthState {
 }
 
 const STORAGE_KEY = "mednova.pv.session";
+/** When the backend last confirmed this tab's restored session. */
+const SESSION_CONFIRMED_KEY = "mednova.pv.sessionConfirmedAt";
+const SESSION_CONFIRM_INTERVAL_MS = 30 * 60 * 1000;
 
 const AuthContext = createContext<AuthState | null>(null);
 
@@ -485,6 +488,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (isApiConfigured()) {
           // Try to restore from stored JWT token
           const token = getStoredToken();
+          // A signed-in person returning: show the app at once and let the
+          // backend confirm the session in the background. Waiting on it
+          // held every page load on a blank screen while the backend woke
+          // up (22 s measured). Nothing is exposed by not waiting: every
+          // read is authorised by Supabase, every backend call is checked by
+          // the backend, and a rejected session still signs out below.
+          const storedAtStart = window.localStorage.getItem(STORAGE_KEY);
+          if (token && storedAtStart && (await hasLiveSupabaseSession())) {
+            setUser(JSON.parse(storedAtStart) as CurrentUser);
+            setStatus("authenticated");
+            void confirmSessionInBackground();
+            return;
+          }
           if (token) {
             let profile: Awaited<ReturnType<typeof apiAuth.getCurrentUser>> = null;
             let serverUnreachable = false;
@@ -552,6 +568,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStoredToken(null);
       }
       setStatus("unauthenticated");
+    };
+
+    /** The backend's view of the restored session, asked at most once per
+     *  tab in half an hour. Rejected: signed out. Unreachable: kept, as
+     *  before. Recognised: the role and id it holds win. */
+    const confirmSessionInBackground = async () => {
+      try {
+        const last = Number(window.sessionStorage.getItem(SESSION_CONFIRMED_KEY) ?? 0);
+        if (Date.now() - last < SESSION_CONFIRM_INTERVAL_MS) return;
+      } catch {
+        /* storage unavailable: just ask */
+      }
+      let profile: Awaited<ReturnType<typeof apiAuth.getCurrentUser>>;
+      try {
+        profile = await apiAuth.getCurrentUser();
+      } catch {
+        return;
+      }
+      if (!profile) {
+        window.localStorage.removeItem(STORAGE_KEY);
+        setStoredToken(null);
+        setUser(null);
+        setStatus("unauthenticated");
+        void supabase.auth.signOut().catch(() => undefined);
+        return;
+      }
+      const confirmed = profile;
+      setUser((u) =>
+        u
+          ? {
+              ...u,
+              id: confirmed.user_id,
+              email: confirmed.email,
+              role: mapRoleFromApi(confirmed.role),
+            }
+          : u,
+      );
+      try {
+        window.sessionStorage.setItem(SESSION_CONFIRMED_KEY, String(Date.now()));
+      } catch {
+        /* ignore */
+      }
     };
 
     restoreSession();
@@ -647,6 +705,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // (e.g. backend not running), and the signed-out state must never
     // depend on it.
     window.localStorage.removeItem(STORAGE_KEY);
+    try {
+      window.sessionStorage.removeItem(SESSION_CONFIRMED_KEY);
+    } catch {
+      /* ignore */
+    }
     setStoredToken(null);
     setUser(null);
     setStatus("unauthenticated");
