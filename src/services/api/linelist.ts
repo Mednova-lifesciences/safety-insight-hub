@@ -2316,24 +2316,56 @@ async function computeDeterministicIssues(job: LineListJobRow): Promise<LineList
 /** Replaces a job's stored findings and recomputes its summary counts. */
 const ISSUE_WRITE_CHUNK = 200;
 
+/** The same issue reads the same whatever order its fields were stored in. */
+function issueKey(value: unknown): string {
+  const sort = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(sort)
+      : v && typeof v === "object"
+        ? Object.fromEntries(
+            Object.keys(v as Record<string, unknown>)
+              .sort()
+              .filter((k) => (v as Record<string, unknown>)[k] !== undefined)
+              .map((k) => [k, sort((v as Record<string, unknown>)[k])]),
+          )
+        : v;
+  return JSON.stringify(sort(value));
+}
+
 /**
- * Replaces a job's stored issues so that a failure part-way never leaves
- * the job with none. The new issues are written first; only once they are
- * all stored are the old ones removed. (Deleting first, as this used to,
- * lost every issue of a job when the browser closed or the connection
- * dropped between the delete and the insert — seen live.) If writing the
- * new ones fails, what was written is removed again and the old issues
- * stay as they were.
+ * Brings a job's stored issues in line with `issues`, writing only what
+ * changed: issues already stored are left as they are, new ones are added,
+ * and ones no longer found are removed. A term or designation decided in
+ * Settings changes a handful of a file's issues, so a recheck no longer
+ * rewrites all of them (hundreds per file, for every affected file).
+ *
+ * A failure part-way never leaves the job with fewer issues than it had:
+ * new issues are written first and only then are the old ones removed.
+ * (Deleting first, as this used to, lost every issue of a job when the
+ * browser closed or the connection dropped between the delete and the
+ * insert — seen live.) If writing the new ones fails, what was written is
+ * removed again and the old issues stay as they were.
  */
 export async function replaceIssues(jobId: string, issues: LineListIssue[]): Promise<void> {
   const { data: existing, error: readErr } = await supabase
     .from("pv_linelist_issues")
-    .select("id")
+    .select("id,data")
     .eq("job_id", jobId);
   if (readErr) throw new Error(readErr.message);
-  const oldIds = (existing ?? []).map((r) => r.id as string);
+  const stored = new Map<string, string[]>();
+  for (const r of (existing ?? []) as { id: string; data: unknown }[]) {
+    const key = issueKey(r.data);
+    stored.set(key, [...(stored.get(key) ?? []), r.id]);
+  }
+  const toAdd: LineListIssue[] = [];
+  for (const issue of issues) {
+    const same = stored.get(issueKey(issue));
+    if (same?.length) same.pop();
+    else toAdd.push(issue);
+  }
+  const toRemove = [...stored.values()].flat();
 
-  const rows = issues.map((i) => ({ id: newId("lli"), job_id: jobId, data: toJson(i) }));
+  const rows = toAdd.map((i) => ({ id: newId("lli"), job_id: jobId, data: toJson(i) }));
   const written: string[] = [];
   for (let i = 0; i < rows.length; i += ISSUE_WRITE_CHUNK) {
     const chunk = rows.slice(i, i + ISSUE_WRITE_CHUNK);
@@ -2344,7 +2376,7 @@ export async function replaceIssues(jobId: string, issues: LineListIssue[]): Pro
     }
     written.push(...chunk.map((r) => r.id));
   }
-  await deleteIssueRows(oldIds);
+  await deleteIssueRows(toRemove);
 }
 
 async function deleteIssueRows(ids: string[]): Promise<void> {
@@ -2618,6 +2650,29 @@ async function recheckJob(jobId: string): Promise<LineListJob> {
   const priorAi = previous.filter((i) => i.source === "ai" && !(i.sources ?? []).includes("rule"));
   const issues = mergeFindings(await computeDeterministicIssues(job), priorAi);
   return storeIssues(job, issues);
+}
+
+/** Fix locations a Settings or term decision can clear. */
+const TERM_CHOICE_FIX_IN: LineListFixLocation[] = [
+  "REACTION_TERMS",
+  "OUTCOME_TERMS",
+  "REPORTER_DESIGNATIONS",
+];
+
+/**
+ * Whether a job was last checked before the organization's latest term,
+ * outcome or designation choice, while it still has a problem such a choice
+ * clears — so it should be rechecked when opened. Covers a line list the
+ * background recheck after a decision did not reach (the page was closed).
+ */
+export function isStaleForTermChoices(
+  job: Pick<LineListJob, "checkedAt" | "openFixIn">,
+  lastChoiceAt: string | undefined,
+): boolean {
+  if (!lastChoiceAt) return false;
+  if (!(job.openFixIn ?? []).some((f) => TERM_CHOICE_FIX_IN.includes(f))) return false;
+  // Compared as times: the database writes "+00:00", the app "Z".
+  return !job.checkedAt || Date.parse(job.checkedAt) < Date.parse(lastChoiceAt);
 }
 
 /** Every field of LineListJob — the compiler insists a new one is added
@@ -3012,11 +3067,44 @@ export const linelist = {
 
   /** Rechecks every line list with an open blocker a decision at `fixIn`
    *  can clear — e.g. after an outcome word is mapped in Settings. */
-  recheckAffected: async (fixIn: LineListFixLocation): Promise<number> => {
+  recheckAffected: async (
+    fixIn: LineListFixLocation,
+    firstJobId?: string,
+  ): Promise<{ others: number; done: Promise<void> }> => {
+    // The line list the person is looking at is brought up to date before
+    // this returns; every other affected one afterwards, in the background,
+    // so a decision is not held up by every file that uses the word. One
+    // left out (the page closed first) is rechecked when it is next opened
+    // — see isStaleForTermChoices.
+    if (firstJobId) await linelist.recheck(firstJobId);
     const all = await linelist.jobs();
-    const affected = all.filter((j) => (j.openFixIn ?? []).includes(fixIn));
-    for (const j of affected) await linelist.recheck(j.id);
-    return affected.length;
+    const others = all
+      .filter((j) => j.id !== firstJobId && (j.openFixIn ?? []).includes(fixIn))
+      .map((j) => j.id);
+    const done = (async () => {
+      for (const id of others) await linelist.recheck(id).catch(() => undefined);
+    })();
+    return { others: others.length, done };
+  },
+
+  /** When a term, outcome word or reporter designation was last decided,
+   *  changed or cleared for the organization. */
+  lastTermChoiceAt: async (): Promise<string | undefined> => {
+    const latest = async (table: "pv_term_mappings" | "pv_reporter_qualification_mappings") => {
+      const { data, error } = await supabase
+        .from(table)
+        .select("updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      if (error) throw new Error(error.message);
+      return (data?.[0] as { updated_at?: string } | undefined)?.updated_at;
+    };
+    const [terms, designations] = await Promise.all([
+      latest("pv_term_mappings"),
+      latest("pv_reporter_qualification_mappings"),
+    ]);
+    const times = [terms, designations].filter((t): t is string => !!t);
+    return times.sort((a, b) => Date.parse(a) - Date.parse(b)).pop();
   },
 
   /** Saves how this line list's ambiguous separators are read. Applies to
@@ -3184,10 +3272,10 @@ export const linelist = {
     jobId: string,
     term: string,
     llt: { code: string; term: string },
-  ): Promise<void> => {
+  ): Promise<{ others: number; done: Promise<void> }> => {
     const job = await readJob(jobId);
     await termMappings.decideByTerm("REACTION", term, llt.code, llt.term, job.filename);
-    await linelist.recheckAffected("REACTION_TERMS");
+    return linelist.recheckAffected("REACTION_TERMS", jobId);
   },
 
   issues: async (jobId: string): Promise<LineListIssue[]> => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { LineListIssue } from "@/types/pv";
+import type { LineListIssue, LineListJob } from "@/types/pv";
 
 /**
  * A job's issues must never be lost by a save that fails part-way, and a
@@ -60,7 +60,7 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: { from: (t: string) => query(t) },
 }));
 
-const { linelist, replaceIssues } = await import("./linelist");
+const { linelist, replaceIssues, isStaleForTermChoices } = await import("./linelist");
 
 const issue = (row: number, severity: LineListIssue["severity"] = "HIGH"): LineListIssue => ({
   row,
@@ -117,18 +117,59 @@ describe("a job's issues are never lost", () => {
     expect(writes.filter((w) => w.table === "pv_linelist_issues")).toEqual([]);
   });
 
-  it("replacing issues writes the new ones before removing the old", async () => {
+  it("replacing issues writes only what changed, new ones before removing the old", async () => {
     await replaceIssues(JOB, [issue(1), issue(3, "LOW")]);
     const rows = tables["pv_linelist_issues"]!;
     expect(rows).toHaveLength(2);
-    expect(rows.some((r) => r.id.startsWith("old-"))).toBe(false);
+    // Row 1's issue is unchanged, so its stored copy is kept as it was.
+    expect(rows.map((r) => r.id)).toContain("old-1");
+    expect(rows.map((r) => r.id)).not.toContain("old-2");
+    expect(rows.map((r) => r.id)).not.toContain("old-3");
     const ops = writes.filter((w) => w.table === "pv_linelist_issues").map((w) => w.op);
     expect(ops.indexOf("insert")).toBeLessThan(ops.indexOf("delete"));
   });
 
+  it("a recheck that finds the same issues writes nothing to them", async () => {
+    await replaceIssues(JOB, [issue(3), issue(1), issue(2)]);
+    expect(tables["pv_linelist_issues"]!.map((r) => r.id)).toEqual(["old-1", "old-2", "old-3"]);
+    expect(writes.filter((w) => w.table === "pv_linelist_issues")).toEqual([]);
+  });
+
   it("if writing the new issues fails, the old ones are still there", async () => {
     failInsertOn = "pv_linelist_issues";
-    await expect(replaceIssues(JOB, [issue(1)])).rejects.toThrow("connection lost");
+    await expect(replaceIssues(JOB, [issue(4)])).rejects.toThrow("connection lost");
     expect(tables["pv_linelist_issues"]!.map((r) => r.id)).toEqual(["old-1", "old-2", "old-3"]);
+  });
+});
+
+describe("line lists behind the latest term choice", () => {
+  const job = (checkedAt: string | undefined, openFixIn: LineListJob["openFixIn"]) => ({
+    checkedAt,
+    openFixIn,
+  });
+
+  it("is behind when checked before the choice and still has a problem it clears", () => {
+    expect(
+      isStaleForTermChoices(
+        job("2026-10-11T10:00:00.000Z", ["REACTION_TERMS"]),
+        "2026-10-11T11:00:00+00:00",
+      ),
+    ).toBe(true);
+  });
+
+  it("is up to date when checked after it, whatever the date format", () => {
+    expect(
+      isStaleForTermChoices(
+        job("2026-10-11T12:00:00.000Z", ["REPORTER_DESIGNATIONS"]),
+        "2026-10-11T11:00:00+00:00",
+      ),
+    ).toBe(false);
+  });
+
+  it("is never rechecked for a choice that cannot affect it", () => {
+    expect(isStaleForTermChoices(job(undefined, ["FILE"]), "2026-10-11T11:00:00+00:00")).toBe(
+      false,
+    );
+    expect(isStaleForTermChoices(job(undefined, ["OUTCOME_TERMS"]), undefined)).toBe(false);
   });
 });

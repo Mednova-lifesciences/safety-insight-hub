@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Download, FileText, Sparkles, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import {
   linelist as linelistApi,
   DEFAULT_SOURCE_PROFILE_ID,
   describeRow,
+  isStaleForTermChoices,
 } from "@/services/api/linelist";
 import {
   E2bReadinessBanner,
@@ -102,6 +103,39 @@ function LineListPage() {
     () => linelistApi.issues(activeJob!.id),
     () => demoLineListIssues,
   );
+  // A line list last checked before the latest term, outcome or designation
+  // choice — one the background update after that choice did not reach —
+  // is brought up to date when it is opened. Asked once per job per visit.
+  const [catchingUp, setCatchingUp] = useState(false);
+  const askedAboutChoices = useRef(new Set<string>());
+  useEffect(() => {
+    const job = activeJob;
+    if (!job || askedAboutChoices.current.has(job.id)) return;
+    askedAboutChoices.current.add(job.id);
+    let current = true;
+    void (async () => {
+      try {
+        const last = await linelistApi.lastTermChoiceAt();
+        if (!current || !isStaleForTermChoices(job, last)) return;
+        setCatchingUp(true);
+        await linelistApi.recheck(job.id);
+        if (current) {
+          void jobs.refetch();
+          void issues.refetch();
+        }
+      } catch {
+        /* left as it was; Re-run validation still brings it up to date */
+      } finally {
+        if (current) setCatchingUp(false);
+      }
+    })();
+    return () => {
+      current = false;
+    };
+    // The job's identity is what matters; the queries are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeJob?.id]);
+
   // Which SourceProfile decodes the next upload. This is a property of the
   // FORM the file came from — above all, whether its reaction column holds
   // local codes needing a codebook, or the reaction written out as words —
@@ -321,6 +355,11 @@ function LineListPage() {
           </QueryBoundary>
         </Section>
 
+        {catchingUp ? (
+          <p className="text-sm text-muted-foreground">
+            Updating this line list with the latest term and designation choices…
+          </p>
+        ) : null}
         {activeJob ? <ColumnMappingPanel job={activeJob} /> : null}
         {activeJob ? (
           <ParsingOptionsPanel
