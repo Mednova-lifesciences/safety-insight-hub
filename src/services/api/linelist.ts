@@ -2314,18 +2314,67 @@ async function computeDeterministicIssues(job: LineListJobRow): Promise<LineList
 }
 
 /** Replaces a job's stored findings and recomputes its summary counts. */
+const ISSUE_WRITE_CHUNK = 200;
+
+/**
+ * Replaces a job's stored issues so that a failure part-way never leaves
+ * the job with none. The new issues are written first; only once they are
+ * all stored are the old ones removed. (Deleting first, as this used to,
+ * lost every issue of a job when the browser closed or the connection
+ * dropped between the delete and the insert — seen live.) If writing the
+ * new ones fails, what was written is removed again and the old issues
+ * stay as they were.
+ */
+export async function replaceIssues(jobId: string, issues: LineListIssue[]): Promise<void> {
+  const { data: existing, error: readErr } = await supabase
+    .from("pv_linelist_issues")
+    .select("id")
+    .eq("job_id", jobId);
+  if (readErr) throw new Error(readErr.message);
+  const oldIds = (existing ?? []).map((r) => r.id as string);
+
+  const rows = issues.map((i) => ({ id: newId("lli"), job_id: jobId, data: toJson(i) }));
+  const written: string[] = [];
+  for (let i = 0; i < rows.length; i += ISSUE_WRITE_CHUNK) {
+    const chunk = rows.slice(i, i + ISSUE_WRITE_CHUNK);
+    const { error } = await supabase.from("pv_linelist_issues").insert(chunk);
+    if (error) {
+      await deleteIssueRows(written).catch(() => undefined);
+      throw new Error(error.message);
+    }
+    written.push(...chunk.map((r) => r.id));
+  }
+  await deleteIssueRows(oldIds);
+}
+
+async function deleteIssueRows(ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i += ISSUE_WRITE_CHUNK) {
+    const { error } = await supabase
+      .from("pv_linelist_issues")
+      .delete()
+      .in("id", ids.slice(i, i + ISSUE_WRITE_CHUNK));
+    if (error) throw new Error(error.message);
+  }
+}
+
 async function storeIssues(
   job: LineListJobRow,
   issues: LineListIssue[],
   extra: Partial<LineListJobRow> = {},
 ): Promise<LineListJobRow> {
-  await supabase.from("pv_linelist_issues").delete().eq("job_id", job.id);
-  if (issues.length > 0) {
-    const { error } = await supabase
-      .from("pv_linelist_issues")
-      .insert(issues.map((i) => ({ id: newId("lli"), job_id: job.id, data: toJson(i) })));
-    if (error) throw new Error(error.message);
-  }
+  await replaceIssues(job.id, issues);
+  const next = withIssueCounts(job, issues, extra);
+  await saveJob(next);
+  return next;
+}
+
+/** The job with its counts brought up to date from these issues and its
+ *  decisions. Changes nothing stored. */
+function withIssueCounts(
+  job: LineListJobRow,
+  issues: LineListIssue[],
+  extra: Partial<LineListJobRow> = {},
+): LineListJobRow {
   // Dropped and held cases are left out of the XML, so they are left out
   // of every count that says how ready the file is. Their issues are still
   // stored and still shown, under the "not counted" divider.
@@ -2354,7 +2403,6 @@ async function storeIssues(
     openFixIn: [...new Set(e2bBlocked.map((i) => i.fixIn ?? "FILE"))],
     checkedAt: new Date().toISOString(),
   };
-  await saveJob(next);
   return next;
 }
 
@@ -3382,7 +3430,10 @@ export const linelist = {
         actor.name,
         new Date().toISOString(),
       );
-      const next = await storeIssues({ ...job, decisions }, await linelist.issues(jobId));
+      // A decision changes which cases are counted, not the issues: the
+      // counts are brought up to date and the issues are left untouched.
+      const next = withIssueCounts({ ...job, decisions }, await linelist.issues(jobId));
+      await saveJob(next);
       await recordAudit({
         action: input.decision === "DROP" ? "LINELIST_CASE_DROPPED" : "LINELIST_CASE_STEPPED_DOWN",
         entity: "LineListJob",
@@ -3399,7 +3450,10 @@ export const linelist = {
       const previous = decisionFor(job.decisions, row);
       if (!previous) return job;
       const decisions = withoutDecision(job.decisions, row);
-      const next = await storeIssues({ ...job, decisions }, await linelist.issues(jobId));
+      // A decision changes which cases are counted, not the issues: the
+      // counts are brought up to date and the issues are left untouched.
+      const next = withIssueCounts({ ...job, decisions }, await linelist.issues(jobId));
+      await saveJob(next);
       await recordAudit({
         action: "LINELIST_CASE_KEPT",
         entity: "LineListJob",
