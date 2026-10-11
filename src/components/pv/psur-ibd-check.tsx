@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, Sparkles } from "lucide-react";
+import { ai } from "@/services/api/ai";
 import { Button } from "@/components/ui/button";
 import { usePvQuery } from "@/lib/data-source";
 import { psur as psurApi } from "@/services/api/psur";
@@ -12,6 +14,16 @@ import {
   showDate,
 } from "@/services/psur/ibd-register";
 import type { PsurDocument } from "@/types/pv";
+
+/** `value`, once it has stopped changing for `ms`. */
+function useDebounced<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
 
 /**
  * Under the IBD, wherever it is shown (screening Section A; V4 Section 1):
@@ -49,8 +61,67 @@ export function IbdCheck({
   const complete = !!doc.signOff?.peerReviewedAt;
   const mayApply = canApply && !complete;
   const entries = register.data?.data ?? [];
-  if (register.isLoading) return null;
   const c = compareIbd(entries, details);
+
+  // Not found by the exact rules — the report may misspell the product.
+  // The AI proposes a register entry; a person confirms it. Asked once per
+  // product as shown, after typing pauses, never on every keystroke.
+  const product = useDebounced(
+    `${details.productName}\u0000${details.activeSubstance}\u0000${details.nafdacRegNo}`,
+    800,
+  );
+  const askAi =
+    !register.isLoading &&
+    c.status === "NOT_IN_REGISTER" &&
+    entries.length > 0 &&
+    !!(details.productName.trim() || details.activeSubstance.trim());
+  const aiMatch = useQuery({
+    queryKey: ["psur", "ibd-ai-match", doc.id, product, entries.map((e) => e.id).join(",")],
+    enabled: askAi,
+    staleTime: Infinity,
+    retry: false,
+    queryFn: () => {
+      const [productName = "", activeSubstance = "", nafdacRegNo = ""] = product.split("\u0000");
+      return ai.psur.matchProduct({
+        report: {
+          product_name: productName,
+          active_substance: activeSubstance,
+          nafdac_reg_no: nafdacRegNo,
+        },
+        candidates: entries.map((e) => ({
+          id: e.id,
+          active_substance: e.activeSubstance,
+          product_names: e.productNames,
+          nafdac_reg_nos: e.nafdacRegNos,
+        })),
+      });
+    },
+  });
+  const proposed =
+    askAi && aiMatch.data?.match_id
+      ? entries.find((e) => e.id === aiMatch.data!.match_id)
+      : undefined;
+
+  if (register.isLoading) return null;
+
+  async function confirmProposed() {
+    if (!proposed) return;
+    setBusy(true);
+    try {
+      await ibdRegister.addSpellings(proposed.id, {
+        productName: details.productName,
+        nafdacRegNo: details.nafdacRegNo,
+      });
+      await register.refetch();
+      toast.success(
+        `Matched to ${proposed.activeSubstance}. This report's spelling is now remembered in the register.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not confirm the match.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function useRegistered() {
     if (c.status === "NOT_IN_REGISTER") return;
@@ -105,10 +176,34 @@ export function IbdCheck({
           <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />
           <span>Aligns with the registered IBD{where}.</span>
         </p>
+      ) : c.status === "NOT_IN_REGISTER" && proposed ? (
+        <div className="flex flex-wrap items-start gap-1.5 text-warning">
+          <Sparkles className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            Not found exactly, but the register has <strong>{proposed.activeSubstance}</strong> (IBD{" "}
+            {showDate(proposed.ibd)}), which looks like the same product — {aiMatch.data?.reason}{" "}
+            (AI suggestion; check it).
+          </span>
+          {mayApply ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              disabled={busy}
+              onClick={confirmProposed}
+            >
+              Treat as the same product
+            </Button>
+          ) : null}
+        </div>
       ) : c.status === "NOT_IN_REGISTER" ? (
         <p className="flex flex-wrap items-start gap-1.5 text-muted-foreground">
           <Info className="mt-0.5 size-3.5 shrink-0" />
-          <span>This product is not in the IBD register, so this IBD cannot be checked.</span>
+          <span>
+            {askAi && aiMatch.isFetching
+              ? "Not found exactly — checking the register for the same product under another spelling…"
+              : "This product is not in the IBD register, so this IBD cannot be checked."}
+          </span>
           {c.stated && mayApply ? (
             <Button
               size="sm"
