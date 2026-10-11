@@ -1,3 +1,4 @@
+import { IbdCheck } from "@/components/pv/psur-ibd-check";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
@@ -455,6 +456,25 @@ export function V4SectionsPanel({
                                 markReviewed(id);
                               }}
                             />
+                            {key === "ibd" ? (
+                              <div className="px-1 pt-1">
+                                <IbdCheck
+                                  doc={doc}
+                                  details={{
+                                    productName: s1.product || details.productName,
+                                    activeSubstance: details.activeSubstance,
+                                    nafdacRegNo: s1.regNo || details.nafdacRegNo,
+                                    ibd: s1.ibd,
+                                  }}
+                                  dlp={details.dlp}
+                                  canApply={canEvaluate}
+                                  onApplied={(ibd) => {
+                                    setS1((p) => ({ ...p, ibd }));
+                                    markReviewed(id);
+                                  }}
+                                />
+                              </div>
+                            ) : null}
                           </td>
                         </tr>
                       ))}

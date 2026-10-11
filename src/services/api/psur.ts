@@ -163,6 +163,8 @@ import {
   UNCERTAINTY_CATEGORY_LABEL,
 } from "@/services/psur/labels";
 import { buildSourceLink } from "@/services/psur/source-links";
+import { showDate as showIbdDate, type IbdRegisterEntry } from "@/services/psur/ibd-register";
+import { isPsurRegisterRow } from "./psur-ibd";
 import {
   buildNigerianRequirementFindings,
   nigerianExposureRequired,
@@ -2251,9 +2253,59 @@ export const psur = {
   documents: async (): Promise<PsurDocument[]> => {
     const { data, error } = await supabase.from("pv_psur_documents").select("data");
     if (error) throw new Error(error.message);
-    return (data ?? [])
-      .map((r) => r.data as unknown as PsurDocument)
-      .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+    return (
+      (data ?? [])
+        // The IBD register shares this table; it is not a document.
+        .filter((r) => !isPsurRegisterRow(r.data))
+        .map((r) => r.data as unknown as PsurDocument)
+        .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
+    );
+  },
+
+  /**
+   * A person replaces the PSUR's stated IBD with the registered one. The
+   * PSUR's own value is kept (ibdDecision.statedInPsur): a wrongly stated
+   * IBD may mean the interval was counted from the wrong date, which is a
+   * finding for the assessor, not something to erase. Updates the
+   * screening details and, if the evaluator saved one, the V4 Section 1
+   * IBD, so the printed report uses the same date. Audited.
+   */
+  useRegisteredIbd: async (documentId: string, entry: IbdRegisterEntry): Promise<PsurDocument> => {
+    const actor = currentActor();
+    const doc = await readDocument(documentId);
+    const screening = doc.administrativeScreening;
+    if (!screening) throw new Error("This report has no screening record to update.");
+    const statedInPsur = doc.ibdDecision?.statedInPsur ?? screening.submissionDetails.ibd ?? "";
+    const shown = showIbdDate(entry.ibd);
+    const s1 = doc.v4SectionAnswers?.s1;
+    const next: PsurDocumentRow = {
+      ...doc,
+      administrativeScreening: {
+        ...screening,
+        submissionDetails: { ...screening.submissionDetails, ibd: shown },
+      },
+      ...(s1?.ibd !== undefined && doc.v4SectionAnswers
+        ? { v4SectionAnswers: { ...doc.v4SectionAnswers, s1: { ...s1, ibd: shown } } }
+        : {}),
+      ibdDecision: {
+        statedInPsur,
+        used: entry.ibd,
+        registerEntryId: entry.id,
+        activeSubstance: entry.activeSubstance,
+        source: entry.source,
+        by: actor.name,
+        at: new Date().toISOString(),
+      },
+    };
+    await saveDocument(next);
+    await recordAudit({
+      action: "PSUR_IBD_REPLACED_WITH_REGISTERED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      previousValue: statedInPsur || "not stated in the PSUR",
+      newValue: `${shown} — registered IBD for ${entry.activeSubstance}${entry.source ? ` (source: ${entry.source})` : ""}`,
+    });
+    return next;
   },
 
   /**
