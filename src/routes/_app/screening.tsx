@@ -30,7 +30,7 @@ import {
   isAwaitingScreening,
   isPeerReviewed,
 } from "@/services/psur/workflow";
-import type { PsurDocument, PsurScreeningOutcomeDecision } from "@/types/pv";
+import type { PsurDocument, PsurDocumentSummary, PsurScreeningOutcomeDecision } from "@/types/pv";
 
 /**
  * The Review Officer's desk — NAFDAC's PSUR Administrative Screening
@@ -278,7 +278,7 @@ function ScreeningPage() {
   );
 }
 
-function DocumentSummary({ doc }: { doc: PsurDocument }) {
+function DocumentSummary({ doc }: { doc: PsurDocumentSummary }) {
   return (
     <div className="min-w-0">
       <p className="truncate text-sm font-medium">{doc.filename}</p>
@@ -294,7 +294,7 @@ function QueueRow({
   selected,
   onSelect,
 }: {
-  doc: PsurDocument;
+  doc: PsurDocumentSummary;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -313,7 +313,7 @@ function QueueRow({
   );
 }
 
-function TriagedRow({ doc, onOpen }: { doc: PsurDocument; onOpen: () => void }) {
+function TriagedRow({ doc, onOpen }: { doc: PsurDocumentSummary; onOpen: () => void }) {
   const [downloading, setDownloading] = useState(false);
   const stage = deriveWorkflowStage(doc);
   // The directive is built from the findings of the COMPLETED scientific

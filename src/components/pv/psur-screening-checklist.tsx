@@ -29,6 +29,7 @@ import { IbdCheck } from "@/components/pv/psur-ibd-check";
 import type {
   PsurAdministrativeScreening,
   PsurDocument,
+  PsurDocumentSummary,
   PsurScreeningCheckItem,
   PsurScreeningCheckStatus,
   PsurScreeningOutcomeDecision,
@@ -627,7 +628,7 @@ function CheckRow({
 }
 
 /** A one-line read of where a checklist stands, for the queue rows. */
-export function ScreeningSummaryPill({ doc }: { doc: PsurDocument }) {
+export function ScreeningSummaryPill({ doc }: { doc: PsurDocumentSummary }) {
   const screening = doc.administrativeScreening;
   if (!screening) {
     return (
