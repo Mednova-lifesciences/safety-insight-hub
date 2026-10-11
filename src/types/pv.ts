@@ -294,6 +294,28 @@ export interface IntakeConversationDetail extends IntakeConversation {
  *  the E2B layer here. */
 export type PatientRecordNumberSource = "GP" | "SPECIALIST" | "HOSPITAL" | "INVESTIGATION";
 
+/** One code in a code list: under codebook key `field` ("sex", "outcome",
+ *  "seriousness" = the criterion code column, …), `sourceCode` means
+ *  `meaning`. */
+export interface LineListCodeListEntry {
+  field: string;
+  sourceCode: string;
+  meaning: string;
+}
+
+export interface LineListCodeList {
+  entries: LineListCodeListEntry[];
+  /** What the person typed, pasted or uploaded, kept as written. */
+  text: string;
+  /** PERSON: confirmed for this file, and wins over the file's own legend.
+   *  FORM: the list saved for files with this column layout; the file's own
+   *  legend wins over it for any field the legend covers. */
+  origin: "PERSON" | "FORM";
+  formKey: string;
+  by: string;
+  at: string;
+}
+
 export interface LineListParsingOptions {
   /** "Rash/Urticaria" is usually ONE source phrase (the Ondo legend itself
    *  defines codes that way), so "/" never splits reactions unless the
@@ -425,6 +447,10 @@ export interface LineListJob {
    *  reason is mandatory, exactly like e2bOverride. */
   validatedE2bOverride?: { by: string; at: string; reason: string } | undefined;
   parsingOptions?: LineListParsingOptions | undefined;
+  /** A code list a person supplied for this file (or the one saved for its
+   *  form, attached at upload). Applied to line-list checks, E2B preflight
+   *  and export alike. See services/e2b-r3/source-profiles/code-list-text.ts. */
+  codeList?: LineListCodeList | undefined;
   /** Real 1-indexed sheet row of each case row, parallel to parsedRows —
    *  what a person sees in Excel. Absent on jobs uploaded before this was
    *  recorded and on jobs created from cases. */

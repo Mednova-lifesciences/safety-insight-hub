@@ -186,6 +186,23 @@ class AiOutcomeVocabulary(BaseModel):
     proposals: list[AiOutcomeProposal]
 
 
+class AiCodeListEntry(BaseModel):
+    """One row of a code list a person typed — their own code and wording,
+    under one of the field names the request allowed."""
+
+    field: str
+    code: str
+    meaning: str
+
+
+class AiCodeList(BaseModel):
+    """`entries` is required — a response without it means the model ignored
+    the schema, which must read as "nothing was read", not "no codes"."""
+
+    entries: list[AiCodeListEntry]
+    unplaced: list[str] = Field(default_factory=list)
+
+
 class AiLineListCorrection(BaseModel):
     row: int
     column: str

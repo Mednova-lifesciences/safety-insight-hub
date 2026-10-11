@@ -19,6 +19,7 @@ import type {
 } from "./types";
 import type { MedDraCodingProvider, WhoDrugCodingProvider } from "./coding-provider";
 import type { DelimiterConfig, SourceProfile } from "./source-profiles/types";
+import { decodeCodedFields } from "./source-profiles/code-list-text";
 import type { E2bTransmissionConfig } from "./transmission-config";
 import { MAX_CASE_SAFETY_REPORT_ID_LENGTH, resolveCaseSafetyReportId } from "./case-identifier";
 import { resolveReactionCountry, resolveReporterCountry } from "./country";
@@ -105,47 +106,52 @@ export function applyColumnMap(
   profile: SourceProfile,
 ): RawLineListRow {
   const get = (col?: string): string | undefined => (col ? sourceRecord[col] : undefined);
-  return {
-    case_id: get(profile.columnMap.caseId),
-    patient_identifier: get(profile.columnMap.patientIdentifier),
-    sex: get(profile.columnMap.sex),
-    age: get(profile.columnMap.age),
-    age_unit: get(profile.columnMap.ageUnit),
-    dose_unit: get(profile.columnMap.doseUnit),
-    date_of_birth: get(profile.columnMap.dateOfBirth),
-    age_group: get(profile.columnMap.ageGroup),
-    reaction: get(profile.columnMap.reaction),
-    onset_date: get(profile.columnMap.onsetDate),
-    product: get(profile.columnMap.product),
-    vaccination_date: get(profile.columnMap.vaccinationDate),
-    report_date: get(profile.columnMap.reportDate),
-    vaccine_batch: get(profile.columnMap.batchNumber),
-    serious_code: get(profile.columnMap.seriousCode),
-    dose: get(profile.columnMap.dose),
-    outcome: get(profile.columnMap.outcome),
-    seriousness: get(profile.columnMap.seriousness),
-    reporter_designation: get(profile.columnMap.reporterDesignation),
-    reporter_phone: get(profile.columnMap.reporterPhone),
-    reporter_organization: get(profile.columnMap.reporterOrganization),
-    reporter_city: get(profile.columnMap.reporterCity),
-    reporter_state: get(profile.columnMap.reporterState),
-    route: get(profile.columnMap.route),
-    age_months: get(profile.columnMap.ageMonths),
-    vaccination_time: get(profile.columnMap.vaccinationTime),
-    medical_history: get(profile.columnMap.medicalHistory),
-    diluent_batch: get(profile.columnMap.diluentBatch),
-    other_vaccines: get(profile.columnMap.otherVaccines),
-    reporter_address: get(profile.columnMap.reporterAddress),
-    reporter_email: get(profile.columnMap.reporterEmail),
-    national_received_date: get(profile.columnMap.nationalReceivedDate),
-    state_received_date: get(profile.columnMap.stateReceivedDate),
-    reporter_country: get(profile.columnMap.reporterCountry),
-    reaction_country: get(profile.columnMap.reactionCountry),
-    patient_id: get(profile.columnMap.patientId),
-    reporter_name: get(profile.columnMap.reporterName),
-    is_followup: get(profile.columnMap.isFollowUp),
-    previous_case_id: get(profile.columnMap.previousCaseId),
-  };
+  // Coded cells become their meaning before any field logic, wherever the
+  // file's code list defines them (see decodeCodedFields).
+  return decodeCodedFields(buildRow(), profile.fieldCodebooks);
+  function buildRow(): RawLineListRow {
+    return {
+      case_id: get(profile.columnMap.caseId),
+      patient_identifier: get(profile.columnMap.patientIdentifier),
+      sex: get(profile.columnMap.sex),
+      age: get(profile.columnMap.age),
+      age_unit: get(profile.columnMap.ageUnit),
+      dose_unit: get(profile.columnMap.doseUnit),
+      date_of_birth: get(profile.columnMap.dateOfBirth),
+      age_group: get(profile.columnMap.ageGroup),
+      reaction: get(profile.columnMap.reaction),
+      onset_date: get(profile.columnMap.onsetDate),
+      product: get(profile.columnMap.product),
+      vaccination_date: get(profile.columnMap.vaccinationDate),
+      report_date: get(profile.columnMap.reportDate),
+      vaccine_batch: get(profile.columnMap.batchNumber),
+      serious_code: get(profile.columnMap.seriousCode),
+      dose: get(profile.columnMap.dose),
+      outcome: get(profile.columnMap.outcome),
+      seriousness: get(profile.columnMap.seriousness),
+      reporter_designation: get(profile.columnMap.reporterDesignation),
+      reporter_phone: get(profile.columnMap.reporterPhone),
+      reporter_organization: get(profile.columnMap.reporterOrganization),
+      reporter_city: get(profile.columnMap.reporterCity),
+      reporter_state: get(profile.columnMap.reporterState),
+      route: get(profile.columnMap.route),
+      age_months: get(profile.columnMap.ageMonths),
+      vaccination_time: get(profile.columnMap.vaccinationTime),
+      medical_history: get(profile.columnMap.medicalHistory),
+      diluent_batch: get(profile.columnMap.diluentBatch),
+      other_vaccines: get(profile.columnMap.otherVaccines),
+      reporter_address: get(profile.columnMap.reporterAddress),
+      reporter_email: get(profile.columnMap.reporterEmail),
+      national_received_date: get(profile.columnMap.nationalReceivedDate),
+      state_received_date: get(profile.columnMap.stateReceivedDate),
+      reporter_country: get(profile.columnMap.reporterCountry),
+      reaction_country: get(profile.columnMap.reactionCountry),
+      patient_id: get(profile.columnMap.patientId),
+      reporter_name: get(profile.columnMap.reporterName),
+      is_followup: get(profile.columnMap.isFollowUp),
+      previous_case_id: get(profile.columnMap.previousCaseId),
+    };
+  }
 }
 
 /** "ADEBOLA ESTHER" -> "A.E." — pseudonymised initials, never a real name.

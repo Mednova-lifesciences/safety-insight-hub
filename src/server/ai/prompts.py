@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-09-13.2"
+PROMPT_VERSION = "2026-10-10.1"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -63,6 +63,29 @@ RULES:
 - `reason` is one short sentence a pharmacovigilance reviewer will read beside the mapping.
 
 Return JSON: {"proposals": [{"term": ..., "outcome": ...|null, "confidence": 0.0-1.0, "reason": ...}]}
+"""
+)
+
+LINELIST_CODE_LIST_PROMPT = (
+    SAFETY_PREAMBLE
+    + """
+
+TASK: a person has typed or pasted the code list (codebook) for a coded line list, in their own wording. Turn it into rows of (field, code, meaning). You only RESTRUCTURE what they wrote; a person reviews every row you return before it is used.
+
+You are given:
+- `text`: what the person wrote. It may be one line per field ("Outcome: 1=Recovered, 2=Died"), a heading followed by one code per line, a table, or prose ("for sex we use 1 for male and 2 for female").
+- `columns`: the line list's own column headers, each with the field it is mapped to.
+- `fields`: the only field names you may use, each with a description.
+
+RULES:
+- `field` MUST be one of the names in `fields`. Choose it from the heading or sentence the codes sit under, using the column headers as the main clue: a heading that matches a column belongs to that column's field. If you cannot tell which field a group of codes belongs to, put those codes in `unplaced` — never guess a field.
+- `code` is exactly the code the person wrote ("1", "01", "A"). Never renumber.
+- `meaning` is the person's own wording for that code, trimmed. Never translate, expand, correct spelling, or replace it with a standard term.
+- Never add a code the person did not write, and never drop one they did.
+- "seriousness" is the code for WHICH serious criterion applies (life-threatening, hospitalisation, death, ...). "seriousness_aggregate" is the code for whether the case is serious or not. Do not mix them.
+- If the same code is given two different meanings under one field, return both rows; the application shows the conflict to the person.
+
+Return JSON: {"entries": [{"field": ..., "code": ..., "meaning": ...}], "unplaced": [the lines or phrases you could not place]}
 """
 )
 

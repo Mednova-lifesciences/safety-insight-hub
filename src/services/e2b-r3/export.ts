@@ -39,11 +39,12 @@ import { withPatientRecordNumberSource } from "./source-profiles/patient-record-
 import { getSourceProfile } from "./source-profiles/registry";
 import type { SourceProfile } from "./source-profiles/types";
 import { parseDiscoveredLegend, validateDiscoveredCodebook } from "./source-profiles/legend-parser";
+import { readCodeListText } from "./source-profiles/code-list-text";
 import {
   applyParsingOptions,
   resolveRuntimeSourceProfile,
 } from "./source-profiles/runtime-profile";
-import type { LineListParsingOptions } from "@/types/pv";
+import type { LineListCodeList, LineListParsingOptions } from "@/types/pv";
 import {
   fieldsCovered,
   type DiscoveredSourceCodebook,
@@ -71,15 +72,67 @@ export function discoverAndApplyCodebook(
   baseProfile: SourceProfile,
   discardedRows: { row: number; text: string }[] | undefined,
   evidence: { file?: string | undefined; sheet?: string | undefined },
+  codeList?: LineListCodeList | undefined,
 ): { runtimeProfile: SourceProfile; discovered: DiscoveredSourceCodebook } {
-  const discovered = validateDiscoveredCodebook(
-    parseDiscoveredLegend({
-      sourceId: baseProfile.id,
-      lines: (discardedRows ?? []).map((d) => ({ text: d.text, row: d.row })),
-      evidence,
-    }),
+  const parsed = parseDiscoveredLegend({
+    sourceId: baseProfile.id,
+    lines: (discardedRows ?? []).map((d) => ({ text: d.text, row: d.row })),
+    evidence,
+  });
+  // A fixed file this tool wrote carries the code list a person added in a
+  // "CODE LIST —" block (codeListFooterLines). The legend reader above only
+  // knows reaction/outcome/seriousness headings, so the block is read with
+  // the typed-list reader too — every field comes back on re-upload.
+  const rows = discardedRows ?? [];
+  const blockStart = rows.findIndex((d) => /^CODE LIST\s+—/.test(d.text.trim()));
+  const fromBlock =
+    blockStart < 0
+      ? []
+      : readCodeListText(
+          rows
+            .slice(blockStart + 1)
+            .map((d) => d.text)
+            .join("\n"),
+        ).entries.map((e) => ({
+          ...e,
+          sourceEvidence: { file: evidence.file, rawText: "CODE LIST block" },
+        }));
+  const known = new Set(
+    parsed.entries.map((e) => `${e.field}\u0000${e.sourceCode}\u0000${e.meaning}`),
   );
-  const runtimeProfile = resolveRuntimeSourceProfile(baseProfile, discovered);
+  const discovered = validateDiscoveredCodebook({
+    ...parsed,
+    entries: [
+      ...parsed.entries,
+      ...fromBlock.filter((e) => !known.has(`${e.field}\u0000${e.sourceCode}\u0000${e.meaning}`)),
+    ],
+    discoveryStatus:
+      fromBlock.length > 0 && parsed.discoveryStatus === "NOT_FOUND"
+        ? "DISCOVERED"
+        : parsed.discoveryStatus,
+  });
+  // Precedence, lowest first: the code list saved for this form, the
+  // file's own legend, a code list a person confirmed for this file. A
+  // field the file's own legend covers ignores the saved form list
+  // entirely — a file that brings its codes is the authority on them.
+  const asCodebook = (entries: LineListCodeList["entries"]): DiscoveredSourceCodebook => ({
+    sourceId: `${baseProfile.id}:code-list`,
+    entries: entries.map((e) => ({ ...e, sourceEvidence: { rawText: codeList?.text } })),
+    rejectedEntries: [],
+    discoveryStatus: entries.length ? "DISCOVERED" : "NOT_FOUND",
+  });
+  const fileFields = new Set(fieldsCovered(discovered));
+  let runtimeProfile = baseProfile;
+  if (codeList?.origin === "FORM") {
+    runtimeProfile = resolveRuntimeSourceProfile(
+      runtimeProfile,
+      asCodebook(codeList.entries.filter((e) => !fileFields.has(e.field))),
+    );
+  }
+  runtimeProfile = resolveRuntimeSourceProfile(runtimeProfile, discovered);
+  if (codeList?.origin === "PERSON") {
+    runtimeProfile = resolveRuntimeSourceProfile(runtimeProfile, asCodebook(codeList.entries));
+  }
   return { runtimeProfile, discovered };
 }
 
@@ -174,6 +227,7 @@ export interface MappableJob {
   outcomeVocabulary?: OutcomeVocabulary | undefined;
   parsingOptions?: LineListParsingOptions | undefined;
   discardedRows?: { row: number; text: string }[] | undefined;
+  codeList?: LineListCodeList | undefined;
   parsedRows?: ParsedRow[] | undefined;
   /** Column header -> canonical field. Needed here because which record a
    *  patient number came from can be read from the column's own name. */
@@ -213,6 +267,7 @@ export async function mapJobToCases(
     sourceProfile,
     job.discardedRows,
     { file: job.filename, sheet: job.sheetName },
+    job.codeList,
   );
   const runtimeProfile = mergeOrgRegulatoryConfigIntoProfile(discoveredProfile, regulatoryConfig);
 

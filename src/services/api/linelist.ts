@@ -59,6 +59,7 @@ import {
   resolvePatientRecordNumberSource,
 } from "@/services/e2b-r3/source-profiles/patient-record-number";
 import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
+import { decodeCodedFields } from "@/services/e2b-r3/source-profiles/code-list-text";
 import {
   isNoSeriousnessCode,
   resolveFieldConcept,
@@ -76,7 +77,19 @@ import type {
   LineListIssue,
   LineListIssueType,
   LineListJob,
+  LineListCodeList,
+  LineListCodeListEntry,
 } from "@/types/pv";
+import {
+  codeListFooterLines,
+  deleteFormCodeList,
+  formKeyFor,
+  isFormCodeListRow,
+  previewCodeList,
+  readFormCodeList,
+  saveFormCodeList,
+  type CodeListPreview,
+} from "./linelist-code-list";
 
 /**
  * The line-list quality-check pass (runValidation, below) used to be
@@ -111,6 +124,7 @@ function resolveJobRuntimeProfile(job: {
   outcomeVocabulary?: OutcomeVocabulary | undefined;
   mapping?: Record<string, TargetField> | undefined;
   parsingOptions?: LineListJob["parsingOptions"];
+  codeList?: LineListJob["codeList"];
 }): SourceProfile {
   // An unregistered id would throw from getSourceProfile and take the whole
   // job down; a job is not worth losing over a stale profile reference, so
@@ -121,10 +135,12 @@ function resolveJobRuntimeProfile(job: {
   } catch {
     baseProfile = getSourceProfile(DEFAULT_SOURCE_PROFILE_ID);
   }
-  const { runtimeProfile } = discoverAndApplyCodebook(baseProfile, job.discardedRows, {
-    file: job.filename,
-    sheet: job.sheetName,
-  });
+  const { runtimeProfile } = discoverAndApplyCodebook(
+    baseProfile,
+    job.discardedRows,
+    { file: job.filename, sheet: job.sheetName },
+    job.codeList,
+  );
   // Layered last so it can only fill outcome words nothing else resolved —
   // the profile's own configured outcomeMap still wins inside
   // withOutcomeVocabulary.
@@ -1335,9 +1351,12 @@ function detectColumnShifts(
 export function runValidation(
   headers: string[],
   mapping: Record<string, TargetField>,
-  rows: ParsedRow[],
+  rawRows: ParsedRow[],
   runtimeProfile: SourceProfile = getSourceProfile("ondo-aefi"),
 ): LineListIssue[] {
+  // Coded cells read as their meaning ("1" → "Male") wherever this file's
+  // code list defines them, exactly as export will read them.
+  const rows = rawRows.map((r) => decodeCodedFields(r, runtimeProfile.fieldCodebooks));
   const issues: LineListIssue[] = [];
   const mappedFields = new Set(Object.values(mapping));
   const headerForField = new Map<TargetField, string>();
@@ -2557,9 +2576,13 @@ export const linelist = {
   jobs: async (): Promise<LineListJob[]> => {
     const { data, error } = await supabase.from("pv_linelist_jobs").select("data");
     if (error) throw new Error(error.message);
-    return (data ?? [])
-      .map((r) => r.data as unknown as LineListJob)
-      .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+    return (
+      (data ?? [])
+        // Saved form code lists share the table; they are not jobs.
+        .filter((r) => !isFormCodeListRow(r.data))
+        .map((r) => r.data as unknown as LineListJob)
+        .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
+    );
   },
 
   /** `sourceProfileId` names which SourceProfile decodes this file — most
@@ -2659,6 +2682,21 @@ export const linelist = {
         sourceRowNumbers,
         ...(restoredDecisions.length > 0 ? { decisions: restoredDecisions } : {}),
       };
+      // A code list saved for files with this column layout is attached, so
+      // a form's codes are entered once. The file's own legend, if it has
+      // one, still wins for every field it covers (discoverAndApplyCodebook).
+      const formKey = formKeyFor(job.sourceProfileId ?? DEFAULT_SOURCE_PROFILE_ID, headers);
+      const saved = await readFormCodeList(formKey).catch(() => null);
+      if (saved) {
+        job.codeList = {
+          entries: saved.entries,
+          text: saved.text,
+          origin: "FORM",
+          formKey,
+          by: saved.by,
+          at: saved.at,
+        };
+      }
     } catch (err) {
       job = {
         id: newId("ll"),
@@ -2926,6 +2964,92 @@ export const linelist = {
           : "defaults",
         newValue: `slash separates reactions: ${options.slashSeparatesReactions}; product cell is one name: ${options.productCellIsOneName}; patient record number source: ${declined ? "declined — not exported" : (decided ?? "undecided")}`,
       });
+      return recheckJob(jobId);
+    }),
+
+  /** Reads a typed, pasted or uploaded code list for this file and shows
+   *  what would apply — rules first, the AI for what they cannot place —
+   *  with every problem a person should see. Nothing is saved. */
+  previewCodeList: async (jobId: string, text: string): Promise<CodeListPreview> =>
+    previewCodeList(await readJob(jobId), text),
+
+  /** A person confirms a code list for this file. With `saveForForm`, it is
+   *  also saved for every later file with the same column layout. Applies
+   *  to line-list checks, E2B preflight and export alike; audited; the
+   *  line list is rechecked so cleared blockers disappear at once. */
+  setCodeList: (
+    jobId: string,
+    input: { entries: LineListCodeListEntry[]; text: string; saveForForm: boolean },
+  ): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const actor = currentActor();
+      const job = await readJob(jobId);
+      const formKey = formKeyFor(
+        job.sourceProfileId ?? DEFAULT_SOURCE_PROFILE_ID,
+        job.columns ?? [],
+      );
+      const at = new Date().toISOString();
+      const codeList: LineListCodeList = {
+        entries: input.entries,
+        text: input.text,
+        origin: "PERSON",
+        formKey,
+        by: actor.name,
+        at,
+      };
+      await saveJob({ ...job, codeList });
+      await recordAudit({
+        action: "LINELIST_CODE_LIST_SET",
+        entity: "LineListJob",
+        entityId: jobId,
+        previousValue: job.codeList
+          ? `${job.codeList.entries.length} code(s), ${job.codeList.origin === "FORM" ? "saved for the form" : "added for this file"}`
+          : "none",
+        newValue: `${input.entries.length} code(s) across ${new Set(input.entries.map((e) => e.field)).size} field(s)`,
+      });
+      if (input.saveForForm) {
+        await saveFormCodeList({
+          formKey,
+          columns: (job.columns ?? []).filter((c) => c.trim() && !isFixedFileAnnotationColumn(c)),
+          entries: input.entries,
+          text: input.text,
+          by: actor.name,
+          at,
+        });
+        await recordAudit({
+          action: "LINELIST_FORM_CODE_LIST_SAVED",
+          entity: "FormCodeList",
+          entityId: formKey,
+          newValue: `${input.entries.length} code(s), from ${job.filename}`,
+        });
+      }
+      return recheckJob(jobId);
+    }),
+
+  /** Removes the code list from this file (the saved form list, if any, is
+   *  kept unless `alsoForForm`). Audited; rechecked. */
+  clearCodeList: (jobId: string, alsoForForm = false): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      if (!job.codeList) return job;
+      const { codeList, ...rest } = job;
+      await saveJob(rest);
+      await recordAudit({
+        action: "LINELIST_CODE_LIST_REMOVED",
+        entity: "LineListJob",
+        entityId: jobId,
+        previousValue: `${codeList.entries.length} code(s)`,
+        newValue: "none",
+      });
+      if (alsoForForm) {
+        await deleteFormCodeList(codeList.formKey);
+        await recordAudit({
+          action: "LINELIST_FORM_CODE_LIST_REMOVED",
+          entity: "FormCodeList",
+          entityId: codeList.formKey,
+          newValue: "removed",
+        });
+      }
       return recheckJob(jobId);
     }),
 
@@ -3359,9 +3483,12 @@ export const linelist = {
       decisions: job.decisions ?? [],
       issues,
       unresolved: job.lastFixUnresolved ?? [],
-      preservedSourceText: (job.discardedRows ?? [])
-        .map((entry) => entry.text.trim())
-        .filter(Boolean),
+      preservedSourceText: [
+        ...(job.discardedRows ?? []).map((entry) => entry.text.trim()).filter(Boolean),
+        // A code list a person added goes with the file, so a re-upload of
+        // the fixed file is decoded the same way.
+        ...codeListFooterLines(job.codeList),
+      ],
       onsetUsed: onsetUsedForRows(job.parsedRows, job.mapping),
     });
     const blob = new Blob([csv], { type: "text/csv" });

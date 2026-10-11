@@ -77,7 +77,10 @@ async def _push_pv_notification(user: AuthenticatedUser, type_: str, title: str,
 async def list_linelist_jobs(
     user: AuthenticatedUser = Depends(require_permission("case.view")),
 ):
-    return await _list_data_table("pv_linelist_jobs")
+    # Saved form code lists share this table (kind FORM_CODE_LIST); they are
+    # not jobs. See src/services/api/linelist-code-list.ts.
+    rows = await _list_data_table("pv_linelist_jobs")
+    return [r for r in rows if not (isinstance(r, dict) and r.get("kind") == "FORM_CODE_LIST")]
 
 
 @router.get("/intake/conversations")

@@ -491,6 +491,15 @@ export interface AiC17Evidence {
   sourceFields: string[];
 }
 
+export interface AiReadCodeListResponse {
+  entries: { field: string; code: string; meaning: string }[];
+  unplaced: string[];
+  ai_used: boolean;
+  prompt_version: string;
+  model?: string | null;
+  error?: string | null;
+}
+
 export const ai = {
   status: () => apiRequest<{ configured: boolean }>("/api/ai/linelist/status"),
 
@@ -513,6 +522,17 @@ export const ai = {
       }),
     mapOutcomes: (body: { terms: string[] }) =>
       apiRequest<AiMapOutcomesResponse>("/api/ai/linelist/map-outcomes", {
+        method: "POST",
+        body,
+      }),
+    /** Restructures a code list a person typed into (field, code, meaning)
+     *  rows. Only restructures; a person confirms every row. */
+    readCodeList: (body: {
+      text: string;
+      columns: { header: string; field: string }[];
+      fields: { name: string; description: string }[];
+    }) =>
+      apiRequest<AiReadCodeListResponse>("/api/ai/linelist/read-code-list", {
         method: "POST",
         body,
       }),
@@ -575,8 +595,7 @@ export const ai = {
       extractedText: string;
       product: string;
       reportingPeriod: string;
-    }) =>
-      apiRequest<AiPsurV4PrefillResponse>("/api/ai/psur/v4-prefill", { method: "POST", body }),
+    }) => apiRequest<AiPsurV4PrefillResponse>("/api/ai/psur/v4-prefill", { method: "POST", body }),
     /** Which memo criterion pasted text belongs to — a proposal. */
     routeEvidence: (body: { text: string }) =>
       apiRequest<AiPsurRouteEvidenceResponse>("/api/ai/psur/route-evidence", {
