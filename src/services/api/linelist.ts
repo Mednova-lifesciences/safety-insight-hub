@@ -3512,6 +3512,9 @@ export const linelist = {
         fixRows,
         job.mapping,
         `${fixRun}-ai-move`,
+        // The same file-wide evidence the AI was given: an ambiguous move is
+        // accepted only when it clearly singles out the destination.
+        columnFill(job.columns, fixRows),
       );
       const corrections: {
         row: number;

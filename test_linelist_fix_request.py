@@ -40,3 +40,33 @@ def test_column_fill_reaches_the_model_and_only_issue_rows_are_sent(monkeypatch)
 def test_column_fill_is_optional_for_older_clients(monkeypatch):
     request = FixRequest(headers=["ID"], mapping={}, rows=[], issues=[])
     assert request.column_fill == {}
+
+
+def test_the_server_never_returns_an_invented_value_or_an_identifier_change(monkeypatch):
+    async def fake(**kwargs):
+        return SimpleNamespace(
+            data={
+                "corrections": [
+                    {"row": 1, "column": "Age", "new_value": "7", "reason": "guess"},
+                    {"row": 1, "column": "ID", "new_value": "HACK", "reason": "r"},
+                    {"row": 1, "column": "Vacc date", "new_value": "02/02/2026", "reason": "stray ' removed"},
+                ],
+                "unresolved": [],
+            },
+            model="m",
+        )
+
+    monkeypatch.setattr(ai_linelist, "structured_completion", fake)
+    request = FixRequest(
+        headers=["ID", "Age", "Vacc date"],
+        mapping={"ID": "case_id", "Age": "age", "Vacc date": "vaccination_date"},
+        rows=[{"ID": "T-1", "Age": "4/2/26", "Vacc date": "02/02/2026'"}],
+        issues=[
+            {"row": 1, "column": "Age", "fixable": True},
+            {"row": 1, "column": "Vacc date", "fixable": True},
+        ],
+    )
+    out = asyncio.run(fix_linelist(request, user=USER))
+    assert [(c.column, c.new_value) for c in out.corrections] == [("Vacc date", "02/02/2026")]
+    assert sorted(u.column for u in out.unresolved) == ["Age", "ID"]
+    assert all(u.reason for u in out.unresolved)

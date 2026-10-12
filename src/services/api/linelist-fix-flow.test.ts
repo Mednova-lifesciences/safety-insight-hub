@@ -211,7 +211,13 @@ const rowsA = [base(1, { "Vacc date": "02/02/2026'" }), base(2)];
 const issA = [
   issue(1, "Vacc date", "DATE_FORMAT_INVALID", "02/02/2026'", { source: "ai", fixable: false }),
 ];
-const rowsM = [base(1, { Age: "4/2/26", "Vacc date": "", "Report date": "" })];
+// Two date columns are empty in row 1, so where its date belongs is only
+// settled by the file: the vaccination date is filled in 9 of 10 rows, the
+// report date in none.
+const rowsM = [
+  base(1, { Age: "4/2/26", "Vacc date": "", "Report date": "" }),
+  ...Array.from({ length: 9 }, (_, i) => base(i + 2, { "Report date": "" })),
+];
 const issM = [issue(1, "Age", "FIELD_CONTENT_MISMATCH", "4/2/26")];
 
 describe("recovery, without the AI", () => {

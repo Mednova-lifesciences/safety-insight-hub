@@ -67,11 +67,7 @@
     {
       "from": "3",
       "to": "MALE",
-      "row": [
-        "MALE",
-        "3",
-        "4/2/26"
-      ],
+      "row": ["MALE", "3", "4/2/26"],
       "ok": true,
       "why": "a value another cell of the row holds (swap)"
     },
@@ -205,9 +201,7 @@
         "Vacc date": "",
         "Report date": "5/2/26"
       },
-      "asked": [
-        "Age"
-      ],
+      "asked": ["Age"],
       "answer": [
         {
           "column": "Age",
@@ -215,9 +209,7 @@
         }
       ],
       "applied": [],
-      "refused": [
-        "Age"
-      ]
+      "refused": ["Age"]
     },
     {
       "name": "a move into the one empty cell is applied, both halves",
@@ -228,9 +220,7 @@
         "Vacc date": "",
         "Report date": "5/2/26"
       },
-      "asked": [
-        "Age"
-      ],
+      "asked": ["Age"],
       "answer": [
         {
           "column": "Vacc date",
@@ -241,10 +231,7 @@
           "new_value": ""
         }
       ],
-      "applied": [
-        "Age",
-        "Vacc date"
-      ],
+      "applied": ["Age", "Vacc date"],
       "refused": []
     },
     {
@@ -256,9 +243,7 @@
         "Vacc date": "",
         "Report date": "5/2/26"
       },
-      "asked": [
-        "Age"
-      ],
+      "asked": ["Age"],
       "answer": [
         {
           "column": "Report date",
@@ -270,10 +255,7 @@
         }
       ],
       "applied": [],
-      "refused": [
-        "Age",
-        "Report date"
-      ]
+      "refused": ["Age", "Report date"]
     },
     {
       "name": "a reformatted move is refused and nothing is emptied",
@@ -284,9 +266,7 @@
         "Vacc date": "",
         "Report date": "5/2/26"
       },
-      "asked": [
-        "Age"
-      ],
+      "asked": ["Age"],
       "answer": [
         {
           "column": "Vacc date",
@@ -298,10 +278,7 @@
         }
       ],
       "applied": [],
-      "refused": [
-        "Age",
-        "Vacc date"
-      ]
+      "refused": ["Age", "Vacc date"]
     },
     {
       "name": "two errors in one row: a swap and a stray character, both applied",
@@ -312,11 +289,7 @@
         "Vacc date": "02/02/2026'",
         "Report date": "5/2/26"
       },
-      "asked": [
-        "Sex",
-        "Age",
-        "Vacc date"
-      ],
+      "asked": ["Sex", "Age", "Vacc date"],
       "answer": [
         {
           "column": "Sex",
@@ -331,11 +304,7 @@
           "new_value": "02/02/2026"
         }
       ],
-      "applied": [
-        "Age",
-        "Sex",
-        "Vacc date"
-      ],
+      "applied": ["Age", "Sex", "Vacc date"],
       "refused": []
     },
     {
@@ -347,10 +316,7 @@
         "Vacc date": "02/02/2026'",
         "Report date": "5/2/26"
       },
-      "asked": [
-        "Age",
-        "Vacc date"
-      ],
+      "asked": ["Age", "Vacc date"],
       "answer": [
         {
           "column": "Age",
@@ -361,12 +327,8 @@
           "new_value": "02/02/2026"
         }
       ],
-      "applied": [
-        "Vacc date"
-      ],
-      "refused": [
-        "Age"
-      ]
+      "applied": ["Vacc date"],
+      "refused": ["Age"]
     },
     {
       "name": "an ambiguous destination (two empty date columns, no evidence) is refused, and the source keeps its value",
@@ -377,9 +339,7 @@
         "Vacc date": "",
         "Report date": ""
       },
-      "asked": [
-        "Age"
-      ],
+      "asked": ["Age"],
       "answer": [
         {
           "column": "Report date",
@@ -391,10 +351,7 @@
         }
       ],
       "applied": [],
-      "refused": [
-        "Age",
-        "Report date"
-      ]
+      "refused": ["Age", "Report date"]
     },
     {
       "name": "the same ambiguity settled by the whole file: the vaccination date is filled almost everywhere, the report date rarely",
@@ -405,9 +362,7 @@
         "Vacc date": "",
         "Report date": ""
       },
-      "asked": [
-        "Age"
-      ],
+      "asked": ["Age"],
       "fill": {
         "Vacc date": 0.95,
         "Report date": 0.3
@@ -422,10 +377,7 @@
           "new_value": ""
         }
       ],
-      "applied": [
-        "Age",
-        "Vacc date"
-      ],
+      "applied": ["Age", "Vacc date"],
       "refused": []
     },
     {
@@ -437,9 +389,7 @@
         "Vacc date": "",
         "Report date": ""
       },
-      "asked": [
-        "Age"
-      ],
+      "asked": ["Age"],
       "fill": {
         "Vacc date": 0.95,
         "Report date": 0.3
@@ -455,10 +405,7 @@
         }
       ],
       "applied": [],
-      "refused": [
-        "Age",
-        "Report date"
-      ]
+      "refused": ["Age", "Report date"]
     },
     {
       "name": "the case ID is never written, even as a move destination",
@@ -469,9 +416,7 @@
         "Vacc date": "3/2/26",
         "Report date": "5/2/26"
       },
-      "asked": [
-        "Age"
-      ],
+      "asked": ["Age"],
       "answer": [
         {
           "column": "ID",
@@ -483,10 +428,7 @@
         }
       ],
       "applied": [],
-      "refused": [
-        "Age",
-        "ID"
-      ]
+      "refused": ["Age", "ID"]
     },
     {
       "name": "an unrelated cell is refused, the asked one applied",
@@ -497,9 +439,7 @@
         "Vacc date": "02/02/2026'",
         "Report date": "5/2/26"
       },
-      "asked": [
-        "Vacc date"
-      ],
+      "asked": ["Vacc date"],
       "answer": [
         {
           "column": "Vacc date",
@@ -510,12 +450,8 @@
           "new_value": "MALE"
         }
       ],
-      "applied": [
-        "Vacc date"
-      ],
-      "refused": [
-        "Sex"
-      ]
+      "applied": ["Vacc date"],
+      "refused": ["Sex"]
     },
     {
       "name": "conflicting answers leave the cell alone",
@@ -526,9 +462,7 @@
         "Vacc date": "02/02/2026'",
         "Report date": "5/2/26"
       },
-      "asked": [
-        "Vacc date"
-      ],
+      "asked": ["Vacc date"],
       "answer": [
         {
           "column": "Vacc date",
@@ -540,9 +474,7 @@
         }
       ],
       "applied": [],
-      "refused": [
-        "Vacc date"
-      ]
+      "refused": ["Vacc date"]
     },
     {
       "name": "malformed answers (missing value, number, wrong row type, unknown column) are refused, never applied",
@@ -553,9 +485,7 @@
         "Vacc date": "02/02/2026'",
         "Report date": "5/2/26"
       },
-      "asked": [
-        "Vacc date"
-      ],
+      "asked": ["Vacc date"],
       "answer": [
         {
           "column": "Vacc date"
@@ -570,10 +500,7 @@
         }
       ],
       "applied": [],
-      "refused": [
-        "Nope",
-        "Vacc date"
-      ]
+      "refused": ["Nope", "Vacc date"]
     },
     {
       "name": "a value with no recognisable kind is never moved by the AI",
@@ -585,9 +512,7 @@
         "Report date": "5/2/26",
         "Remarks": ""
       },
-      "asked": [
-        "Age"
-      ],
+      "asked": ["Age"],
       "answer": [
         {
           "column": "Remarks",
@@ -599,10 +524,7 @@
         }
       ],
       "applied": [],
-      "refused": [
-        "Age",
-        "Remarks"
-      ]
+      "refused": ["Age", "Remarks"]
     }
   ]
 }
