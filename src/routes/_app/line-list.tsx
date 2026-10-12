@@ -412,10 +412,14 @@ function LineListPage() {
                           setFixing(true);
                           try {
                             const result = await linelistApi.fixIssues(activeJob.id);
-                            if (!result.aiUsed) {
-                              toast.error(
-                                result.aiError ?? "AI fix unavailable — no changes were made.",
-                              );
+                            // Recovery moves need no AI, so "corrected" is
+                            // what happened, not whether the AI was called.
+                            if (!result.aiUsed && result.correctionsApplied === 0) {
+                              if (result.aiError) toast.error(result.aiError);
+                              else
+                                toast.info(
+                                  `Nothing Fix could correct automatically.${result.unresolved.length ? ` ${result.unresolved.length} left for review.` : ""}`,
+                                );
                             } else {
                               toast.success(
                                 `${result.correctionsApplied} field(s) corrected — see Changes made below.${result.unresolved.length ? ` ${result.unresolved.length} left unresolved.` : ""}`,

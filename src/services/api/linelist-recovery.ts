@@ -85,6 +85,8 @@ function compatibleWithField(value: string, field: string): boolean {
     case "report_date":
     case "vaccination_date":
     case "onset_date":
+    case "state_received_date":
+    case "national_received_date":
       return isDateLike(v);
     case "patient_id":
       return isRecordNumberLike(v);
@@ -96,6 +98,23 @@ function compatibleWithField(value: string, field: string): boolean {
       return Boolean(v);
   }
 }
+
+/** Fields whose values have a shape compatibleWithField can recognise. */
+const TYPED_FIELDS = new Set([
+  "patient_identifier",
+  "reporter_name",
+  "age",
+  "sex",
+  "reporter_phone",
+  "date_of_birth",
+  "report_date",
+  "vaccination_date",
+  "onset_date",
+  "state_received_date",
+  "national_received_date",
+  "patient_id",
+  "reporter_designation",
+]);
 
 function isProtectedIdentifier(field: string): boolean {
   return ["case_id", "patient_id", "previous_case_id"].includes(field);
@@ -147,13 +166,15 @@ function recoverMove(
  * So this asks the opposite question, and answers it only when there is
  * exactly ONE sensible answer:
  *
- *  - the value must fit exactly one mapped field. A bare date fits
- *    onset_date, vaccination_date, report_date and date_of_birth equally,
- *    so in a file carrying several of those it is genuinely ambiguous and
- *    nothing is proposed — that belongs in review, not in a guess.
- *  - that field's column must be empty, or itself hold something that
- *    does not belong there. A column already holding a valid value is
- *    never overwritten by a push.
+ *  - of the fields the value fits, exactly one may have an OPEN column:
+ *    empty, or holding something that does not belong there. A bare date
+ *    fits onset_date, vaccination_date, report_date and date_of_birth, but
+ *    when the report date is filled and only the vaccination date is
+ *    empty, the vaccination date is the one place it can go. With two or
+ *    more open, it is genuinely ambiguous and nothing is proposed — that
+ *    belongs in review, not in a guess.
+ *  - a column already holding a valid value is never overwritten by a
+ *    push.
  *  - identifiers are barred, exactly as they are for pulls.
  */
 function pushMoves(
@@ -162,18 +183,26 @@ function pushMoves(
   sourceColumn: string,
   displacedValue: string,
 ): RecoveryMove[] {
-  const fits = Object.entries(mapping).filter(([header, field]) => {
+  // The columns this value could belong to that are open: empty, or
+  // holding something that does not belong there. A column already holding
+  // a valid value is never a destination — so a date in Age, with the
+  // report date filled and only the vaccination date empty, has exactly one
+  // place to go. Two or more open places is genuinely ambiguous.
+  const open = Object.entries(mapping).filter(([header, field]) => {
     if (header === sourceColumn) return false;
     if (isProtectedIdentifier(field)) return false;
-    return compatibleWithField(displacedValue, field);
+    // Only a column with a recognisable shape can be a destination: free
+    // text (an address, remarks, medical history) accepts anything, so it
+    // says nothing about where a value belongs.
+    if (!TYPED_FIELDS.has(field)) return false;
+    if (!compatibleWithField(displacedValue, field)) return false;
+    const occupant = normalizeWhitespace(row[header] ?? "");
+    return !occupant || !compatibleWithField(occupant, field);
   });
-  // Ambiguous, or nowhere to go.
-  if (fits.length !== 1) return [];
+  if (open.length !== 1) return [];
 
-  const [targetHeader, targetField] = fits[0]!;
+  const [targetHeader, targetField] = open[0]!;
   const occupant = normalizeWhitespace(row[targetHeader] ?? "");
-  // Never displace a value that is already where it should be.
-  if (occupant && compatibleWithField(occupant, targetField)) return [];
 
   return [
     {
@@ -181,8 +210,8 @@ function pushMoves(
       sourceValue: displacedValue,
       targetField,
       reason:
-        `Value "${displacedValue}" does not belong in ${mapping[sourceColumn]} and fits only ` +
-        `${targetField}, whose column is ${occupant ? "also holding a value that does not belong there" : "empty"}.`,
+        `Value "${displacedValue}" does not belong in ${mapping[sourceColumn]}; ${targetField} is the ` +
+        `only column it fits that is open (${occupant ? "it holds a value that does not belong there" : "it is empty"}).`,
       confidence: "high",
       fixerType: "deterministic",
     },

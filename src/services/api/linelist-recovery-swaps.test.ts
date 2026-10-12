@@ -245,10 +245,39 @@ describe("swaps in a coded line list", () => {
     expect(proposal).toBeNull();
   });
 
-  it("leaves a bare date in the age column for review", () => {
-    // It could be the vaccination date, the onset date or a date of birth.
+  it("moves a date out of the age column into the one date column that is empty", () => {
+    // The report date is filled and valid, the vaccination date is empty:
+    // the empty column is the only place the date can have come from.
     const proposal = generateRecoveryProposal(
       codedRow({ "Age Years": "4/2/26", "Date of Last immunisation Date": "" }),
+      CODED,
+    );
+    expect(proposal?.moves.map((m) => [m.sourceColumn, m.targetField, m.sourceValue])).toEqual([
+      ["Age Years", "vaccination_date", "4/2/26"],
+    ]);
+  });
+
+  it("swaps an age column and a date column back, with another date column present", () => {
+    // Each holds the other's value; the report date is valid and stays.
+    const proposal = generateRecoveryProposal(
+      codedRow({ "Age Years": "3/2/26", "Date of Last immunisation Date": "4" }),
+      CODED,
+    );
+    expect(
+      proposal?.moves.map((m) => [m.sourceColumn, m.targetField, m.sourceValue]).sort(),
+    ).toEqual([
+      ["Age Years", "vaccination_date", "3/2/26"],
+      ["Date of Last immunisation Date", "age", "4"],
+    ]);
+  });
+
+  it("still leaves a date alone when more than one date column is open", () => {
+    const proposal = generateRecoveryProposal(
+      codedRow({
+        "Age Years": "4/2/26",
+        "Date of Last immunisation Date": "",
+        "Date of Reporting to LGA": "",
+      }),
       CODED,
     );
     expect(proposal).toBeNull();
