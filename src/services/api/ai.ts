@@ -524,6 +524,9 @@ export const ai = {
       mapping: Record<string, string>;
       rows: Record<string, string>[];
       issues: unknown[];
+      /** Share of rows (0–1) in which each column is filled — the model
+       *  receives only the rows with issues, so this is its view of the file. */
+      column_fill?: Record<string, number>;
     }) => apiRequest<AiFixResponse>("/api/ai/linelist/fix", { method: "POST", body }),
     mapColumns: (body: { headers: string[]; rows: Record<string, string>[] }) =>
       apiRequest<AiMapColumnsResponse>("/api/ai/linelist/map-columns", {

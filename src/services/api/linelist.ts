@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { currentActor, fromDataFields, newId, recordAudit, selectDataFields, toJson } from "./db";
 import { mapColumnsByKeywords, parseTabularFile, type KeywordEntry } from "./tabular-parse";
 import { ai, type AiFixResponse } from "./ai";
+import { acceptedAiCorrections } from "./linelist-ai-fix-guard";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import { discoverAndApplyCodebook, mapJobToCases } from "@/services/e2b-r3/export";
 import { generateRecoveryProposal } from "./linelist-recovery";
@@ -2439,45 +2440,18 @@ function withIssueCounts(
   return next;
 }
 
-/**
- * The AI's corrections to cells it was NOT asked about that are genuine
- * moves, and may therefore be applied: a value relocated from a flagged
- * cell into an empty cell of the same row (a date sitting in the age
- * column, put into the empty vaccination-date column). Each must:
- *  - write into a cell that is empty now — never overwrite;
- *  - write exactly the value a flagged cell of the same row holds — the
- *    AI never types a new value, it only relocates one;
- *  - come with a correction to that flagged cell in the same answer, so
- *    the value leaves where it was (a move, not a copy);
- *  - touch no case-ID column, at either end.
- * Returned as cells to allow, each with the flagged cell it came from, so
- * the two halves are undone together.
- */
-export function aiMoves(
-  corrections: { row: number; column: string; new_value: string }[],
-  requested: { row: number; column: string }[],
+/** The share of rows in which each column holds a value, 0–1, two places. */
+export function columnFill(
+  columns: string[],
   rows: Record<string, string | undefined>[],
-  mapping: Record<string, string>,
-): { row: number; column: string; from: string }[] {
-  const asked = new Set(requested.map((r) => `${r.row}:${r.column}`));
-  const corrected = new Set(corrections.map((c) => `${c.row}:${c.column}`));
-  const norm = (v: unknown) => String(v ?? "").trim();
-  const out: { row: number; column: string; from: string }[] = [];
-  for (const c of corrections) {
-    if (asked.has(`${c.row}:${c.column}`)) continue;
-    if (mapping[c.column] === "case_id") continue;
-    const row = rows[c.row - 1];
-    if (!row || norm(row[c.column]) !== "" || norm(c.new_value) === "") continue;
-    const source = requested.find(
-      (r) =>
-        r.row === c.row &&
-        mapping[r.column] !== "case_id" &&
-        corrected.has(`${r.row}:${r.column}`) &&
-        norm(row[r.column]) === norm(c.new_value),
-    );
-    if (source) out.push({ row: c.row, column: c.column, from: source.column });
-  }
-  return out;
+): Record<string, number> {
+  const total = rows.length || 1;
+  return Object.fromEntries(
+    columns.map((c) => [
+      c,
+      Math.round((rows.filter((r) => String(r[c] ?? "").trim() !== "").length / total) * 100) / 100,
+    ]),
+  );
 }
 
 /** Corrections the fix model returned, limited to what it was asked to fix
@@ -3454,12 +3428,16 @@ export const linelist = {
       // exactly one place for them) runs on every row, whatever the AI is
       // given — so a file whose only problem is a swap is still fixed.
       const deterministicRecovery = keptOnly(buildRecoveryCorrections(job), job.decisions);
-      const recoveryCells = new Set(deterministicRecovery.map((c) => `${c.row}:${c.column}`));
+      const recoveryCells = new Set(
+        deterministicRecovery
+          .filter((c) => !isCellHeld(job.changeLog ?? [], c.row, c.column))
+          .map((c) => `${c.row}:${c.column}`),
+      );
       // Offered to Fix: what the AI review marked fixable, and the rule
       // findings a correction can settle from the row itself (see
       // CORRECTABLE_RULE_CODES). Not a cell recovery already moves.
       const keptFixable = keptOnly(currentIssues, job.decisions)
-        .filter((i) => i.fixable || isCorrectableRuleFinding(i))
+        .filter((i) => i.row >= 1 && (i.fixable || isCorrectableRuleFinding(i)))
         .filter((i) => !recoveryCells.has(`${i.row}:${i.column}`))
         .map((i) => (i.fixable ? i : { ...i, fixable: true }));
       // A cell a person took over with Undo is never sent to the AI fix call
@@ -3502,6 +3480,9 @@ export const linelist = {
               mapping: job.mapping,
               rows: fixRows,
               issues: autoFixable,
+              // Only the rows with issues reach the model; this is how it
+              // sees the rest of the file when deciding where a value goes.
+              column_fill: columnFill(job.columns, fixRows),
             })
           : // Only recovery moves to make: no AI call.
             ({
@@ -3521,36 +3502,30 @@ export const linelist = {
         reason: c.reason,
         group: `${fixRun}-${c.group}`,
       }));
-      const aiCorrections = fixResult.ai_used ? fixResult.corrections : [];
-      const requestedCells = autoFixable.map((i) => ({ row: i.row, column: i.column }));
-      // A value the AI relocated into an empty cell (see aiMoves). Both
-      // halves share a group, so one Undo returns both cells.
-      const moves = aiMoves(aiCorrections, requestedCells, fixRows, job.mapping);
-      const moveGroup = (row: number, column: string) => {
-        const m = moves.find((x) => x.row === row && (x.column === column || x.from === column));
-        return m ? `${fixRun}-ai-move-${m.row}-${m.from}` : undefined;
-      };
-      const corrections = safeCorrections<{
+      // Whatever the AI answered, only what the data supports is applied
+      // (see linelist-ai-fix-guard): no invented value, no identifier, one
+      // answer per cell, a cell emptied only as the source of a move.
+      const aiCheck = acceptedAiCorrections(
+        fixResult.ai_used ? fixResult.corrections : [],
+        autoFixable.map((i) => ({ row: i.row, column: i.column })),
+        fixRows,
+        job.mapping,
+        `${fixRun}-ai-move`,
+      );
+      const corrections: {
         row: number;
         column: string;
         new_value: string;
         reason: string;
         group?: string;
-      }>(
-        [
-          ...recoveredCorrections,
-          ...aiCorrections.map((c) => {
-            const group = moveGroup(c.row, c.column);
-            return group ? { ...c, group } : c;
-          }),
-        ],
-        [
-          ...requestedCells,
-          ...recoveredCorrections.map((c) => ({ row: c.row, column: c.column })),
-          ...moves.map((m) => ({ row: m.row, column: m.column })),
-        ],
-        job.mapping,
-      );
+      }[] = [
+        ...safeCorrections(
+          recoveredCorrections,
+          recoveredCorrections.map((c) => ({ row: c.row, column: c.column })),
+          job.mapping,
+        ),
+        ...aiCheck.accepted,
+      ];
       // Every correction is recorded with the value it replaced, so it can be
       // shown, undone and audited. A cell a person has taken over is skipped
       // (appendCorrections), and so is a correction that changes nothing.
@@ -3608,7 +3583,10 @@ export const linelist = {
         };
       });
       const combinedUnresolved = [
-        ...fixResult.unresolved,
+        ...fixResult.unresolved.filter(
+          (u) => !aiCheck.rejected.some((r) => r.row === u.row && r.column === u.column),
+        ),
+        ...aiCheck.rejected,
         ...needsReviewUnresolved,
         ...skippedUnresolved,
       ];
@@ -3627,7 +3605,10 @@ export const linelist = {
           entity: "LineListJob",
           entityId: jobId,
           newValue: `${applied.length} field(s) corrected, ${combinedUnresolved.length} left unresolved`,
-          reason: `Prompt ${fixResult.prompt_version}`,
+          // What actually ran: recovery always; the AI only when it was called.
+          reason: fixResult.ai_used
+            ? `Recovery + AI (prompt ${fixResult.prompt_version}); ${aiCheck.rejected.length} AI answer(s) refused`
+            : "Recovery only — no AI call",
         });
       } else {
         updatedJob = { ...job, lastFixUnresolved: combinedUnresolved };
