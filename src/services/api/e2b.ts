@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { saveJobVersioned } from "./linelist-job-store";
 import { currentActor, recordAudit, toJson } from "./db";
 import type { LineListJob } from "@/types/pv";
 import type { OutcomeVocabulary } from "@/services/e2b-r3/source-profiles/outcome-vocabulary";
@@ -367,11 +368,7 @@ export const e2b = {
       ...job,
       e2bOverride: { by: actor.name, at: new Date().toISOString() },
     };
-    const { error } = await supabase
-      .from("pv_linelist_jobs")
-      .update({ data: toJson(nextJob) })
-      .eq("id", jobId);
-    if (error) throw new Error(error.message);
+    await saveJobVersioned(nextJob);
 
     await recordAudit({
       action: "E2B_ERRORS_OVERRIDDEN",
@@ -407,11 +404,7 @@ export const e2b = {
       ...job,
       validatedE2bOverride: { by: actor.name, at: new Date().toISOString(), reason: reason.trim() },
     };
-    const { error } = await supabase
-      .from("pv_linelist_jobs")
-      .update({ data: toJson(nextJob) })
-      .eq("id", jobId);
-    if (error) throw new Error(error.message);
+    await saveJobVersioned(nextJob);
 
     await recordAudit({
       action: "E2B_R3_VALIDATED_EXPORT_OVERRIDDEN",
@@ -433,11 +426,7 @@ export const e2b = {
     if (!job.validatedE2bOverride) return job;
     const actor = currentActor();
     const nextJob: LineListJobRow = { ...job, validatedE2bOverride: undefined };
-    const { error } = await supabase
-      .from("pv_linelist_jobs")
-      .update({ data: toJson(nextJob) })
-      .eq("id", jobId);
-    if (error) throw new Error(error.message);
+    await saveJobVersioned(nextJob);
 
     await recordAudit({
       action: "E2B_R3_VALIDATED_EXPORT_OVERRIDE_CLEARED",
@@ -470,11 +459,7 @@ export const e2b = {
     };
 
     const nextJob: LineListJobRow = { ...job, stage: "E2B_GENERATED", e2bArtifact: artifact };
-    const { error } = await supabase
-      .from("pv_linelist_jobs")
-      .update({ data: toJson(nextJob) })
-      .eq("id", jobId);
-    if (error) throw new Error(error.message);
+    await saveJobVersioned(nextJob);
 
     await recordAudit({
       action: "E2B_GENERATED",

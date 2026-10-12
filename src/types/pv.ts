@@ -475,6 +475,9 @@ export interface LineListJob {
   decisions?: LineListDecision[] | undefined;
   /** When the deterministic + E2B checks last ran. */
   checkedAt?: string | undefined;
+  /** Goes up by one with every save; a save that read an older version is
+   *  refused rather than overwriting a newer one (linelist-job-store). */
+  version?: number | undefined;
 }
 
 export type LineListSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";

@@ -27,6 +27,7 @@ from ..ai.prompts import (
     LINELIST_OUTCOME_VOCABULARY_PROMPT,
     PROMPT_VERSION,
 )
+from ..ai.fix_guard import check_fix_answer
 from ..ai.schemas import (
     AiCodeList,
     AiColumnMapping,
@@ -629,9 +630,25 @@ async def fix_linelist(
             max_output_tokens=MAX_FIX_OUTPUT_TOKENS,
         )
         parsed = AiLineListFix.model_validate(completion.data)
+        # The model's answer is checked here, before it leaves the server:
+        # no invented value, no identifier change, no ambiguous move, one
+        # answer per cell (see ai/fix_guard.py). Refusals are reported.
+        accepted, refused = check_fix_answer(
+            [c.model_dump() for c in parsed.corrections],
+            [{"row": i.get("row"), "column": i.get("column")} for i in fixable_issues],
+            request.rows,
+            request.mapping,
+            request.column_fill,
+        )
+        refused_cells = {(r["row"], r["column"]) for r in refused}
         return FixResponse(
-            corrections=[CorrectionOut(**c.model_dump()) for c in parsed.corrections],
-            unresolved=[UnresolvedOut(**u.model_dump()) for u in parsed.unresolved],
+            corrections=[CorrectionOut(**{k: c[k] for k in ("row", "column", "new_value", "reason")}) for c in accepted],
+            unresolved=[
+                UnresolvedOut(**u.model_dump())
+                for u in parsed.unresolved
+                if (u.row, u.column) not in refused_cells
+            ]
+            + [UnresolvedOut(**r) for r in refused],
             ai_used=True,
             prompt_version=PROMPT_VERSION,
         )

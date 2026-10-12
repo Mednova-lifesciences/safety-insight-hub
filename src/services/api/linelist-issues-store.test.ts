@@ -12,16 +12,29 @@ type Row = { id: string; job_id?: string; data?: unknown };
 const tables: Record<string, Row[]> = {};
 const writes: { table: string; op: string }[] = [];
 let failInsertOn: string | null = null;
+/** Runs once, right after the next read of a job — "another tab" saving
+ *  in between this tab's read and its save. */
+let afterJobRead: (() => void) | null = null;
 
 function query(table: string) {
-  const filters: { key: string; kind: "eq" | "in"; value: unknown }[] = [];
+  const filters: { key: string; kind: "eq" | "in" | "is"; value: unknown }[] = [];
   let op: "select" | "delete" | "update" = "select";
   let patch: Partial<Row> = {};
+  // Plain columns, and the JSON paths the versioned save filters on:
+  // data->>version (text) and data->version (raw, for "is null").
+  const field = (r: Row, key: string) => {
+    const path = /^data->>?(\w+)$/.exec(key);
+    if (!path) return (r as Record<string, unknown>)[key];
+    const v = (r.data as Record<string, unknown> | undefined)?.[path[1]!];
+    return key.includes("->>") ? (v === undefined || v === null ? null : String(v)) : (v ?? null);
+  };
   const matches = (r: Row) =>
     filters.every((f) =>
       f.kind === "eq"
-        ? (r as Record<string, unknown>)[f.key] === f.value
-        : (f.value as unknown[]).includes((r as Record<string, unknown>)[f.key]),
+        ? field(r, f.key) === f.value
+        : f.kind === "is"
+          ? (field(r, f.key) ?? null) === f.value
+          : (f.value as unknown[]).includes(field(r, f.key)),
     );
   const run = () => {
     const rows = tables[table] ?? [];
@@ -32,15 +45,23 @@ function query(table: string) {
     }
     if (op === "update") {
       writes.push({ table, op: "update" });
-      rows.filter(matches).forEach((r) => Object.assign(r, patch));
-      return { data: null, error: null };
+      const hit = rows.filter(matches);
+      hit.forEach((r) => Object.assign(r, patch));
+      return { data: hit.map((r) => ({ id: r.id })), error: null };
     }
-    return { data: rows.filter(matches).map((r) => ({ ...r })), error: null };
+    const out = rows.filter(matches).map((r) => ({ ...r, data: structuredClone(r.data) }));
+    if (table === "pv_linelist_jobs" && afterJobRead && out.length) {
+      const hook = afterJobRead;
+      afterJobRead = null;
+      hook();
+    }
+    return { data: out, error: null };
   };
   const builder = {
     select: () => builder,
     eq: (key: string, value: unknown) => (filters.push({ key, kind: "eq", value }), builder),
     in: (key: string, value: unknown[]) => (filters.push({ key, kind: "in", value }), builder),
+    is: (key: string, value: unknown) => (filters.push({ key, kind: "is", value }), builder),
     delete: () => ((op = "delete"), builder),
     update: (p: Partial<Row>) => ((op = "update"), (patch = p), builder),
     maybeSingle: async () => ({ data: run().data?.[0] ?? null, error: null }),
@@ -62,6 +83,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 const { linelist, replaceIssues, isStaleForTermChoices, isCorrectableRuleFinding } =
   await import("./linelist");
+const { saveJobVersioned, StaleJobError } = await import("./linelist-job-store");
 
 const issue = (row: number, severity: LineListIssue["severity"] = "HIGH"): LineListIssue => ({
   row,
@@ -78,6 +100,7 @@ beforeEach(() => {
   for (const k of Object.keys(tables)) delete tables[k];
   writes.length = 0;
   failInsertOn = null;
+  afterJobRead = null;
   tables["pv_linelist_jobs"] = [
     {
       id: JOB,
@@ -209,5 +232,69 @@ describe("rule findings Fix may try to settle", () => {
     expect(isCorrectableRuleFinding(f("INVALID_DATE_FORMAT", null))).toBe(false);
     expect(isCorrectableRuleFinding(f("INVALID_DATE_FORMAT", "  "))).toBe(false);
     expect(isCorrectableRuleFinding(f("INVALID_DATE_FORMAT", "x", 0))).toBe(false);
+  });
+});
+
+describe("a stale save never overwrites a newer one", () => {
+  const stored = () => tables["pv_linelist_jobs"]![0]!.data as Record<string, unknown>;
+
+  it("refuses the second of two saves made from the same version", async () => {
+    (stored() as { version?: number }).version = 4;
+    const tabA = { ...structuredClone(stored()), id: JOB, warnings: 11 } as {
+      id: string;
+      version?: number;
+    };
+    const tabB = { ...structuredClone(stored()), id: JOB, warnings: 22 } as {
+      id: string;
+      version?: number;
+    };
+    await saveJobVersioned(tabA);
+    await expect(saveJobVersioned(tabB)).rejects.toBeInstanceOf(StaleJobError);
+    expect(stored()).toMatchObject({ warnings: 11, version: 5 });
+  });
+
+  it("does the same for a job saved before versions existed", async () => {
+    delete (stored() as { version?: number }).version;
+    const tabA = { ...structuredClone(stored()), id: JOB, warnings: 11 } as {
+      id: string;
+      version?: number;
+    };
+    const tabB = { ...structuredClone(stored()), id: JOB, warnings: 22 } as {
+      id: string;
+      version?: number;
+    };
+    await saveJobVersioned(tabA);
+    await expect(saveJobVersioned(tabB)).rejects.toThrow(/changed elsewhere/);
+    expect(stored()).toMatchObject({ warnings: 11, version: 1 });
+  });
+
+  it("lets one operation save twice in a row", async () => {
+    (stored() as { version?: number }).version = 1;
+    const job = { ...structuredClone(stored()), id: JOB } as { id: string; version?: number };
+    await saveJobVersioned(job);
+    await saveJobVersioned(job);
+    expect(stored()).toMatchObject({ version: 3 });
+  });
+
+  it("refuses a decision when someone else saved in between, keeping their change and writing no issues", async () => {
+    (stored() as { version?: number }).version = 7;
+    const theirDecision = {
+      row: 3,
+      decision: "DROP",
+      reason: "DUPLICATE",
+      by: "other tab",
+      at: "x",
+    };
+    afterJobRead = () => {
+      const s = stored() as { version: number; decisions: unknown[] };
+      s.version = 8;
+      s.decisions = [theirDecision];
+    };
+    writes.length = 0;
+    await expect(
+      linelist.decideCase(JOB, { row: 1, decision: "STEP_DOWN" }),
+    ).rejects.toBeInstanceOf(StaleJobError);
+    expect(stored()).toMatchObject({ version: 8, decisions: [theirDecision] });
+    expect(writes.filter((w) => w.table === "pv_linelist_issues")).toEqual([]);
   });
 });

@@ -1,0 +1,72 @@
+"""The fix endpoint passes the file-wide column fill rates to the model:
+it receives only the rows with issues, so column_fill is its view of the
+rest of the file."""
+
+import asyncio
+import json
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+from server.routes import ai_linelist  # noqa: E402
+from server.routes.ai_linelist import FixRequest, fix_linelist  # noqa: E402
+
+USER = SimpleNamespace(id="u", organization_id="o", role="REVIEW_OFFICER")
+
+
+def test_column_fill_reaches_the_model_and_only_issue_rows_are_sent(monkeypatch):
+    seen = {}
+
+    async def fake(**kwargs):
+        seen["payload"] = json.loads(kwargs["user_content"])
+        return SimpleNamespace(data={"corrections": [], "unresolved": []}, model="m")
+
+    monkeypatch.setattr(ai_linelist, "structured_completion", fake)
+    request = FixRequest(
+        headers=["ID", "Age"],
+        mapping={"ID": "case_id", "Age": "age"},
+        rows=[{"ID": "A", "Age": "4"}, {"ID": "B", "Age": "4/2/26"}, {"ID": "C", "Age": "3"}],
+        issues=[{"row": 2, "column": "Age", "fixable": True}],
+        column_fill={"ID": 1.0, "Age": 1.0},
+    )
+    out = asyncio.run(fix_linelist(request, user=USER))
+    assert out.ai_used is True
+    assert seen["payload"]["column_fill"] == {"ID": 1.0, "Age": 1.0}
+    assert [r["row"] for r in seen["payload"]["rows"]] == [2]
+
+
+def test_column_fill_is_optional_for_older_clients(monkeypatch):
+    request = FixRequest(headers=["ID"], mapping={}, rows=[], issues=[])
+    assert request.column_fill == {}
+
+
+def test_the_server_never_returns_an_invented_value_or_an_identifier_change(monkeypatch):
+    async def fake(**kwargs):
+        return SimpleNamespace(
+            data={
+                "corrections": [
+                    {"row": 1, "column": "Age", "new_value": "7", "reason": "guess"},
+                    {"row": 1, "column": "ID", "new_value": "HACK", "reason": "r"},
+                    {"row": 1, "column": "Vacc date", "new_value": "02/02/2026", "reason": "stray ' removed"},
+                ],
+                "unresolved": [],
+            },
+            model="m",
+        )
+
+    monkeypatch.setattr(ai_linelist, "structured_completion", fake)
+    request = FixRequest(
+        headers=["ID", "Age", "Vacc date"],
+        mapping={"ID": "case_id", "Age": "age", "Vacc date": "vaccination_date"},
+        rows=[{"ID": "T-1", "Age": "4/2/26", "Vacc date": "02/02/2026'"}],
+        issues=[
+            {"row": 1, "column": "Age", "fixable": True},
+            {"row": 1, "column": "Vacc date", "fixable": True},
+        ],
+    )
+    out = asyncio.run(fix_linelist(request, user=USER))
+    assert [(c.column, c.new_value) for c in out.corrections] == [("Vacc date", "02/02/2026")]
+    assert sorted(u.column for u in out.unresolved) == ["Age", "ID"]
+    assert all(u.reason for u in out.unresolved)

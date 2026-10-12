@@ -28,6 +28,7 @@ import {
 import { demoLineListIssues, demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { useLineListJob } from "@/lib/use-linelist-job";
+import { StaleJobError } from "@/services/api/linelist-job-store";
 import { isNotConfigured } from "@/services/api/client";
 import { AUTO_FIX_ENABLED, RULE_BASED_DETECTION_ENABLED } from "@/services/api/feature-flags";
 import {
@@ -198,9 +199,11 @@ function LineListPage() {
       jobs.refetch();
     } catch (err) {
       toast.error(
-        isNotConfigured(err)
-          ? "Backend not connected — validation was not run."
-          : "Validation failed.",
+        err instanceof StaleJobError
+          ? err.message
+          : isNotConfigured(err)
+            ? "Backend not connected — validation was not run."
+            : "Validation failed.",
       );
     } finally {
       setValidating(false);
@@ -432,9 +435,11 @@ function LineListPage() {
                             jobs.refetch();
                           } catch (err) {
                             toast.error(
-                              isNotConfigured(err)
-                                ? "Backend not connected — no fix was applied."
-                                : "Fix failed. No changes were made.",
+                              err instanceof StaleJobError
+                                ? err.message
+                                : isNotConfigured(err)
+                                  ? "Backend not connected — no fix was applied."
+                                  : "Fix failed. No changes were made.",
                             );
                           } finally {
                             setFixing(false);
