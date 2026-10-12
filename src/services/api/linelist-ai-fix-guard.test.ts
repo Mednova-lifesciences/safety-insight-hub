@@ -13,7 +13,6 @@ describe("a value the AI may write is derived from what is there", () => {
   it.each([
     ["02/02/2026'", "02/02/2026", "stray character removed"],
     ["8.19.21", "8, 19, 21", "separators changed"],
-    ["28 PAIN AT THE INJECTION SITE", "28", "the leading part kept"],
     ["10 MINITES", "10 MINUTES", "a letter typo"],
     ["1at", "1st", "a letter typo"],
     ["28/1/20226", "28/1/2026", "a repeated digit dropped"],

@@ -100,7 +100,8 @@ def _same_date_as_iso(source: str, to: str) -> bool:
 
 def is_derived_value(source: Any, to: Any, row_values: list) -> bool:
     """Whether `to` can replace `source` without inventing anything — the
-    same rules as isDerivedValue in linelist-ai-fix-guard.ts."""
+    same rules as isDerivedValue in linelist-ai-fix-guard.ts. A dropped word
+    is never accepted: it is information lost, not a correction."""
     a = _trimmed(source)
     b = _trimmed(to)
     if not b:
@@ -108,10 +109,6 @@ def is_derived_value(source: Any, to: Any, row_values: list) -> bool:
     if any(_trimmed(v) != "" and _trimmed(v) == b and _trimmed(v) != a for v in row_values):
         return True
     if _alnum(a) == _alnum(b):
-        return True
-    words = a.lower().split()
-    keep = b.lower().split()
-    if len(keep) < len(words) and all(w == words[i] for i, w in enumerate(keep)):
         return True
     if _same_date_as_iso(a, b):
         return True

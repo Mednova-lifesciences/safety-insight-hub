@@ -19,8 +19,8 @@
       "from": "28 PAIN AT THE INJECTION SITE",
       "to": "28",
       "row": [],
-      "ok": true,
-      "why": "leading whole words kept"
+      "ok": false,
+      "why": "dropping words loses information: on an AEFI form, code 28 is 'Others (specify)' and the words are the specification"
     },
     {
       "from": "10 MINITES",
@@ -189,6 +189,34 @@
       "row": [],
       "ok": true,
       "why": "a doubled letter added"
+    },
+    {
+      "from": "1st dose",
+      "to": "1st",
+      "row": [],
+      "ok": false,
+      "why": "dropping a word is not a typo fix; a person decides"
+    },
+    {
+      "from": "3/4/2025'",
+      "to": "3/4/2025",
+      "row": [],
+      "ok": true,
+      "why": "stray spreadsheet text marker removed; letters and digits unchanged"
+    },
+    {
+      "from": ":77001",
+      "to": "77001",
+      "row": [],
+      "ok": true,
+      "why": "stray leading colon removed"
+    },
+    {
+      "from": "5/4/20255",
+      "to": "5/4/2025",
+      "row": [],
+      "ok": true,
+      "why": "doubled year digit removed"
     }
   ],
   "corrections": [

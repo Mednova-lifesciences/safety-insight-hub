@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { currentActor, fromDataFields, newId, recordAudit, selectDataFields, toJson } from "./db";
 import { mapColumnsByKeywords, parseTabularFile, type KeywordEntry } from "./tabular-parse";
 import { ai, type AiFixResponse } from "./ai";
+import { formatFindings } from "./linelist-format-findings";
 import { acceptedAiCorrections } from "./linelist-ai-fix-guard";
 import { saveJobVersioned } from "./linelist-job-store";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
@@ -2282,7 +2283,12 @@ async function computeDeterministicIssues(job: LineListJobRow): Promise<LineList
     ? mergeOrgRegulatoryConfigIntoProfile(jobProfile, orgConfig)
     : jobProfile;
   const ruleIssues = RULE_BASED_DETECTION_ENABLED
-    ? runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows ?? [], profile)
+    ? [
+        ...runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows ?? [], profile),
+        // Read from the file's own cell text: what the mapped values hide
+        // (a stray "'" cleaned on read, a report date never format-checked).
+        ...(job.rawRows ? formatFindings(job.columns ?? [], job.mapping ?? {}, job.rawRows) : []),
+      ]
     : [];
   if (!job.parsedRows || job.parsedRows.length === 0) return ruleIssues;
   try {
@@ -2482,8 +2488,9 @@ type RecoveryCorrection = {
 /**
  * Rule findings Fix may try to settle. Each is a value that is badly
  * written or in the wrong column, where the right value can come from the
- * cell itself or from elsewhere in the same row: a date with a stray
- * character or a mistyped year, a misspelt unit, a code with words after
+ * cell itself or from elsewhere in the same row: a typed value with a
+ * stray character at its edge (see linelist-format-findings), a date with
+ * a mistyped year, a misspelt unit, a code with words after
  * it, reaction codes separated by dots, a dose typo, a value that does not
  * fit its column (a sex in the age column). The AI fixes these only when
  * the answer is clear from the data and leaves the rest for a person.
@@ -2502,6 +2509,7 @@ export const CORRECTABLE_RULE_CODES: readonly string[] = [
   "INVALID_REACTION_CODE",
   "E2B-REACTION-DELIMITER-QUARANTINED",
   "DOSE_TYPO",
+  "STRAY_CHARACTER",
 ];
 
 export function isCorrectableRuleFinding(

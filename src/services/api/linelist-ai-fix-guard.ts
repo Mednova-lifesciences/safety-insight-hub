@@ -90,14 +90,15 @@ function sameDateAsIso(from: string, to: string): boolean {
  * Whether `to` can be written over `from` without inventing anything:
  *  - the same letters and digits, only formatting changed (separators,
  *    stray characters, spaces, case): "02/02/2026'" → "02/02/2026";
- *  - the leading part of the cell, whole words: "28 PAIN AT…" → "28";
  *  - a letter typo (see letterTypo) with the digits unchanged, or one
  *    doubled digit dropped with the letters unchanged: "MINITES" →
  *    "MINUTES", "1at" → "1st", "20226" → "2026";
  *  - a day-first date written as ISO with the same day, month and year;
  *  - a value another cell of the same row holds (a swap or relocation).
- * Never: a changed or reordered digit, a different word, an unfamiliar
- * format converted, an empty value, or anything new.
+ * Never: a changed or reordered digit, a different word, a dropped word,
+ * an unfamiliar format converted, an empty value, or anything new. A
+ * dropped word is information lost: "28 PAIN AT…" → "28" deletes the
+ * specification an "Others (specify)" code requires.
  */
 export function isDerivedValue(from: string, to: string, rowValues: string[]): boolean {
   const a = trimmed(from);
@@ -105,9 +106,6 @@ export function isDerivedValue(from: string, to: string, rowValues: string[]): b
   if (!b) return false;
   if (rowValues.some((v) => trimmed(v) !== "" && trimmed(v) === b && trimmed(v) !== a)) return true;
   if (alnum(a) === alnum(b)) return true;
-  const words = a.toLowerCase().split(/\s+/);
-  const keep = b.toLowerCase().split(/\s+/);
-  if (keep.length < words.length && keep.every((w, i) => w === words[i])) return true;
   if (sameDateAsIso(a, b)) return true;
   const sameDigits = digits(a) === digits(b);
   const sameLetters = letters(a) === letters(b);
