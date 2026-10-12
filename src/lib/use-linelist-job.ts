@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { linelist, type ParsedRow } from "@/services/api/linelist";
+import { linelist } from "@/services/api/linelist";
 import type { LineListJob } from "@/types/pv";
 
-export type FullLineListJob = LineListJob & { parsedRows?: ParsedRow[] };
+export type FullLineListJob = Awaited<ReturnType<typeof linelist.job>>;
 
 /**
  * A listed job in full, rows included. Lists leave the rows out; the case

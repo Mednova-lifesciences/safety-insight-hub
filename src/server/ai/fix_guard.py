@@ -146,8 +146,11 @@ def check_fix_answer(
     refused: list = []
 
     def refuse(c: dict, reason: str) -> None:
+        # The refused value is kept, so a person can see whether the AI was
+        # wrong or the rule too strict.
         if not any(x["row"] == c["row"] and x["column"] == c["column"] for x in refused):
-            refused.append({"row": c["row"], "column": c["column"], "reason": reason})
+            proposed = c.get("new_value") if isinstance(c.get("new_value"), str) else None
+            refused.append({"row": c["row"], "column": c["column"], "reason": reason, "proposed": proposed})
 
     formed = []
     for c in corrections:

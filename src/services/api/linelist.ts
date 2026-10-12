@@ -390,7 +390,12 @@ interface LineListJobRow extends LineListJob {
    *  executive summary always reflects the job's real current state
    *  rather than a stale pre-fix snapshot. Present (possibly empty) once
    *  fixIssues() has run at least once. */
-  lastFixUnresolved?: { row: number; column: string; reason: string }[];
+  lastFixUnresolved?: {
+    row: number;
+    column: string;
+    reason: string;
+    proposed?: string | null | undefined;
+  }[];
 }
 
 /** Every write to one job — Fix, decisions, undo — runs one at a time. */
@@ -2831,7 +2836,14 @@ const JOB_LIST_FIELDS = [
 export const linelist = {
   /** One job in full, rows included — the one that is open, whose case IDs
    *  the issues table and the change log show. */
-  job: async (jobId: string): Promise<LineListJob & { parsedRows?: ParsedRow[] }> => readJob(jobId),
+  job: async (
+    jobId: string,
+  ): Promise<
+    LineListJob & {
+      parsedRows?: ParsedRow[];
+      lastFixUnresolved?: LineListJobRow["lastFixUnresolved"];
+    }
+  > => readJob(jobId),
 
   /** Every job, without its rows: the list shows names and counts, and
    *  each action reads the job it acts on in full. */

@@ -137,3 +137,18 @@ describe("which AI corrections Fix applies", () => {
     expect(run([{ row: 1, column: "Report date", new_value: "4/2/26" }]).accepted).toEqual([]);
   });
 });
+
+describe("a refused answer keeps what the AI proposed", () => {
+  it("so a person can tell a wrong answer from a rule that was too strict", () => {
+    const { accepted, rejected } = acceptedAiCorrections(
+      [{ row: 1, column: "Reaction", new_value: "6", reason: "drop the description" }],
+      [{ row: 1, column: "Reaction" }],
+      [{ ID: "T-1", Reaction: "6 SWELLING OF THE LIP" }],
+      { ID: "case_id", Reaction: "reaction_code" },
+    );
+    expect(accepted).toEqual([]);
+    expect(rejected).toEqual([
+      expect.objectContaining({ row: 1, column: "Reaction", proposed: "6" }),
+    ]);
+  });
+});

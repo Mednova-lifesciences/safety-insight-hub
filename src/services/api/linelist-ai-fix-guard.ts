@@ -123,7 +123,9 @@ export interface AiCorrection {
   reason: string;
 }
 
-type Refusal = { row: number; column: string; reason: string };
+/** A refused answer keeps what the AI proposed, so a person (and the audit
+ *  evidence) can see whether the AI was wrong or the rule too strict. */
+type Refusal = { row: number; column: string; reason: string; proposed?: string };
 
 const isWellFormed = (c: unknown): c is AiCorrection =>
   !!c &&
@@ -157,9 +159,14 @@ export function acceptedAiCorrections(
   const key = (r: number, c: string) => `${r}:${c}`;
   const asked = new Set(requested.map((r) => key(r.row, r.column)));
   const rejected: Refusal[] = [];
-  const reject = (c: { row: number; column: string }, reason: string) => {
+  const reject = (c: { row: number; column: string; new_value?: unknown }, reason: string) => {
     if (!rejected.some((x) => x.row === c.row && x.column === c.column))
-      rejected.push({ row: c.row, column: c.column, reason });
+      rejected.push({
+        row: c.row,
+        column: c.column,
+        reason,
+        ...(typeof c.new_value === "string" ? { proposed: c.new_value } : {}),
+      });
   };
 
   // Malformed answers are refused, never guessed at.
