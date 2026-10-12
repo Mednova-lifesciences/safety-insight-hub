@@ -216,6 +216,12 @@ export function generateRecoveryProposal(
       if (isProtectedIdentifier(candidateField)) continue;
       const candidateValue = normalizeWhitespace(row[candidateHeader] ?? "");
       if (!candidateValue || !compatibleWithField(candidateValue, currentField)) continue;
+      // Only a value that is itself out of place may be taken. One that is
+      // valid where it is — a reaction or outcome code, free text, a report
+      // date — stays: taking it would empty a good column (or, for a date,
+      // invent the broken column's value from a different event). Seen
+      // live on the Ondo form, where any code "looks like" an age.
+      if (compatibleWithField(candidateValue, candidateField)) continue;
       const move = recoverMove(
         candidateHeader,
         candidateValue,
