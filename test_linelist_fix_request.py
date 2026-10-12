@@ -70,3 +70,19 @@ def test_the_server_never_returns_an_invented_value_or_an_identifier_change(monk
     assert [(c.column, c.new_value) for c in out.corrections] == [("Vacc date", "02/02/2026")]
     assert sorted(u.column for u in out.unresolved) == ["Age", "ID"]
     assert all(u.reason for u in out.unresolved)
+
+
+def test_an_unexpected_response_shape_changes_nothing(monkeypatch):
+    for bad in ({"corrections": "oops", "unresolved": []}, {"unexpected": True}, ["not", "an", "object"]):
+        async def fake(**kwargs):
+            return SimpleNamespace(data=bad, model="m")
+
+        monkeypatch.setattr(ai_linelist, "structured_completion", fake)
+        request = FixRequest(
+            headers=["ID", "Age"],
+            mapping={"ID": "case_id", "Age": "age"},
+            rows=[{"ID": "T-1", "Age": "4/2/26"}],
+            issues=[{"row": 1, "column": "Age", "fixable": True}],
+        )
+        out = asyncio.run(fix_linelist(request, user=USER))
+        assert out.corrections == [] and out.ai_used is False and out.error
