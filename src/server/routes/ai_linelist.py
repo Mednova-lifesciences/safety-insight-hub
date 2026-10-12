@@ -315,6 +315,8 @@ class UnresolvedOut(BaseModel):
     row: int
     column: str
     reason: str
+    # What the AI proposed, when the server guard refused it.
+    proposed: Optional[str] = None
 
 
 class FixResponse(BaseModel):

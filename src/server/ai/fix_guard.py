@@ -100,7 +100,8 @@ def _same_date_as_iso(source: str, to: str) -> bool:
 
 def is_derived_value(source: Any, to: Any, row_values: list) -> bool:
     """Whether `to` can replace `source` without inventing anything — the
-    same rules as isDerivedValue in linelist-ai-fix-guard.ts."""
+    same rules as isDerivedValue in linelist-ai-fix-guard.ts. A dropped word
+    is never accepted: it is information lost, not a correction."""
     a = _trimmed(source)
     b = _trimmed(to)
     if not b:
@@ -108,10 +109,6 @@ def is_derived_value(source: Any, to: Any, row_values: list) -> bool:
     if any(_trimmed(v) != "" and _trimmed(v) == b and _trimmed(v) != a for v in row_values):
         return True
     if _alnum(a) == _alnum(b):
-        return True
-    words = a.lower().split()
-    keep = b.lower().split()
-    if len(keep) < len(words) and all(w == words[i] for i, w in enumerate(keep)):
         return True
     if _same_date_as_iso(a, b):
         return True
@@ -149,8 +146,11 @@ def check_fix_answer(
     refused: list = []
 
     def refuse(c: dict, reason: str) -> None:
+        # The refused value is kept, so a person can see whether the AI was
+        # wrong or the rule too strict.
         if not any(x["row"] == c["row"] and x["column"] == c["column"] for x in refused):
-            refused.append({"row": c["row"], "column": c["column"], "reason": reason})
+            proposed = c.get("new_value") if isinstance(c.get("new_value"), str) else None
+            refused.append({"row": c["row"], "column": c["column"], "reason": reason, "proposed": proposed})
 
     formed = []
     for c in corrections:
@@ -249,7 +249,16 @@ def check_fix_answer(
             else:
                 refuse(c, "The AI would have emptied this cell without putting its value anywhere, so it was left as it is.")
             continue
-        others = [_trimmed(v) for v in (row_of(c["row"]) or {}).values()]
+        # A value may come from another cell of the row only when that cell
+        # is itself changed by this answer (a swap or a move); a value copied
+        # from a cell that keeps it is an inference, not a correction.
+        others = [
+            _trimmed(v)
+            for col, v in (row_of(c["row"]) or {}).items()
+            if col != c["column"]
+            and (c["row"], col) in by_cell
+            and _trimmed(by_cell[(c["row"], col)]["new_value"]) != _trimmed(v)
+        ]
         if not is_derived_value(cell(c["row"], c["column"]), c["new_value"], others):
             refuse(c, "The AI proposed a value that is not in this cell or this row — Fix never invents a value.")
             continue

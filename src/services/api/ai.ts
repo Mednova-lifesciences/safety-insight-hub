@@ -85,6 +85,8 @@ export interface AiUnresolved {
   row: number;
   column: string;
   reason: string;
+  /** What the AI proposed, when a guard refused it. */
+  proposed?: string | null | undefined;
 }
 
 export interface AiFixResponse {

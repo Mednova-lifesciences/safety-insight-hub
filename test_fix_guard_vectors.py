@@ -58,3 +58,14 @@ def test_refusals_carry_a_reason(monkeypatch):
         MAPPING,
     )
     assert refused and refused[0]["reason"]
+    assert refused[0]["proposed"] == "7"
+
+
+def test_a_dropped_specification_is_refused(monkeypatch):
+    accepted, refused = check_fix_answer(
+        [{"row": 1, "column": "Remarks", "new_value": "6", "reason": "drop the description"}],
+        [{"row": 1, "column": "Remarks"}],
+        [{"ID": "T", "Remarks": "6 SWELLING OF THE LIP"}],
+        MAPPING,
+    )
+    assert accepted == [] and refused[0]["proposed"] == "6"

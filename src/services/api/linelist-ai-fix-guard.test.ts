@@ -13,7 +13,6 @@ describe("a value the AI may write is derived from what is there", () => {
   it.each([
     ["02/02/2026'", "02/02/2026", "stray character removed"],
     ["8.19.21", "8, 19, 21", "separators changed"],
-    ["28 PAIN AT THE INJECTION SITE", "28", "the leading part kept"],
     ["10 MINITES", "10 MINUTES", "a letter typo"],
     ["1at", "1st", "a letter typo"],
     ["28/1/20226", "28/1/2026", "a repeated digit dropped"],
@@ -136,5 +135,20 @@ describe("which AI corrections Fix applies", () => {
 
   it("refuses a cell it was not asked about", () => {
     expect(run([{ row: 1, column: "Report date", new_value: "4/2/26" }]).accepted).toEqual([]);
+  });
+});
+
+describe("a refused answer keeps what the AI proposed", () => {
+  it("so a person can tell a wrong answer from a rule that was too strict", () => {
+    const { accepted, rejected } = acceptedAiCorrections(
+      [{ row: 1, column: "Reaction", new_value: "6", reason: "drop the description" }],
+      [{ row: 1, column: "Reaction" }],
+      [{ ID: "T-1", Reaction: "6 SWELLING OF THE LIP" }],
+      { ID: "case_id", Reaction: "reaction_code" },
+    );
+    expect(accepted).toEqual([]);
+    expect(rejected).toEqual([
+      expect.objectContaining({ row: 1, column: "Reaction", proposed: "6" }),
+    ]);
   });
 });

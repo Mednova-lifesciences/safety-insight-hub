@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select";
 import { demoLineListIssues, demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
-import { useLineListJob } from "@/lib/use-linelist-job";
+import { useLineListJob, type FullLineListJob } from "@/lib/use-linelist-job";
 import { StaleJobError } from "@/services/api/linelist-job-store";
 import { isNotConfigured } from "@/services/api/client";
 import { AUTO_FIX_ENABLED, RULE_BASED_DETECTION_ENABLED } from "@/services/api/feature-flags";
@@ -582,6 +582,7 @@ function LineListPage() {
                     </td>
                     <td className="px-3 py-2">
                       <p>{i.message}</p>
+                      <FixLeftNote job={fullJob} row={i.row} column={i.column} />
                       <FixAction fixIn={i.fixIn} />
                     </td>
                     <td className="mono-num px-3 py-2 text-muted-foreground">{i.value ?? "—"}</td>
@@ -817,5 +818,26 @@ function ColumnMappingPanel({ job }: { job: LineListJob }) {
         </p>
       ) : null}
     </Section>
+  );
+}
+
+/** Why the last Fix left this cell, and what the AI proposed when a guard
+ *  refused it — so a reviewer sees the reason, not just a count. */
+function FixLeftNote({
+  job,
+  row,
+  column,
+}: {
+  job: Pick<FullLineListJob, "lastFixUnresolved"> | undefined;
+  row: number;
+  column: string;
+}) {
+  const left = job?.lastFixUnresolved?.find((u) => u.row === row && u.column === column);
+  if (!left) return null;
+  return (
+    <p className="mt-1 text-xs text-muted-foreground">
+      Fix left this: {left.reason}
+      {left.proposed ? ` (AI suggested "${left.proposed}" — not applied)` : ""}
+    </p>
   );
 }
