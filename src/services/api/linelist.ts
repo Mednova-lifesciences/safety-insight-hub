@@ -33,6 +33,7 @@ import {
   type DecisionInput,
 } from "./linelist-decisions";
 import {
+  buildDecidedCasesCsv,
   buildFixedCsv,
   decisionsFromFixedFile,
   isFixedFileAnnotationColumn,
@@ -2652,6 +2653,54 @@ async function recheckJob(jobId: string): Promise<LineListJob> {
   return storeIssues(job, issues);
 }
 
+/** Every data row by its original header. Jobs made from cases have no
+ *  raw rows; their records are rebuilt from the canonical fields so a
+ *  download always carries the original headers. */
+function originalRecords(job: LineListJobRow): {
+  columns: string[];
+  rows: Record<string, string>[];
+} {
+  if (!job.columns || (!job.rawRows && !(job.mapping && job.parsedRows))) {
+    throw new Error("This job has no stored row data to export.");
+  }
+  const { columns } = job;
+  const rows: Record<string, string>[] =
+    job.rawRows ??
+    job.parsedRows!.map((row) =>
+      Object.fromEntries(
+        columns.map((header) => {
+          const field = job.mapping![header] as TargetField | undefined;
+          return [header, field ? (row[field] ?? "") : ""];
+        }),
+      ),
+    );
+  return { columns, rows };
+}
+
+/** The file's own code list and other text kept from around the data, and
+ *  a code list a person added — written back at the bottom of a download
+ *  so a re-upload is decoded the same way. */
+function preservedSourceText(job: LineListJobRow): string[] {
+  return [
+    ...(job.discardedRows ?? []).map((entry) => entry.text.trim()).filter(Boolean),
+    ...codeListFooterLines(job.codeList),
+  ];
+}
+
+function saveCsv(csv: string, filename: string): void {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** Fix locations a Settings or term decision can clear. */
 const TERM_CHOICE_FIX_IN: LineListFixLocation[] = [
   "REACTION_TERMS",
@@ -3653,50 +3702,36 @@ export const linelist = {
    *  they were never built from an arbitrary uploaded file. */
   downloadCsv: async (jobId: string): Promise<void> => {
     const job = await readJob(jobId);
-    if (!job.columns || (!job.rawRows && !(job.mapping && job.parsedRows))) {
-      throw new Error("This job has no stored row data to export.");
-    }
-    const { columns } = job;
-    const issues = await linelist.issues(jobId);
-    // createFromCases jobs have no raw rows; rebuild each record from the
-    // canonical fields so the builder always sees original headers.
-    const rows: Record<string, string>[] =
-      job.rawRows ??
-      job.parsedRows!.map((row) =>
-        Object.fromEntries(
-          columns.map((header) => {
-            const field = job.mapping![header] as TargetField | undefined;
-            return [header, field ? (row[field] ?? "") : ""];
-          }),
-        ),
-      );
+    const { columns, rows } = originalRecords(job);
     const csv = buildFixedCsv({
       columns,
       rows,
       changeLog: job.changeLog ?? [],
       decisions: job.decisions ?? [],
-      issues,
+      issues: await linelist.issues(jobId),
       unresolved: job.lastFixUnresolved ?? [],
-      preservedSourceText: [
-        ...(job.discardedRows ?? []).map((entry) => entry.text.trim()).filter(Boolean),
-        // A code list a person added goes with the file, so a re-upload of
-        // the fixed file is decoded the same way.
-        ...codeListFooterLines(job.codeList),
-      ],
+      preservedSourceText: preservedSourceText(job),
       onsetUsed: onsetUsedForRows(job.parsedRows, job.mapping),
     });
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    try {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = job.filename.replace(/\.[^.]+$/, "") + "-fixed.csv";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    saveCsv(csv, job.filename.replace(/\.[^.]+$/, "") + "-fixed.csv");
+  },
+
+  /** Only the dropped and held cases, with every original column, why each
+   *  was set aside and what still needs fixing, plus the file's code list —
+   *  to complete outside the tool and upload again as a new line list. */
+  downloadDecidedCasesCsv: async (jobId: string): Promise<void> => {
+    const job = await readJob(jobId);
+    if ((job.decisions ?? []).length === 0) throw new Error("No case is dropped or held.");
+    const { columns, rows } = originalRecords(job);
+    const csv = buildDecidedCasesCsv({
+      columns,
+      rows,
+      decisions: job.decisions ?? [],
+      issues: await linelist.issues(jobId),
+      unresolved: job.lastFixUnresolved ?? [],
+      preservedSourceText: preservedSourceText(job),
+    });
+    saveCsv(csv, job.filename.replace(/\.[^.]+$/, "") + "-dropped-and-held.csv");
   },
 
   /**

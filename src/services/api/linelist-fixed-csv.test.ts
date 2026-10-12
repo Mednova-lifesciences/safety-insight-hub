@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildFixedCsv,
+  buildDecidedCasesCsv,
   decisionsFromFixedFile,
   escapeCsvCell,
   FIXED_FILE_ANNOTATION_COLUMNS,
@@ -274,5 +275,60 @@ describe("re-uploading a fixed file", () => {
       }),
     );
     expect(linesOf(csv)[0]).toBe(["ID", "Outcome", "Sex", ...FIXED_FILE_COLUMNS].join(","));
+  });
+});
+
+describe("download of the dropped and held cases", () => {
+  const AT = "2026-10-12T10:00:00Z";
+  const rows = [
+    { ID: "C-1", Reaction: "Fever", Sex: "F" },
+    { ID: "C-2", Reaction: "Rash", Sex: "M" },
+    { ID: "C-3", Reaction: "Rash", Sex: "" },
+    { ID: "C-4", Reaction: "Swelling", Sex: "F" },
+  ];
+  const decisions: LineListDecision[] = [
+    { row: 2, decision: "DROP", reason: "DUPLICATE", note: "same as C-1", by: "A", at: AT },
+    { row: 3, decision: "STEP_DOWN", by: "A", at: AT },
+  ];
+  const csv = buildDecidedCasesCsv({
+    columns: ["ID", "Reaction", "Sex", "Decision"],
+    rows,
+    decisions,
+    issues: [
+      {
+        row: 3,
+        column: "Sex",
+        severity: "HIGH",
+        code: "MISSING",
+        message: "Sex is missing",
+        value: null,
+      },
+      { row: 4, column: "Sex", severity: "LOW", code: "X", message: "not this one", value: "F" },
+    ],
+    unresolved: [],
+    preservedSourceText: ["KEY TO FINDINGS", "1=Fever"],
+  });
+  const lines = linesOf(csv);
+
+  it("has every original column, then the decision and what still needs review", () => {
+    expect(lines[0]).toBe("ID,Reaction,Sex,Decision,Still needs review");
+  });
+
+  it("lists only the dropped and held cases, each with its reason", () => {
+    expect(lines[1]).toBe("C-2,Rash,M,DROPPED — Duplicate: same as C-1,");
+    expect(lines[2]).toBe("C-3,Rash,,HELD — stepped down,Sex: Sex is missing");
+    expect(lines.filter((l) => l.startsWith("C-1,") || l.startsWith("C-4,"))).toEqual([]);
+  });
+
+  it("keeps the file's own code list at the bottom", () => {
+    expect(lines.slice(-2)).toEqual(["KEY TO FINDINGS", "1=Fever"]);
+  });
+
+  it("re-uploaded, the dropped case stays dropped and the held one comes back kept", () => {
+    const header = lines[0]!.split(",");
+    const data = [lines[1]!, lines[2]!].map((l) => l.split(","));
+    const restored = decisionsFromFixedFile(header, data, "B", AT);
+    expect(restored).toHaveLength(1);
+    expect(restored[0]).toMatchObject({ row: 1, decision: "DROP", reason: "DUPLICATE" });
   });
 });

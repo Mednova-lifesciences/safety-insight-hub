@@ -464,6 +464,26 @@ function LineListPage() {
                     <Download className="size-4" /> Download Fixed CSV
                   </Button>
                 ) : null}
+                {/* Only the cases set aside, to complete outside the tool and
+                    upload again as a new line list. */}
+                {(activeJob.decisions ?? []).length > 0 ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    title="Every original column for the dropped and held cases only, with why each was set aside — complete them and upload the file as a new line list"
+                    onClick={async () => {
+                      try {
+                        await linelistApi.downloadDecidedCasesCsv(activeJob.id);
+                      } catch (err) {
+                        toast.error(
+                          err instanceof Error ? err.message : "Could not download this file.",
+                        );
+                      }
+                    }}
+                  >
+                    <Download className="size-4" /> Download dropped &amp; held cases
+                  </Button>
+                ) : null}
                 {activeJob.stage === "VALIDATED" || activeJob.stage === "E2B_GENERATED" ? (
                   <Button
                     size="sm"

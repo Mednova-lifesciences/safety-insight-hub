@@ -139,3 +139,49 @@ export function buildFixedCsv(input: FixedCsvInput): string {
   }
   return lines.join("\n");
 }
+
+/** The two columns added to the dropped-and-held download. */
+export const DECIDED_CASES_COLUMNS = ["Decision", "Still needs review"] as const;
+
+/**
+ * Only the cases a person dropped or held, to be completed outside the tool
+ * and uploaded again as a new line list. Every original column, then why
+ * each case was set aside ("DROPPED — Duplicate: …" / "HELD — stepped down")
+ * and what still needs fixing, then the file's own code list and other
+ * source text at the bottom, as in the original, so the re-upload is read
+ * the same way.
+ *
+ * On re-upload it is an ordinary line list: a held case comes back kept;
+ * a case still marked DROPPED stays dropped (see decisionsFromFixedFile),
+ * and one whose Decision cell is cleared is kept.
+ */
+export function buildDecidedCasesCsv(
+  input: Pick<
+    FixedCsvInput,
+    "columns" | "rows" | "decisions" | "issues" | "unresolved" | "preservedSourceText"
+  >,
+): string {
+  const columns = input.columns.filter((c) => !isFixedFileAnnotationColumn(c));
+  const header = [...columns, ...DECIDED_CASES_COLUMNS].map(escapeCsvCell).join(",");
+  const body: string[] = [];
+  input.rows.forEach((record, idx) => {
+    const row = idx + 1;
+    const decision = decisionFor(input.decisions, row);
+    if (!decision) return;
+    body.push(
+      [
+        ...columns.map((c) => record[c] ?? ""),
+        describeDecision(decision),
+        stillNeedsReviewFor(row, input.issues, input.unresolved),
+      ]
+        .map(escapeCsvCell)
+        .join(","),
+    );
+  });
+  const lines = [header, ...body];
+  if (input.preservedSourceText.length > 0) {
+    lines.push("", escapeCsvCell("# ORIGINAL SOURCE TEXT — preserved from uploaded file"));
+    lines.push(...input.preservedSourceText.map(escapeCsvCell));
+  }
+  return lines.join("\n");
+}
