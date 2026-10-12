@@ -15,8 +15,15 @@ function query(table: string) {
   let op: "select" | "delete" | "update" = "select";
   let patch: Partial<Row> = {};
   let single = false;
-  const get = (r: Row, k: string) =>
-    k in r ? r[k] : (r.data as Record<string, unknown> | undefined)?.[k];
+  const get = (r: Row, k: string) => {
+    // The JSON paths the versioned save filters on.
+    const path = /^data->>?(\w+)$/.exec(k);
+    if (path) {
+      const v = (r.data as Record<string, unknown> | undefined)?.[path[1]!];
+      return k.includes("->>") ? (v === undefined || v === null ? null : String(v)) : (v ?? null);
+    }
+    return k in r ? r[k] : (r.data as Record<string, unknown> | undefined)?.[k];
+  };
   const run = () => {
     const rows = tables[table] ?? [];
     const m = (r: Row) => filters.every((f) => f(r));
@@ -25,8 +32,9 @@ function query(table: string) {
       return { data: null, error: null };
     }
     if (op === "update") {
-      rows.filter(m).forEach((r) => Object.assign(r, patch));
-      return { data: null, error: null };
+      const hit = rows.filter(m);
+      hit.forEach((r) => Object.assign(r, patch));
+      return { data: hit.map((r) => ({ id: r.id })), error: null };
     }
     const out = rows.filter(m).map((r) => ({ ...r }));
     return { data: single ? (out[0] ?? null) : out, error: null, count: out.length };

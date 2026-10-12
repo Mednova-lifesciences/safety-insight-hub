@@ -1,0 +1,608 @@
+{
+  "_about": "Shared cases for the AI-fix guard. The browser guard (linelist-ai-fix-guard.ts) and the backend guard (src/server/ai/fix_guard.py) are both tested against this file, so they cannot drift apart.",
+  "derived": [
+    {
+      "from": "02/02/2026'",
+      "to": "02/02/2026",
+      "row": [],
+      "ok": true,
+      "why": "stray character removed"
+    },
+    {
+      "from": "8.19.21",
+      "to": "8, 19, 21",
+      "row": [],
+      "ok": true,
+      "why": "separators changed"
+    },
+    {
+      "from": "28 PAIN AT THE INJECTION SITE",
+      "to": "28",
+      "row": [],
+      "ok": true,
+      "why": "leading whole words kept"
+    },
+    {
+      "from": "10 MINITES",
+      "to": "10 MINUTES",
+      "row": [],
+      "ok": true,
+      "why": "letter typo"
+    },
+    {
+      "from": "1at",
+      "to": "1st",
+      "row": [],
+      "ok": true,
+      "why": "letter typo in a short word"
+    },
+    {
+      "from": "28/1/20226",
+      "to": "28/1/2026",
+      "row": [],
+      "ok": true,
+      "why": "a repeated digit dropped"
+    },
+    {
+      "from": "10/08/2026",
+      "to": "2026-08-10",
+      "row": [],
+      "ok": true,
+      "why": "day-first date as ISO, same day/month/year"
+    },
+    {
+      "from": "4.2.26",
+      "to": "2026-02-04",
+      "row": [],
+      "ok": true,
+      "why": "dotted day-first date as ISO"
+    },
+    {
+      "from": "  fever ",
+      "to": "Fever",
+      "row": [],
+      "ok": true,
+      "why": "spaces and case"
+    },
+    {
+      "from": "3",
+      "to": "MALE",
+      "row": [
+        "MALE",
+        "3",
+        "4/2/26"
+      ],
+      "ok": true,
+      "why": "a value another cell of the row holds (swap)"
+    },
+    {
+      "from": "Hepatitis B vaccine,",
+      "to": "Hepatitis B vaccine",
+      "row": [],
+      "ok": true,
+      "why": "trailing comma"
+    },
+    {
+      "from": "02/02/2026'",
+      "to": "15/09/2019",
+      "row": [],
+      "ok": false,
+      "why": "invented date"
+    },
+    {
+      "from": "4/2/26",
+      "to": "7",
+      "row": [],
+      "ok": false,
+      "why": "invented age"
+    },
+    {
+      "from": "4/2/26",
+      "to": "4/2/25",
+      "row": [],
+      "ok": false,
+      "why": "a digit changed (a different year)"
+    },
+    {
+      "from": "1/2/26",
+      "to": "2/1/26",
+      "row": [],
+      "ok": false,
+      "why": "day and month swapped"
+    },
+    {
+      "from": "1/2/26",
+      "to": "2026-01-02",
+      "row": [],
+      "ok": false,
+      "why": "ISO with day and month swapped"
+    },
+    {
+      "from": "MALE",
+      "to": "HN0000",
+      "row": [],
+      "ok": false,
+      "why": "invented record number"
+    },
+    {
+      "from": "5",
+      "to": "6",
+      "row": [],
+      "ok": false,
+      "why": "short value changed"
+    },
+    {
+      "from": "4-Feb-26",
+      "to": "2026-02-04",
+      "row": [],
+      "ok": false,
+      "why": "unfamiliar date format: not provably the same date"
+    },
+    {
+      "from": "46057",
+      "to": "04/02/2026",
+      "row": [],
+      "ok": false,
+      "why": "spreadsheet serial number: a conversion, not a derivation"
+    },
+    {
+      "from": "6 months",
+      "to": "0.5",
+      "row": [],
+      "ok": false,
+      "why": "a valid unusual age re-expressed: a judgement"
+    },
+    {
+      "from": "101",
+      "to": "10",
+      "row": [],
+      "ok": false,
+      "why": "a valid unusual age shortened"
+    },
+    {
+      "from": "FEMALE",
+      "to": "MALE",
+      "row": [],
+      "ok": false,
+      "why": "a different value of the same kind"
+    },
+    {
+      "from": "unknown",
+      "to": "",
+      "row": [],
+      "ok": false,
+      "why": "emptying is never a derived value"
+    },
+    {
+      "from": "19",
+      "to": "1 9",
+      "row": [],
+      "ok": true,
+      "why": "spaces only"
+    },
+    {
+      "from": "19",
+      "to": "91",
+      "row": [],
+      "ok": false,
+      "why": "digits reordered"
+    },
+    {
+      "from": "vacine",
+      "to": "vaccine",
+      "row": [],
+      "ok": true,
+      "why": "a doubled letter added"
+    }
+  ],
+  "corrections": [
+    {
+      "name": "an invented age is refused and reported",
+      "row": {
+        "ID": "T-1",
+        "Sex": "FEMALE",
+        "Age": "4/2/26",
+        "Vacc date": "",
+        "Report date": "5/2/26"
+      },
+      "asked": [
+        "Age"
+      ],
+      "answer": [
+        {
+          "column": "Age",
+          "new_value": "7"
+        }
+      ],
+      "applied": [],
+      "refused": [
+        "Age"
+      ]
+    },
+    {
+      "name": "a move into the one empty cell is applied, both halves",
+      "row": {
+        "ID": "T-1",
+        "Sex": "FEMALE",
+        "Age": "4/2/26",
+        "Vacc date": "",
+        "Report date": "5/2/26"
+      },
+      "asked": [
+        "Age"
+      ],
+      "answer": [
+        {
+          "column": "Vacc date",
+          "new_value": "4/2/26"
+        },
+        {
+          "column": "Age",
+          "new_value": ""
+        }
+      ],
+      "applied": [
+        "Age",
+        "Vacc date"
+      ],
+      "refused": []
+    },
+    {
+      "name": "a move into a filled cell is refused and the source keeps its value",
+      "row": {
+        "ID": "T-1",
+        "Sex": "FEMALE",
+        "Age": "4/2/26",
+        "Vacc date": "",
+        "Report date": "5/2/26"
+      },
+      "asked": [
+        "Age"
+      ],
+      "answer": [
+        {
+          "column": "Report date",
+          "new_value": "4/2/26"
+        },
+        {
+          "column": "Age",
+          "new_value": ""
+        }
+      ],
+      "applied": [],
+      "refused": [
+        "Age",
+        "Report date"
+      ]
+    },
+    {
+      "name": "a reformatted move is refused and nothing is emptied",
+      "row": {
+        "ID": "T-1",
+        "Sex": "FEMALE",
+        "Age": "4/2/26",
+        "Vacc date": "",
+        "Report date": "5/2/26"
+      },
+      "asked": [
+        "Age"
+      ],
+      "answer": [
+        {
+          "column": "Vacc date",
+          "new_value": "2026-02-04"
+        },
+        {
+          "column": "Age",
+          "new_value": ""
+        }
+      ],
+      "applied": [],
+      "refused": [
+        "Age",
+        "Vacc date"
+      ]
+    },
+    {
+      "name": "two errors in one row: a swap and a stray character, both applied",
+      "row": {
+        "ID": "T-2",
+        "Sex": "3",
+        "Age": "MALE",
+        "Vacc date": "02/02/2026'",
+        "Report date": "5/2/26"
+      },
+      "asked": [
+        "Sex",
+        "Age",
+        "Vacc date"
+      ],
+      "answer": [
+        {
+          "column": "Sex",
+          "new_value": "MALE"
+        },
+        {
+          "column": "Age",
+          "new_value": "3"
+        },
+        {
+          "column": "Vacc date",
+          "new_value": "02/02/2026"
+        }
+      ],
+      "applied": [
+        "Age",
+        "Sex",
+        "Vacc date"
+      ],
+      "refused": []
+    },
+    {
+      "name": "two errors in one row: one good, one invented — only the good one applied",
+      "row": {
+        "ID": "T-2",
+        "Sex": "FEMALE",
+        "Age": "MALE",
+        "Vacc date": "02/02/2026'",
+        "Report date": "5/2/26"
+      },
+      "asked": [
+        "Age",
+        "Vacc date"
+      ],
+      "answer": [
+        {
+          "column": "Age",
+          "new_value": "2"
+        },
+        {
+          "column": "Vacc date",
+          "new_value": "02/02/2026"
+        }
+      ],
+      "applied": [
+        "Vacc date"
+      ],
+      "refused": [
+        "Age"
+      ]
+    },
+    {
+      "name": "an ambiguous destination (two empty date columns, no evidence) is refused, and the source keeps its value",
+      "row": {
+        "ID": "T-3",
+        "Sex": "FEMALE",
+        "Age": "4/2/26",
+        "Vacc date": "",
+        "Report date": ""
+      },
+      "asked": [
+        "Age"
+      ],
+      "answer": [
+        {
+          "column": "Report date",
+          "new_value": "4/2/26"
+        },
+        {
+          "column": "Age",
+          "new_value": ""
+        }
+      ],
+      "applied": [],
+      "refused": [
+        "Age",
+        "Report date"
+      ]
+    },
+    {
+      "name": "the same ambiguity settled by the whole file: the vaccination date is filled almost everywhere, the report date rarely",
+      "row": {
+        "ID": "T-3",
+        "Sex": "FEMALE",
+        "Age": "4/2/26",
+        "Vacc date": "",
+        "Report date": ""
+      },
+      "asked": [
+        "Age"
+      ],
+      "fill": {
+        "Vacc date": 0.95,
+        "Report date": 0.3
+      },
+      "answer": [
+        {
+          "column": "Vacc date",
+          "new_value": "4/2/26"
+        },
+        {
+          "column": "Age",
+          "new_value": ""
+        }
+      ],
+      "applied": [
+        "Age",
+        "Vacc date"
+      ],
+      "refused": []
+    },
+    {
+      "name": "the file's evidence points the other way, so a move into the rarely-filled column is refused",
+      "row": {
+        "ID": "T-3",
+        "Sex": "FEMALE",
+        "Age": "4/2/26",
+        "Vacc date": "",
+        "Report date": ""
+      },
+      "asked": [
+        "Age"
+      ],
+      "fill": {
+        "Vacc date": 0.95,
+        "Report date": 0.3
+      },
+      "answer": [
+        {
+          "column": "Report date",
+          "new_value": "4/2/26"
+        },
+        {
+          "column": "Age",
+          "new_value": ""
+        }
+      ],
+      "applied": [],
+      "refused": [
+        "Age",
+        "Report date"
+      ]
+    },
+    {
+      "name": "the case ID is never written, even as a move destination",
+      "row": {
+        "ID": "",
+        "Sex": "FEMALE",
+        "Age": "T-9",
+        "Vacc date": "3/2/26",
+        "Report date": "5/2/26"
+      },
+      "asked": [
+        "Age"
+      ],
+      "answer": [
+        {
+          "column": "ID",
+          "new_value": "T-9"
+        },
+        {
+          "column": "Age",
+          "new_value": ""
+        }
+      ],
+      "applied": [],
+      "refused": [
+        "Age",
+        "ID"
+      ]
+    },
+    {
+      "name": "an unrelated cell is refused, the asked one applied",
+      "row": {
+        "ID": "T-4",
+        "Sex": "FEMALE",
+        "Age": "4",
+        "Vacc date": "02/02/2026'",
+        "Report date": "5/2/26"
+      },
+      "asked": [
+        "Vacc date"
+      ],
+      "answer": [
+        {
+          "column": "Vacc date",
+          "new_value": "02/02/2026"
+        },
+        {
+          "column": "Sex",
+          "new_value": "MALE"
+        }
+      ],
+      "applied": [
+        "Vacc date"
+      ],
+      "refused": [
+        "Sex"
+      ]
+    },
+    {
+      "name": "conflicting answers leave the cell alone",
+      "row": {
+        "ID": "T-5",
+        "Sex": "FEMALE",
+        "Age": "4",
+        "Vacc date": "02/02/2026'",
+        "Report date": "5/2/26"
+      },
+      "asked": [
+        "Vacc date"
+      ],
+      "answer": [
+        {
+          "column": "Vacc date",
+          "new_value": "02/02/2026"
+        },
+        {
+          "column": "Vacc date",
+          "new_value": "2/2/2026"
+        }
+      ],
+      "applied": [],
+      "refused": [
+        "Vacc date"
+      ]
+    },
+    {
+      "name": "malformed answers (missing value, number, wrong row type, unknown column) are refused, never applied",
+      "row": {
+        "ID": "T-6",
+        "Sex": "FEMALE",
+        "Age": "4",
+        "Vacc date": "02/02/2026'",
+        "Report date": "5/2/26"
+      },
+      "asked": [
+        "Vacc date"
+      ],
+      "answer": [
+        {
+          "column": "Vacc date"
+        },
+        {
+          "column": "Vacc date",
+          "new_value": 2026
+        },
+        {
+          "column": "Nope",
+          "new_value": "x"
+        }
+      ],
+      "applied": [],
+      "refused": [
+        "Nope",
+        "Vacc date"
+      ]
+    },
+    {
+      "name": "a value with no recognisable kind is never moved by the AI",
+      "row": {
+        "ID": "T-7",
+        "Sex": "FEMALE",
+        "Age": "lived nearby",
+        "Vacc date": "3/2/26",
+        "Report date": "5/2/26",
+        "Remarks": ""
+      },
+      "asked": [
+        "Age"
+      ],
+      "answer": [
+        {
+          "column": "Remarks",
+          "new_value": "lived nearby"
+        },
+        {
+          "column": "Age",
+          "new_value": ""
+        }
+      ],
+      "applied": [],
+      "refused": [
+        "Age",
+        "Remarks"
+      ]
+    }
+  ]
+}

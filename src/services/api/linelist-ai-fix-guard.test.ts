@@ -63,6 +63,9 @@ describe("which AI corrections Fix applies", () => {
     { row: 1, column: "Age" },
     { row: 1, column: "Hospital No" },
   ];
+  // Two date columns are empty in this row; the file-wide fill rates show
+  // the vaccination date is the one normally filled.
+  const fill = { "Vacc date": 0.95, "Report date": 0.3 };
   const run = (
     corrections: { row: number; column: string; new_value: string; reason?: string }[],
   ) =>
@@ -71,6 +74,8 @@ describe("which AI corrections Fix applies", () => {
       asked,
       rows,
       mapping,
+      "ai-move",
+      fill,
     );
 
   it("never writes an invented value", () => {

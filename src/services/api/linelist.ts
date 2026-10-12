@@ -11,6 +11,7 @@ import { currentActor, fromDataFields, newId, recordAudit, selectDataFields, toJ
 import { mapColumnsByKeywords, parseTabularFile, type KeywordEntry } from "./tabular-parse";
 import { ai, type AiFixResponse } from "./ai";
 import { acceptedAiCorrections } from "./linelist-ai-fix-guard";
+import { saveJobVersioned } from "./linelist-job-store";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import { discoverAndApplyCodebook, mapJobToCases } from "@/services/e2b-r3/export";
 import { generateRecoveryProposal } from "./linelist-recovery";
@@ -405,13 +406,10 @@ async function readJob(jobId: string): Promise<LineListJobRow> {
   return data.data as unknown as LineListJobRow;
 }
 
+/** Saves the job only if no one else saved it since it was read — see
+ *  linelist-job-store. */
 async function saveJob(job: LineListJobRow): Promise<LineListJobRow> {
-  const { error } = await supabase
-    .from("pv_linelist_jobs")
-    .update({ data: toJson(job) })
-    .eq("id", job.id);
-  if (error) throw new Error(error.message);
-  return job;
+  return saveJobVersioned(job);
 }
 
 /**
@@ -2396,9 +2394,11 @@ async function storeIssues(
   issues: LineListIssue[],
   extra: Partial<LineListJobRow> = {},
 ): Promise<LineListJobRow> {
+  // The job first: if someone else saved since it was read, the version
+  // check refuses it here, before any issue is written.
+  const next = await saveJob(withIssueCounts(job, issues, extra));
+  job.version = next.version;
   await replaceIssues(job.id, issues);
-  const next = withIssueCounts(job, issues, extra);
-  await saveJob(next);
   return next;
 }
 
@@ -2808,6 +2808,7 @@ const JOB_LIST_FIELDS = [
     lastFixCorrections: true,
     decisions: true,
     checkedAt: true,
+    version: true,
   } satisfies Record<keyof LineListJob, true>),
   "kind",
   // Read off the listed job by the code-list panel (the file's own legend
@@ -2966,7 +2967,7 @@ export const linelist = {
       };
       const { error } = await supabase
         .from("pv_linelist_jobs")
-        .insert({ id: job.id, data: toJson(job) });
+        .insert({ id: job.id, data: toJson({ ...job, version: 1 }) });
       if (error) throw new Error(error.message);
       await supabase.from("pv_linelist_issues").insert({
         id: newId("lli"),
@@ -2997,7 +2998,7 @@ export const linelist = {
 
     const { error } = await supabase
       .from("pv_linelist_jobs")
-      .insert({ id: job.id, data: toJson(job) });
+      .insert({ id: job.id, data: toJson({ ...job, version: 1 }) });
     if (error) throw new Error(error.message);
     const parseNote = job.parseWarnings?.length ? ` — ${job.parseWarnings.join(" ")}` : "";
     await recordAudit({
@@ -3772,7 +3773,7 @@ export const linelist = {
     };
     const { error } = await supabase
       .from("pv_linelist_jobs")
-      .insert({ id: job.id, data: toJson(job) });
+      .insert({ id: job.id, data: toJson({ ...job, version: 1 }) });
     if (error) throw new Error(error.message);
     await recordAudit({
       action: "LINELIST_CREATED_FROM_CASES",
