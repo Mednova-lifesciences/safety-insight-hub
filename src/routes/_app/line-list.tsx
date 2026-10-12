@@ -7,6 +7,7 @@ import {
   linelist as linelistApi,
   DEFAULT_SOURCE_PROFILE_ID,
   describeRow,
+  isCorrectableRuleFinding,
   isStaleForTermChoices,
 } from "@/services/api/linelist";
 import {
@@ -400,7 +401,9 @@ function LineListPage() {
                     // Dropped and held cases are not fixed (spec 5.1), and
                     // neither is a cell a person took over with Undo.
                     const fixableCount = notHeld(
-                      keptOnly(rows, activeJob.decisions).filter((i) => i.fixable),
+                      keptOnly(rows, activeJob.decisions).filter(
+                        (i) => i.fixable || isCorrectableRuleFinding(i),
+                      ),
                       activeJob.changeLog,
                     ).length;
                     if (fixableCount === 0) return null;
@@ -412,10 +415,14 @@ function LineListPage() {
                           setFixing(true);
                           try {
                             const result = await linelistApi.fixIssues(activeJob.id);
-                            if (!result.aiUsed) {
-                              toast.error(
-                                result.aiError ?? "AI fix unavailable — no changes were made.",
-                              );
+                            // Recovery moves need no AI, so "corrected" is
+                            // what happened, not whether the AI was called.
+                            if (!result.aiUsed && result.correctionsApplied === 0) {
+                              if (result.aiError) toast.error(result.aiError);
+                              else
+                                toast.info(
+                                  `Nothing Fix could correct automatically.${result.unresolved.length ? ` ${result.unresolved.length} left for review.` : ""}`,
+                                );
                             } else {
                               toast.success(
                                 `${result.correctionsApplied} field(s) corrected — see Changes made below.${result.unresolved.length ? ` ${result.unresolved.length} left unresolved.` : ""}`,

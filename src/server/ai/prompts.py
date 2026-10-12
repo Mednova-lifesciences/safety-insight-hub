@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-10-10.1"
+PROMPT_VERSION = "2026-10-12.1"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -409,7 +409,9 @@ corrected value.
 missing reaction term with no other clue in the row, or a product name so garbled its intended \
 product is only a guess), do NOT invent one. Mark that issue as unresolved and leave the value \
 unchanged.
-- Never modify a column that has no issue reported against it.
+- Never modify a column that has no issue reported against it — with ONE exception, a move:
+  MOVES: when a flagged value plainly belongs in a different column of the SAME row that is EMPTY in that row, you may move it. Use the whole file to decide where it belongs: a date sitting in the age column, in a row whose vaccination-date column is empty while that column is filled in nearly every other row, is that row's vaccination date. To move a value, return TWO corrections: one for the empty column with exactly the flagged value (copied character for character — never reformatted, never a new value), and one for the flagged cell itself (its correct value if it is plainly elsewhere in the row, otherwise ""). Only ever move into an EMPTY column; never overwrite a column that holds a value. Never move anything into or out of the case/report ID column. If more than one empty column could be the destination and the file does not make it clear which, do not move — mark the issue unresolved.
+- A value in the wrong column that is swapped with another flagged value in the same row (for example the sex column holding "3" and the age column holding "MALE") is corrected by giving each cell the other's value.
 - Never remove a row unless the issue explicitly concerns an exact duplicate record.
 - Reference each issue's column using the exact same original column header text it was given \
 with — never substitute a renamed or canonical version of it.

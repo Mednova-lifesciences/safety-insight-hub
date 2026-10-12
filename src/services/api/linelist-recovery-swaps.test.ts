@@ -185,3 +185,101 @@ describe("what it deliberately will not do", () => {
     expect(proposal?.moves.some((m) => m.sourceValue === "")).toBeFalsy();
   });
 });
+
+/**
+ * The same swaps in a coded line list (the Ondo AEFI form): the row also
+ * carries numeric codes — reaction, outcome, seriousness — and free text,
+ * all valid where they are. Seen live: any number "looks like" an age and
+ * any word fits a free-text field, so the reaction code, the outcome code
+ * and the medical history were all offered as candidates, the proposals
+ * conflicted, and the swap was never fixed. Only a value that is itself
+ * out of place may be moved.
+ */
+const CODED: Record<string, string> = {
+  ID: "case_id",
+  "PATIENT'S NAME": "patient_identifier",
+  SEX: "sex",
+  "Age Years": "age",
+  "Age Months": "age_months",
+  "Medical History": "medical_history",
+  "Date of Last immunisation Date": "vaccination_date",
+  "Reaction type": "reaction_code",
+  "Type of AEFI": "seriousness",
+  Outcome: "outcome",
+  "Date of Reporting to LGA": "report_date",
+};
+const codedRow = (over: Record<string, string>) => ({
+  ID: "NIE-TST-26-001",
+  "PATIENT'S NAME": "ADA OBI",
+  SEX: "FEMALE",
+  "Age Years": "4",
+  "Age Months": "5",
+  "Medical History": "UNKNOWN",
+  "Date of Last immunisation Date": "3/2/26",
+  "Reaction type": "19",
+  "Type of AEFI": "NON SERIOUS",
+  Outcome: "1",
+  "Date of Reporting to LGA": "5/2/26",
+  ...over,
+});
+
+describe("swaps in a coded line list", () => {
+  it("swaps age and sex back, and moves nothing else", () => {
+    const proposal = generateRecoveryProposal(codedRow({ SEX: "3", "Age Years": "MALE" }), CODED);
+    expect(proposal?.overallConfidence).toBe("high");
+    expect(
+      proposal?.moves.map((m) => [m.sourceColumn, m.targetField, m.sourceValue]).sort(),
+    ).toEqual([
+      ["Age Years", "sex", "MALE"],
+      ["SEX", "age", "3"],
+    ]);
+  });
+
+  it("never takes a value that is already valid where it is", () => {
+    // The vaccination date is unreadable, but the LGA report date is a
+    // valid report date: copying it across would invent a vaccination date.
+    const proposal = generateRecoveryProposal(
+      codedRow({ "Date of Last immunisation Date": "unknown" }),
+      CODED,
+    );
+    expect(proposal).toBeNull();
+  });
+
+  it("moves a date out of the age column into the one date column that is empty", () => {
+    // The report date is filled and valid, the vaccination date is empty:
+    // the empty column is the only place the date can have come from.
+    const proposal = generateRecoveryProposal(
+      codedRow({ "Age Years": "4/2/26", "Date of Last immunisation Date": "" }),
+      CODED,
+    );
+    expect(proposal?.moves.map((m) => [m.sourceColumn, m.targetField, m.sourceValue])).toEqual([
+      ["Age Years", "vaccination_date", "4/2/26"],
+    ]);
+  });
+
+  it("swaps an age column and a date column back, with another date column present", () => {
+    // Each holds the other's value; the report date is valid and stays.
+    const proposal = generateRecoveryProposal(
+      codedRow({ "Age Years": "3/2/26", "Date of Last immunisation Date": "4" }),
+      CODED,
+    );
+    expect(
+      proposal?.moves.map((m) => [m.sourceColumn, m.targetField, m.sourceValue]).sort(),
+    ).toEqual([
+      ["Age Years", "vaccination_date", "3/2/26"],
+      ["Date of Last immunisation Date", "age", "4"],
+    ]);
+  });
+
+  it("still leaves a date alone when more than one date column is open", () => {
+    const proposal = generateRecoveryProposal(
+      codedRow({
+        "Age Years": "4/2/26",
+        "Date of Last immunisation Date": "",
+        "Date of Reporting to LGA": "",
+      }),
+      CODED,
+    );
+    expect(proposal).toBeNull();
+  });
+});

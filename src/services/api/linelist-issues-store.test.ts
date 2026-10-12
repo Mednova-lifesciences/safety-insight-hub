@@ -60,7 +60,8 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: { from: (t: string) => query(t) },
 }));
 
-const { linelist, replaceIssues, isStaleForTermChoices } = await import("./linelist");
+const { linelist, replaceIssues, isStaleForTermChoices, isCorrectableRuleFinding, aiMoves } =
+  await import("./linelist");
 
 const issue = (row: number, severity: LineListIssue["severity"] = "HIGH"): LineListIssue => ({
   row,
@@ -171,5 +172,115 @@ describe("line lists behind the latest term choice", () => {
       false,
     );
     expect(isStaleForTermChoices(job(undefined, ["OUTCOME_TERMS"]), undefined)).toBe(false);
+  });
+});
+
+describe("rule findings Fix may try to settle", () => {
+  const f = (code: string, value: string | null, row = 3) => ({ code, value, row });
+
+  it("offers values that are badly written or in the wrong column", () => {
+    for (const code of [
+      "FIELD_CONTENT_MISMATCH",
+      "INVALID_DATE_FORMAT",
+      "DATE_FORMAT_INVALID",
+      "INTERVAL_UNIT_TYPO",
+      "INVALID_REACTION_CODE",
+      "E2B-REACTION-DELIMITER-QUARANTINED",
+      "DOSE_TYPO",
+    ])
+      expect(isCorrectableRuleFinding(f(code, "x"))).toBe(true);
+  });
+
+  it("leaves judgement calls, IDs and Settings decisions to a person", () => {
+    for (const code of [
+      "CASE_ID_FORMAT_INCONSISTENT",
+      "SERIOUSNESS_CONTRADICTION",
+      "DATE_CHRONOLOGY_ERROR",
+      "DATE_YEAR_INCONSISTENT",
+      "INVALID_REPORTER_PHONE",
+      "E2B-REPORTER-QUALIFICATION-UNRESOLVED",
+      "VIGIFLOW-MEDDRA-MISSING",
+      "MISSING_OUTCOME",
+    ])
+      expect(isCorrectableRuleFinding(f(code, "x"))).toBe(false);
+  });
+
+  it("never offers an empty cell or a whole-file finding", () => {
+    expect(isCorrectableRuleFinding(f("INVALID_DATE_FORMAT", null))).toBe(false);
+    expect(isCorrectableRuleFinding(f("INVALID_DATE_FORMAT", "  "))).toBe(false);
+    expect(isCorrectableRuleFinding(f("INVALID_DATE_FORMAT", "x", 0))).toBe(false);
+  });
+});
+
+describe("the AI moving a value into an empty cell", () => {
+  const mapping = {
+    ID: "case_id",
+    Age: "age",
+    "Vaccination date": "vaccination_date",
+    "Report date": "report_date",
+  };
+  const rows = [{ ID: "C-1", Age: "4/2/26", "Vaccination date": "", "Report date": "5/2/26" }];
+  const asked = [{ row: 1, column: "Age" }];
+
+  it("is allowed when it relocates the flagged value into an empty cell", () => {
+    const moves = aiMoves(
+      [
+        { row: 1, column: "Vaccination date", new_value: "4/2/26" },
+        { row: 1, column: "Age", new_value: "" },
+      ],
+      asked,
+      rows,
+      mapping,
+    );
+    expect(moves).toEqual([{ row: 1, column: "Vaccination date", from: "Age" }]);
+  });
+
+  it("is refused when the destination already holds a value", () => {
+    expect(
+      aiMoves(
+        [
+          { row: 1, column: "Report date", new_value: "4/2/26" },
+          { row: 1, column: "Age", new_value: "" },
+        ],
+        asked,
+        rows,
+        mapping,
+      ),
+    ).toEqual([]);
+  });
+
+  it("is refused when the value is not one the row already holds", () => {
+    expect(
+      aiMoves(
+        [
+          { row: 1, column: "Vaccination date", new_value: "04/02/2026" },
+          { row: 1, column: "Age", new_value: "" },
+        ],
+        asked,
+        rows,
+        mapping,
+      ),
+    ).toEqual([]);
+  });
+
+  it("is refused when the value would stay where it was too (a copy)", () => {
+    expect(
+      aiMoves([{ row: 1, column: "Vaccination date", new_value: "4/2/26" }], asked, rows, mapping),
+    ).toEqual([]);
+  });
+
+  it("never touches the case ID", () => {
+    const r = [{ ID: "", Age: "C-9", "Vaccination date": "", "Report date": "5/2/26" }];
+    expect(
+      aiMoves(
+        [
+          { row: 1, column: "ID", new_value: "C-9" },
+          { row: 1, column: "Age", new_value: "" },
+        ],
+        asked,
+        r,
+        mapping,
+      ),
+    ).toEqual([]);
   });
 });
