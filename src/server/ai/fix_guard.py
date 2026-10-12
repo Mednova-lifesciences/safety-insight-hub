@@ -249,7 +249,16 @@ def check_fix_answer(
             else:
                 refuse(c, "The AI would have emptied this cell without putting its value anywhere, so it was left as it is.")
             continue
-        others = [_trimmed(v) for v in (row_of(c["row"]) or {}).values()]
+        # A value may come from another cell of the row only when that cell
+        # is itself changed by this answer (a swap or a move); a value copied
+        # from a cell that keeps it is an inference, not a correction.
+        others = [
+            _trimmed(v)
+            for col, v in (row_of(c["row"]) or {}).items()
+            if col != c["column"]
+            and (c["row"], col) in by_cell
+            and _trimmed(by_cell[(c["row"], col)]["new_value"]) != _trimmed(v)
+        ]
         if not is_derived_value(cell(c["row"], c["column"]), c["new_value"], others):
             refuse(c, "The AI proposed a value that is not in this cell or this row — Fix never invents a value.")
             continue

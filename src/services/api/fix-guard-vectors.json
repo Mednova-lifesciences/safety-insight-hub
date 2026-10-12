@@ -553,6 +553,40 @@
       ],
       "applied": [],
       "refused": ["Age", "Remarks"]
+    },
+    {
+      "name": "a date copied from another column is refused: the other cell keeps its value, so this is an inference, not a move",
+      "row": {
+        "ID": "T-9",
+        "Vacc date": "12/2/26",
+        "Report date": "12-Feb"
+      },
+      "asked": ["Report date"],
+      "answer": [
+        {
+          "column": "Report date",
+          "new_value": "12/2/26"
+        }
+      ],
+      "applied": [],
+      "refused": ["Report date"]
+    },
+    {
+      "name": "a value copied from another asked cell that is not itself changed is refused",
+      "row": {
+        "ID": "T-10",
+        "Age": "4",
+        "Remarks": "4 yrs"
+      },
+      "asked": ["Age", "Remarks"],
+      "answer": [
+        {
+          "column": "Remarks",
+          "new_value": "4"
+        }
+      ],
+      "applied": [],
+      "refused": ["Remarks"]
     }
   ]
 }

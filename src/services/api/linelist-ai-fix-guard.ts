@@ -280,7 +280,16 @@ export function acceptedAiCorrections(
         );
       continue;
     }
-    const others = Object.values(rows[c.row - 1] ?? {}).map(trimmed);
+    // A value may come from another cell of the row only when that cell is
+    // itself changed by this answer (a swap or a move). A value copied from
+    // a cell that keeps it is an inference — "12-Feb" given the year of the
+    // vaccination date — not a correction.
+    const others = Object.entries(rows[c.row - 1] ?? {})
+      .filter(([column, value]) => {
+        const answer = byCell.get(key(c.row, column));
+        return column !== c.column && !!answer && trimmed(answer.new_value) !== trimmed(value);
+      })
+      .map(([, value]) => trimmed(value));
     if (!isDerivedValue(cellValue(c.row, c.column), c.new_value, others)) {
       reject(
         c,
