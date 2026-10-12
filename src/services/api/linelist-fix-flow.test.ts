@@ -288,7 +288,12 @@ describe("the AI's answers", () => {
   ])("changes nothing for %s, and reports it", async (_label, corrections) => {
     const r = await runFix(rowsA, issA, ai(corrections));
     expect(r.changed).toEqual([]);
-    expect(r.result!.unresolved.length).toBeGreaterThan(0);
+    // Each refused answer is reported against its own cell, with a reason.
+    for (const c of corrections as { row: number; column: string }[]) {
+      expect(r.result!.unresolved).toContainEqual(
+        expect.objectContaining({ row: c.row, column: c.column, reason: expect.any(String) }),
+      );
+    }
   });
 
   it("never changes the patient record number", async () => {
@@ -298,6 +303,13 @@ describe("the AI's answers", () => {
       ai([{ row: 1, column: "Hospital No", new_value: "HN0000", reason: "r" }]),
     );
     expect(r.changed).toEqual([]);
+    expect(r.result!.unresolved).toContainEqual(
+      expect.objectContaining({
+        row: 1,
+        column: "Hospital No",
+        reason: expect.stringMatching(/never changed/),
+      }),
+    );
   });
 
   it("applies a move into an empty cell, both halves as one change", async () => {
@@ -393,5 +405,28 @@ describe("Undo and Re-apply", () => {
     expect(again.unresolved.some((u) => /Kept by a person/.test(u.reason))).toBe(true);
     await linelist.reapplyChange(JOB, change.id);
     expect([jobData().rawRows[0]!["Sex"], jobData().rawRows[0]!["Age"]]).toEqual(["MALE", "3"]);
+  });
+});
+
+describe("the audit trail", () => {
+  const fixEntry = () =>
+    (tables["pv_audit_events"] ?? [])
+      .map((r) => r.data as { action: string; reason: string })
+      .find((d) => d.action === "LINELIST_AI_FIX_APPLIED");
+
+  it("records a recovery-only Fix as recovery only, not a blank prompt", async () => {
+    await runFix([base(1, { Sex: "3", Age: "MALE" })], [], NOAI);
+    expect(fixEntry()?.reason).toBe("Recovery only — no AI call");
+  });
+
+  it("records the AI instructions' version and how many AI answers were refused", async () => {
+    await runFix(rowsA, issA, {
+      ...ai([
+        { row: 1, column: "Vacc date", new_value: "02/02/2026", reason: "ok" },
+        { row: 2, column: "Outcome", new_value: "5", reason: "unasked" },
+      ]),
+      prompt_version: "2026-10-12.2",
+    });
+    expect(fixEntry()?.reason).toBe("Recovery + AI (prompt 2026-10-12.2); 1 AI answer(s) refused");
   });
 });
