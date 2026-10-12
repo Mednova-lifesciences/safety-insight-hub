@@ -297,6 +297,10 @@ class FixRequest(BaseModel):
     mapping: dict[str, str]
     rows: list[dict]
     issues: list[dict]
+    # Share of rows (0-1) in which each column is filled across the WHOLE
+    # file. Only the rows with issues are sent to the model, so this is the
+    # file-wide evidence it uses to decide where a misplaced value belongs.
+    column_fill: dict[str, float] = {}
 
 
 class CorrectionOut(BaseModel):
@@ -616,6 +620,7 @@ async def fix_linelist(
             "mapping": request.mapping,
             "rows": rows_payload,
             "issues": fixable_issues,
+            "column_fill": request.column_fill,
         }
         completion = await structured_completion(
             system_prompt=LINELIST_FIX_PROMPT,
