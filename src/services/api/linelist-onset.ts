@@ -91,6 +91,19 @@ const UNITS: {
   },
 ];
 
+/** The unit a written word stands for, by the dictionary above — and
+ *  whether that word is a standard spelling. Null for a word it does not
+ *  know (no guessing). */
+export function unitForSpelling(
+  word: string,
+): { singular: string; plural: string; standard: boolean } | null {
+  const w = word.toLowerCase();
+  const unit = UNITS.find((u) => u.spellings.test(w));
+  return unit
+    ? { singular: unit.singular, plural: unit.plural, standard: unit.standard.test(w) }
+    : null;
+}
+
 export interface ReadInterval {
   ms: number;
   /** "10 minutes", "5 hours 30 minutes" — what the value was read as. */

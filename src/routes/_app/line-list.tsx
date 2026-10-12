@@ -7,7 +7,7 @@ import {
   linelist as linelistApi,
   DEFAULT_SOURCE_PROFILE_ID,
   describeRow,
-  isCorrectableRuleFinding,
+  fixActionableCount,
   isStaleForTermChoices,
 } from "@/services/api/linelist";
 import {
@@ -403,12 +403,7 @@ function LineListPage() {
                     if (!AUTO_FIX_ENABLED) return null;
                     // Dropped and held cases are not fixed (spec 5.1), and
                     // neither is a cell a person took over with Undo.
-                    const fixableCount = notHeld(
-                      keptOnly(rows, activeJob.decisions).filter(
-                        (i) => i.fixable || isCorrectableRuleFinding(i),
-                      ),
-                      activeJob.changeLog,
-                    ).length;
+                    const fixableCount = fixActionableCount(rows, activeJob);
                     if (fixableCount === 0) return null;
                     return (
                       <Button

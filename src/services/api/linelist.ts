@@ -11,6 +11,13 @@ import { currentActor, fromDataFields, newId, recordAudit, selectDataFields, toJ
 import { mapColumnsByKeywords, parseTabularFile, type KeywordEntry } from "./tabular-parse";
 import { ai, type AiFixResponse } from "./ai";
 import { formatFindings } from "./linelist-format-findings";
+import {
+  ROUTE_REASON,
+  routeFinding,
+  type FixOutcome,
+  type FixRoute,
+  type RoutedFinding,
+} from "./linelist-fix-routing";
 import { acceptedAiCorrections } from "./linelist-ai-fix-guard";
 import { saveJobVersioned } from "./linelist-job-store";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
@@ -310,6 +317,10 @@ function normalizeSeriousness(value: string): string {
 
 const SERIOUSNESS_VALUES = new Set(["SERIOUS", "NON_SERIOUS", "YES", "NO", "Y", "N"]);
 const NON_SERIOUS_VALUES = new Set(["NON_SERIOUS", "NO", "N"]);
+/** Outcome words that name an ICH E2A seriousness criterion (death,
+ *  hospitalisation, disability). */
+const SERIOUS_OUTCOME_WORDS =
+  /hospitali[sz]|\badmitted\b|\bdied\b|\bdeath\b|\bdead\b|\bfatal|disabilit/i;
 const SERIOUS_TEXT_VALUES = new Set(["SERIOUS", "YES", "Y"]);
 // Outcome recognition no longer uses a hardcoded word list — see
 // resolveJobRuntimeProfile/resolveFieldConcept below, which decodes
@@ -396,6 +407,9 @@ interface LineListJobRow extends LineListJob {
     reason: string;
     proposed?: string | null | undefined;
   }[];
+  /** Every finding's route through the last Fix and what became of it
+   *  (linelist-fix-routing). */
+  lastFixRouting?: RoutedFinding[];
 }
 
 /** Every write to one job — Fix, decisions, undo — runs one at a time. */
@@ -1788,6 +1802,36 @@ export function runValidation(
       }
     }
 
+    // ICH E2A: death, a life-threatening event, inpatient hospitalisation
+    // (or prolonging it) and persistent disability are seriousness criteria.
+    // An outcome that names one of them on a case marked non-serious is a
+    // contradiction — which side is wrong is a clinical decision, so it is
+    // reported for a person and never corrected. The outcome is read through
+    // the file's own code legend (decodeCodedFields); an undecoded code is
+    // not interpreted.
+    if (
+      mappedFields.has("outcome") &&
+      row.seriousness &&
+      row.outcome &&
+      NON_SERIOUS_VALUES.has(normalizeSeriousness(row.seriousness)) &&
+      SERIOUS_OUTCOME_WORDS.test(row.outcome)
+    ) {
+      issues.push({
+        row: rowNum,
+        column: col("outcome"),
+        severity: "CRITICAL",
+        confidence: "HIGH",
+        code: "OUTCOME_SERIOUSNESS_CONTRADICTION",
+        message: `Outcome "${row.outcome}" meets a seriousness criterion (ICH E2A), but the case is marked "${row.seriousness}". A person decides which is right; neither is changed automatically.`,
+        value: rawRows[idx]?.outcome ?? row.outcome,
+        source: "rule",
+        sources: ["rule"],
+        issueType: "CROSS_FIELD_CONTRADICTION",
+        affectedFields: ["seriousness", "outcome"],
+        fixable: false,
+      });
+    }
+
     // A VERBATIM source writes its reactions as words, so it has no codes to
     // decode and no codebook to be missing. Demanding one would block every
     // row of exactly the files the verbatim path exists to support.
@@ -2292,7 +2336,9 @@ async function computeDeterministicIssues(job: LineListJobRow): Promise<LineList
         ...runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows ?? [], profile),
         // Read from the file's own cell text: what the mapped values hide
         // (a stray "'" cleaned on read, a report date never format-checked).
-        ...(job.rawRows ? formatFindings(job.columns ?? [], job.mapping ?? {}, job.rawRows) : []),
+        ...(job.rawRows
+          ? formatFindings(job.columns ?? [], job.mapping ?? {}, job.rawRows, profile.country)
+          : []),
       ]
     : [];
   if (!job.parsedRows || job.parsedRows.length === 0) return ruleIssues;
@@ -2491,41 +2537,32 @@ type RecoveryCorrection = {
 };
 
 /**
- * Rule findings Fix may try to settle. Each is a value that is badly
- * written or in the wrong column, where the right value can come from the
- * cell itself or from elsewhere in the same row: a typed value with a
- * stray character at its edge (see linelist-format-findings), a date with
- * a mistyped year, a misspelt unit, a code with words after
- * it, reaction codes separated by dots, a dose typo, a value that does not
- * fit its column (a sex in the age column). The AI fixes these only when
- * the answer is clear from the data and leaves the rest for a person.
- *
- * Deliberately NOT here — a person decides: a case ID that looks unusual,
- * a seriousness contradiction, a date that is out of order or in another
- * year, a phone number with digits missing, a missing value with nothing in
- * the row to fill it, and anything settled in Settings (reaction terms,
- * outcome words, reporter designations).
+ * How many findings the next Fix would act on — by a normalisation rule or
+ * the AI correction — decided by the same routing Fix uses
+ * (linelist-fix-routing), so the button's count and Fix never disagree.
+ * Which rule findings the AI may settle, and why, is documented there
+ * (AI_CORRECTABLE_RULE_CODES).
  */
-export const CORRECTABLE_RULE_CODES: readonly string[] = [
-  "FIELD_CONTENT_MISMATCH",
-  "INVALID_DATE_FORMAT",
-  "DATE_FORMAT_INVALID",
-  "INTERVAL_UNIT_TYPO",
-  "INVALID_REACTION_CODE",
-  "E2B-REACTION-DELIMITER-QUARANTINED",
-  "DOSE_TYPO",
-  "STRAY_CHARACTER",
-];
-
-export function isCorrectableRuleFinding(
-  issue: Pick<LineListIssue, "code" | "value" | "row">,
-): boolean {
-  return (
-    issue.row > 0 &&
-    !!issue.value &&
-    String(issue.value).trim() !== "" &&
-    CORRECTABLE_RULE_CODES.includes(issue.code)
+export function fixActionableCount(
+  issues: LineListIssue[],
+  job: Pick<LineListJob, "decisions" | "changeLog" | "mapping">,
+): number {
+  const keptRows = new Set(
+    keptOnly(
+      issues.filter((i) => i.row >= 1),
+      job.decisions,
+    ).map((i) => i.row),
   );
+  const ctx = {
+    keptRows,
+    changeLog: job.changeLog ?? [],
+    recoveryCells: new Set<string>(),
+    mapping: (job.mapping ?? {}) as Record<string, string>,
+  };
+  return issues.filter((i) => {
+    const route = routeFinding(i, ctx);
+    return route === "deterministic" || route === "sent_to_ai";
+  }).length;
 }
 
 const HELD_CELL_REASON =
@@ -3454,21 +3491,41 @@ export const linelist = {
           .filter((c) => !isCellHeld(job.changeLog ?? [], c.row, c.column))
           .map((c) => `${c.row}:${c.column}`),
       );
-      // Offered to Fix: what the AI review marked fixable, and the rule
-      // findings a correction can settle from the row itself (see
-      // CORRECTABLE_RULE_CODES). Not a cell recovery already moves.
-      const keptFixable = keptOnly(currentIssues, job.decisions)
-        .filter((i) => i.row >= 1 && (i.fixable || isCorrectableRuleFinding(i)))
-        .filter((i) => !recoveryCells.has(`${i.row}:${i.column}`))
-        .map((i) => (i.fixable ? i : { ...i, fixable: true }));
-      // A cell a person took over with Undo is never sent to the AI fix call
-      // nor counted: it is reported instead, so the count can reach zero.
-      const allFixable = notHeld(keptFixable, job.changeLog);
+      // Every finding is routed once (linelist-fix-routing) and the route
+      // recorded: a normalisation rule's suggestion is applied here without
+      // the AI; correctable rule findings and the AI's own fixable findings
+      // go to the AI; the rest are left for a person, each with its reason.
+      const keptRows = new Set(
+        keptOnly(
+          (job.parsedRows ?? []).map((_, i) => ({ row: i + 1 })),
+          job.decisions,
+        ).map((r) => r.row),
+      );
+      const routeCtx = {
+        keptRows,
+        changeLog: job.changeLog ?? [],
+        recoveryCells,
+        mapping: job.mapping as Record<string, string>,
+      };
+      const routed = currentIssues.map((issue) => ({
+        issue,
+        route: routeFinding(issue, routeCtx),
+      }));
+      const ruleFixes = routed.filter((r) => r.route === "deterministic").map((r) => r.issue);
+      const ruleCells = new Set(ruleFixes.map((i) => `${i.row}:${i.column}`));
+      // A cell a rule settles is not also sent to the AI.
+      const toAi = routed
+        .filter(
+          (r) => r.route === "sent_to_ai" && !ruleCells.has(`${r.issue.row}:${r.issue.column}`),
+        )
+        .map((r) => (r.issue.fixable ? r.issue : { ...r.issue, fixable: true }));
       const heldUnresolved = uniqueCells(
-        keptFixable.filter((i) => isCellHeld(job.changeLog ?? [], i.row, i.column)),
+        routed.filter((r) => r.route === "held_by_person").map((r) => r.issue),
       ).map((c) => ({ ...c, reason: HELD_CELL_REASON }));
-      const autoFixable = allFixable.filter((i) => i.source !== "ai" || i.confidence !== "LOW");
-      const needsReview = allFixable.filter((i) => i.source === "ai" && i.confidence === "LOW");
+      const autoFixable = toAi;
+      const needsReview = routed
+        .filter((r) => r.route === "low_confidence_review")
+        .map((r) => r.issue);
       const needsReviewUnresolved = [
         ...needsReview.map((i) => ({
           row: i.row,
@@ -3477,13 +3534,45 @@ export const linelist = {
             "Low-confidence AI finding — requires human review before an automatic fix is applied.",
         })),
         ...heldUnresolved,
+        // Reported, not just skipped: a finding on an identifier, and an AI
+        // finding with no recognised category.
+        ...uniqueCells(
+          routed
+            .filter(
+              (r) => r.route === "protected_identifier" || r.route === "unrecognised_category",
+            )
+            .map((r) => r.issue),
+        ).map((c) => {
+          const route = routed.find(
+            (r) => r.issue.row === c.row && r.issue.column === c.column,
+          )!.route;
+          return { ...c, reason: ROUTE_REASON[route] };
+        }),
       ];
 
-      if (autoFixable.length === 0 && deterministicRecovery.length === 0) {
+      const routing = (
+        outcomeFor?: (r: { issue: LineListIssue; route: FixRoute }) => FixOutcome | undefined,
+      ) =>
+        routed.map((r) => ({
+          row: r.issue.row,
+          column: r.issue.column,
+          code: r.issue.code,
+          route: r.route,
+          ...(outcomeFor && outcomeFor(r) ? { outcome: outcomeFor(r) } : {}),
+        }));
+      if (
+        autoFixable.length === 0 &&
+        deterministicRecovery.length === 0 &&
+        ruleFixes.length === 0
+      ) {
         // Nothing to actually fix — the data hasn't changed, so there's
         // nothing for a re-validation to usefully re-discover. Re-running it
         // anyway used to just burn a full AI pass for no reason.
-        await saveJob({ ...job, lastFixUnresolved: needsReviewUnresolved });
+        await saveJob({
+          ...job,
+          lastFixUnresolved: needsReviewUnresolved,
+          lastFixRouting: routing(),
+        });
         return {
           job,
           issues: currentIssues,
@@ -3523,6 +3612,20 @@ export const linelist = {
         reason: c.reason,
         group: `${fixRun}-${c.group}`,
       }));
+      // A rule's suggestion is applied only while the cell still holds the
+      // exact value the rule saw; otherwise it is reported, not applied.
+      const ruleCorrections = ruleFixes
+        .filter(
+          (i) =>
+            String(fixRows[i.row - 1]?.[i.column] ?? "").trim() === String(i.value ?? "").trim(),
+        )
+        .map((i) => ({
+          row: i.row,
+          column: i.column,
+          new_value: i.suggestion!.value,
+          reason: `Rule ${i.suggestion!.rule} v${i.suggestion!.version}: ${i.message}`,
+        }));
+      const ruleKeys = new Set(ruleCorrections.map((c) => `${c.row}:${c.column}`));
       // Whatever the AI answered, only what the data supports is applied
       // (see linelist-ai-fix-guard): no invented value, no identifier, one
       // answer per cell, a cell emptied only as the source of a move.
@@ -3548,6 +3651,7 @@ export const linelist = {
           recoveredCorrections.map((c) => ({ row: c.row, column: c.column })),
           job.mapping,
         ),
+        ...ruleCorrections,
         ...aiCheck.accepted,
       ];
       // Every correction is recorded with the value it replaced, so it can be
@@ -3568,7 +3672,9 @@ export const linelist = {
           reason: c.reason,
           source: recoveredKeys.has(`${c.row}:${c.column}`)
             ? ("recovery" as const)
-            : ("ai" as const),
+            : ruleKeys.has(`${c.row}:${c.column}`)
+              ? ("rule" as const)
+              : ("ai" as const),
           ...(c.group ? { group: c.group } : {}),
         })),
         (row, column) => readCell(cellRows, row, column),
@@ -3606,6 +3712,13 @@ export const linelist = {
             : "The AI proposed no change for this cell.",
         };
       });
+      const staleRuleFixes = ruleFixes
+        .filter((i) => !ruleKeys.has(`${i.row}:${i.column}`))
+        .map((i) => ({
+          row: i.row,
+          column: i.column,
+          reason: "The value changed after it was checked — run validation again before Fix.",
+        }));
       const combinedUnresolved = [
         ...fixResult.unresolved.filter(
           (u) => !aiCheck.rejected.some((r) => r.row === u.row && r.column === u.column),
@@ -3613,7 +3726,33 @@ export const linelist = {
         ...aiCheck.rejected,
         ...needsReviewUnresolved,
         ...skippedUnresolved,
+        ...staleRuleFixes,
       ];
+      // What became of each routed finding, for the record.
+      const cellKey = (c: { row: number; column: string }) => `${c.row}:${c.column}`;
+      const serverRefused = new Set(
+        fixResult.unresolved.filter((u) => typeof u.proposed === "string").map(cellKey),
+      );
+      const browserRefused = new Set(aiCheck.rejected.map(cellKey));
+      const modelDeclined = new Set(fixResult.unresolved.map(cellKey));
+      const skippedKeys = new Set(skippedUnresolved.map(cellKey));
+      const lastFixRouting = routing(({ issue, route }) => {
+        const k = cellKey(issue);
+        if (route === "deterministic")
+          return appliedKeys.has(k)
+            ? "rule_corrected"
+            : ruleKeys.has(k)
+              ? "no_change"
+              : "rule_skipped_value_changed";
+        if (route !== "sent_to_ai") return undefined;
+        if (appliedKeys.has(k)) return "ai_corrected";
+        if (browserRefused.has(k)) return "refused_by_browser";
+        if (serverRefused.has(k)) return "refused_by_server";
+        if (modelDeclined.has(k)) return "ai_declined";
+        if (skippedKeys.has(k)) return "no_change";
+        return "no_answer";
+      });
+      const appliedBy = (source: string) => applied.filter((c) => c.source === source).length;
       if (applied.length > 0) {
         updatedJob = {
           ...job,
@@ -3622,6 +3761,7 @@ export const linelist = {
           fixedAt: new Date().toISOString(),
           changeLog,
           lastFixUnresolved: combinedUnresolved,
+          lastFixRouting,
         };
         await saveJob(updatedJob);
         await recordAudit({
@@ -3630,12 +3770,14 @@ export const linelist = {
           entityId: jobId,
           newValue: `${applied.length} field(s) corrected, ${combinedUnresolved.length} left unresolved`,
           // What actually ran: recovery always; the AI only when it was called.
-          reason: fixResult.ai_used
-            ? `Recovery + AI (prompt ${fixResult.prompt_version}); ${aiCheck.rejected.length} AI answer(s) refused`
-            : "Recovery only — no AI call",
+          reason: `${appliedBy("rule")} by rule, ${appliedBy("recovery")} by recovery, ${appliedBy("ai")} by AI; ${
+            fixResult.ai_used
+              ? `AI prompt ${fixResult.prompt_version}, ${serverRefused.size} answer(s) refused by the server, ${aiCheck.rejected.length} by the browser`
+              : "no AI call"
+          }`,
         });
       } else {
-        updatedJob = { ...job, lastFixUnresolved: combinedUnresolved };
+        updatedJob = { ...job, lastFixUnresolved: combinedUnresolved, lastFixRouting };
         await saveJob(updatedJob);
       }
 

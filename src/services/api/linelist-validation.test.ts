@@ -1178,3 +1178,29 @@ describe("mergeColumnMapping — AI reads the headers, guards keep it honest", (
     expect(out.mapping["Vaccine Given"]).toBeUndefined();
   });
 });
+
+describe("runValidation — an outcome that meets a seriousness criterion on a non-serious case", () => {
+  const mapping = { Serious: "seriousness", Outcome: "outcome" } as const;
+  const find = (seriousness: string, outcome: string) =>
+    runValidation(["Serious", "Outcome"], mapping, [{ seriousness, outcome } as ParsedRow]).filter(
+      (i) => i.code === "OUTCOME_SERIOUSNESS_CONTRADICTION",
+    );
+  it.each([
+    ["NON SERIOUS", "Hospitalized"],
+    ["N", "Died"],
+    ["No", "death"],
+    ["non-serious", "Disability"],
+  ])("%s + %s → reported for a person, never fixable", (s, o) => {
+    const [i] = find(s, o);
+    expect(i).toMatchObject({ severity: "CRITICAL", fixable: false, column: "Outcome" });
+    expect(i!.message).toMatch(/ICH E2A/);
+  });
+  it.each([
+    ["NON SERIOUS", "Recovered"],
+    ["SERIOUS", "Died"],
+    ["Y", "Hospitalized"],
+    ["NON SERIOUS", "2"],
+  ])("%s + %s → nothing (no contradiction, or an undecoded code is not interpreted)", (s, o) =>
+    expect(find(s, o)).toEqual([]),
+  );
+});

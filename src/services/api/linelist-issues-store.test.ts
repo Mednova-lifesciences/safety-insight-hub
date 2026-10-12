@@ -81,8 +81,8 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: { from: (t: string) => query(t) },
 }));
 
-const { linelist, replaceIssues, isStaleForTermChoices, isCorrectableRuleFinding } =
-  await import("./linelist");
+const { linelist, replaceIssues, isStaleForTermChoices } = await import("./linelist");
+const { routeFinding } = await import("./linelist-fix-routing");
 const { saveJobVersioned, StaleJobError } = await import("./linelist-job-store");
 
 const issue = (row: number, severity: LineListIssue["severity"] = "HIGH"): LineListIssue => ({
@@ -198,40 +198,66 @@ describe("line lists behind the latest term choice", () => {
   });
 });
 
-describe("rule findings Fix may try to settle", () => {
-  const f = (code: string, value: string | null, row = 3) => ({ code, value, row });
+describe("rule findings Fix may try to settle (routed by linelist-fix-routing)", () => {
+  const ctx = {
+    keptRows: new Set([0, 3]),
+    changeLog: [],
+    recoveryCells: new Set<string>(),
+    mapping: {},
+  };
+  const f = (code: string, value: string | null, row = 3): LineListIssue => ({
+    code,
+    value,
+    row,
+    column: "C",
+    severity: "HIGH",
+    message: code,
+    source: "rule",
+    fixable: false,
+  });
 
   it("offers values that are badly written or in the wrong column", () => {
     for (const code of [
       "FIELD_CONTENT_MISMATCH",
       "INVALID_DATE_FORMAT",
-      "DATE_FORMAT_INVALID",
-      "INTERVAL_UNIT_TYPO",
       "INVALID_REACTION_CODE",
       "E2B-REACTION-DELIMITER-QUARANTINED",
-      "DOSE_TYPO",
     ])
-      expect(isCorrectableRuleFinding(f(code, "x"))).toBe(true);
+      expect(routeFinding(f(code, "x"), ctx)).toBe("sent_to_ai");
+  });
+
+  it("codes no rule produces are not offered by name — a rule's suggestion or the AI's category routes them", () => {
+    for (const code of ["DATE_FORMAT_INVALID", "INTERVAL_UNIT_TYPO", "DOSE_TYPO"])
+      expect(routeFinding(f(code, "x"), ctx)).toBe("not_correctable");
+    expect(
+      routeFinding(
+        { ...f("INTERVAL_UNIT_TYPO", "x"), suggestion: { value: "y", rule: "r", version: "1" } },
+        ctx,
+      ),
+    ).toBe("deterministic");
   });
 
   it("leaves judgement calls, IDs and Settings decisions to a person", () => {
     for (const code of [
       "CASE_ID_FORMAT_INCONSISTENT",
       "SERIOUSNESS_CONTRADICTION",
+      "OUTCOME_SERIOUSNESS_CONTRADICTION",
       "DATE_CHRONOLOGY_ERROR",
       "DATE_YEAR_INCONSISTENT",
       "INVALID_REPORTER_PHONE",
+      "PHONE_LEADING_ZERO_MISSING",
+      "DOSE_IMPLAUSIBLE",
       "E2B-REPORTER-QUALIFICATION-UNRESOLVED",
       "VIGIFLOW-MEDDRA-MISSING",
       "MISSING_OUTCOME",
     ])
-      expect(isCorrectableRuleFinding(f(code, "x"))).toBe(false);
+      expect(routeFinding(f(code, "x"), ctx)).toBe("not_correctable");
   });
 
   it("never offers an empty cell or a whole-file finding", () => {
-    expect(isCorrectableRuleFinding(f("INVALID_DATE_FORMAT", null))).toBe(false);
-    expect(isCorrectableRuleFinding(f("INVALID_DATE_FORMAT", "  "))).toBe(false);
-    expect(isCorrectableRuleFinding(f("INVALID_DATE_FORMAT", "x", 0))).toBe(false);
+    expect(routeFinding(f("INVALID_DATE_FORMAT", null), ctx)).toBe("not_correctable");
+    expect(routeFinding(f("INVALID_DATE_FORMAT", "  "), ctx)).toBe("not_correctable");
+    expect(routeFinding(f("INVALID_DATE_FORMAT", "x", 0), ctx)).toBe("file_level");
   });
 });
 

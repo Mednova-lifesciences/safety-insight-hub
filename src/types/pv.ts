@@ -548,6 +548,9 @@ export interface LineListIssue {
   fixIn?: LineListFixLocation | undefined;
   /** The E2B(R3) element concerned, e.g. "E.i.7". */
   e2bField?: string | undefined;
+  /** A correction that follows from the value itself under a named,
+   *  versioned rule (linelist-normalise) — applied by Fix without the AI. */
+  suggestion?: { value: string; rule: string; version: string } | undefined;
 }
 
 export type LineListFixLocation =

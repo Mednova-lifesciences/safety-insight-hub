@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { formatFindings } from "./linelist-format-findings";
-import { isCorrectableRuleFinding } from "./linelist";
+import { routeFinding } from "./linelist-fix-routing";
+
+const ctx = {
+  keptRows: new Set([1, 2, 3]),
+  changeLog: [],
+  recoveryCells: new Set<string>(),
+  mapping: {},
+};
+const offered = (i: Parameters<typeof routeFinding>[0]) =>
+  ["deterministic", "sent_to_ai"].includes(routeFinding(i, ctx));
 
 // Synthetic rows only. Column names are deliberately unlike any real form,
 // so nothing here depends on one file's layout.
@@ -42,7 +51,7 @@ describe("report dates get the same format check as the vaccination date", () =>
       [1, "Notified on", "INVALID_DATE_FORMAT"],
       [2, "Reached state", "INVALID_DATE_FORMAT"],
     ]);
-    expect(out.every((i) => isCorrectableRuleFinding(i))).toBe(true);
+    expect(out.every((i) => offered(i))).toBe(true);
   });
   it("leaves well-formed dates, blanks and placeholders alone", () => {
     expect(
@@ -71,7 +80,7 @@ describe("stray characters at the edge of a typed value", () => {
       fixable: true,
     });
     expect(i!.message).toContain('"3/4/2025"');
-    expect(isCorrectableRuleFinding(i!)).toBe(true);
+    expect(offered(i!)).toBe(true);
   });
   it("flags a leading colon or semicolon on a batch number", () => {
     const out = find([row({ "Diluent lot": ":77001" }), row({ Lot: "; AB123" })]);
@@ -88,8 +97,12 @@ describe("stray characters at the edge of a typed value", () => {
   it("does not report a leading minus, plus or decimal point — they change a value's meaning", () => {
     expect(find([row({ Months: "-4" }), row({ Lot: ".5" }), row({ Lot: "+AB123" })])).toEqual([]);
   });
-  it("leaves a reaction code's trailing delimiter to the reaction rule", () => {
-    expect(find([row({ Codes: "3," })])).toEqual([]);
+  it("settles a reaction code's trailing delimiter by rule, with the rule named", () => {
+    const [i] = find([row({ Codes: "3," })]);
+    expect(i).toMatchObject({
+      code: "REACTION_CODE_DELIMITER",
+      suggestion: { value: "3", rule: "code-list-delimiters", version: "1" },
+    });
   });
   it("removing the character must leave the letters and digits exactly as they were", () => {
     expect(find([row({ Lot: "AB'123" })])).toEqual([]);
@@ -98,5 +111,56 @@ describe("stray characters at the edge of a typed value", () => {
     const headers = ["Extra", ...Object.keys(row()).reverse()];
     const out = formatFindings(headers, mapping, [{ Extra: "x'", ...row({ Lot: "AB123'" }) }]);
     expect(out.map((i) => i.column)).toEqual(["Lot"]);
+  });
+});
+
+describe("findings carry the rule's suggestion; flags never do", () => {
+  const more = {
+    ...mapping,
+    Dose: "dose",
+    Onset: "onset_interval",
+    Mobile: "reporter_phone",
+  } as Record<string, string>;
+  const r = (over: Record<string, string>) => ({
+    ...row(),
+    Dose: "1st",
+    Onset: "2 hours",
+    Mobile: "08031234567",
+    ...over,
+  });
+  const run = (rows: Record<string, string>[], country?: string) =>
+    formatFindings([...Object.keys(row()), "Dose", "Onset", "Mobile"], more, rows, country);
+  it("a misspelt interval unit is settled by rule", () => {
+    expect(run([r({ Onset: "10 MINITES" })])).toEqual([
+      expect.objectContaining({
+        code: "INTERVAL_UNIT_TYPO",
+        fixable: true,
+        suggestion: { value: "10 MINUTES", rule: "interval-unit-spelling", version: "1" },
+      }),
+    ]);
+  });
+  it("an unseen misspelling uses the same dictionary, and an unknown word is not guessed", () => {
+    expect(run([r({ Onset: "3 HOURES" })])[0]?.suggestion?.value).toBe("3 HOURS");
+    expect(run([r({ Onset: "2 dyas" })])).toEqual([]);
+  });
+  it.each([
+    ["10", "DOSE_IMPLAUSIBLE"],
+    ["5 mL", "DOSE_IMPLAUSIBLE"],
+    ["0.5MI", "DOSE_UNIT_UNRECOGNISED"],
+  ])("dose %j is flagged %s, never corrected", (dose, code) => {
+    const [i] = run([r({ Dose: dose })]);
+    expect(i).toMatchObject({ code, fixable: false });
+    expect(i!.suggestion).toBeUndefined();
+  });
+  it.each([["1st"], ["0.5ml"], ["0.5 mL"], ["3"], ["1 dose"]])("dose %j is fine", (dose) =>
+    expect(run([r({ Dose: dose })])).toEqual([]),
+  );
+  it("a phone that lost its leading 0 is flagged only where the form's country fixes the format", () => {
+    const [i] = run([r({ Mobile: "8031234567" })], "NG");
+    expect(i).toMatchObject({ code: "PHONE_LEADING_ZERO_MISSING", fixable: false });
+    expect(i!.message).toContain("08031234567");
+    expect(run([r({ Mobile: "8031234567" })])).toEqual([]);
+    expect(run([r({ Mobile: "+2348031234567" })], "NG")).toEqual([]);
+    expect(run([r({ Mobile: "1234567890" })], "NG")).toEqual([]);
   });
 });
