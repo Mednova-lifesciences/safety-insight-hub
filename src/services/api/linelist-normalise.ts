@@ -115,6 +115,32 @@ export const NORMALISATION_RULES: readonly NormalisationRule[] = [
     },
   },
   {
+    id: "date-doubled-separator",
+    version: "1",
+    fields: [
+      "vaccination_date",
+      "onset_date",
+      "report_date",
+      "state_received_date",
+      "national_received_date",
+      "date_of_birth",
+    ],
+    precondition:
+      "a separator written twice (// -- ..) inside a date whose three parts are otherwise a valid d/m/y or y-m-d with one kind of separator",
+    never: "merges different separators, or changes any digit",
+    apply: (value) => {
+      const v = value.trim();
+      const out = v.replace(/([/.-])\1+/g, "$1");
+      if (out === v) return null;
+      const dmy = /^(\d{1,2})([/.-])(\d{1,2})\2(\d{2}|\d{4})$/.exec(out);
+      const ymd = /^(\d{4})([/.-])(\d{1,2})\2(\d{1,2})$/.exec(out);
+      const [d, m] = dmy ? [dmy[1], dmy[3]] : ymd ? [ymd[4], ymd[3]] : [];
+      return d && m && Number(d) >= 1 && Number(d) <= 31 && Number(m) >= 1 && Number(m) <= 12
+        ? { value: out, why: "a doubled date separator removed" }
+        : null;
+    },
+  },
+  {
     id: "interval-unit-spelling",
     version: "1",
     fields: ["onset_interval"],

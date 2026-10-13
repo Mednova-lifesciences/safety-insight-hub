@@ -1809,12 +1809,16 @@ export function runValidation(
     // reported for a person and never corrected. The outcome is read through
     // the file's own code legend (decodeCodedFields); an undecoded code is
     // not interpreted.
+    const outcomeMeaning = row.outcome
+      ? (resolveFieldConcept(row.outcome, runtimeProfile, "outcome", mapConceptToOutcome)
+          ?.decodedSourceValue ?? row.outcome)
+      : undefined;
     if (
       mappedFields.has("outcome") &&
       row.seriousness &&
-      row.outcome &&
+      outcomeMeaning &&
       NON_SERIOUS_VALUES.has(normalizeSeriousness(row.seriousness)) &&
-      SERIOUS_OUTCOME_WORDS.test(row.outcome)
+      SERIOUS_OUTCOME_WORDS.test(outcomeMeaning)
     ) {
       issues.push({
         row: rowNum,
@@ -1822,8 +1826,8 @@ export function runValidation(
         severity: "CRITICAL",
         confidence: "HIGH",
         code: "OUTCOME_SERIOUSNESS_CONTRADICTION",
-        message: `Outcome "${row.outcome}" meets a seriousness criterion (ICH E2A), but the case is marked "${row.seriousness}". A person decides which is right; neither is changed automatically.`,
-        value: rawRows[idx]?.outcome ?? row.outcome,
+        message: `Outcome "${row.outcome}"${outcomeMeaning !== row.outcome ? ` (${outcomeMeaning})` : ""} meets a seriousness criterion (ICH E2A), but the case is marked "${row.seriousness}". A person decides which is right; neither is changed automatically.`,
+        value: rawRows[idx]?.outcome ?? row.outcome ?? null,
         source: "rule",
         sources: ["rule"],
         issueType: "CROSS_FIELD_CONTRADICTION",
@@ -3553,13 +3557,22 @@ export const linelist = {
       const routing = (
         outcomeFor?: (r: { issue: LineListIssue; route: FixRoute }) => FixOutcome | undefined,
       ) =>
-        routed.map((r) => ({
-          row: r.issue.row,
-          column: r.issue.column,
-          code: r.issue.code,
-          route: r.route,
-          ...(outcomeFor && outcomeFor(r) ? { outcome: outcomeFor(r) } : {}),
-        }));
+        routed.map((r) => {
+          // A finding on a cell a rule settles is recorded as settled by the
+          // rule, not as an AI result.
+          const settled =
+            r.route === "sent_to_ai" && ruleCells.has(`${r.issue.row}:${r.issue.column}`)
+              ? { ...r, route: "deterministic" as const }
+              : r;
+          const outcome = outcomeFor ? outcomeFor(settled) : undefined;
+          return {
+            row: r.issue.row,
+            column: r.issue.column,
+            code: r.issue.code,
+            route: settled.route,
+            ...(outcome ? { outcome } : {}),
+          };
+        });
       if (
         autoFixable.length === 0 &&
         deterministicRecovery.length === 0 &&

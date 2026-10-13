@@ -34,6 +34,7 @@ const OTHER_DATE_FIELDS = new Set([
 const RULE_CODE: Record<string, string> = {
   "stray-edge-character": "STRAY_CHARACTER",
   "date-year-repeated-digit": "INVALID_DATE_FORMAT",
+  "date-doubled-separator": "INVALID_DATE_FORMAT",
   "interval-unit-spelling": "INTERVAL_UNIT_TYPO",
   "dose-decimal-comma": "DOSE_DECIMAL_COMMA",
   "ordinal-suffix-typo": "DOSE_TYPO",

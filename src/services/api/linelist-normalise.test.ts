@@ -133,3 +133,17 @@ describe("a repeated digit in a five-digit year", () => {
     ["remarks", "9/3/20255"],
   ])("never: %s %j", (field, value) => expect(fix(field, value)).toBeNull());
 });
+
+describe("a doubled separator inside a date", () => {
+  it.each([
+    ["report_date", "05/2//2026", "05/2/2026"],
+    ["vaccination_date", "11//3/25", "11/3/25"],
+    ["state_received_date", "2025--04-09", "2025-04-09"],
+  ])("%s %j → %j", (field, value, want) => expect(fix(field, value)).toBe(want));
+  it.each([
+    ["report_date", "05/2/-2026"],
+    ["report_date", "05//13//2026"],
+    ["remarks", "05/2//2026"],
+    ["report_date", "5//2026"],
+  ])("never: %s %j", (field, value) => expect(fix(field, value)).toBeNull());
+});

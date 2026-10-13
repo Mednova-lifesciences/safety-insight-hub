@@ -554,3 +554,25 @@ describe("normalisation rules: applied by Fix without the AI, recorded and rever
     ).toEqual(["file_level", "not_correctable"]);
   });
 });
+
+it("a finding on a cell a rule settles is recorded as settled by the rule, not as an AI result", async () => {
+  await runFix(
+    [base(1, { "Vacc date": "02/02/2026'" })],
+    [
+      issue(1, "Vacc date", "STRAY_CHARACTER", "02/02/2026'", {
+        suggestion: { value: "02/02/2026", rule: "stray-edge-character", version: "1" },
+        fixable: true,
+      }),
+      issue(1, "Vacc date", "DATE_FORMAT_INVALID", "02/02/2026'", {
+        source: "ai",
+        fixable: true,
+        confidence: "HIGH",
+      }),
+    ],
+    NOAI,
+  );
+  expect(jobData().lastFixRouting!.map((r) => [r.route, r.outcome])).toEqual([
+    ["deterministic", "rule_corrected"],
+    ["deterministic", "rule_corrected"],
+  ]);
+});

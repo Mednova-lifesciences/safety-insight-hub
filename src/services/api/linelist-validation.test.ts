@@ -1204,3 +1204,21 @@ describe("runValidation — an outcome that meets a seriousness criterion on a n
     expect(find(s, o)).toEqual([]),
   );
 });
+
+describe("runValidation — the outcome is read through the file's own code legend for the seriousness check", () => {
+  it("outcome code 2 = Hospitalized on a non-serious case is reported (the Ondo form's legend)", () => {
+    const profile = profileWithCodebooks({ outcome: { "1": "Recovered", "2": "Hospitalized" } });
+    const issues = runValidation(
+      ["Serious", "Outcome"],
+      { Serious: "seriousness", Outcome: "outcome" },
+      [
+        { seriousness: "NON SERIOUS", outcome: "2" } as ParsedRow,
+        { seriousness: "NON SERIOUS", outcome: "1" } as ParsedRow,
+      ],
+      profile,
+    ).filter((i) => i.code === "OUTCOME_SERIOUSNESS_CONTRADICTION");
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ row: 1, value: "2", fixable: false });
+    expect(issues[0]!.message).toContain("Hospitalized");
+  });
+});
