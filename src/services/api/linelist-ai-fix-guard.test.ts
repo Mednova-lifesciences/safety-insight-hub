@@ -12,7 +12,7 @@ import { acceptedAiCorrections, isDerivedValue } from "./linelist-ai-fix-guard";
 describe("a value the AI may write is derived from what is there", () => {
   it.each([
     ["02/02/2026'", "02/02/2026", "stray character removed"],
-    ["8.19.21", "8, 19, 21", "separators changed"],
+    ["02.03.2026", "02/03/2026", "a dotted date re-separated"],
     ["10 MINITES", "10 MINUTES", "a letter typo"],
     ["1at", "1st", "a letter typo"],
     ["28/1/20226", "28/1/2026", "a repeated digit dropped"],
@@ -29,6 +29,8 @@ describe("a value the AI may write is derived from what is there", () => {
     ["1/2/26", "2/1/26", "day and month swapped"],
     ["MALE", "HN0000", "an invented record number"],
     ["5", "6", "a short value changed"],
+    ["8.19.21", "8, 19, 21", "a dot between digits may be a decimal point"],
+    ["2025-04-155", "2025-04-15", "a repeated digit dropped from the day"],
   ])("%s → %s is refused (%s)", (from, to) => {
     expect(isDerivedValue(from, to, [])).toBe(false);
   });

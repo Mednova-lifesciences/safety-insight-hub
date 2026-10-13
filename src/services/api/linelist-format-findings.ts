@@ -33,6 +33,7 @@ const OTHER_DATE_FIELDS = new Set([
 /** The finding code for each normalisation rule. */
 const RULE_CODE: Record<string, string> = {
   "stray-edge-character": "STRAY_CHARACTER",
+  "date-year-repeated-digit": "INVALID_DATE_FORMAT",
   "interval-unit-spelling": "INTERVAL_UNIT_TYPO",
   "dose-decimal-comma": "DOSE_DECIMAL_COMMA",
   "ordinal-suffix-typo": "DOSE_TYPO",
@@ -120,6 +121,21 @@ export function formatFindings(
             "MEDIUM",
             `"${raw}" does not look like a valid date.`,
             true,
+          ),
+        );
+        continue;
+      }
+      if (field === "reaction_code" && /\d\s*\b(and|or)\b\s*\d|\d\s*\+\s*\d/i.test(raw)) {
+        issues.push(
+          finding(
+            row,
+            header,
+            field,
+            raw,
+            "REACTION_CODE_DELIMITER_WORD",
+            "MEDIUM",
+            `"${raw}": codes joined by a word. Export may not read them as separate codes; a person rewrites them (a word such as OR can change the meaning).`,
+            false,
           ),
         );
         continue;

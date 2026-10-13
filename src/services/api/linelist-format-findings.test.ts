@@ -58,8 +58,14 @@ describe("report dates get the same format check as the vaccination date", () =>
       find([row({ "Notified on": "2025-04-05", "Reached state": "-", "Reached national": "" })]),
     ).toEqual([]);
   });
-  it("does not re-check the vaccination date (the main rules already do)", () => {
-    expect(find([row({ Given: "3/4/20255" })])).toEqual([]);
+  it("does not re-check the vaccination date's format (the main rules do), but a year typo gets the rule's suggestion", () => {
+    expect(find([row({ Given: "3/4/2025x" })])).toEqual([]);
+    expect(find([row({ Given: "3/4/20255" })])).toEqual([
+      expect.objectContaining({
+        code: "INVALID_DATE_FORMAT",
+        suggestion: { value: "3/4/2025", rule: "date-year-repeated-digit", version: "1" },
+      }),
+    ]);
   });
   it("reports a date with words but no digits as unreadable only when it has a digit", () => {
     expect(find([row({ "Notified on": "unknown" })])).toEqual([]);
@@ -162,5 +168,15 @@ describe("findings carry the rule's suggestion; flags never do", () => {
     expect(run([r({ Mobile: "8031234567" })])).toEqual([]);
     expect(run([r({ Mobile: "+2348031234567" })], "NG")).toEqual([]);
     expect(run([r({ Mobile: "1234567890" })], "NG")).toEqual([]);
+  });
+});
+
+describe("codes joined by a word are flagged, never rewritten", () => {
+  it.each([["12 AND 20"], ["2 and 5"], ["3 OR 4"], ["2 + 5"]])("%j", (codes) => {
+    const out = formatFindings(Object.keys(row()), mapping, [row({ Codes: codes })]);
+    expect(out).toEqual([
+      expect.objectContaining({ code: "REACTION_CODE_DELIMITER_WORD", fixable: false }),
+    ]);
+    expect(out[0]!.suggestion).toBeUndefined();
   });
 });

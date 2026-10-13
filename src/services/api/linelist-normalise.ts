@@ -76,6 +76,45 @@ export const NORMALISATION_RULES: readonly NormalisationRule[] = [
     },
   },
   {
+    id: "date-year-repeated-digit",
+    version: "1",
+    fields: [
+      "vaccination_date",
+      "onset_date",
+      "report_date",
+      "state_received_date",
+      "national_received_date",
+      "date_of_birth",
+    ],
+    precondition:
+      "a d/m/y or y-m-d date whose year has five digits, where dropping one digit of an adjacent repeated pair gives exactly one year between 1900 and next year, and the day and month are valid",
+    never: "changes a day or month, expands a two-digit year, or picks between two possible years",
+    apply: (value) => {
+      const v = value.trim();
+      const dmy = /^(\d{1,2})([/.-])(\d{1,2})\2(\d{5})$/.exec(v);
+      const ymd = /^(\d{5})([/.-])(\d{1,2})\2(\d{1,2})$/.exec(v);
+      const m = dmy ?? ymd;
+      if (!m) return null;
+      const [day, month, year] = dmy ? [m[1]!, m[3]!, m[4]!] : [m[4]!, m[3]!, m[1]!];
+      if (!(Number(day) >= 1 && Number(day) <= 31 && Number(month) >= 1 && Number(month) <= 12))
+        return null;
+      const maxYear = new Date().getFullYear() + 1;
+      const years = new Set<string>();
+      for (let k = 1; k < year.length; k++)
+        if (year[k] === year[k - 1]) {
+          const y = year.slice(0, k) + year.slice(k + 1);
+          if (Number(y) >= 1900 && Number(y) <= maxYear) years.add(y);
+        }
+      if (years.size !== 1) return null;
+      const y = [...years][0]!;
+      const sep = m[2]!;
+      return {
+        value: dmy ? `${day}${sep}${month}${sep}${y}` : `${y}${sep}${month}${sep}${day}`,
+        why: "a repeated digit removed from a five-digit year",
+      };
+    },
+  },
+  {
     id: "interval-unit-spelling",
     version: "1",
     fields: ["onset_interval"],
@@ -147,12 +186,13 @@ export const NORMALISATION_RULES: readonly NormalisationRule[] = [
     version: "1",
     fields: ["reaction_code"],
     precondition:
-      "the value is only numeric codes separated by delimiters; a trailing delimiter is dropped and AND / & / + between codes is written as a comma",
-    never: "touches a value with any word other than AND, or changes, adds or reorders a code",
+      "the value is only numeric codes separated by punctuation; a trailing delimiter is dropped and & between codes is written as a comma",
+    never:
+      "rewrites a word between codes (AND, OR — a word may carry meaning; flagged instead), or changes, adds or reorders a code",
     apply: (value) => {
       const v = value.trim();
-      if (!/^\d+(\s*(,|;|\/|&|\+|\band\b)\s*\d+)*\s*[,;/]?\s*$/i.test(v)) return null;
-      const out = v.replace(/\s*[,;/]\s*$/, "").replace(/\s*(?:&|\+|\band\b)\s*/gi, ", ");
+      if (!/^\d+(\s*(,|;|\/|&)\s*\d+)*\s*[,;/]?\s*$/.test(v)) return null;
+      const out = v.replace(/\s*[,;/]\s*$/, "").replace(/\s*&\s*/g, ", ");
       return out !== v ? { value: out, why: "code-list delimiters made consistent" } : null;
     },
   },

@@ -95,15 +95,54 @@ function sameDateAsIso(from: string, to: string): boolean {
  *    "MINUTES", "1at" → "1st", "20226" → "2026";
  *  - a day-first date written as ISO with the same day, month and year;
  *  - a value another cell of the same row holds (a swap or relocation).
- * Never: a changed or reordered digit, a different word, a dropped word,
+ * Never: a changed or reordered digit, a lost decimal point, a repeated
+ * digit dropped from a day or month, a different word, a dropped word,
  * an unfamiliar format converted, an empty value, or anything new. A
  * dropped word is information lost: "28 PAIN AT…" → "28" deletes the
  * specification an "Others (specify)" code requires.
  */
+/** Decimal points between digits: part of a number, so a value may not
+ *  lose one ("8.19.21" → "8,19,21", "0.5ML" → "05ML"). */
+const decimalPoints = (v: string) => (v.match(/\d\.(?=\d)/g) ?? []).length;
+
+/** Day, month and year of a date written d/m/y, d.m.y or y-m-d (any of
+ *  / . - as separator), with a valid day and month — or null. */
+function dateParts(v: string): { d: string; m: string; y: string } | null {
+  const dmy = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,5})$/.exec(v);
+  const ymd = /^(\d{4,5})[/.-](\d{1,3})[/.-](\d{1,3})$/.exec(v);
+  const p = dmy
+    ? { d: dmy[1]!, m: dmy[2]!, y: dmy[3]! }
+    : ymd
+      ? { d: ymd[3]!, m: ymd[2]!, y: ymd[1]! }
+      : null;
+  return p;
+}
+const validDayMonth = (p: { d: string; m: string }) =>
+  Number(p.d) >= 1 && Number(p.d) <= 31 && Number(p.m) >= 1 && Number(p.m) <= 12;
+
+/** A dotted day.month.year date written with another separator: the same
+ *  date, so its dots were separators, not decimal points. */
+function dottedDateReseparated(a: string, b: string): boolean {
+  if (!/^\d{1,2}\.\d{1,2}\.\d{2,4}$/.test(a)) return false;
+  const pa = dateParts(a);
+  const pb = dateParts(b);
+  const sameYear =
+    pa?.y === pb?.y || (pa?.y.length === 2 && pb?.y.length === 4 && pb.y.endsWith(pa.y));
+  return (
+    !!pa &&
+    !!pb &&
+    validDayMonth(pa) &&
+    Number(pa.d) === Number(pb.d) &&
+    Number(pa.m) === Number(pb.m) &&
+    !!sameYear
+  );
+}
+
 export function isDerivedValue(from: string, to: string, rowValues: string[]): boolean {
   const a = trimmed(from);
   const b = trimmed(to);
   if (!b) return false;
+  if (decimalPoints(b) < decimalPoints(a) && !dottedDateReseparated(a, b)) return false;
   if (rowValues.some((v) => trimmed(v) !== "" && trimmed(v) === b && trimmed(v) !== a)) return true;
   if (alnum(a) === alnum(b)) return true;
   if (sameDateAsIso(a, b)) return true;
@@ -111,8 +150,15 @@ export function isDerivedValue(from: string, to: string, rowValues: string[]): b
   const sameLetters = letters(a) === letters(b);
   if (sameDigits && !sameLetters && letters(a).length >= 2)
     return letterTypo(letters(a), letters(b));
-  if (sameLetters && !sameDigits && digits(b).length > 0)
+  if (sameLetters && !sameDigits && digits(b).length > 0) {
+    // In a date, only the year may lose a repeated digit ("20255" → "2025");
+    // a day or month that did ("155" → "15"? "05"?) cannot be told.
+    const pa = dateParts(a);
+    const pb = dateParts(b);
+    if (pa || pb)
+      return !!pa && !!pb && pa.d === pb.d && pa.m === pb.m && dropsOneRepeat(pa.y, pb.y);
     return dropsOneRepeat(digits(a), digits(b));
+  }
   return false;
 }
 

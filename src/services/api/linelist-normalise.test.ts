@@ -78,7 +78,6 @@ describe("reaction code lists: delimiters only, codes untouched", () => {
     ["3, 5,", "3, 5"],
     ["4/", "4"],
     ["2, 7;", "2, 7"],
-    ["12 AND 20", "12, 20"],
     ["11&13", "11, 13"],
   ])("%j → %j", (value, want) => expect(fix("reaction_code", value)).toBe(want));
   it.each([
@@ -88,6 +87,8 @@ describe("reaction code lists: delimiters only, codes untouched", () => {
     ["28 PAIN AT THE INJECTION SITE"],
     ["6 SWELLING OF THE LIP"],
     ["12 OR 20"],
+    ["12 AND 20"],
+    ["2 + 5"],
   ])("never: %j", (value) => expect(fix("reaction_code", value)).toBeNull());
 });
 
@@ -113,4 +114,22 @@ describe("fields no rule may touch", () => {
     for (const v of ["02/02/2026'", "10 MINITES", "0,5ML", "1at", "8,", "9 months"])
       expect(fix(field, v)).toBeNull();
   });
+});
+
+describe("a repeated digit in a five-digit year", () => {
+  it.each([
+    ["report_date", "28/1/20226", "28/1/2026"],
+    ["report_date", "9/3/20255", "9/3/2025"],
+    ["vaccination_date", "14-5-20255", "14-5-2025"],
+    ["national_received_date", "20255-04-09", "2025-04-09"],
+  ])("%s %j → %j", (field, value, want) => expect(fix(field, value)).toBe(want));
+  it.each([
+    ["report_date", "2025-04-155"],
+    ["report_date", "14/55/2025"],
+    ["report_date", "9/3/25"],
+    ["report_date", "9/3/20256"],
+    ["report_date", "9/3/22222"],
+    ["report_date", "31/13/20255"],
+    ["remarks", "9/3/20255"],
+  ])("never: %s %j", (field, value) => expect(fix(field, value)).toBeNull());
 });

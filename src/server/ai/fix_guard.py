@@ -98,6 +98,30 @@ def _same_date_as_iso(source: str, to: str) -> bool:
     )
 
 
+def _decimal_points(v: str) -> int:
+    return len(re.findall(r"[0-9]\.(?=[0-9])", v))
+
+
+def _date_parts(v: str) -> Optional[tuple]:
+    dmy = re.match(r"^([0-9]{1,2})[/.-]([0-9]{1,2})[/.-]([0-9]{2,5})$", v)
+    if dmy:
+        return dmy.group(1), dmy.group(2), dmy.group(3)
+    ymd = re.match(r"^([0-9]{4,5})[/.-]([0-9]{1,3})[/.-]([0-9]{1,3})$", v)
+    if ymd:
+        return ymd.group(3), ymd.group(2), ymd.group(1)
+    return None
+
+
+def _dotted_date_reseparated(a: str, b: str) -> bool:
+    if not re.match(r"^[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{2,4}$", a):
+        return False
+    pa, pb = _date_parts(a), _date_parts(b)
+    if not (pa and pb and 1 <= int(pa[0]) <= 31 and 1 <= int(pa[1]) <= 12):
+        return False
+    same_year = pa[2] == pb[2] or (len(pa[2]) == 2 and len(pb[2]) == 4 and pb[2].endswith(pa[2]))
+    return int(pa[0]) == int(pb[0]) and int(pa[1]) == int(pb[1]) and same_year
+
+
 def is_derived_value(source: Any, to: Any, row_values: list) -> bool:
     """Whether `to` can replace `source` without inventing anything — the
     same rules as isDerivedValue in linelist-ai-fix-guard.ts. A dropped word
@@ -105,6 +129,10 @@ def is_derived_value(source: Any, to: Any, row_values: list) -> bool:
     a = _trimmed(source)
     b = _trimmed(to)
     if not b:
+        return False
+    # A decimal point between digits is part of a number; it is never lost
+    # (except a valid day.month.year date written with other separators).
+    if _decimal_points(b) < _decimal_points(a) and not _dotted_date_reseparated(a, b):
         return False
     if any(_trimmed(v) != "" and _trimmed(v) == b and _trimmed(v) != a for v in row_values):
         return True
@@ -117,6 +145,10 @@ def is_derived_value(source: Any, to: Any, row_values: list) -> bool:
     if same_digits and not same_letters and len(_letters(a)) >= 2:
         return _letter_typo(_letters(a), _letters(b))
     if same_letters and not same_digits and len(_digits(b)) > 0:
+        # In a date only the year may lose a repeated digit.
+        pa, pb = _date_parts(a), _date_parts(b)
+        if pa or pb:
+            return bool(pa and pb and pa[0] == pb[0] and pa[1] == pb[1] and _drops_one_repeat(pa[2], pb[2]))
         return _drops_one_repeat(_digits(a), _digits(b))
     return False
 
