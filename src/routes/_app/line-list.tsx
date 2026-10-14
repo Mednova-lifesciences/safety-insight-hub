@@ -777,8 +777,8 @@ function ColumnMappingPanel({ job }: { job: LineListJob }) {
             </tr>
           </thead>
           <tbody>
-            {columns.map((column) => (
-              <tr key={column} className="border-t border-border/60 align-top">
+            {columns.map((column, i) => (
+              <tr key={`${i}-${column}`} className="border-t border-border/60 align-top">
                 <td className="py-2 pr-4 font-medium">{column}</td>
                 <td className="py-2 pr-4">
                   {mapping[column] ? (
