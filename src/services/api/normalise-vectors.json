@@ -561,5 +561,26 @@
     "value": "10 days",
     "expected": null,
     "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "Vol.",
+    "value": "0,5ml",
+    "expected": "0.5ml",
+    "rule": "dose-decimal-comma"
+  },
+  {
+    "field": "dose",
+    "header": "Vol.",
+    "value": "0,5",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "Vol.",
+    "value": "5ml",
+    "expected": null,
+    "rule": null
   }
 ]

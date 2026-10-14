@@ -864,6 +864,7 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["ageweeks", 95],
     ["ageinweeks", 95],
     ["agewks", 92],
+    ["agewk", 92],
     [["age", "week"], 90],
   ],
   age_days: [
@@ -956,9 +957,21 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
   ],
 };
 
-function mapColumns(headers: string[]): Record<string, TargetField> {
-  return mapColumnsByKeywords(headers, FIELD_KEYWORDS);
+/** The keyword mapping an upload starts from (see mergeColumnMapping). */
+export function mapColumns(headers: string[]): Record<string, TargetField> {
+  const mapping = mapColumnsByKeywords(headers, FIELD_KEYWORDS);
+  // "Vol." / "Volume" / "Volume (mL)" as the WHOLE header is, on a vaccine
+  // line list, the volume given — the dose amount. Matched whole, never as
+  // a substring ("Volunteer", "Involved", "Diluent volume"). The header
+  // does not establish mL by itself ("Vol." has no unit): a bare "0,5" is
+  // still left alone, and only a unit written in the cell is used.
+  if (!Object.values(mapping).includes("dose")) {
+    const vol = headers.find((h) => !mapping[h] && WHOLE_VOLUME_HEADER.test(headerKey(h)));
+    if (vol) mapping[vol] = "dose";
+  }
+  return mapping;
 }
+const WHOLE_VOLUME_HEADER = /^(vol|volume)(ml|mls|millilitres?|milliliters?)?$/;
 
 /** Below this, an AI proposal is disregarded and the keyword match stands.
  *  A low-confidence proposal is a guess, and a guess that silently
@@ -1180,13 +1193,32 @@ const PATIENT_WORD =
 export function headerMeaningVeto(column: string, field: TargetField): string {
   const h = column.toLowerCase().replace(/_/g, " ");
   const own = AGE_FIELD_UNIT[field];
-  if (own) {
-    const named = (Object.keys(AGE_UNIT_WORD) as (keyof typeof AGE_UNIT_WORD)[]).filter((u) =>
-      AGE_UNIT_WORD[u].test(h),
-    );
-    if (named.length > 0 && !named.includes(own))
-      return `The header gives the age in ${named.join(" and ")}, not ${own}, so it is not read as an age in ${own}.`;
+  const named = (Object.keys(AGE_UNIT_WORD) as (keyof typeof AGE_UNIT_WORD)[]).filter((u) =>
+    AGE_UNIT_WORD[u].test(h),
+  );
+  const noHoursField =
+    " The app has no field for an age in hours, so the column is left unmapped and its ages are not exported; a person records them in another unit.";
+  if (own || field === "age_unit") {
+    // "age" only inside another word is not the patient's age ("Dosage
+    // (wk)", "Stage", "Page"), and a gestational age is the pregnancy's.
+    // An age field needs the header to say "age": a unit word alone can be
+    // a week number ("Epi wk") or a duration.
+    if (!/\bage/.test(h) || /gestation/.test(h))
+      return "The header does not give the patient's age, so it is not read as one.";
   }
+  if (own && named.length > 0 && !named.includes(own))
+    return (
+      `The header gives the age in ${named.join(" and ")}, not ${own}, so it is not read as an age in ${own}.` +
+      (named.includes("hours") ? noHoursField : "")
+    );
+  // An age unit column holds words like "years" or "months" per row. A
+  // header that states one unit itself ("Age in hours since birth") holds
+  // the ages, not the units.
+  if (field === "age_unit" && named.length > 0 && !/\bunits?\b/.test(h))
+    return (
+      `The header gives ages in ${named.join(" and ")} — values, not a column of units — so it is not read as the age unit.` +
+      (named.includes("hours") ? noHoursField : "")
+    );
   if (PATIENT_FIELDS.has(field) && STAFF_ROLE.test(h) && !PATIENT_WORD.test(h))
     return "The header names a member of staff, so it is never read as the patient's details. Left unmapped — tell us what it holds if it matters.";
   return "";
