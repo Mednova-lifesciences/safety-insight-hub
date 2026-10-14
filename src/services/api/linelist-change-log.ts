@@ -60,6 +60,7 @@ export interface ProposedCorrection {
   /** Same value for every correction of one recovery move; see
    *  LineListChange.group. */
   group?: string | undefined;
+  rule?: { id: string; version: string } | undefined;
 }
 
 /**
@@ -103,6 +104,7 @@ export function appendCorrections(
       appliedAt: at,
       events: [],
       ...(p.group ? { group: p.group } : {}),
+      ...(p.rule ? { rule: p.rule } : {}),
     };
     working.push(entry);
     applied.push(entry);

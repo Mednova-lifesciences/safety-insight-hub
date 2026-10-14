@@ -19,7 +19,7 @@ import {
   type RoutedFinding,
 } from "./linelist-fix-routing";
 import { acceptedAiCorrections } from "./linelist-ai-fix-guard";
-import { saveJobVersioned } from "./linelist-job-store";
+import { saveJobCells, saveJobVersioned } from "./linelist-job-store";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import { discoverAndApplyCodebook, mapJobToCases } from "@/services/e2b-r3/export";
 import { generateRecoveryProposal } from "./linelist-recovery";
@@ -2712,6 +2712,8 @@ async function restoreCells(
     ...(cellRows.rawRows ? { rawRows: cellRows.rawRows } : {}),
     changeLog,
   };
+  // Cells changed: the server verifies Undo / Re-apply before it is stored.
+  await saveJobCells(updated);
   const currentIssues = await linelist.issues(job.id);
   const priorAi = currentIssues.filter((i) => i.source === "ai");
   const finalIssues = mergeFindings(await computeDeterministicIssues(updated), priorAi);
@@ -3652,6 +3654,7 @@ export const linelist = {
           column: i.column,
           new_value: i.suggestion!.value,
           reason: `Rule ${i.suggestion!.rule} v${i.suggestion!.version}: ${i.message}`,
+          rule: { id: i.suggestion!.rule, version: i.suggestion!.version },
         }));
       const ruleKeys = new Set(ruleCorrections.map((c) => `${c.row}:${c.column}`));
       // Whatever the AI answered, only what the data supports is applied
@@ -3673,6 +3676,7 @@ export const linelist = {
         new_value: string;
         reason: string;
         group?: string;
+        rule?: { id: string; version: string };
       }[] = [
         ...safeCorrections(
           recoveredCorrections,
@@ -3704,6 +3708,7 @@ export const linelist = {
               ? ("rule" as const)
               : ("ai" as const),
           ...(c.group ? { group: c.group } : {}),
+          ...(c.rule ? { rule: c.rule } : {}),
         })),
         (row, column) => readCell(cellRows, row, column),
         new Date().toISOString(),
@@ -3791,7 +3796,8 @@ export const linelist = {
           lastFixUnresolved: combinedUnresolved,
           lastFixRouting,
         };
-        await saveJob(updatedJob);
+        // Cells changed: the server verifies every one before it is stored.
+        await saveJobCells(updatedJob);
         await recordAudit({
           action: "LINELIST_AI_FIX_APPLIED",
           entity: "LineListJob",

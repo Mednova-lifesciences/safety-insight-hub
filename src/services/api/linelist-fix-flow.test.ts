@@ -5,7 +5,7 @@
  * nothing is lost, identifiers are never touched, and every refusal is
  * reported.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LineListIssue } from "@/types/pv";
 
 type Row = { id: string; job_id?: string; data?: unknown; [k: string]: unknown };
@@ -84,6 +84,46 @@ vi.mock("./ai", async (orig) => {
   return {
     ...real,
     ai: { ...ai, linelist: { ...ai["linelist"], fix: (...a: unknown[]) => aiFix(...a) } },
+  };
+});
+
+// A stand-in for the save-cells endpoint's storage contract: the version the
+// browser read must be the stored one, then the job is written with the next
+// version. (What the server verifies about each cell is tested on the server,
+// test_linelist_save_guard.py.) serverRefuses makes it answer 422.
+const server = { refuses: false, calls: 0 };
+vi.mock("./client", async (orig) => {
+  const real = (await orig()) as typeof import("./client");
+  return {
+    ...real,
+    apiRequest: async (
+      endpoint: string,
+      opts: { body?: { job: Record<string, unknown>; expected_version: number | null } },
+    ) => {
+      const m = /^\/api\/linelist\/jobs\/([^/]+)\/save-cells$/.exec(endpoint);
+      if (!m) throw new Error(`unexpected backend call ${endpoint}`);
+      server.calls++;
+      const row = tables["pv_linelist_jobs"]!.find((r) => r["id"] === decodeURIComponent(m[1]!))!;
+      const stored = row["data"] as { version?: number };
+      if ((stored.version ?? null) !== opts.body!.expected_version)
+        throw new real.ApiError(409, "stale");
+      if (server.refuses)
+        throw new real.ApiError(422, "refused", {
+          detail: {
+            message: "Nothing was saved: some changes could not be verified on the server.",
+            problems: [
+              {
+                row: 1,
+                column: "Vacc date",
+                reason: "The rule does not give this value on the server.",
+              },
+            ],
+          },
+        });
+      const version = (opts.body!.expected_version ?? 0) + 1;
+      row["data"] = { ...opts.body!.job, version };
+      return { version };
+    },
   };
 });
 
@@ -575,4 +615,50 @@ it("a finding on a cell a rule settles is recorded as settled by the rule, not a
     ["deterministic", "rule_corrected"],
     ["deterministic", "rule_corrected"],
   ]);
+});
+
+describe("cell changes are saved through the server", () => {
+  beforeEach(() => {
+    server.refuses = false;
+    server.calls = 0;
+  });
+  const sug = {
+    suggestion: { value: "02/02/2026", rule: "stray-edge-character", version: "1" },
+    fixable: true,
+  };
+  it("a Fix that changes cells is sent to the server, with the rule named on the change", async () => {
+    await runFix(
+      [base(1, { "Vacc date": "02/02/2026'" })],
+      [issue(1, "Vacc date", "STRAY_CHARACTER", "02/02/2026'", sug)],
+      NOAI,
+    );
+    expect(server.calls).toBe(1);
+    expect(jobData().changeLog![0]).toMatchObject({
+      source: "rule",
+      rule: { id: "stray-edge-character", version: "1" },
+    });
+  });
+  it("when the server refuses, nothing is stored and the reason is shown", async () => {
+    server.refuses = true;
+    const out = await runFix(
+      [base(1, { "Vacc date": "02/02/2026'" })],
+      [issue(1, "Vacc date", "STRAY_CHARACTER", "02/02/2026'", sug)],
+      NOAI,
+    );
+    expect(out.error).toMatch(/could not be verified on the server.*Row 1, Vacc date/);
+    expect(out.changed).toEqual([]);
+    expect(jobData().changeLog ?? []).toEqual([]);
+  });
+  it("Undo and Re-apply are sent to the server too", async () => {
+    await runFix(
+      [base(1, { "Vacc date": "02/02/2026'" })],
+      [issue(1, "Vacc date", "STRAY_CHARACTER", "02/02/2026'", sug)],
+      NOAI,
+    );
+    const id = jobData().changeLog![0]!.id;
+    await linelist.undoChange(JOB, id);
+    await linelist.reapplyChange(JOB, id);
+    expect(server.calls).toBe(3);
+    expect(jobData().rawRows[0]!["Vacc date"]).toBe("02/02/2026");
+  });
 });

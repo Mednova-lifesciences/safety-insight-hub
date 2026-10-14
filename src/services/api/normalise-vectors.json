@@ -1,0 +1,488 @@
+[
+  {
+    "field": "vaccination_date",
+    "value": "02/02/2026'",
+    "expected": "02/02/2026",
+    "rule": "stray-edge-character"
+  },
+  {
+    "field": "report_date",
+    "value": "2025-04-09'",
+    "expected": "2025-04-09",
+    "rule": "stray-edge-character"
+  },
+  {
+    "field": "diluent_batch",
+    "value": ":06851062",
+    "expected": "06851062",
+    "rule": "stray-edge-character"
+  },
+  {
+    "field": "vaccine_batch",
+    "value": "B20066;",
+    "expected": "B20066",
+    "rule": "stray-edge-character"
+  },
+  {
+    "field": "vaccine_batch",
+    "value": ".5",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "age_months",
+    "value": "-4",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "vaccine_batch",
+    "value": "AB'123",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "case_id",
+    "value": "Q-77'",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "reporter_phone",
+    "value": "'08012345678",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "remarks",
+    "value": "rash; fever,",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "onset_interval",
+    "value": "10 MINITES",
+    "expected": "10 MINUTES",
+    "rule": "interval-unit-spelling"
+  },
+  {
+    "field": "onset_interval",
+    "value": "5 minits",
+    "expected": "5 minutes",
+    "rule": "interval-unit-spelling"
+  },
+  {
+    "field": "onset_interval",
+    "value": "1 minits",
+    "expected": "1 minute",
+    "rule": "interval-unit-spelling"
+  },
+  {
+    "field": "onset_interval",
+    "value": "3 HOURES",
+    "expected": "3 HOURS",
+    "rule": "interval-unit-spelling"
+  },
+  {
+    "field": "onset_interval",
+    "value": "24 house",
+    "expected": "24 hours",
+    "rule": "interval-unit-spelling"
+  },
+  {
+    "field": "onset_interval",
+    "value": "2 DAYZ",
+    "expected": "2 DAYS",
+    "rule": "interval-unit-spelling"
+  },
+  {
+    "field": "onset_interval",
+    "value": "2hrs 30 minits",
+    "expected": "2hrs 30 minutes",
+    "rule": "interval-unit-spelling"
+  },
+  {
+    "field": "onset_interval",
+    "value": "2 dyas",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "onset_interval",
+    "value": "10 MINUTES",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "onset_interval",
+    "value": "2 hrs",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "onset_interval",
+    "value": "hrs",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "onset_interval",
+    "value": "24",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "onset_interval",
+    "value": "05/05/2025",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "onset_interval",
+    "value": "2 days later maybe",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "onset_interval",
+    "value": "30MINUT",
+    "expected": "30 MINUTES",
+    "rule": "interval-unit-spelling"
+  },
+  {
+    "field": "dose",
+    "value": "0,5ML",
+    "expected": "0.5ML",
+    "rule": "dose-decimal-comma"
+  },
+  {
+    "field": "dose",
+    "value": "0,5 mL",
+    "expected": "0.5 mL",
+    "rule": "dose-decimal-comma"
+  },
+  {
+    "field": "dose",
+    "value": "1at",
+    "expected": "1st",
+    "rule": "ordinal-suffix-typo"
+  },
+  {
+    "field": "dose",
+    "value": "2nf",
+    "expected": "2nd",
+    "rule": "ordinal-suffix-typo"
+  },
+  {
+    "field": "dose",
+    "value": "1AT",
+    "expected": "1ST",
+    "rule": "ordinal-suffix-typo"
+  },
+  {
+    "field": "dose",
+    "value": "3re dose",
+    "expected": "3rd dose",
+    "rule": "ordinal-suffix-typo"
+  },
+  {
+    "field": "dose",
+    "value": "10",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "value": "0.5MI",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "value": "1nd",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "value": "1st",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "value": "1,2",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "value": "Penta 1",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "value": "11at",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "value": "12nf",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "value": "22md",
+    "expected": "22nd",
+    "rule": "ordinal-suffix-typo"
+  },
+  {
+    "field": "reaction_code",
+    "value": "8,",
+    "expected": "8",
+    "rule": "code-list-delimiters"
+  },
+  {
+    "field": "reaction_code",
+    "value": "3, 5,",
+    "expected": "3, 5",
+    "rule": "code-list-delimiters"
+  },
+  {
+    "field": "reaction_code",
+    "value": "4/",
+    "expected": "4",
+    "rule": "code-list-delimiters"
+  },
+  {
+    "field": "reaction_code",
+    "value": "2, 7;",
+    "expected": "2, 7",
+    "rule": "code-list-delimiters"
+  },
+  {
+    "field": "reaction_code",
+    "value": "11&13",
+    "expected": "11, 13",
+    "rule": "code-list-delimiters"
+  },
+  {
+    "field": "reaction_code",
+    "value": "4, 20",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "reaction_code",
+    "value": "8.19.21",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "reaction_code",
+    "value": "28 PAIN AT THE INJECTION SITE",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "reaction_code",
+    "value": "12 AND 20",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "reaction_code",
+    "value": "2 + 5",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "age_months",
+    "value": "9 months",
+    "expected": "9",
+    "rule": "unit-in-own-column"
+  },
+  {
+    "field": "age",
+    "value": "4 yrs",
+    "expected": "4",
+    "rule": "unit-in-own-column"
+  },
+  {
+    "field": "age",
+    "value": "9 months",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "age_months",
+    "value": "2 years",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "report_date",
+    "value": "28/1/20226",
+    "expected": "28/1/2026",
+    "rule": "date-year-repeated-digit"
+  },
+  {
+    "field": "report_date",
+    "value": "9/3/20255",
+    "expected": "9/3/2025",
+    "rule": "date-year-repeated-digit"
+  },
+  {
+    "field": "vaccination_date",
+    "value": "14-5-20255",
+    "expected": "14-5-2025",
+    "rule": "date-year-repeated-digit"
+  },
+  {
+    "field": "national_received_date",
+    "value": "20255-04-09",
+    "expected": "2025-04-09",
+    "rule": "date-year-repeated-digit"
+  },
+  {
+    "field": "report_date",
+    "value": "2025-04-155",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "report_date",
+    "value": "14/55/2025",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "report_date",
+    "value": "9/3/25",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "report_date",
+    "value": "9/3/20256",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "report_date",
+    "value": "9/3/22222",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "report_date",
+    "value": "31/13/20255",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "report_date",
+    "value": "05/2//2026",
+    "expected": "05/2/2026",
+    "rule": "date-doubled-separator"
+  },
+  {
+    "field": "vaccination_date",
+    "value": "11//3/25",
+    "expected": "11/3/25",
+    "rule": "date-doubled-separator"
+  },
+  {
+    "field": "state_received_date",
+    "value": "2025--04-09",
+    "expected": "2025-04-09",
+    "rule": "date-doubled-separator"
+  },
+  {
+    "field": "report_date",
+    "value": "05/2/-2026",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "report_date",
+    "value": "05//13//2026",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "report_date",
+    "value": "5//2026",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "vaccination_time",
+    "value": "10:OOAM",
+    "expected": "10:00AM",
+    "rule": "time-letter-for-digit"
+  },
+  {
+    "field": "vaccination_time",
+    "value": "9:3O PM",
+    "expected": "9:30 PM",
+    "rule": "time-letter-for-digit"
+  },
+  {
+    "field": "vaccination_time",
+    "value": "1O:15",
+    "expected": "10:15",
+    "rule": "time-letter-for-digit"
+  },
+  {
+    "field": "vaccination_time",
+    "value": "10:00AM",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "vaccination_time",
+    "value": "OO:OO",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "vaccination_time",
+    "value": "10:7O",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "vaccination_time",
+    "value": "NOON",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "vaccination_time",
+    "value": "2O:OO PM",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "sex",
+    "value": "'M",
+    "expected": "M",
+    "rule": "stray-edge-character"
+  },
+  {
+    "field": "outcome",
+    "value": "1;",
+    "expected": "1",
+    "rule": "stray-edge-character"
+  },
+  {
+    "field": "serious_code",
+    "value": ",2",
+    "expected": "2",
+    "rule": "stray-edge-character"
+  }
+]
