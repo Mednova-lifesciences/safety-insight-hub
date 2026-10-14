@@ -41,6 +41,11 @@ describe("deriveInitials", () => {
 });
 
 describe("parseSourceDate", () => {
+  it.each([["31/04/2025"], ["30/02/2026"], ["2025-02-30"], ["2025-13-01"], ["14/13/2025"]])(
+    "never passes an impossible date %j into the export",
+    (v) => expect(parseSourceDate(v)).toBeNull(),
+  );
+  it("still reads a leap day", () => expect(parseSourceDate("29/02/2024")).toBe("2024-02-29"));
   it("parses dd/mm/yy", () => {
     expect(parseSourceDate("3/2/26")).toBe("2026-02-03");
   });

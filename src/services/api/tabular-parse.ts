@@ -6,6 +6,9 @@ export function isSpreadsheetFile(file: File): boolean {
 
 export interface ParsedTable {
   headers: string[];
+  /** The header cells as written in the file (surrounding spaces kept); the
+   *  same length as headers. headers are trimmed and used as column keys. */
+  sourceHeaders: string[];
   rows: string[][];
   /** The sheet the parser selected as the actual data table — a workbook's
    *  first sheet is not assumed to be it (see sheet ranking below). */
@@ -107,6 +110,14 @@ const HEADER_SIGNAL_KEYWORDS = [
   "date",
   "time",
 ];
+
+/** A cell's text exactly as the file holds it — surrounding spaces kept.
+ *  Stored as the original record (rawRows): an identifier such as
+ *  " HN-07 " is evidence and is never altered on upload. Comparisons,
+ *  header detection and the mapped values use normalizeCell instead. */
+function cellText(v: unknown): string {
+  return String(v ?? "");
+}
 
 function normalizeCell(v: unknown): string {
   return String(v ?? "").trim();
@@ -302,11 +313,12 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
     const sourceRowNumbers: number[] = [];
     dataRows.forEach((r, i) => {
       if (!r.some((cell) => normalizeCell(cell).length > 0)) return;
-      rows.push(headers.map((_, c) => normalizeCell(r[c])));
+      rows.push(headers.map((_, c) => cellText(r[c])));
       sourceRowNumbers.push(i + 2);
     });
     return {
       headers,
+      sourceHeaders: headerRow.map(cellText),
       rows,
       sourceRowNumbers,
       sheetName,
@@ -328,6 +340,7 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
     );
   }
 
+  const sourceHeaderRow = (matrix[header.index] ?? []).map(cellText);
   let headerRow = (matrix[header.index] ?? []).map(normalizeCell);
   const filledFromMergeCols = propagateMergedHeaders(sheet, headerRow, header.index);
 
@@ -362,7 +375,8 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
   const rows: string[][] = [];
   const sourceRowNumbers: number[] = [];
   for (let i = dataStartIndex; i < matrix.length; i++) {
-    const r = headers.map((_, c) => normalizeCell(matrix[i]![c]));
+    const cells = headers.map((_, c) => cellText(matrix[i]![c]));
+    const r = cells.map(normalizeCell);
     const populated = r.filter((cell) => cell.length > 0).length;
     if (populated === 0) continue; // fully blank
     if (r.join("") === headerKey) continue; // exact repeat of the header row
@@ -378,7 +392,7 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
       if (text) discardedRows.push({ row: i + 1, text });
       continue;
     }
-    rows.push(r);
+    rows.push(cells);
     sourceRowNumbers.push(i + 1);
   }
   if (structuralRowsDropped > 0) {
@@ -389,6 +403,12 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
 
   return {
     headers,
+    // The header text as written, for the exported file. A header built
+    // from a two-row header has no single source cell, so its combined name
+    // is used.
+    sourceHeaders: headers.map((h, c) =>
+      normalizeCell(sourceHeaderRow[c]) === h ? (sourceHeaderRow[c] ?? h) : h,
+    ),
     rows,
     sheetName,
     headerRowNumber: header.index + 1,

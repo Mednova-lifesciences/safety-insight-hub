@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   explainUnreadableInterval,
+  parseDateLoose,
   readDateInIntervalCell,
   readOnsetInterval,
   resolveOnset,
@@ -201,5 +202,27 @@ describe("fixed file: the onset date used, and how", () => {
 
   it("shows nothing for a file with neither an onset date nor an interval", () => {
     expect(onsetUsedForRows([{}], { Sex: "sex" })).toBeUndefined();
+  });
+});
+
+describe("parseDateLoose never rolls an impossible date over into another one", () => {
+  it.each([
+    ["31/04/2025"],
+    ["30/02/2026"],
+    ["29/02/2025"],
+    ["2025-02-30"],
+    ["2025-04-31"],
+    ["31-06-2025"],
+  ])("%j → null", (v) => expect(parseDateLoose(v)).toBeNull());
+  it.each([
+    ["29/02/2024", "2024-02-29"],
+    ["30/04/2025", "2025-04-30"],
+    ["2025-12-31", "2025-12-31"],
+    ["12/31/2025", "2025-12-31"],
+  ])("%j is a real date", (v, iso) => {
+    const d = parseDateLoose(v)!;
+    expect(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+    ).toBe(iso);
   });
 });

@@ -141,6 +141,24 @@ export const NORMALISATION_RULES: readonly NormalisationRule[] = [
     },
   },
   {
+    id: "time-letter-for-digit",
+    version: "1",
+    fields: ["vaccination_time"],
+    precondition:
+      "a letter O sits where a digit belongs (next to a digit, a colon or another such O), the value has at least one real digit, and replacing those Os with 0 gives a valid clock time (h:mm, with AM/PM 1–12, otherwise 0–23)",
+    never: "changes a value that is not then a valid time, or one made only of letters",
+    apply: (value) => {
+      const v = value.trim();
+      if (!/[Oo]/.test(v) || !/\d/.test(v)) return null;
+      const out = v.replace(/(?<=[\d:Oo])[Oo]|[Oo](?=[\d:Oo])/g, "0");
+      const t = /^(\d{1,2}):(\d{2})(\s*([AaPp])\.?[Mm]\.?)?$/.exec(out);
+      if (!t || out === v) return null;
+      const h = Number(t[1]);
+      const ok = (t[4] ? h >= 1 && h <= 12 : h <= 23) && Number(t[2]) <= 59;
+      return ok ? { value: out, why: "a letter O typed for a zero in the time" } : null;
+    },
+  },
+  {
     id: "interval-unit-spelling",
     version: "1",
     fields: ["onset_interval"],

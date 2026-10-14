@@ -396,3 +396,36 @@ describe("parseTabularFile — multi-sheet workbooks", () => {
     expect(result.rows).toHaveLength(3);
   });
 });
+
+describe("upload keeps each cell's text exactly as the file holds it", () => {
+  const csvFile = (text: string) => new File([text], "keep.csv", { type: "text/csv" });
+  it("CSV: identifier spaces, leading zeros, placeholders and literal values are kept; headers are keys, their text kept separately", async () => {
+    const t = await parseTabularFile(
+      csvFile(
+        ' Case ID ,Patient No,Dose,Note\n"001234"," HN-07 ",0.5ML,N/A\n000777,HN-08 , ,NIL\n',
+      ),
+    );
+    expect(t.headers).toEqual(["Case ID", "Patient No", "Dose", "Note"]);
+    expect(t.sourceHeaders).toEqual([" Case ID ", "Patient No", "Dose", "Note"]);
+    expect(t.rows).toEqual([
+      ["001234", " HN-07 ", "0.5ML", "N/A"],
+      ["000777", "HN-08 ", " ", "NIL"],
+    ]);
+  });
+  it("XLSX: text cells keep their spaces; a blank-only row is still skipped", async () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["Case ID", "Sex", "Age"],
+      [" C-01 ", "M", "4"],
+      ["  ", " ", ""],
+      ["C-02", "F ", "5"],
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "S");
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+    const t = await parseTabularFile(new File([buf], "keep.xlsx"));
+    expect(t.rows).toEqual([
+      [" C-01 ", "M", "4"],
+      ["C-02", "F ", "5"],
+    ]);
+  });
+});

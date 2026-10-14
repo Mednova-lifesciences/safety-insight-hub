@@ -28,8 +28,7 @@ export function parseDateLoose(value: string): Date | null {
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (iso) {
     const [, y, m, d] = iso;
-    const parsed = new Date(Number(y), Number(m) - 1, Number(d));
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+    return realDate(Number(y), Number(m), Number(d));
   }
   const slashOrDash = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/.exec(value);
   if (slashOrDash) {
@@ -40,11 +39,22 @@ export function parseDateLoose(value: string): Date | null {
     if (day <= 12 && month > 12) {
       [day, month] = [month, day];
     }
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    const parsed = new Date(year, month - 1, day);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+    return realDate(year, month, day);
   }
   return null;
+}
+
+/** The date, or null when it does not exist on the calendar. A JavaScript
+ *  Date silently rolls "31 April" over to 1 May; that must never happen to
+ *  a source value. */
+function realDate(year: number, month: number, day: number): Date | null {
+  if (month < 1 || month > 12 || day < 1) return null;
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year &&
+    parsed.getMonth() === month - 1 &&
+    parsed.getDate() === day
+    ? parsed
+    : null;
 }
 
 const MIN = 60_000;
