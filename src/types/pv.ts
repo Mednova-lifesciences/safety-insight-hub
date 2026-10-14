@@ -392,6 +392,9 @@ export interface LineListChange {
    *  its column and cleared from where it was) and are undone and
    *  re-applied together. */
   group?: string | undefined;
+  /** For a rule change: which normalisation rule, so the server can re-run
+   *  it before the change is saved. */
+  rule?: { id: string; version: string } | undefined;
 }
 
 export interface LineListJob {

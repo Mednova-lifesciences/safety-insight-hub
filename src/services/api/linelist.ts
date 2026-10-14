@@ -19,7 +19,7 @@ import {
   type RoutedFinding,
 } from "./linelist-fix-routing";
 import { acceptedAiCorrections } from "./linelist-ai-fix-guard";
-import { saveJobVersioned } from "./linelist-job-store";
+import { saveJobCells, saveJobVersioned } from "./linelist-job-store";
 import { RULE_BASED_DETECTION_ENABLED } from "./feature-flags";
 import { discoverAndApplyCodebook, mapJobToCases } from "@/services/e2b-r3/export";
 import { generateRecoveryProposal } from "./linelist-recovery";
@@ -46,6 +46,7 @@ import {
   buildDecidedCasesCsv,
   buildFixedCsv,
   decisionsFromFixedFile,
+  exportFilename,
   isFixedFileAnnotationColumn,
 } from "./linelist-fixed-csv";
 import { createKeyedQueue } from "./keyed-queue";
@@ -407,6 +408,9 @@ interface LineListJobRow extends LineListJob {
     reason: string;
     proposed?: string | null | undefined;
   }[];
+  /** Header text as written in the source file, where it differs from the
+   *  column key (surrounding spaces) — used for the exported header row. */
+  sourceHeaderText?: Record<string, string>;
   /** Every finding's route through the last Fix and what became of it
    *  (linelist-fix-routing). */
   lastFixRouting?: RoutedFinding[];
@@ -2708,6 +2712,8 @@ async function restoreCells(
     ...(cellRows.rawRows ? { rawRows: cellRows.rawRows } : {}),
     changeLog,
   };
+  // Cells changed: the server verifies Undo / Re-apply before it is stored.
+  await saveJobCells(updated);
   const currentIssues = await linelist.issues(job.id);
   const priorAi = currentIssues.filter((i) => i.source === "ai");
   const finalIssues = mergeFindings(await computeDeterministicIssues(updated), priorAi);
@@ -2792,8 +2798,10 @@ function preservedSourceText(job: LineListJobRow): string[] {
   ];
 }
 
+/** Downloads a CSV as UTF-8 with a byte-order mark, so spreadsheets read
+ *  accented and non-Latin text correctly (re-upload drops the mark). */
 function saveCsv(csv: string, filename: string): void {
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const url = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }));
   try {
     const a = document.createElement("a");
     a.href = url;
@@ -2913,6 +2921,7 @@ export const linelist = {
     try {
       const {
         headers,
+        sourceHeaders,
         rows,
         warnings: parseWarnings,
         sheetName,
@@ -2997,6 +3006,14 @@ export const linelist = {
         sheetName,
         headerRowNumber,
         sourceRowNumbers,
+        // The header text as written, only where it differs from the key.
+        ...(sourceHeaders.some((h, i) => h !== headers[i])
+          ? {
+              sourceHeaderText: Object.fromEntries(
+                headers.map((h, i) => [h, sourceHeaders[i] ?? h]).filter(([h, t]) => h !== t),
+              ),
+            }
+          : {}),
         ...(restoredDecisions.length > 0 ? { decisions: restoredDecisions } : {}),
       };
       // A code list saved for files with this column layout is attached, so
@@ -3637,6 +3654,7 @@ export const linelist = {
           column: i.column,
           new_value: i.suggestion!.value,
           reason: `Rule ${i.suggestion!.rule} v${i.suggestion!.version}: ${i.message}`,
+          rule: { id: i.suggestion!.rule, version: i.suggestion!.version },
         }));
       const ruleKeys = new Set(ruleCorrections.map((c) => `${c.row}:${c.column}`));
       // Whatever the AI answered, only what the data supports is applied
@@ -3658,6 +3676,7 @@ export const linelist = {
         new_value: string;
         reason: string;
         group?: string;
+        rule?: { id: string; version: string };
       }[] = [
         ...safeCorrections(
           recoveredCorrections,
@@ -3689,6 +3708,7 @@ export const linelist = {
               ? ("rule" as const)
               : ("ai" as const),
           ...(c.group ? { group: c.group } : {}),
+          ...(c.rule ? { rule: c.rule } : {}),
         })),
         (row, column) => readCell(cellRows, row, column),
         new Date().toISOString(),
@@ -3776,7 +3796,8 @@ export const linelist = {
           lastFixUnresolved: combinedUnresolved,
           lastFixRouting,
         };
-        await saveJob(updatedJob);
+        // Cells changed: the server verifies every one before it is stored.
+        await saveJobCells(updatedJob);
         await recordAudit({
           action: "LINELIST_AI_FIX_APPLIED",
           entity: "LineListJob",
@@ -3984,8 +4005,9 @@ export const linelist = {
       unresolved: job.lastFixUnresolved ?? [],
       preservedSourceText: preservedSourceText(job),
       onsetUsed: onsetUsedForRows(job.parsedRows, job.mapping),
+      headerText: job.sourceHeaderText,
     });
-    saveCsv(csv, job.filename.replace(/\.[^.]+$/, "") + "-fixed.csv");
+    saveCsv(csv, exportFilename(job.filename, "fixed"));
   },
 
   /** Only the dropped and held cases, with every original column, why each
@@ -4003,7 +4025,7 @@ export const linelist = {
       unresolved: job.lastFixUnresolved ?? [],
       preservedSourceText: preservedSourceText(job),
     });
-    saveCsv(csv, job.filename.replace(/\.[^.]+$/, "") + "-dropped-and-held.csv");
+    saveCsv(csv, exportFilename(job.filename, "dropped-and-held"));
   },
 
   /**

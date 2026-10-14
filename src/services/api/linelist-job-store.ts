@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { apiRequest, ApiError } from "./client";
 import { toJson } from "./db";
 
 /**
@@ -49,4 +50,55 @@ export async function saveJobVersioned<T extends { id: string; version?: number 
   // same operation is not mistaken for a stale one.
   job.version = next.version;
   return next;
+}
+
+/**
+ * A save that changes cells (Fix, Undo, Re-apply) goes to the server, which
+ * reads the stored job for the caller's organisation, checks the version,
+ * re-verifies every changed cell against the change log (rules re-run, AI
+ * values derived, moves only rearranging values, Undo returning the recorded
+ * value, identifiers untouched) and writes all of it or nothing.
+ */
+export async function saveJobCells<T extends { id: string; version?: number | undefined }>(
+  job: T,
+): Promise<T> {
+  const { version: expected, ...data } = job;
+  let res: { version: number };
+  try {
+    res = await apiRequest<{ version: number }>(
+      `/api/linelist/jobs/${encodeURIComponent(job.id)}/save-cells`,
+      { method: "POST", body: { job: toJson(data), expected_version: expected ?? null } },
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) throw new StaleJobError(job.id);
+    if (err instanceof ApiError && err.status === 422) throw new UnverifiedChangeError(err.detail);
+    throw err;
+  }
+  job.version = res.version;
+  return { ...job, version: res.version };
+}
+
+/** The server refused a save because a change could not be verified.
+ *  Nothing was saved. The reasons name rows and columns, never values. */
+export class UnverifiedChangeError extends Error {
+  constructor(detail: unknown) {
+    const d = (
+      detail as {
+        detail?: { message?: string; problems?: { row: number; column: string; reason: string }[] };
+      }
+    )?.detail;
+    const problems = d?.problems ?? [];
+    super(
+      `${d?.message ?? "Nothing was saved: the server could not verify these changes."}${
+        problems.length
+          ? " " +
+            problems
+              .slice(0, 3)
+              .map((p) => `Row ${p.row}, ${p.column}: ${p.reason}`)
+              .join(" ")
+          : ""
+      }`,
+    );
+    this.name = "UnverifiedChangeError";
+  }
 }

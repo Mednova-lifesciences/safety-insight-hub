@@ -80,6 +80,39 @@ export function escapeCsvCell(value: string): string {
   return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
+/**
+ * Spreadsheet formula-injection policy for exported cells (OWASP CSV
+ * injection): a cell a spreadsheet would run as a formula — one starting
+ * with "=", "@", a tab or a carriage return, or "+"/"-" followed by text —
+ * gets a leading apostrophe, which spreadsheets show as text. Numbers,
+ * phone numbers ("+234 803…"), dates and a lone "-" are left exactly as
+ * they are. Impact: such a cell is written "'=1+1" in the downloaded file;
+ * on re-upload the apostrophe is removed from the mapped value.
+ */
+export function spreadsheetSafe(value: string): string {
+  if (/^[=@\t\r]/.test(value)) return `'${value}`;
+  if (/^[+-]/.test(value) && !/^[+-][\d\s().,/:+-]*$/.test(value)) return `'${value}`;
+  return value;
+}
+
+/** One exported cell: formula-safe, then CSV-escaped. */
+const exportCell = (value: string) => escapeCsvCell(spreadsheetSafe(value));
+
+/** A safe download name from the uploaded file's name: path parts and
+ *  characters outside letters, digits, dot, dash and underscore are
+ *  replaced with "_", and the result is at most 100 characters including
+ *  the suffix. Only the source file name is used, so no value from the
+ *  data can appear in it. */
+export function exportFilename(source: string, suffix: string): string {
+  const base = (source.split(/[\\/]/).pop() ?? "")
+    .replace(/\.[^.]*$/, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/^[._]+|[._]+$/g, "")
+    .replace(/_+/g, "_");
+  const tail = `-${suffix}.csv`;
+  return (base || "line-list").slice(0, 100 - tail.length) + tail;
+}
+
 export function stillNeedsReviewFor(
   row: number,
   issues: LineListIssue[],
@@ -102,6 +135,9 @@ export interface FixedCsvInput {
   unresolved: { row: number; column: string; reason: string }[];
   /** The sparse rows the parser preserved — usually the code list. */
   preservedSourceText: string[];
+  /** The header text as written in the source file, where it differs from
+   *  the column key (surrounding spaces). */
+  headerText?: Record<string, string> | undefined;
   /** When given, the onset date used for each row (row N is index N-1),
    *  with a note on how it was worked out when it was not in the source. */
   onsetUsed?: ({ date: string; note?: string } | undefined)[] | undefined;
@@ -112,7 +148,13 @@ export function buildFixedCsv(input: FixedCsvInput): string {
   // fresh ones are appended, so the old ones are left out.
   const columns = input.columns.filter((c) => !isFixedFileAnnotationColumn(c));
   const onsetColumn = input.onsetUsed ? [ONSET_USED_COLUMN] : [];
-  const header = [...columns, ...onsetColumn, ...FIXED_FILE_COLUMNS].map(escapeCsvCell).join(",");
+  const header = [
+    ...columns.map((c) => input.headerText?.[c] ?? c),
+    ...onsetColumn,
+    ...FIXED_FILE_COLUMNS,
+  ]
+    .map(exportCell)
+    .join(",");
   const body: string[] = [];
   input.rows.forEach((record, idx) => {
     const row = idx + 1;
@@ -128,7 +170,7 @@ export function buildFixedCsv(input: FixedCsvInput): string {
         decision ? describeDecision(decision) : "",
         stillNeedsReviewFor(row, input.issues, input.unresolved),
       ]
-        .map(escapeCsvCell)
+        .map(exportCell)
         .join(","),
     );
   });

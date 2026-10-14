@@ -147,3 +147,16 @@ describe("a doubled separator inside a date", () => {
     ["report_date", "5//2026"],
   ])("never: %s %j", (field, value) => expect(fix(field, value)).toBeNull());
 });
+
+describe("a letter O typed for a zero in a time", () => {
+  it.each([
+    ["10:OOAM", "10:00AM"],
+    ["9:3O PM", "9:30 PM"],
+    ["1O:15", "10:15"],
+  ])("%j → %j", (value, want) => expect(fix("vaccination_time", value)).toBe(want));
+  it.each([["10:00AM"], ["OO:OO"], ["10:7O"], ["NOON"], ["10HRS"], ["2O:OO PM"]])(
+    "never: %j",
+    (value) => expect(fix("vaccination_time", value)).toBeNull(),
+  );
+  it("only in a time column", () => expect(fix("remarks", "10:OOAM")).toBeNull());
+});

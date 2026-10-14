@@ -180,3 +180,74 @@ describe("codes joined by a word are flagged, never rewritten", () => {
     expect(out[0]!.suggestion).toBeUndefined();
   });
 });
+
+describe("detection: impossible dates, unit mismatches and likely misspellings (flags only)", () => {
+  const cols = {
+    ...mapping,
+    Age: "age",
+    Vaccine: "product",
+    Role: "reporter_designation",
+  } as Record<string, string>;
+  const headers = [...Object.keys(row()), "Age", "Vaccine", "Role"];
+  const base2 = (over: Record<string, string> = {}) => ({
+    ...row(),
+    Age: "4",
+    Vaccine: "MEASLES RUBELLA",
+    Role: "Nurse",
+    ...over,
+  });
+  const codes = (rows: Record<string, string>[]) =>
+    formatFindings(headers, cols, rows).map((i) => [i.row, i.column, i.code, i.fixable]);
+  it.each([["31/04/2025"], ["30/02/2026"], ["2025-02-30"], ["31.06.2025"]])(
+    "impossible date %j is flagged, never corrected",
+    (d) => expect(codes([base2({ Given: d })])).toEqual([[1, "Given", "IMPOSSIBLE_DATE", false]]),
+  );
+  it.each([["29/02/2024"], ["30/04/2025"], ["12/31/2025"], ["2025-12-31"], ["3/4/25"]])(
+    "real date %j is not flagged",
+    (d) => expect(codes([base2({ Given: d })])).toEqual([]),
+  );
+  it.each([["18 months"], ["3 weeks"], ["10 days"], ["6 mths"]])(
+    "%j in a years column is flagged",
+    (a) => expect(codes([base2({ Age: a })])).toEqual([[1, "Age", "AGE_UNIT_MISMATCH", false]]),
+  );
+  it.each([["4"], ["4 years"], ["97"], ["0.5"]])("%j in a years column is no unit mismatch", (a) =>
+    expect(codes([base2({ Age: a })]).filter((c) => c[2] === "AGE_UNIT_MISMATCH")).toEqual([]),
+  );
+  it("a word used once, one letter from a word the column uses often, is flagged with the evidence", () => {
+    const rows = [
+      ...Array.from({ length: 12 }, () => base2()),
+      base2({ Vaccine: "MEASELES RUBELLA" }),
+    ];
+    const out = formatFindings(headers, cols, rows).filter(
+      (i) => i.code === "POSSIBLE_MISSPELLING",
+    );
+    expect(out).toEqual([expect.objectContaining({ row: 13, column: "Vaccine", fixable: false })]);
+    expect(out[0]!.message).toContain("MEASLES");
+    expect(out[0]!.suggestion).toBeUndefined();
+  });
+  it("a rare but different word is not flagged, nor is a word the column does not use often", () => {
+    const rows = [
+      ...Array.from({ length: 12 }, () => base2()),
+      base2({ Vaccine: "YELLOW FEVER" }),
+      base2({ Vaccine: "MEASLESS" }),
+    ];
+    expect(
+      formatFindings(headers, cols, rows)
+        .filter((i) => i.code === "POSSIBLE_MISSPELLING")
+        .map((i) => i.row),
+    ).toEqual([14]);
+    const few = [base2(), base2(), base2({ Vaccine: "MEASELES RUBELLA" })];
+    expect(
+      formatFindings(headers, cols, few).filter((i) => i.code === "POSSIBLE_MISSPELLING"),
+    ).toEqual([]);
+  });
+  it("never checks spelling in free text or identifiers", () => {
+    const rows = [
+      ...Array.from({ length: 12 }, () => base2({ Notes: "patient stable" })),
+      base2({ Notes: "patient stabel", Ref: "Q-78" }),
+    ];
+    expect(
+      formatFindings(headers, cols, rows).filter((i) => i.code === "POSSIBLE_MISSPELLING"),
+    ).toEqual([]);
+  });
+});

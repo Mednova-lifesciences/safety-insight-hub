@@ -173,14 +173,22 @@ export function parseSourceDate(raw: string | undefined): string | null {
   if (!raw) return null;
   const v = raw.trim();
   let m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(v);
-  if (m) return `${m[1]}-${m[2]!.padStart(2, "0")}-${m[3]!.padStart(2, "0")}`;
+  if (m) return calendarDate(m[1]!, m[2]!, m[3]!);
   m = /^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/.exec(v);
   if (m) {
     let year = m[3]!;
     if (year.length === 2) year = (Number(year) < 50 ? "20" : "19") + year;
-    return `${year}-${m[2]!.padStart(2, "0")}-${m[1]!.padStart(2, "0")}`;
+    return calendarDate(year, m[2]!, m[1]!);
   }
   return null;
+}
+
+/** yyyy-mm-dd, or null when the day does not exist (31 April, 30 February,
+ *  month 13): an impossible source date is never exported. */
+function calendarDate(year: string, month: string, day: string): string | null {
+  const [y, mo, d] = [Number(year), Number(month), Number(day)];
+  if (mo < 1 || mo > 12 || d < 1 || d > new Date(y, mo, 0).getDate()) return null;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
 /** Keys are matched after upper-casing and removing every separator, so
