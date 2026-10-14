@@ -484,5 +484,82 @@
     "value": ",2",
     "expected": "2",
     "rule": "stray-edge-character"
+  },
+  {
+    "field": "dose",
+    "header": "Volume administered (mL)",
+    "value": "0,5",
+    "expected": "0.5",
+    "rule": "dose-decimal-comma"
+  },
+  {
+    "field": "dose",
+    "header": "Volume administered (mL)",
+    "value": "1,0",
+    "expected": "1.0",
+    "rule": "dose-decimal-comma"
+  },
+  {
+    "field": "dose",
+    "header": "Dose volume (millilitres)",
+    "value": "0,5",
+    "expected": "0.5",
+    "rule": "dose-decimal-comma"
+  },
+  {
+    "field": "dose",
+    "header": "Dose",
+    "value": "0,5",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "Dose volume",
+    "value": "0,5",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "Volume administered (mL)",
+    "value": "1,2,3",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "Volume administered (mL)",
+    "value": "0.5",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "Mlango dose",
+    "value": "0,5",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "age_weeks",
+    "header": "Infant age (weeks)",
+    "value": "'8",
+    "expected": "8",
+    "rule": "stray-edge-character"
+  },
+  {
+    "field": "age_weeks",
+    "header": "Infant age (weeks)",
+    "value": "3 months",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "age_days",
+    "header": "Age (days)",
+    "value": "10 days",
+    "expected": null,
+    "rule": null
   }
 ]

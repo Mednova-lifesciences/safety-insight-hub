@@ -137,7 +137,7 @@ def validate_cell_save(current: dict, proposed: dict) -> list:
             continue
         if source == "rule":
             rule = entry.get("rule") or {}
-            got = normalise(mapping.get(col, ""), before.strip())
+            got = normalise(mapping.get(col, ""), before.strip(), col)
             if not got or got[0] != after or got[1] != rule.get("id") or got[2] != rule.get("version"):
                 problem(row, col, "The rule does not give this value on the server.")
         elif source == "ai":

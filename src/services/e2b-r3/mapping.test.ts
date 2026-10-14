@@ -337,6 +337,51 @@ describe("mapSourceRecordToPVCase — integration, Ondo source profile", () => {
     expect(pvCase.patient.ageUnitAssumed).toBe(true);
   });
 
+  it("a months-only age column reaches E2B in months, not years", async () => {
+    // The shape a "Client Age (months)" column has once it is mapped to
+    // age_months: no years column at all. 18 must go out as 18 months (802),
+    // never as 18 years — the failure the blind benchmark found when the
+    // column was read as `age`.
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { reaction: "19", product: "MR/MV", age_months: "18" },
+      ondoAefiProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.patient.age).toBe("18");
+    expect(pvCase.patient.ageUnit).toBe("802");
+  });
+
+  it.each([
+    [{ age_weeks: "8" }, "8", "803"],
+    [{ age_weeks: "8 weeks" }, "8", "803"],
+    [{ age_days: "10" }, "10", "804"],
+  ])("an age column in weeks or days reaches E2B in that unit: %j", async (cells, age, unit) => {
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { reaction: "19", product: "MR/MV", ...cells },
+      ondoAefiProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.patient.age).toBe(age);
+    expect(pvCase.patient.ageUnit).toBe(unit);
+    expect(pvCase.patient.ageUnitAssumed).toBeFalsy();
+  });
+
+  it("a different unit in a weeks column is never converted or sent as years", async () => {
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { reaction: "19", product: "MR/MV", age_weeks: "3 months" },
+      ondoAefiProfile,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.patient.age).toBeUndefined();
+    expect(pvCase.patient.ageUnit).toBeUndefined();
+  });
+
   it("resolves report type and sender organisation once transmission config is confirmed (decisions D3/D4)", async () => {
     const { pvCase } = await mapSourceRecordToPVCase(
       { reaction: "19", product: "MR/MV", patient_identifier: "A B" },

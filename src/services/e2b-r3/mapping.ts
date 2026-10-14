@@ -81,6 +81,8 @@ export interface RawLineListRow {
   reporter_name?: string | undefined;
   /** Sub-project 1 fields: see TARGET_FIELDS in services/api/linelist.ts. */
   age_months?: string | undefined;
+  age_weeks?: string | undefined;
+  age_days?: string | undefined;
   vaccination_time?: string | undefined;
   medical_history?: string | undefined;
   diluent_batch?: string | undefined;
@@ -136,6 +138,8 @@ export function applyColumnMap(
       reporter_state: get(profile.columnMap.reporterState),
       route: get(profile.columnMap.route),
       age_months: get(profile.columnMap.ageMonths),
+      age_weeks: get(profile.columnMap.ageWeeks),
+      age_days: get(profile.columnMap.ageDays),
       vaccination_time: get(profile.columnMap.vaccinationTime),
       medical_history: get(profile.columnMap.medicalHistory),
       diluent_batch: get(profile.columnMap.diluentBatch),
@@ -414,6 +418,20 @@ export function combineAgeWithMonths(
   const years = ageCell ? Number(ageCell.value) : 0;
   if (!Number.isFinite(years) || years >= 2) return undefined;
   return { value: String(Math.round(years * 12) + Number(m[1])), unit: "802" };
+}
+
+/** An age from a column whose header states its unit. A bare number takes
+ *  the column's unit; a number with that same unit written after it too.
+ *  A different unit in the cell ("3 months" in a weeks column) is not
+ *  converted: nothing is returned, and the cell is flagged for a person. */
+export function ageInColumnUnit(
+  raw: string | undefined,
+  unit: "803" | "804",
+): { value: string; unit: NonNullable<PVPatient["ageUnit"]> } | undefined {
+  const cell = splitAgeValue(raw);
+  if (!cell || !/^\d+(\.\d+)?$/.test(cell.value)) return undefined;
+  if (cell.unit && cell.unit !== unit) return undefined;
+  return { value: cell.value, unit };
 }
 
 /** True when a value from an "other vaccines" cell can name a product.
@@ -1202,7 +1220,12 @@ export async function mapSourceRecordToPVCase(
   // ("18 months"). A unit stated anywhere beats the default.
   // A Months sub-column is the file stating the unit in a column of its
   // own, so it counts as a source-stated unit.
-  const ageWithMonths = combineAgeWithMonths(row.age, row.age_months, mapAgeUnit(row.age_unit));
+  const ageWithMonths =
+    combineAgeWithMonths(row.age, row.age_months, mapAgeUnit(row.age_unit)) ??
+    // A column that states its unit in the header (weeks, days) and no
+    // years column: the age goes out in that unit, never as years.
+    (row.age?.trim() ? undefined : ageInColumnUnit(row.age_weeks, "803")) ??
+    (row.age?.trim() ? undefined : ageInColumnUnit(row.age_days, "804"));
   const parsedAge = ageWithMonths ?? splitAgeValue(row.age);
   // Resolution order, most authoritative first. Each branch records WHERE
   // the unit came from, because "the file said months" and "we assumed

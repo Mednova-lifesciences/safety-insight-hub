@@ -26,7 +26,13 @@ export interface NormalisationRule {
   fields: readonly string[];
   precondition: string;
   never: string;
-  apply: (value: string, field: string) => Omit<Normalisation, "rule" | "version"> | null;
+  /** `header` is the column's own header text, for a rule that reads a
+   *  unit the header states. */
+  apply: (
+    value: string,
+    field: string,
+    header: string,
+  ) => Omit<Normalisation, "rule" | "version"> | null;
 }
 
 const alnum = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -51,6 +57,8 @@ const TYPED_FIELDS = [
   "dose",
   "age",
   "age_months",
+  "age_weeks",
+  "age_days",
   "sex",
   "outcome",
   "serious_code",
@@ -188,15 +196,22 @@ export const NORMALISATION_RULES: readonly NormalisationRule[] = [
   },
   {
     id: "dose-decimal-comma",
-    version: "1",
+    version: "2",
     fields: ["dose"],
     precondition:
-      "one number with a decimal comma followed by a volume unit (ml), e.g. 0,5ML — the unit shows it is one quantity",
-    never: "touches a comma without a unit after it (it may separate two values)",
-    apply: (value) => {
+      "one number with a decimal comma followed by a volume unit (ml), e.g. 0,5ML — or one short number (0,5) in a column whose header states mL",
+    never:
+      "touches a comma with no unit in the cell or the header, or more than one comma (it may separate values)",
+    apply: (value, _field, header) => {
       const m = /^(\d+),(\d+)(\s*)(ml)$/i.exec(value.trim());
-      return m
-        ? { value: `${m[1]}.${m[2]}${m[3]}${m[4]}`, why: "decimal comma written as a point" }
+      if (m)
+        return { value: `${m[1]}.${m[2]}${m[3]}${m[4]}`, why: "decimal comma written as a point" };
+      const bare = /^(\d{1,2}),(\d{1,2})$/.exec(value.trim());
+      return bare && HEADER_ML.test(header)
+        ? {
+            value: `${bare[1]}.${bare[2]}`,
+            why: "decimal comma written as a point (the header gives the unit as mL)",
+          }
         : null;
     },
   },
@@ -258,12 +273,16 @@ export const NORMALISATION_RULES: readonly NormalisationRule[] = [
   },
 ];
 
-/** The first rule that applies to this value in this field, if any. */
-export function normalise(field: string, value: string): Normalisation | null {
+/** The header states the column's unit as millilitres ("Volume (mL)"). */
+export const HEADER_ML = /\b(ml|mls|millilit(?:re|er)s?)\b/i;
+
+/** The first rule that applies to this value in this field, if any.
+ *  `header` is the column's header text (see NormalisationRule.apply). */
+export function normalise(field: string, value: string, header = ""): Normalisation | null {
   if (!value.trim()) return null;
   for (const rule of NORMALISATION_RULES) {
     if (!rule.fields.includes(field)) continue;
-    const r = rule.apply(value, field);
+    const r = rule.apply(value, field, header);
     if (r && r.value !== value) return { ...r, rule: rule.id, version: rule.version };
   }
   return null;

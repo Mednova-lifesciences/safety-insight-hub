@@ -1,5 +1,5 @@
 import type { LineListIssue } from "@/types/pv";
-import { normalise } from "./linelist-normalise";
+import { HEADER_ML, normalise } from "./linelist-normalise";
 
 /**
  * Findings read from the file's own cell text (rawRows) rather than the
@@ -55,6 +55,14 @@ function dateExists(raw: string): boolean | null {
 const OTHER_AGE_UNIT: Record<string, RegExp> = {
   age: /^\d+(\.\d+)?\s*(months?|mths?|mos?|weeks?|wks?|days?|dys?)\.?$/i,
   age_months: /^\d+(\.\d+)?\s*(years?|yrs?|weeks?|wks?|days?|dys?)\.?$/i,
+  age_weeks: /^\d+(\.\d+)?\s*(years?|yrs?|months?|mths?|mos?|days?|dys?)\.?$/i,
+  age_days: /^\d+(\.\d+)?\s*(years?|yrs?|months?|mths?|mos?|weeks?|wks?)\.?$/i,
+};
+const AGE_FIELD_UNIT_NAME: Record<string, string> = {
+  age: "years",
+  age_months: "months",
+  age_weeks: "weeks",
+  age_days: "days",
 };
 
 /** Fields with a controlled vocabulary in practice, where a word used once
@@ -166,7 +174,7 @@ export function formatFindings(
       const field = mapping[header]!;
       const raw = String(r[header] ?? "").trim();
       if (!raw) continue;
-      const n = normalise(field, raw);
+      const n = normalise(field, raw, header);
       if (n) {
         issues.push(
           finding(
@@ -222,7 +230,7 @@ export function formatFindings(
             raw,
             "AGE_UNIT_MISMATCH",
             "MEDIUM",
-            `"${raw}": this column is in ${field === "age" ? "years" : "months"}. Not converted automatically — a person enters it in the right column or unit.`,
+            `"${raw}": this column is in ${AGE_FIELD_UNIT_NAME[field]}. Not converted automatically — a person enters it in the right column or unit.`,
             false,
           ),
         );
@@ -277,6 +285,9 @@ export function formatFindings(
         const m = /^(\d+(?:[.,]\d+)?)\s*([A-Za-z]*)$/.exec(raw);
         const amount = m ? Number(m[1]!.replace(",", ".")) : NaN;
         const unit = m?.[2] ?? "";
+        // A header that states mL makes a bare number a volume, not a dose
+        // number. Only the check reads it; the value is never rewritten.
+        const headerMl = !unit && HEADER_ML.test(header);
         if (m && unit && !KNOWN_DOSE_UNIT.test(unit) && !/^(st|nd|rd|th)$/i.test(unit)) {
           issues.push(
             finding(
@@ -290,7 +301,26 @@ export function formatFindings(
               false,
             ),
           );
-        } else if (m && !unit && Number.isInteger(amount) && amount > MAX_DOSE_NUMBER) {
+        } else if (m && headerMl && amount > MAX_ML) {
+          issues.push(
+            finding(
+              row,
+              header,
+              field,
+              raw,
+              "DOSE_IMPLAUSIBLE",
+              "MEDIUM",
+              `${raw} mL (the header gives the unit) is an unusually large vaccine volume. Check the source; it is never changed automatically.`,
+              false,
+            ),
+          );
+        } else if (
+          m &&
+          !unit &&
+          !headerMl &&
+          Number.isInteger(amount) &&
+          amount > MAX_DOSE_NUMBER
+        ) {
           issues.push(
             finding(
               row,

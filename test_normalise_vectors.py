@@ -15,7 +15,7 @@ VECTORS = json.loads((Path(__file__).parent / "src" / "services" / "api" / "norm
 def test_server_rules_match_the_browser_rules(monkeypatch):
     wrong = []
     for c in VECTORS:
-        got = normalise(c["field"], c["value"])
+        got = normalise(c["field"], c["value"], c.get("header", ""))
         value, rule = (got[0], got[1]) if got else (None, None)
         if value != c["expected"] or rule != c["rule"]:
             wrong.append(f'{c["field"]} {c["value"]!r}: server {value!r}/{rule}, browser {c["expected"]!r}/{c["rule"]}')
