@@ -94,6 +94,9 @@ export interface ColumnMap {
   /** C.2.r.2.4 / C.2.r.2.5 — the reporter's city and state/province. */
   reporterCity?: string;
   ageMonths?: string;
+  /** An age the source states in weeks / in days (D.2.2b 803 / 804). */
+  ageWeeks?: string;
+  ageDays?: string;
   vaccinationTime?: string;
   medicalHistory?: string;
   diluentBatch?: string;

@@ -277,6 +277,11 @@ export const TARGET_FIELDS = [
    *  Months sub-columns. Combined with `age`; on its own it is the age of
    *  an infant, who must never be reported as "0 years". */
   "age_months",
+  /** D.2.2a with D.2.2b = 803 / 804 — an age a column states in weeks or
+   *  days ("Infant age (weeks)"). E2B carries both units, so the age goes
+   *  out in the column's own unit; it is never converted to years. */
+  "age_weeks",
+  "age_days",
   /** The time of day the vaccine was given ("11:00"), so an onset interval
    *  in hours can cross midnight correctly. Never written to the XML
    *  itself — the reaction start date is date-precision. */
@@ -774,6 +779,13 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["dosenumber", 85],
     ["doseadministered", 70],
     ["doseamount", 80],
+    // A vaccine's volume is its dose amount (G.k.4.r.1a). Only headers that
+    // say it is the vaccine's volume; a diluent's volume is not the dose.
+    ["dosevolume", 85],
+    ["volumeadministered", 85],
+    ["volumegiven", 85],
+    ["volumeofvaccine", 85],
+    ["vaccinevolume", 85],
     ["dosageamount", 80],
     ["dosequantity", 80],
     ["dosagequantity", 80],
@@ -847,6 +859,17 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["ageinmonths", 95],
     ["agemths", 92],
     [["age", "month"], 90],
+  ],
+  age_weeks: [
+    ["ageweeks", 95],
+    ["ageinweeks", 95],
+    ["agewks", 92],
+    [["age", "week"], 90],
+  ],
+  age_days: [
+    ["agedays", 95],
+    ["ageindays", 95],
+    [["age", "days"], 90],
   ],
   // Weighted above vaccination_date's 95 so the Time sub-column of
   // "Date of Last immunisation" is never taken as the date.
@@ -1011,6 +1034,7 @@ export function mergeColumnMapping(
   if (!aiUsed || proposals.length === 0) {
     const mapping = { ...keywordMapping };
     const notes: Record<string, string> = {};
+    applyHeaderMeaningVetoes(mapping, notes);
     // Only here, and only because the model did not run. A column called
     // exactly "Reporter" is genuinely ambiguous — it holds a role on most
     // AEFI forms and a name on some — which is why the keyword list does
@@ -1052,9 +1076,7 @@ export function mergeColumnMapping(
       // months, weeks or days read as years puts a wrong age in the E2B
       // file, and lets the years rule strip "1 year" to "1" in a months
       // column. The keyword mapping, which reads the header, fills it in.
-      const ageUnits = ageHeaderUnits(p.column);
-      if (p.field === "age" && ageUnits.other && !ageUnits.years) return false;
-      if (p.field === "age_months" && ageUnits.years && !ageUnits.months) return false;
+      if (headerMeaningVeto(p.column, p.field as TargetField)) return false;
       // The patient's record number (D.1.1) is the identifier most easily
       // confused with three others that also look like ids. The prompt
       // warns about them; these are the rules. A header that names the
@@ -1091,26 +1113,106 @@ export function mergeColumnMapping(
 
   // Keyword results fill every column the model left alone, so its silence
   // on a column can only lose reach, never unmap something already known.
-  for (const [column, field] of Object.entries(keywordMapping)) {
+  // The keyword table obeys the same header-meaning rules as the model.
+  const keywordAllowed = { ...keywordMapping };
+  const vetoNotes: Record<string, string> = {};
+  applyHeaderMeaningVetoes(keywordAllowed, vetoNotes);
+  for (const [column, field] of Object.entries(keywordAllowed)) {
     if (mapping[column] || usedFields.has(field)) continue;
     mapping[column] = field;
     source[column] = "rule";
     usedFields.add(field);
   }
+  for (const p of proposals) {
+    const why =
+      p.field && TARGET_FIELD_SET.has(p.field)
+        ? headerMeaningVeto(p.column, p.field as TargetField)
+        : "";
+    if (why) vetoNotes[p.column] ??= why;
+  }
+  // The reason a column was left unmapped is shown with it.
+  for (const [column, why] of Object.entries(vetoNotes)) if (!mapping[column]) notes[column] = why;
 
   return { mapping, source, notes, aiUsed: true };
 }
 
-/** The age units a header names, as whole words: "Client Age (months)",
- *  "Age (Yrs)", "Age in weeks". */
-function ageHeaderUnits(column: string): { years: boolean; months: boolean; other: boolean } {
-  const h = column.toLowerCase();
-  const months = /\b(months?|mths?|mos?)\b/.test(h);
-  return {
-    years: /\b(years?|yrs?|yr)\b/.test(h),
-    months,
-    other: months || /\b(weeks?|wks?|days?)\b/.test(h),
-  };
+/** The unit each age field holds. */
+const AGE_FIELD_UNIT: Partial<Record<TargetField, "years" | "months" | "weeks" | "days">> = {
+  age: "years",
+  age_months: "months",
+  age_weeks: "weeks",
+  age_days: "days",
+};
+/** Age units a header can name, as whole words: "Client Age (months)",
+ *  "Age (Yrs)", "Infant age (weeks)". */
+// Hours has no field of its own: a header in hours is never read as any age field.
+const AGE_UNIT_WORD: Record<"years" | "months" | "weeks" | "days" | "hours", RegExp> = {
+  years: /\b(years?|yrs?)\b/,
+  months: /\b(months?|mths?|mos?)\b/,
+  weeks: /\b(weeks?|wks?)\b/,
+  days: /\b(days?)\b/,
+  hours: /\b(hours?|hrs?)\b/,
+};
+
+/** Fields that describe the patient. */
+const PATIENT_FIELDS: ReadonlySet<TargetField> = new Set<TargetField>([
+  "patient_identifier",
+  "patient_id",
+  "sex",
+  "age",
+  "age_months",
+  "age_weeks",
+  "age_days",
+]);
+/** A header naming a member of staff: the column is about them, never the
+ *  patient ("Supervisor initials", "Vaccinator name"). */
+const STAFF_ROLE =
+  /\b(supervisors?|officers?|staff|nurses?|vaccinators?|clerks?|enumerators?|interviewers?|notifiers?|reporters?|reporting|verified|checked|approved|signed|signature|team ?leads?|focal ?persons?|health ?workers?|data ?entry)\b/;
+/** Words that tie a header to the patient after all ("Patient seen by nurse"). */
+const PATIENT_WORD =
+  /\b(patients?|clients?|child|children|infants?|baby|babies|vaccinees?|recipients?|participants?)\b/;
+
+/** Why this header may not be read as this field, or "" when it may. The
+ *  header states a meaning the field contradicts: an age unit other than
+ *  the field's, or a member of staff for a patient field. A wrong field is
+ *  worse than none — the value looks processed while carrying the wrong
+ *  meaning into the E2B file. */
+export function headerMeaningVeto(column: string, field: TargetField): string {
+  const h = column.toLowerCase().replace(/_/g, " ");
+  const own = AGE_FIELD_UNIT[field];
+  if (own) {
+    const named = (Object.keys(AGE_UNIT_WORD) as (keyof typeof AGE_UNIT_WORD)[]).filter((u) =>
+      AGE_UNIT_WORD[u].test(h),
+    );
+    if (named.length > 0 && !named.includes(own))
+      return `The header gives the age in ${named.join(" and ")}, not ${own}, so it is not read as an age in ${own}.`;
+  }
+  if (PATIENT_FIELDS.has(field) && STAFF_ROLE.test(h) && !PATIENT_WORD.test(h))
+    return "The header names a member of staff, so it is never read as the patient's details. Left unmapped — tell us what it holds if it matters.";
+  return "";
+}
+
+/** Every column whose header contradicts the field it is mapped to. */
+export function mappingViolations(
+  mapping: Record<string, TargetField>,
+): { column: string; field: TargetField; reason: string }[] {
+  return Object.entries(mapping)
+    .map(([column, field]) => ({ column, field, reason: headerMeaningVeto(column, field) }))
+    .filter((v) => v.reason);
+}
+
+/** Removes every mapping the header's own words contradict, with the
+ *  reason as the column's note. */
+function applyHeaderMeaningVetoes(
+  mapping: Record<string, TargetField>,
+  notes: Record<string, string>,
+): void {
+  for (const [column, field] of Object.entries(mapping)) {
+    const why = headerMeaningVeto(column, field);
+    if (!why) continue;
+    delete mapping[column];
+    notes[column] = why;
+  }
 }
 
 export { deriveOnsetDate, parseOnsetIntervalMs, resolveOnset, stripSpreadsheetTextMarkers };
@@ -3138,6 +3240,12 @@ export const linelist = {
 
   map: (jobId: string, mapping: Record<string, string>): Promise<LineListJob> =>
     inJobQueue(jobId, async () => {
+      // A mapping saved directly obeys the same header rules as one decided
+      // at upload: a staff column is never a patient field, and an age
+      // column keeps its header's unit.
+      const refused = mappingViolations(mapping as Record<string, TargetField>);
+      if (refused.length > 0)
+        throw new Error(refused.map((r) => `${r.column}: ${r.reason}`).join(" "));
       const job = await readJob(jobId);
       await recordAudit({
         action: "LINELIST_MAPPED",

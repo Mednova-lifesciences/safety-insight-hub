@@ -251,3 +251,38 @@ describe("detection: impossible dates, unit mismatches and likely misspellings (
     ).toEqual([]);
   });
 });
+
+describe("a column's meaning comes from its header", () => {
+  const one = (header: string, field: string, value: string) =>
+    formatFindings([header], { [header]: field }, [{ [header]: value }]).map((i) => [
+      i.code,
+      i.suggestion?.value ?? null,
+    ]);
+
+  it.each([
+    ["Infant age (weeks)", "age_weeks", "3 months"],
+    ["Infant age (weeks)", "age_weeks", "1 year"],
+    ["Age (days)", "age_days", "2 weeks"],
+  ])("%j: %j is flagged, never converted", (h, f, v) =>
+    expect(one(h, f, v)).toEqual([["AGE_UNIT_MISMATCH", null]]),
+  );
+
+  it("a plain number in a weeks column is valid", () =>
+    expect(one("Infant age (weeks)", "age_weeks", "8")).toEqual([]));
+
+  it.each([
+    ["0,5", [["DOSE_DECIMAL_COMMA", "0.5"]]],
+    ["1,0", [["DOSE_DECIMAL_COMMA", "1.0"]]],
+    ["15", [["DOSE_IMPLAUSIBLE", null]]],
+    ["0.5", []],
+    ["0.05", []],
+  ])("under a header stating mL, %j", (v, want) =>
+    expect(one("Volume administered (mL)", "dose", v)).toEqual(want),
+  );
+
+  it("without a unit in the header a bare 0,5 is not rewritten (it may be two values)", () =>
+    expect(one("Dose", "dose", "0,5").filter((c) => c[1] !== null)).toEqual([]));
+
+  it("2 drops stays valid in a volume column", () =>
+    expect(one("Volume given", "dose", "2 drops").filter((c) => c[1] !== null)).toEqual([]));
+});

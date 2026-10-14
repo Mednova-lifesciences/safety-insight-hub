@@ -26,7 +26,7 @@ from collections import Counter
 from typing import Any, Optional
 
 from ..ai.fix_guard import is_derived_value
-from .normalise import normalise
+from .normalise import normalise, unestablished_decimal_comma
 
 PROTECTED_FIELDS = {"case_id", "patient_id", "previous_case_id"}
 IMMUTABLE_ENTRY_KEYS = ("id", "row", "column", "oldValue", "newValue", "source", "group", "rule", "appliedAt")
@@ -137,12 +137,15 @@ def validate_cell_save(current: dict, proposed: dict) -> list:
             continue
         if source == "rule":
             rule = entry.get("rule") or {}
-            got = normalise(mapping.get(col, ""), before.strip())
+            got = normalise(mapping.get(col, ""), before.strip(), col)
             if not got or got[0] != after or got[1] != rule.get("id") or got[2] != rule.get("version"):
                 problem(row, col, "The rule does not give this value on the server.")
         elif source == "ai":
             others = [b for (r2, c2) in changed if r2 == row and c2 != col for b in [_cell(current, r2, c2)]]
-            if not is_derived_value(before, after, others):
+            # The stored header decides, never the client: see normalise.py.
+            if unestablished_decimal_comma(mapping.get(col, ""), before, after, col):
+                problem(row, col, "A decimal comma is changed only when the unit is stated in the cell or the column header.")
+            elif not is_derived_value(before, after, others):
                 problem(row, col, "The AI's value is not derived from this cell or this row.")
         else:
             problem(row, col, "Unknown kind of change.")

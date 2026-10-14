@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Optional
+from ..linelist.normalise import unestablished_decimal_comma
 
 PROTECTED_FIELDS = {"case_id", "patient_id", "previous_case_id"}
 
@@ -291,6 +292,9 @@ def check_fix_answer(
             and (c["row"], col) in by_cell
             and _trimmed(by_cell[(c["row"], col)]["new_value"]) != _trimmed(v)
         ]
+        if unestablished_decimal_comma(mapping.get(c["column"], ""), cell(c["row"], c["column"]), _trimmed(c["new_value"]), c["column"]):
+            refuse(c, "A decimal comma is changed only when the unit is stated in the cell or the column header; here it is not, so the comma may separate two values.")
+            continue
         if not is_derived_value(cell(c["row"], c["column"]), c["new_value"], others):
             refuse(c, "The AI proposed a value that is not in this cell or this row — Fix never invents a value.")
             continue

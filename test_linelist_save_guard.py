@@ -156,3 +156,60 @@ def test_reasons_never_contain_cell_values(monkeypatch):
     p = propose(cur, {(1, "Vacc date"): "15/09/2019"}, [entry(1, 1, "Vacc date", "02/02/2026'", "15/09/2019", "ai")])
     for problem in validate_cell_save(cur, p):
         assert "15/09/2019" not in problem["reason"] and "02/02/2026" not in problem["reason"]
+
+
+def _volume_job(header):
+    rows = [{"Case ID": "T-1", header: "0,5"}]
+    mapping = {"Case ID": "case_id", header: "dose"}
+    return {"id": "ll-test", "version": 3, "columns": ["Case ID", header], "mapping": mapping,
+            "rawRows": rows, "parsedRows": [{"case_id": "T-1", "dose": "0,5"}], "changeLog": []}
+
+
+def _volume_fix(cur, header):
+    p = copy.deepcopy(cur)
+    p["rawRows"][0][header] = "0.5"
+    p["parsedRows"][0]["dose"] = "0.5"
+    p["changeLog"] = [entry(1, 1, header, "0,5", "0.5", "rule", rule={"id": "dose-decimal-comma", "version": "2"})]
+    return p
+
+
+def test_a_header_stated_unit_is_read_by_the_server_rule_too(monkeypatch):
+    # "0,5" is a volume only because the header says mL: the server re-runs
+    # the rule with the same header, so it reproduces the browser's fix.
+    cur = _volume_job("Volume administered (mL)")
+    assert reasons(cur, _volume_fix(cur, "Volume administered (mL)")) == []
+
+
+def test_without_a_unit_in_the_header_the_same_fix_is_refused(monkeypatch):
+    cur = _volume_job("Dose")
+    assert reasons(cur, _volume_fix(cur, "Dose")) == ["The rule does not give this value on the server."]
+
+
+def _ai_comma_fix(header):
+    cur = _volume_job(header)
+    p = copy.deepcopy(cur)
+    p["rawRows"][0][header] = "0.5"
+    p["parsedRows"][0]["dose"] = "0.5"
+    p["changeLog"] = [entry(1, 1, header, "0,5", "0.5", "ai")]
+    return cur, p
+
+
+def test_an_ai_decimal_comma_change_without_an_established_unit_is_refused(monkeypatch):
+    # The digits are the same, so "derived" alone would accept it; the server
+    # refuses because the stored header gives no unit.
+    cur, p = _ai_comma_fix("Dose")
+    assert reasons(cur, p) == ["A decimal comma is changed only when the unit is stated in the cell or the column header."]
+
+
+def test_an_ai_decimal_comma_change_under_a_stored_ml_header_is_accepted(monkeypatch):
+    cur, p = _ai_comma_fix("Volume administered (mL)")
+    assert reasons(cur, p) == []
+
+
+def test_a_save_cannot_supply_its_own_header(monkeypatch):
+    # Renaming the column to one that states mL, in the same save, is refused:
+    # the header the rule reads is the stored one.
+    cur = _volume_job("Dose")
+    p = _volume_fix(cur, "Dose")
+    p["columns"] = ["Case ID", "Dose (mL)"]
+    assert "Columns or column mapping changed in a cell save." in reasons(cur, p)

@@ -18,7 +18,7 @@ from typing import Optional
 TYPED_FIELDS = {
     "vaccination_date", "onset_date", "report_date", "state_received_date",
     "national_received_date", "date_of_birth", "vaccine_batch", "diluent_batch",
-    "dose", "age", "age_months", "sex", "outcome", "serious_code", "reaction_code",
+    "dose", "age", "age_months", "age_weeks", "age_days", "sex", "outcome", "serious_code", "reaction_code",
 }
 DATE_FIELDS = {
     "vaccination_date", "onset_date", "report_date", "state_received_date",
@@ -148,9 +148,18 @@ def _interval_unit_spelling(value: str, field: str) -> Optional[str]:
     return out if state["ok"] and state["changed"] and not leftover else None
 
 
-def _dose_decimal_comma(value: str, field: str) -> Optional[str]:
+# The header states the column's unit as millilitres ("Volume (mL)").
+HEADER_ML = re.compile(r"\b(ml|mls|millilit(?:re|er)s?)\b", re.IGNORECASE)
+
+
+def _dose_decimal_comma(value: str, field: str, header: str = "") -> Optional[str]:
     m = re.match(r"^([0-9]+),([0-9]+)(\s*)(ml)$", value.strip(), re.IGNORECASE)
-    return f"{m.group(1)}.{m.group(2)}{m.group(3)}{m.group(4)}" if m else None
+    if m:
+        return f"{m.group(1)}.{m.group(2)}{m.group(3)}{m.group(4)}"
+    # No unit in the cell: only when the header makes the column a volume
+    # in mL, and only one short number ("0,5", "1,0") — never "1,2,3".
+    m = re.match(r"^([0-9]{1,2}),([0-9]{1,2})$", value.strip())
+    return f"{m.group(1)}.{m.group(2)}" if m and HEADER_ML.search(header or "") else None
 
 
 def _ordinal_suffix_typo(value: str, field: str) -> Optional[str]:
@@ -188,21 +197,37 @@ RULES = [
     ("date-doubled-separator", "1", DATE_FIELDS, _date_doubled_separator),
     ("time-letter-for-digit", "1", {"vaccination_time"}, _time_letter_for_digit),
     ("interval-unit-spelling", "1", {"onset_interval"}, _interval_unit_spelling),
-    ("dose-decimal-comma", "1", {"dose"}, _dose_decimal_comma),
+    ("dose-decimal-comma", "2", {"dose"}, _dose_decimal_comma),
     ("ordinal-suffix-typo", "1", {"dose"}, _ordinal_suffix_typo),
     ("code-list-delimiters", "1", {"reaction_code"}, _code_list_delimiters),
     ("unit-in-own-column", "1", {"age", "age_months"}, _unit_in_own_column),
 ]
 
 
-def normalise(field: str, value: str) -> Optional[tuple]:
-    """(new value, rule id, version) of the first rule that applies, or None."""
+def normalise(field: str, value: str, header: str = "") -> Optional[tuple]:
+    """(new value, rule id, version) of the first rule that applies, or None.
+    `header` is the column's own header text, for rules that read a unit
+    the header states."""
     if not value.strip():
         return None
     for rule_id, version, fields, apply in RULES:
         if field not in fields:
             continue
-        out = apply(value, field)
+        out = apply(value, field, header) if apply is _dose_decimal_comma else apply(value, field)
         if out is not None and out != value:
             return out, rule_id, version
     return None
+
+
+def unestablished_decimal_comma(field: str, before: str, after: str, header: str) -> bool:
+    """True when `after` only turns a decimal comma in `before` into a point
+    in a dose, and the rule dose-decimal-comma would not: the unit is stated
+    neither in the cell nor in the column header. Same as the browser's
+    unestablishedDecimalComma."""
+    if field != "dose":
+        return False
+    b, a = (before or "").strip(), (after or "").strip()
+    if "," not in b or a != b.replace(",", "."):
+        return False
+    got = normalise(field, b, header)
+    return not got or got[0] != a

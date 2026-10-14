@@ -10,6 +10,7 @@
  * answer leaves the server. Both are tested against fix-guard-vectors.json
  * so they cannot drift apart.
  */
+import { unestablishedDecimalComma } from "./linelist-normalise";
 
 /** Columns no automated fix may write to, or move a value out of. */
 const PROTECTED_FIELDS = new Set(["case_id", "patient_id", "previous_case_id"]);
@@ -336,6 +337,20 @@ export function acceptedAiCorrections(
         return column !== c.column && !!answer && trimmed(answer.new_value) !== trimmed(value);
       })
       .map(([, value]) => trimmed(value));
+    if (
+      unestablishedDecimalComma(
+        mapping[c.column] ?? "",
+        cellValue(c.row, c.column),
+        trimmed(c.new_value),
+        c.column,
+      )
+    ) {
+      reject(
+        c,
+        "A decimal comma is changed only when the unit is stated in the cell or the column header; here it is not, so the comma may separate two values.",
+      );
+      continue;
+    }
     if (!isDerivedValue(cellValue(c.row, c.column), c.new_value, others)) {
       reject(
         c,

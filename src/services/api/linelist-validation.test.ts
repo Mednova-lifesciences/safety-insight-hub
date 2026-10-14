@@ -1187,6 +1187,87 @@ describe("mergeColumnMapping — AI reads the headers, guards keep it honest", (
     expect(one("Daysite age")).toBe("age");
   });
 
+  describe("a header's own words decide what a column can mean", () => {
+    const keywordsThenModel = (headers: string[], ai: ReturnType<typeof p>[] = []) =>
+      mergeColumnMapping(mapColumnsByKeywords(headers, FIELD_KEYWORDS), ai, ai.length > 0, headers);
+
+    it.each([
+      ["Supervisor initials"],
+      ["Vaccinator name"],
+      ["Nurse in charge initials"],
+      ["Reporting officer's sex"],
+      ["Data entry clerk ID"],
+    ])("a staff column %j is never mapped to a patient field, by keyword or by the model", (h) => {
+      for (const ai of [
+        [],
+        [p(h, "patient_identifier", 0.99)],
+        [p(h, "patient_id", 0.99)],
+        [p(h, "sex", 0.99)],
+      ]) {
+        const out = keywordsThenModel([h], ai);
+        expect(["patient_identifier", "patient_id", "sex", "age"]).not.toContain(out.mapping[h]);
+      }
+    });
+
+    it("explains why a staff column is left unmapped", () => {
+      const out = keywordsThenModel(["Supervisor initials"]);
+      expect(out.mapping["Supervisor initials"]).toBeUndefined();
+      expect(out.notes["Supervisor initials"]).toMatch(/member of staff/);
+    });
+
+    it("supervisor initials never reach the stored patient fields (and so never E2B D.1)", () => {
+      const headers = ["Participant No.", "Supervisor initials", "Gender"];
+      const { mapping } = keywordsThenModel(headers, [
+        p("Supervisor initials", "patient_identifier", 0.99),
+      ]);
+      const [parsed] = toParsedRows(headers, [["P0001", "AO", "Female"]], mapping);
+      expect(Object.values(parsed!)).not.toContain("AO");
+      expect(parsed!.patient_identifier).toBeUndefined();
+    });
+
+    it("patient columns that mention initials or a patient word still map", () => {
+      expect(keywordsThenModel(["Patient initials"]).mapping["Patient initials"]).toBe(
+        "patient_identifier",
+      );
+      expect(keywordsThenModel(["Client initials"]).mapping["Client initials"]).toBe(
+        "patient_identifier",
+      );
+    });
+
+    it.each([
+      ["Infant age (weeks)", "age_weeks"],
+      ["Age in weeks", "age_weeks"],
+      ["Age at onset (days)", "age_days"],
+      ["Client Age (months)", "age_months"],
+      ["Age (years)", "age"],
+    ])("%j maps to %s, whatever the model says", (h, field) => {
+      expect(keywordsThenModel([h]).mapping[h]).toBe(field);
+      expect(keywordsThenModel([h], [p(h, "age", 0.99)]).mapping[h]).toBe(field);
+    });
+
+    it("an age header in a unit no field holds is left unmapped and explained, never years", () => {
+      const out = keywordsThenModel(["Age (hours)"], [p("Age (hours)", "age", 0.99)]);
+      expect(out.mapping["Age (hours)"]).toBeUndefined();
+      expect(out.notes["Age (hours)"]).toMatch(/hours/);
+      // Two units in one header: no single field matches both.
+      const d = keywordsThenModel(["Age (wks/days)"], [p("Age (wks/days)", "age", 0.99)]);
+      expect(d.mapping["Age (wks/days)"]).not.toBe("age");
+    });
+
+    it.each([
+      ["Volume administered (mL)"],
+      ["Dose volume"],
+      ["Volume given"],
+      ["Vaccine volume (ml)"],
+    ])("the volume column %j maps to dose", (h) =>
+      expect(keywordsThenModel([h]).mapping[h]).toBe("dose"),
+    );
+
+    it("a diluent's volume is not the vaccine dose", () => {
+      expect(keywordsThenModel(["Diluent volume"]).mapping["Diluent volume"]).not.toBe("dose");
+    });
+  });
+
   it("rejects a field name this app does not have", () => {
     const out = mergeColumnMapping({}, [p("Ward", "hospital_ward", 0.99)], true);
     expect(out.mapping["Ward"]).toBeUndefined();

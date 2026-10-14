@@ -60,6 +60,8 @@ export const ondoAefiProfile: SourceProfile = {
     reporterState: "reporter_state",
     route: "route",
     ageMonths: "age_months",
+    ageWeeks: "age_weeks",
+    ageDays: "age_days",
     vaccinationTime: "vaccination_time",
     medicalHistory: "medical_history",
     diluentBatch: "diluent_batch",
