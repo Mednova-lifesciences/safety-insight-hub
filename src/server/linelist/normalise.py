@@ -217,3 +217,17 @@ def normalise(field: str, value: str, header: str = "") -> Optional[tuple]:
         if out is not None and out != value:
             return out, rule_id, version
     return None
+
+
+def unestablished_decimal_comma(field: str, before: str, after: str, header: str) -> bool:
+    """True when `after` only turns a decimal comma in `before` into a point
+    in a dose, and the rule dose-decimal-comma would not: the unit is stated
+    neither in the cell nor in the column header. Same as the browser's
+    unestablishedDecimalComma."""
+    if field != "dose":
+        return False
+    b, a = (before or "").strip(), (after or "").strip()
+    if "," not in b or a != b.replace(",", "."):
+        return False
+    got = normalise(field, b, header)
+    return not got or got[0] != a

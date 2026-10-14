@@ -183,3 +183,33 @@ def test_a_header_stated_unit_is_read_by_the_server_rule_too(monkeypatch):
 def test_without_a_unit_in_the_header_the_same_fix_is_refused(monkeypatch):
     cur = _volume_job("Dose")
     assert reasons(cur, _volume_fix(cur, "Dose")) == ["The rule does not give this value on the server."]
+
+
+def _ai_comma_fix(header):
+    cur = _volume_job(header)
+    p = copy.deepcopy(cur)
+    p["rawRows"][0][header] = "0.5"
+    p["parsedRows"][0]["dose"] = "0.5"
+    p["changeLog"] = [entry(1, 1, header, "0,5", "0.5", "ai")]
+    return cur, p
+
+
+def test_an_ai_decimal_comma_change_without_an_established_unit_is_refused(monkeypatch):
+    # The digits are the same, so "derived" alone would accept it; the server
+    # refuses because the stored header gives no unit.
+    cur, p = _ai_comma_fix("Dose")
+    assert reasons(cur, p) == ["A decimal comma is changed only when the unit is stated in the cell or the column header."]
+
+
+def test_an_ai_decimal_comma_change_under_a_stored_ml_header_is_accepted(monkeypatch):
+    cur, p = _ai_comma_fix("Volume administered (mL)")
+    assert reasons(cur, p) == []
+
+
+def test_a_save_cannot_supply_its_own_header(monkeypatch):
+    # Renaming the column to one that states mL, in the same save, is refused:
+    # the header the rule reads is the stored one.
+    cur = _volume_job("Dose")
+    p = _volume_fix(cur, "Dose")
+    p["columns"] = ["Case ID", "Dose (mL)"]
+    assert "Columns or column mapping changed in a cell save." in reasons(cur, p)

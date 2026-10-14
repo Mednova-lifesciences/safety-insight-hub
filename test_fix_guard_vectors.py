@@ -21,6 +21,8 @@ MAPPING = {
     "Vacc date": "vaccination_date",
     "Report date": "report_date",
     "Remarks": "remarks",
+    "Dose": "dose",
+    "Volume (mL)": "dose",
 }
 
 

@@ -122,7 +122,8 @@ const NATIONAL_MOBILE: Record<string, { lost: RegExp; full: (d: string) => strin
  *  A bare number above this, or a volume above MAX_ML, is flagged. */
 const MAX_DOSE_NUMBER = 5;
 const MAX_ML = 2;
-const KNOWN_DOSE_UNIT = /^(ml|mls|dose|doses)$/i;
+// Drops are how oral vaccines are given ("2 drops" of OPV): a unit, not an error.
+const KNOWN_DOSE_UNIT = /^(ml|mls|dose|doses|drops?)$/i;
 
 export function formatFindings(
   headers: string[],

@@ -1192,6 +1192,15 @@ export function headerMeaningVeto(column: string, field: TargetField): string {
   return "";
 }
 
+/** Every column whose header contradicts the field it is mapped to. */
+export function mappingViolations(
+  mapping: Record<string, TargetField>,
+): { column: string; field: TargetField; reason: string }[] {
+  return Object.entries(mapping)
+    .map(([column, field]) => ({ column, field, reason: headerMeaningVeto(column, field) }))
+    .filter((v) => v.reason);
+}
+
 /** Removes every mapping the header's own words contradict, with the
  *  reason as the column's note. */
 function applyHeaderMeaningVetoes(
@@ -3231,6 +3240,12 @@ export const linelist = {
 
   map: (jobId: string, mapping: Record<string, string>): Promise<LineListJob> =>
     inJobQueue(jobId, async () => {
+      // A mapping saved directly obeys the same header rules as one decided
+      // at upload: a staff column is never a patient field, and an age
+      // column keeps its header's unit.
+      const refused = mappingViolations(mapping as Record<string, TargetField>);
+      if (refused.length > 0)
+        throw new Error(refused.map((r) => `${r.column}: ${r.reason}`).join(" "));
       const job = await readJob(jobId);
       await recordAudit({
         action: "LINELIST_MAPPED",

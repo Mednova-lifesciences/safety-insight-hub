@@ -15,6 +15,8 @@ const MAPPING: Record<string, string> = {
   "Vacc date": "vaccination_date",
   "Report date": "report_date",
   Remarks: "remarks",
+  Dose: "dose",
+  "Volume (mL)": "dose",
 };
 
 describe("derived values (shared cases)", () => {

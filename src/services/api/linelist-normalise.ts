@@ -287,3 +287,21 @@ export function normalise(field: string, value: string, header = ""): Normalisat
   }
   return null;
 }
+
+/** True when `after` only turns a decimal comma in `before` into a point
+ *  in a dose, and the rule dose-decimal-comma would not: the unit is stated
+ *  neither in the cell nor in the column header, so the comma may separate
+ *  two values. Whatever proposes such a change (the AI) is refused — it may
+ *  not do what the rule declines. The server runs the same check. */
+export function unestablishedDecimalComma(
+  field: string,
+  before: string,
+  after: string,
+  header: string,
+): boolean {
+  if (field !== "dose") return false;
+  const b = before.trim();
+  const a = after.trim();
+  if (!b.includes(",") || a !== b.replace(/,/g, ".")) return false;
+  return normalise(field, b, header)?.value !== a;
+}
