@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
-import { mapColumnsByKeywords } from "./tabular-parse";
-import { FIELD_KEYWORDS, mergeColumnMapping, toParsedRows, type TargetField } from "./linelist";
+import { mapColumns, mergeColumnMapping, toParsedRows, type TargetField } from "./linelist";
 import { formatFindings } from "./linelist-format-findings";
 import { buildFixedCsv } from "./linelist-fixed-csv";
 import { mapSourceRecordToPVCase } from "@/services/e2b-r3/mapping";
@@ -27,7 +26,7 @@ const ai = (column: string, field: string): Proposal => ({
 });
 
 function pipeline(headers: string[], cells: string[], model: Proposal[] | null) {
-  const keyword = mapColumnsByKeywords(headers, FIELD_KEYWORDS);
+  const keyword = mapColumns(headers);
   const { mapping, notes } = mergeColumnMapping(keyword, model ?? [], model !== null, headers);
   const [parsed] = toParsedRows(headers, [cells], mapping);
   const raw = Object.fromEntries(headers.map((h, i) => [h, cells[i]!]));
@@ -242,5 +241,75 @@ describe("a mapping saved directly obeys the same header rules", () => {
         "Age (years)": "age",
       }).map((v) => v.column),
     ).toEqual(["Supervisor initials", "Infant age (weeks)"]);
+  });
+});
+
+describe("set H gaps: hours, abbreviated weeks, Vol.", () => {
+  const models = (h: string, fields: string[]) => [null, ...fields.map((f) => [ai(h, f)])];
+
+  it("an age in hours (with values) is never the age-unit column, never years: unmapped, explained, not exported", async () => {
+    const h = "Age in hours since birth";
+    for (const model of models(h, ["age_unit", "age", "age_days"])) {
+      const { mapping, notes, parsed, downloaded } = pipeline([h], ["36"], model);
+      expect(mapping[h]).toBeUndefined();
+      expect(notes[h]).toMatch(/no field for an age in hours/);
+      expect(downloaded[1]![0]).toBe("36");
+      const { xml } = await xmlFor(parsed);
+      expect(ageInXml(xml)).toBeNull();
+    }
+  });
+
+  it.each([["Age unit"], ["Unit of age"], ["Age unit (years/months)"]])(
+    "a real unit column %j still maps to age_unit",
+    (h) => expect(pipeline([h], ["years"], null).mapping[h]).toBe("age_unit"),
+  );
+
+  it.each([["Age (wk)"], ["Age (wks)"], ["Age wk"]])(
+    "%j is an age in weeks, to the XML",
+    async (h) => {
+      for (const model of models(h, ["age"])) {
+        const { mapping, parsed } = pipeline([h], ["9"], model);
+        expect(mapping[h]).toBe("age_weeks");
+        const { xml } = await xmlFor(parsed);
+        expect(ageInXml(xml)).toEqual(["9", "wk"]);
+      }
+    },
+  );
+
+  it.each([
+    ["Dosage (wk)"],
+    ["Gestational age (wk)"],
+    ["Epi wk"],
+    ["Wk of vaccination"],
+    ["Stage (wks)"],
+  ])("%j is not the patient's age, by keyword or by the model", (h) => {
+    for (const model of models(h, ["age_weeks", "age"])) {
+      const f = pipeline([h], ["9"], model).mapping[h] ?? "";
+      expect(["age", "age_months", "age_weeks", "age_days", "age_unit"]).not.toContain(f);
+    }
+  });
+
+  it("Vol. is the vaccine volume: a unit in the cell is used, the header never supplies one", () => {
+    const run = (v: string) =>
+      pipeline(["Vol."], [v], [{ column: "Vol.", field: null, confidence: 0.99, reason: "" }]);
+    expect(run("0.5ml").mapping["Vol."]).toBe("dose");
+    expect(run("0,5ml").findings.map((f) => [f.code, f.suggestion?.value ?? null])).toEqual([
+      ["DOSE_DECIMAL_COMMA", "0.5ml"],
+    ]);
+    expect(run("5ml").findings.map((f) => f.code)).toEqual(["DOSE_IMPLAUSIBLE"]);
+    // "Vol." states no unit: a bare 0,5 may be two values and is not rewritten.
+    expect(run("0,5").findings.filter((f) => f.suggestion)).toEqual([]);
+    expect(run("0.5ml").findings).toEqual([]);
+  });
+
+  it.each([["Volunteer"], ["Involved"], ["Diluent volume"], ["Vol. of register"]])(
+    "%j is not read as the vaccine volume",
+    (h) => expect(pipeline([h], ["0.5ml"], null).mapping[h]).not.toBe("dose"),
+  );
+
+  it("Vol. does not take the dose field from a column already named for it", () => {
+    const { mapping } = pipeline(["Dose", "Vol."], ["1st", "0.5ml"], null);
+    expect(mapping["Dose"]).toBe("dose");
+    expect(mapping["Vol."]).toBeUndefined();
   });
 });
