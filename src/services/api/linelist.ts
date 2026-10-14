@@ -783,6 +783,9 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     // say it is the vaccine's volume; a diluent's volume is not the dose.
     ["dosevolume", 85],
     ["volumeadministered", 85],
+    // "Volume admin." / "Vol. admin.": in a vaccine line list, administered.
+    ["volumeadmin", 85],
+    ["voladmin", 85],
     ["volumegiven", 85],
     ["volumeofvaccine", 85],
     ["vaccinevolume", 85],
@@ -859,6 +862,7 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["ageinmonths", 95],
     ["agemths", 92],
     [["age", "month"], 90],
+    ["agemos", 92],
   ],
   age_weeks: [
     ["ageweeks", 95],
@@ -1206,6 +1210,11 @@ export function headerMeaningVeto(column: string, field: TargetField): string {
     if (!/\bage/.test(h) || /gestation/.test(h))
       return "The header does not give the patient's age, so it is not read as one.";
   }
+  // Two units in one age header ("AGE_YRS_MTHS", "Age (yrs/mths)"): a bare
+  // number could be either, so no single-unit field may claim it — a person
+  // says which. (A unit column, "Age unit (years/months)", is allowed below.)
+  if (own && named.length > 1)
+    return `The header names more than one age unit (${named.join(" and ")}), so a bare number could be either. Left unmapped — a person decides which unit the column uses.`;
   if (own && named.length > 0 && !named.includes(own))
     return (
       `The header gives the age in ${named.join(" and ")}, not ${own}, so it is not read as an age in ${own}.` +
@@ -1219,6 +1228,13 @@ export function headerMeaningVeto(column: string, field: TargetField): string {
       `The header gives ages in ${named.join(" and ")} — values, not a column of units — so it is not read as the age unit.` +
       (named.includes("hours") ? noHoursField : "")
     );
+  // A diluent's volume or batch is never the vaccine's dose.
+  if (field === "dose" && /diluent/.test(h))
+    return "The header is about the diluent, not the vaccine dose, so it is not read as the dose.";
+  // A count of reports or cases ("Admin volume of reports") is not one
+  // patient's dose. Plurals only: "Dose (as reported)" is still a dose.
+  if (field === "dose" && /\b(reports|cases)\b/.test(h))
+    return "The header counts reports or cases, not a patient's dose, so it is not read as the dose.";
   if (PATIENT_FIELDS.has(field) && STAFF_ROLE.test(h) && !PATIENT_WORD.test(h))
     return "The header names a member of staff, so it is never read as the patient's details. Left unmapped — tell us what it holds if it matters.";
   return "";

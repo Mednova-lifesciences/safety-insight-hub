@@ -152,14 +152,21 @@ def _interval_unit_spelling(value: str, field: str) -> Optional[str]:
 HEADER_ML = re.compile(r"\b(ml|mls|millilit(?:re|er)s?)\b", re.IGNORECASE)
 
 
+def header_states_ml(header: str) -> bool:
+    """Same as the browser's headerStatesMl: underscores and hyphens separate
+    words, as spaces do ("DOSE_VOL_ML")."""
+    return bool(HEADER_ML.search(re.sub(r"[_-]+", " ", header or "")))
+
+
 def _dose_decimal_comma(value: str, field: str, header: str = "") -> Optional[str]:
-    m = re.match(r"^([0-9]+),([0-9]+)(\s*)(ml)$", value.strip(), re.IGNORECASE)
+    # One or two decimal digits only: "1,000 ml" may be a thousands separator.
+    m = re.match(r"^([0-9]+),([0-9]{1,2})(\s*)(ml)$", value.strip(), re.IGNORECASE)
     if m:
         return f"{m.group(1)}.{m.group(2)}{m.group(3)}{m.group(4)}"
     # No unit in the cell: only when the header makes the column a volume
     # in mL, and only one short number ("0,5", "1,0") — never "1,2,3".
     m = re.match(r"^([0-9]{1,2}),([0-9]{1,2})$", value.strip())
-    return f"{m.group(1)}.{m.group(2)}" if m and HEADER_ML.search(header or "") else None
+    return f"{m.group(1)}.{m.group(2)}" if m and header_states_ml(header) else None
 
 
 def _ordinal_suffix_typo(value: str, field: str) -> Optional[str]:
@@ -197,7 +204,7 @@ RULES = [
     ("date-doubled-separator", "1", DATE_FIELDS, _date_doubled_separator),
     ("time-letter-for-digit", "1", {"vaccination_time"}, _time_letter_for_digit),
     ("interval-unit-spelling", "1", {"onset_interval"}, _interval_unit_spelling),
-    ("dose-decimal-comma", "2", {"dose"}, _dose_decimal_comma),
+    ("dose-decimal-comma", "3", {"dose"}, _dose_decimal_comma),
     ("ordinal-suffix-typo", "1", {"dose"}, _ordinal_suffix_typo),
     ("code-list-delimiters", "1", {"reaction_code"}, _code_list_delimiters),
     ("unit-in-own-column", "1", {"age", "age_months"}, _unit_in_own_column),
