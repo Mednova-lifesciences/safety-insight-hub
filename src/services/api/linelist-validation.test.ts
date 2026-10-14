@@ -742,6 +742,25 @@ describe("spreadsheet text markers are stripped at the parsing boundary", () => 
   });
 });
 
+describe("a day-first dotted date is a valid date", () => {
+  // A blind test file wrote every vaccination date as 2.05.2026. Read as
+  // malformed, all 30 went to the AI as fixable and came back rewritten as
+  // ISO dates — valid cells changed. A dotted date is how much of the world
+  // writes one: no finding, and the export reads it.
+  const issuesFor = (given: string) =>
+    runValidation(["Given"], { Given: "vaccination_date" } as Record<string, TargetField>, [
+      { case_id: "C1", product: "Td", reaction: "Fever", vaccination_date: given },
+    ]).filter((i) => i.column === "Given");
+
+  it("2.05.2026 raises no date finding", () => {
+    expect(issuesFor("2.05.2026")).toEqual([]);
+  });
+
+  it("a malformed dotted value is still reported", () => {
+    expect(issuesFor("2.05.26").map((i) => i.code)).toContain("INVALID_DATE_FORMAT");
+  });
+});
+
 describe("a malformed reporter phone does not block a case", () => {
   const row = (over: Partial<ParsedRow> = {}): ParsedRow => ({
     case_id: "C1",
@@ -1139,6 +1158,33 @@ describe("mergeColumnMapping — AI reads the headers, guards keep it honest", (
   it("NEVER lets a severity column become seriousness, whatever the model says", () => {
     const out = mergeColumnMapping({}, [p("Severity", "seriousness", 0.99)], true);
     expect(out.mapping["Severity"]).toBeUndefined();
+  });
+
+  it("NEVER reads an age column whose header names months, weeks or days as years", () => {
+    const keyword = mapColumnsByKeywords(["Client Age (months)", "Age in weeks"], FIELD_KEYWORDS);
+    const out = mergeColumnMapping(
+      keyword,
+      [p("Client Age (months)", "age", 0.99), p("Age in weeks", "age", 0.9)],
+      true,
+    );
+    expect(out.mapping["Client Age (months)"]).toBe("age_months");
+    expect(out.source["Client Age (months)"]).toBe("rule");
+    expect(out.mapping["Age in weeks"]).not.toBe("age");
+  });
+
+  it("NEVER reads an age column whose header names years as months", () => {
+    const out = mergeColumnMapping({}, [p("Age (Yrs)", "age_months", 0.99)], true);
+    expect(out.mapping["Age (Yrs)"]).toBeUndefined();
+  });
+
+  it("still maps an age column whose header names years, or no unit, to age", () => {
+    const one = (column: string) =>
+      mergeColumnMapping({}, [p(column, "age", 0.99)], true).mapping[column];
+    expect(one("Age (Yrs)")).toBe("age");
+    expect(one("Patient Age")).toBe("age");
+    expect(one("Age in years and months")).toBe("age");
+    // Units are whole words: "Mosaic Age" or "Daysite age" are not units.
+    expect(one("Daysite age")).toBe("age");
   });
 
   it("rejects a field name this app does not have", () => {

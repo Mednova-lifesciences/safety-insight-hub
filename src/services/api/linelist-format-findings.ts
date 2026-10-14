@@ -20,7 +20,10 @@ import { normalise } from "./linelist-normalise";
  *    (only where the source form's country fixes the national format).
  */
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$|^\d{1,2}-\d{1,2}-\d{2,4}$/;
+// Day-first with dots (2.05.2026) is a date as written in much of the
+// world; four-digit year only, so 1.2.26 is never taken for one.
+const DATE_RE =
+  /^\d{4}-\d{2}-\d{2}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$|^\d{1,2}-\d{1,2}-\d{2,4}$|^\d{1,2}\.\d{1,2}\.\d{4}$/;
 
 /** Date fields runValidation does not format-check. */
 /** Every date field, for the calendar check. */

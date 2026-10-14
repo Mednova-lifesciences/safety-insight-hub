@@ -213,12 +213,15 @@ describe("parseDateLoose never rolls an impossible date over into another one", 
     ["2025-02-30"],
     ["2025-04-31"],
     ["31-06-2025"],
+    ["30.02.2026"],
+    ["1.2.26"],
   ])("%j → null", (v) => expect(parseDateLoose(v)).toBeNull());
   it.each([
     ["29/02/2024", "2024-02-29"],
     ["30/04/2025", "2025-04-30"],
     ["2025-12-31", "2025-12-31"],
     ["12/31/2025", "2025-12-31"],
+    ["2.05.2026", "2026-05-02"],
   ])("%j is a real date", (v, iso) => {
     const d = parseDateLoose(v)!;
     expect(

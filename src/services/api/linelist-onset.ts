@@ -30,7 +30,9 @@ export function parseDateLoose(value: string): Date | null {
     const [, y, m, d] = iso;
     return realDate(Number(y), Number(m), Number(d));
   }
-  const slashOrDash = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/.exec(value);
+  const slashOrDash =
+    /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/.exec(value) ??
+    /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(value);
   if (slashOrDash) {
     const [, a, b, y] = slashOrDash;
     const year = y!.length === 2 ? Number(y) + 2000 : Number(y);

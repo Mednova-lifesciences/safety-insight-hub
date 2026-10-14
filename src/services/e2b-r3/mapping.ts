@@ -174,7 +174,7 @@ export function parseSourceDate(raw: string | undefined): string | null {
   const v = raw.trim();
   let m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(v);
   if (m) return calendarDate(m[1]!, m[2]!, m[3]!);
-  m = /^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/.exec(v);
+  m = /^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/.exec(v) ?? /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(v);
   if (m) {
     let year = m[3]!;
     if (year.length === 2) year = (Number(year) < 50 ? "20" : "19") + year;

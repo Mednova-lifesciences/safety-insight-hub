@@ -1047,6 +1047,14 @@ export function mergeColumnMapping(
       if (p.confidence < AI_MAPPING_CONFIDENCE_FLOOR) return false;
       const header = p.column.toLowerCase().replace(/[^a-z]/g, "");
       if (p.field === "seriousness" && header.includes("severity")) return false;
+      // An age column whose header names its unit keeps that unit. `age`
+      // is read as years (D.2.2 without a unit column); a header that says
+      // months, weeks or days read as years puts a wrong age in the E2B
+      // file, and lets the years rule strip "1 year" to "1" in a months
+      // column. The keyword mapping, which reads the header, fills it in.
+      const ageUnits = ageHeaderUnits(p.column);
+      if (p.field === "age" && ageUnits.other && !ageUnits.years) return false;
+      if (p.field === "age_months" && ageUnits.years && !ageUnits.months) return false;
       // The patient's record number (D.1.1) is the identifier most easily
       // confused with three others that also look like ids. The prompt
       // warns about them; these are the rules. A header that names the
@@ -1091,6 +1099,18 @@ export function mergeColumnMapping(
   }
 
   return { mapping, source, notes, aiUsed: true };
+}
+
+/** The age units a header names, as whole words: "Client Age (months)",
+ *  "Age (Yrs)", "Age in weeks". */
+function ageHeaderUnits(column: string): { years: boolean; months: boolean; other: boolean } {
+  const h = column.toLowerCase();
+  const months = /\b(months?|mths?|mos?)\b/.test(h);
+  return {
+    years: /\b(years?|yrs?|yr)\b/.test(h),
+    months,
+    other: months || /\b(weeks?|wks?|days?)\b/.test(h),
+  };
 }
 
 export { deriveOnsetDate, parseOnsetIntervalMs, resolveOnset, stripSpreadsheetTextMarkers };
@@ -1157,7 +1177,10 @@ function toRawRows(headers: string[], rows: string[][]): Record<string, string>[
   });
 }
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$|^\d{1,2}-\d{1,2}-\d{2,4}$/;
+// Day-first with dots (2.05.2026) is a date as written in much of the
+// world; four-digit year only, so 1.2.26 is never taken for one.
+const DATE_RE =
+  /^\d{4}-\d{2}-\d{2}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$|^\d{1,2}-\d{1,2}-\d{2,4}$|^\d{1,2}\.\d{1,2}\.\d{4}$/;
 
 /** Reduces a case/report ID to a shape signature (letters -> "A", digits ->
  *  "9", separators kept as-is) so IDs following the same structural
