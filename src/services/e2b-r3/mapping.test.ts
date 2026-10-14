@@ -49,6 +49,12 @@ describe("parseSourceDate", () => {
   it("parses dd/mm/yy", () => {
     expect(parseSourceDate("3/2/26")).toBe("2026-02-03");
   });
+  it("reads a day-first dotted date with a four-digit year", () => {
+    expect(parseSourceDate("2.05.2026")).toBe("2026-05-02");
+    expect(parseSourceDate("30.02.2026")).toBeNull();
+    // Two-digit dotted years are not taken for dates.
+    expect(parseSourceDate("1.2.26")).toBeNull();
+  });
   it("parses dd/mm/yyyy", () => {
     expect(parseSourceDate("03/02/2026")).toBe("2026-02-03");
   });
