@@ -169,7 +169,7 @@ def _volume_fix(cur, header):
     p = copy.deepcopy(cur)
     p["rawRows"][0][header] = "0.5"
     p["parsedRows"][0]["dose"] = "0.5"
-    p["changeLog"] = [entry(1, 1, header, "0,5", "0.5", "rule", rule={"id": "dose-decimal-comma", "version": "2"})]
+    p["changeLog"] = [entry(1, 1, header, "0,5", "0.5", "rule", rule={"id": "dose-decimal-comma", "version": "3"})]
     return p
 
 

@@ -196,18 +196,18 @@ export const NORMALISATION_RULES: readonly NormalisationRule[] = [
   },
   {
     id: "dose-decimal-comma",
-    version: "2",
+    version: "3",
     fields: ["dose"],
     precondition:
-      "one number with a decimal comma followed by a volume unit (ml), e.g. 0,5ML — or one short number (0,5) in a column whose header states mL",
+      "one number with a decimal comma and one or two decimal digits, followed by a volume unit (ml), e.g. 0,5ML — or such a number (0,5) in a column whose header states mL",
     never:
-      "touches a comma with no unit in the cell or the header, or more than one comma (it may separate values)",
+      "touches a comma with no unit in the cell or the header, more than one comma (it may separate values), or three digits after it (1,000 ml: a thousands separator or a decimal? a person decides)",
     apply: (value, _field, header) => {
-      const m = /^(\d+),(\d+)(\s*)(ml)$/i.exec(value.trim());
+      const m = /^(\d+),(\d{1,2})(\s*)(ml)$/i.exec(value.trim());
       if (m)
         return { value: `${m[1]}.${m[2]}${m[3]}${m[4]}`, why: "decimal comma written as a point" };
       const bare = /^(\d{1,2}),(\d{1,2})$/.exec(value.trim());
-      return bare && HEADER_ML.test(header)
+      return bare && headerStatesMl(header)
         ? {
             value: `${bare[1]}.${bare[2]}`,
             why: "decimal comma written as a point (the header gives the unit as mL)",
@@ -273,8 +273,13 @@ export const NORMALISATION_RULES: readonly NormalisationRule[] = [
   },
 ];
 
-/** The header states the column's unit as millilitres ("Volume (mL)"). */
+/** The header states the column's unit as millilitres ("Volume (mL)",
+ *  "DOSE_VOL_ML"). Underscores and hyphens separate words here, exactly as
+ *  spaces do; the column's name itself is never changed. */
 export const HEADER_ML = /\b(ml|mls|millilit(?:re|er)s?)\b/i;
+export function headerStatesMl(header: string): boolean {
+  return HEADER_ML.test(header.replace(/[_-]+/g, " "));
+}
 
 /** The first rule that applies to this value in this field, if any.
  *  `header` is the column's header text (see NormalisationRule.apply). */

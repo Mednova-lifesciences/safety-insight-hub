@@ -313,3 +313,111 @@ describe("set H gaps: hours, abbreviated weeks, Vol.", () => {
     expect(mapping["Vol."]).toBeUndefined();
   });
 });
+
+describe("set I gaps: mos, abbreviated volume headers, underscored units, two-unit ages", () => {
+  const models = (h: string, fields: string[]) => [null, ...fields.map((f) => [ai(h, f)])];
+  const codes = (r: ReturnType<typeof pipeline>) =>
+    r.findings.map((f) => [f.code, f.suggestion?.value ?? null]);
+
+  it.each([["Age (mos)"], ["AGE_MOS"], ["Age mos."]])(
+    "%j is an age in months, to E2B as months",
+    async (h) => {
+      for (const model of models(h, ["age", "age_weeks"])) {
+        const r = pipeline([h], ["7"], model);
+        expect(r.mapping[h]).toBe("age_months");
+        const { xml } = await xmlFor(r.parsed);
+        expect(ageInXml(xml)).toEqual(["7", "mo"]);
+      }
+    },
+  );
+
+  it.each([["2 yrs"], ["6 wks"], ["10 days"]])(
+    "a months column holding %j: flagged by a rule, not exported as months",
+    async (v) => {
+      const r = pipeline(["Age (mos)"], [v], null);
+      expect(r.findings.map((f) => [f.code, f.source])).toEqual([["AGE_UNIT_MISMATCH", "rule"]]);
+      const { xml } = await xmlFor(r.parsed);
+      expect(ageInXml(xml)?.[1] ?? null).not.toBe("mo");
+    },
+  );
+
+  it.each([["Mosquito net (Y/N)"], ["Dosage mos"], ["Months since last dose"]])(
+    "%j is not an age in months",
+    (h) => {
+      for (const model of models(h, ["age_months"]))
+        expect(pipeline([h], ["2"], model).mapping[h] ?? "").not.toBe("age_months");
+    },
+  );
+
+  it.each([["Volume admin."], ["Vol. admin"], ["VOLUME_ADMIN"]])(
+    "%j is the administered volume (dose)",
+    (h) => {
+      const r = pipeline([h], ["0,5 ml"], null);
+      expect(r.mapping[h]).toBe("dose");
+      expect(codes(r)).toEqual([["DOSE_DECIMAL_COMMA", "0.5 ml"]]);
+    },
+  );
+
+  it.each([["Diluent volume admin."], ["Volume admin. (diluent)"], ["Admin volume of reports"]])(
+    "%j is not the vaccine dose",
+    (h) => {
+      for (const model of models(h, ["dose"]))
+        expect(pipeline([h], ["0.5 ml"], model).mapping[h] ?? "").not.toBe("dose");
+    },
+  );
+
+  it("an underscored header's mL is read, the column name untouched, and the fix reaches the CSV", () => {
+    for (const [v, want] of [
+      ["0,5", "0.5"],
+      ["1,5", "1.5"],
+    ] as const) {
+      const r = pipeline(["DOSE_VOL_ML"], [v], null);
+      expect(r.mapping["DOSE_VOL_ML"]).toBe("dose");
+      expect(codes(r)).toEqual([["DOSE_DECIMAL_COMMA", want]]);
+      expect(r.downloaded[0]![0]).toBe("DOSE_VOL_ML");
+    }
+    expect(codes(pipeline(["DOSE_VOL_ML"], ["25"], null))).toEqual([["DOSE_IMPLAUSIBLE", null]]);
+    expect(codes(pipeline(["DOSE_VOL_ML"], ["0.1"], null))).toEqual([]);
+    // No mL in the header: a bare 0,5 is not rewritten; nor in a field that is not a dose.
+    expect(codes(pipeline(["DOSE_VOL"], ["0,5"], null)).filter(([, s]) => s)).toEqual([]);
+  });
+
+  it.each([
+    ["1,000 ml", "DOSE_SEPARATOR_AMBIGUOUS"],
+    ["2,500 mL", "DOSE_SEPARATOR_AMBIGUOUS"],
+    ["0·5 ml", "DOSE_SEPARATOR_UNRECOGNISED"],
+    ["0'5 ml", "DOSE_SEPARATOR_UNRECOGNISED"],
+  ])("%j is flagged by a rule (not left to the AI) and never rewritten", (v, code) => {
+    const r = pipeline(["Volume admin."], [v], null);
+    expect(r.findings.map((f) => [f.code, f.source, f.fixable, f.suggestion ?? null])).toEqual([
+      [code, "rule", false, null],
+    ]);
+    expect(r.downloaded[1]![0]).toBe(v);
+  });
+
+  it.each([["AGE_YRS_MTHS"], ["Age (yrs/mths)"], ["Age in weeks or days"]])(
+    "%j (two units, non-empty): unmapped, explained, no age in the XML",
+    async (h) => {
+      for (const model of models(h, ["age", "age_months", "age_weeks", "age_days"])) {
+        const r = pipeline([h], ["8"], model);
+        expect(r.mapping[h]).toBeUndefined();
+        expect(r.notes[h]).toMatch(/more than one age unit/);
+        expect(r.downloaded[1]![0]).toBe("8");
+        const { xml } = await xmlFor(r.parsed);
+        expect(ageInXml(xml)).toBeNull();
+      }
+    },
+  );
+
+  it("a unit column naming two units is still the unit column", () =>
+    expect(
+      pipeline(["Age unit (years/months)"], ["months"], null).mapping["Age unit (years/months)"],
+    ).toBe("age_unit"));
+});
+
+it("a dose header that merely mentions reporting is still the dose", () =>
+  expect(
+    pipeline(["Dose (as reported)"], ["0.5 ml"], [ai("Dose (as reported)", "dose")]).mapping[
+      "Dose (as reported)"
+    ],
+  ).toBe("dose"));

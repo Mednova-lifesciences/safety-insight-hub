@@ -1182,7 +1182,9 @@ describe("mergeColumnMapping — AI reads the headers, guards keep it honest", (
       mergeColumnMapping({}, [p(column, "age", 0.99)], true).mapping[column];
     expect(one("Age (Yrs)")).toBe("age");
     expect(one("Patient Age")).toBe("age");
-    expect(one("Age in years and months")).toBe("age");
+    // Two units in one header is ambiguous for a bare number: left for a
+    // person (set I, AGE_YRS_MTHS). It used to be read as years.
+    expect(one("Age in years and months")).toBeUndefined();
     // Units are whole words: "Mosaic Age" or "Daysite age" are not units.
     expect(one("Daysite age")).toBe("age");
   });

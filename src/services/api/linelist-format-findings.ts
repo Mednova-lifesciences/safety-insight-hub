@@ -1,5 +1,5 @@
 import type { LineListIssue } from "@/types/pv";
-import { HEADER_ML, normalise } from "./linelist-normalise";
+import { headerStatesMl, normalise } from "./linelist-normalise";
 
 /**
  * Findings read from the file's own cell text (rawRows) rather than the
@@ -282,13 +282,43 @@ export function formatFindings(
         );
         continue;
       }
+      if (field === "dose" && /^\d{1,3}(,\d{3})+\s*(ml|mls)?$/i.test(raw)) {
+        issues.push(
+          finding(
+            row,
+            header,
+            field,
+            raw,
+            "DOSE_SEPARATOR_AMBIGUOUS",
+            "MEDIUM",
+            `"${raw}": the comma may separate thousands or mark a decimal, so the amount is not known. Never changed automatically — check the source.`,
+            false,
+          ),
+        );
+        continue;
+      }
+      if (field === "dose" && /\d\s*[·•∙'’]\s*\d/.test(raw)) {
+        issues.push(
+          finding(
+            row,
+            header,
+            field,
+            raw,
+            "DOSE_SEPARATOR_UNRECOGNISED",
+            "MEDIUM",
+            `"${raw}": the mark between the digits is not a recognised decimal separator. Never changed automatically — check the source.`,
+            false,
+          ),
+        );
+        continue;
+      }
       if (field === "dose") {
         const m = /^(\d+(?:[.,]\d+)?)\s*([A-Za-z]*)$/.exec(raw);
         const amount = m ? Number(m[1]!.replace(",", ".")) : NaN;
         const unit = m?.[2] ?? "";
         // A header that states mL makes a bare number a volume, not a dose
         // number. Only the check reads it; the value is never rewritten.
-        const headerMl = !unit && HEADER_ML.test(header);
+        const headerMl = !unit && headerStatesMl(header);
         if (m && unit && !KNOWN_DOSE_UNIT.test(unit) && !/^(st|nd|rd|th)$/i.test(unit)) {
           issues.push(
             finding(

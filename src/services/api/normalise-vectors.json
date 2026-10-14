@@ -582,5 +582,82 @@
     "value": "5ml",
     "expected": null,
     "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "DOSE_VOL_ML",
+    "value": "0,5",
+    "expected": "0.5",
+    "rule": "dose-decimal-comma"
+  },
+  {
+    "field": "dose",
+    "header": "DOSE_VOL_ML",
+    "value": "1,5",
+    "expected": "1.5",
+    "rule": "dose-decimal-comma"
+  },
+  {
+    "field": "dose",
+    "header": "dose-vol-ml",
+    "value": "0,5",
+    "expected": "0.5",
+    "rule": "dose-decimal-comma"
+  },
+  {
+    "field": "dose",
+    "header": "DOSE_VOL",
+    "value": "0,5",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "HTML_DOSE",
+    "value": "0,5",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "Volume admin.",
+    "value": "0,50 mL",
+    "expected": "0.50 mL",
+    "rule": "dose-decimal-comma"
+  },
+  {
+    "field": "dose",
+    "header": "Volume admin.",
+    "value": "1,000 ml",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "Volume (mL)",
+    "value": "1,000",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "dose",
+    "header": "Volume admin.",
+    "value": "0·5 ml",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "age",
+    "header": "AGE_ML",
+    "value": "0,5",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "vaccine_batch",
+    "header": "LOT_ML",
+    "value": "0,5",
+    "expected": null,
+    "rule": null
   }
 ]
