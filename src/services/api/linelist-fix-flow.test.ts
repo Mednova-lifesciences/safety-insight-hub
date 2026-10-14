@@ -126,6 +126,7 @@ const jobData = () =>
   tables["pv_linelist_jobs"]![0]!.data as {
     rawRows: Record<string, string>[];
     changeLog?: { id: string; source: string; group?: string }[];
+    lastFixRouting?: { row: number; column: string; route: string; outcome?: string }[];
   };
 
 async function runFix(
@@ -209,7 +210,13 @@ const ai = (corrections: unknown[]) => ({
 });
 const rowsA = [base(1, { "Vacc date": "02/02/2026'" }), base(2)];
 const issA = [
-  issue(1, "Vacc date", "DATE_FORMAT_INVALID", "02/02/2026'", { source: "ai", fixable: false }),
+  // As the AI analysis returns it: not marked fixable, but a cell-local
+  // format finding — routed by its category, not by the code's wording.
+  issue(1, "Vacc date", "DATE_FORMAT_INVALID", "02/02/2026'", {
+    source: "ai",
+    fixable: false,
+    issueType: "FIELD_FORMAT_INVALID",
+  }),
 ];
 // Two date columns are empty in row 1, so where its date belongs is only
 // settled by the file: the vaccination date is filled in 9 of 10 rows, the
@@ -430,7 +437,7 @@ describe("the audit trail", () => {
 
   it("records a recovery-only Fix as recovery only, not a blank prompt", async () => {
     await runFix([base(1, { Sex: "3", Age: "MALE" })], [], NOAI);
-    expect(fixEntry()?.reason).toBe("Recovery only — no AI call");
+    expect(fixEntry()?.reason).toBe("0 by rule, 2 by recovery, 0 by AI; no AI call");
   });
 
   it("records the AI instructions' version and how many AI answers were refused", async () => {
@@ -441,6 +448,131 @@ describe("the audit trail", () => {
       ]),
       prompt_version: "2026-10-12.2",
     });
-    expect(fixEntry()?.reason).toBe("Recovery + AI (prompt 2026-10-12.2); 1 AI answer(s) refused");
+    expect(fixEntry()?.reason).toBe(
+      "0 by rule, 0 by recovery, 1 by AI; AI prompt 2026-10-12.2, 0 answer(s) refused by the server, 1 by the browser",
+    );
   });
+});
+
+describe("normalisation rules: applied by Fix without the AI, recorded and reversible", () => {
+  const sug = (value: string, rule = "stray-edge-character") => ({
+    suggestion: { value, rule, version: "1" },
+    fixable: true,
+  });
+  it("applies a rule's suggestion with no AI call, recorded as a rule change with the rule named", async () => {
+    const r = await runFix(
+      [base(1, { "Vacc date": "02/02/2026'" })],
+      [issue(1, "Vacc date", "STRAY_CHARACTER", "02/02/2026'", sug("02/02/2026"))],
+      NOAI,
+    );
+    expect(r.sent).toBeUndefined();
+    expect(r.changed).toEqual([`r1.Vacc date: "02/02/2026'"→"02/02/2026"`]);
+    expect(r.log).toEqual([
+      expect.objectContaining({
+        source: "rule",
+        oldValue: "02/02/2026'",
+        reason: expect.stringContaining("stray-edge-character v1"),
+      }),
+    ]);
+    expect(jobData().lastFixRouting).toEqual([
+      expect.objectContaining({
+        row: 1,
+        column: "Vacc date",
+        route: "deterministic",
+        outcome: "rule_corrected",
+      }),
+    ]);
+  });
+  it("does not apply a suggestion when the cell changed since it was checked — it reports it", async () => {
+    const r = await runFix(
+      [base(1, { "Vacc date": "03/02/2026" })],
+      [issue(1, "Vacc date", "STRAY_CHARACTER", "02/02/2026'", sug("02/02/2026"))],
+      NOAI,
+    );
+    expect(r.changed).toEqual([]);
+    expect(r.result!.unresolved).toContainEqual(
+      expect.objectContaining({
+        column: "Vacc date",
+        reason: expect.stringMatching(/changed after it was checked/),
+      }),
+    );
+    expect(jobData().lastFixRouting![0]).toMatchObject({ outcome: "rule_skipped_value_changed" });
+  });
+  it("never applies a suggestion to an identifier, and reports it", async () => {
+    const r = await runFix(
+      [base(1, { ID: "T-101'" })],
+      [issue(1, "ID", "STRAY_CHARACTER", "T-101'", sug("T-101"))],
+      NOAI,
+    );
+    expect(r.changed).toEqual([]);
+    expect(r.result!.unresolved).toContainEqual(
+      expect.objectContaining({ column: "ID", reason: expect.stringMatching(/never changed/) }),
+    );
+  });
+  it("a rule-settled cell is not also sent to the AI; other cells still are", async () => {
+    const r = await runFix(
+      [base(1, { "Vacc date": "02/02/2026'", "Report date": "5/2/20266" })],
+      [
+        issue(1, "Vacc date", "STRAY_CHARACTER", "02/02/2026'", sug("02/02/2026")),
+        issue(1, "Vacc date", "DATE_FORMAT_INVALID", "02/02/2026'", {
+          source: "ai",
+          fixable: true,
+          confidence: "HIGH",
+        }),
+        issue(1, "Report date", "INVALID_DATE_FORMAT", "5/2/20266", { fixable: true }),
+      ],
+      NOAI,
+    );
+    expect(r.sent!.issues.map((i) => i.column)).toEqual(["Report date"]);
+    expect(r.changed).toEqual([`r1.Vacc date: "02/02/2026'"→"02/02/2026"`]);
+  });
+  it("a rule change can be undone and re-applied like any other", async () => {
+    await runFix(
+      [base(1, { "Vacc date": "02/02/2026'" })],
+      [issue(1, "Vacc date", "STRAY_CHARACTER", "02/02/2026'", sug("02/02/2026"))],
+      NOAI,
+    );
+    const id = jobData().changeLog![0]!.id;
+    await linelist.undoChange(JOB, id);
+    expect(jobData().rawRows[0]!["Vacc date"]).toBe("02/02/2026'");
+    await linelist.reapplyChange(JOB, id);
+    expect(jobData().rawRows[0]!["Vacc date"]).toBe("02/02/2026");
+  });
+  it("records every finding's route, including the ones a person decides", async () => {
+    await runFix(
+      [base(1, { Outcome: "2" })],
+      [
+        issue(1, "Outcome", "OUTCOME_SERIOUSNESS_CONTRADICTION", "2", { fixable: false }),
+        issue(0, "(file)", "X", null),
+      ],
+      NOAI,
+    );
+    expect(
+      jobData()
+        .lastFixRouting!.map((r) => r.route)
+        .sort(),
+    ).toEqual(["file_level", "not_correctable"]);
+  });
+});
+
+it("a finding on a cell a rule settles is recorded as settled by the rule, not as an AI result", async () => {
+  await runFix(
+    [base(1, { "Vacc date": "02/02/2026'" })],
+    [
+      issue(1, "Vacc date", "STRAY_CHARACTER", "02/02/2026'", {
+        suggestion: { value: "02/02/2026", rule: "stray-edge-character", version: "1" },
+        fixable: true,
+      }),
+      issue(1, "Vacc date", "DATE_FORMAT_INVALID", "02/02/2026'", {
+        source: "ai",
+        fixable: true,
+        confidence: "HIGH",
+      }),
+    ],
+    NOAI,
+  );
+  expect(jobData().lastFixRouting!.map((r) => [r.route, r.outcome])).toEqual([
+    ["deterministic", "rule_corrected"],
+    ["deterministic", "rule_corrected"],
+  ]);
 });

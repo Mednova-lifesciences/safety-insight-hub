@@ -12,8 +12,8 @@
       "from": "8.19.21",
       "to": "8, 19, 21",
       "row": [],
-      "ok": true,
-      "why": "separators changed"
+      "ok": false,
+      "why": "a dot between digits may be a decimal point: re-separating codes is an interpretation for a person (was accepted before 13 Oct 2026)"
     },
     {
       "from": "28 PAIN AT THE INJECTION SITE",
@@ -217,6 +217,62 @@
       "row": [],
       "ok": true,
       "why": "doubled year digit removed"
+    },
+    {
+      "from": "8.19.21",
+      "to": "8,19,21",
+      "row": [],
+      "ok": false,
+      "why": "a dot between digits may be a decimal point: turning it into a list separator changes the value"
+    },
+    {
+      "from": "0.5ML",
+      "to": "05ML",
+      "row": [],
+      "ok": false,
+      "why": "removing a decimal point changes the quantity"
+    },
+    {
+      "from": "12.5",
+      "to": "12,5",
+      "row": [],
+      "ok": false,
+      "why": "a decimal point is not swapped for a comma by the AI"
+    },
+    {
+      "from": "02.03.2026",
+      "to": "02/03/2026",
+      "row": [],
+      "ok": true,
+      "why": "a valid day.month.year date written with slashes: same date"
+    },
+    {
+      "from": "2025-04-155",
+      "to": "2025-04-15",
+      "row": [],
+      "ok": false,
+      "why": "a repeated digit dropped from the day: 15 or 05 cannot be told — only a year may lose a repeated digit"
+    },
+    {
+      "from": "14/55/2025",
+      "to": "14/5/2025",
+      "row": [],
+      "ok": false,
+      "why": "a repeated digit dropped from the month"
+    },
+    {
+      "from": "9/3/20255",
+      "to": "9/3/2025",
+      "row": [],
+      "ok": true,
+      "why": "a repeated digit dropped from a five-digit year"
+    },
+    {
+      "from": "28/1/20226",
+      "to": "28/1/2026",
+      "row": [],
+      "ok": true,
+      "why": "a repeated digit dropped from a five-digit year"
     }
   ],
   "corrections": [

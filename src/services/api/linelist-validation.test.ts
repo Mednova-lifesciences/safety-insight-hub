@@ -1178,3 +1178,47 @@ describe("mergeColumnMapping — AI reads the headers, guards keep it honest", (
     expect(out.mapping["Vaccine Given"]).toBeUndefined();
   });
 });
+
+describe("runValidation — an outcome that meets a seriousness criterion on a non-serious case", () => {
+  const mapping = { Serious: "seriousness", Outcome: "outcome" } as const;
+  const find = (seriousness: string, outcome: string) =>
+    runValidation(["Serious", "Outcome"], mapping, [{ seriousness, outcome } as ParsedRow]).filter(
+      (i) => i.code === "OUTCOME_SERIOUSNESS_CONTRADICTION",
+    );
+  it.each([
+    ["NON SERIOUS", "Hospitalized"],
+    ["N", "Died"],
+    ["No", "death"],
+    ["non-serious", "Disability"],
+  ])("%s + %s → reported for a person, never fixable", (s, o) => {
+    const [i] = find(s, o);
+    expect(i).toMatchObject({ severity: "CRITICAL", fixable: false, column: "Outcome" });
+    expect(i!.message).toMatch(/ICH E2A/);
+  });
+  it.each([
+    ["NON SERIOUS", "Recovered"],
+    ["SERIOUS", "Died"],
+    ["Y", "Hospitalized"],
+    ["NON SERIOUS", "2"],
+  ])("%s + %s → nothing (no contradiction, or an undecoded code is not interpreted)", (s, o) =>
+    expect(find(s, o)).toEqual([]),
+  );
+});
+
+describe("runValidation — the outcome is read through the file's own code legend for the seriousness check", () => {
+  it("outcome code 2 = Hospitalized on a non-serious case is reported (the Ondo form's legend)", () => {
+    const profile = profileWithCodebooks({ outcome: { "1": "Recovered", "2": "Hospitalized" } });
+    const issues = runValidation(
+      ["Serious", "Outcome"],
+      { Serious: "seriousness", Outcome: "outcome" },
+      [
+        { seriousness: "NON SERIOUS", outcome: "2" } as ParsedRow,
+        { seriousness: "NON SERIOUS", outcome: "1" } as ParsedRow,
+      ],
+      profile,
+    ).filter((i) => i.code === "OUTCOME_SERIOUSNESS_CONTRADICTION");
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ row: 1, value: "2", fixable: false });
+    expect(issues[0]!.message).toContain("Hospitalized");
+  });
+});
