@@ -19,6 +19,8 @@ import {
   StatusPill,
 } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PsurForecastCard } from "@/components/pv/psur-forecast-card";
 import { cn } from "@/lib/utils";
 import { usePvQuery } from "@/lib/data-source";
 import { usePsurDocument } from "@/lib/use-psur-document";
@@ -121,159 +123,172 @@ function ScreeningPage() {
         }
       />
 
-      <div className="space-y-4 p-6">
-        {/* The screening is finished and the report has moved on, so the
+      <Tabs defaultValue="queue" className="p-6 pb-0">
+        <TabsList>
+          <TabsTrigger value="queue">Screening queue</TabsTrigger>
+          <TabsTrigger value="due">PSURs due and overdue</TabsTrigger>
+        </TabsList>
+        <TabsContent value="due" className="pb-6">
+          <PsurForecastCard />
+        </TabsContent>
+        <TabsContent value="queue" className="-mx-6">
+          <div className="space-y-4 px-6 pb-6">
+            {/* The screening is finished and the report has moved on, so the
             form it was filled in on is gone with it. Leaving a completed
             checklist on screen invites an officer to keep working on a
             report that is no longer theirs. */}
-        {justScreened ? (
-          <div className="flex gap-3 rounded-md border border-success/40 bg-success-soft p-4">
-            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-            <div className="space-y-1 text-sm">
-              <p className="font-medium">
-                {justScreened.decision === "ACCEPTED_FOR_ASSESSMENT"
-                  ? "Sent to the evaluators for scientific review."
-                  : "Returned to the MAH."}
-              </p>
-              <p className="text-muted-foreground">
-                {justScreened.filename} is off your desk.{" "}
-                {justScreened.decision === "ACCEPTED_FOR_ASSESSMENT"
-                  ? "An evaluator will pick it up from their queue."
-                  : "Download the directive from “Already screened” below to send it."}{" "}
-                Upload another report, or choose one from the queue, to screen it.
-              </p>
-            </div>
-          </div>
-        ) : null}
+            {justScreened ? (
+              <div className="flex gap-3 rounded-md border border-success/40 bg-success-soft p-4">
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+                <div className="space-y-1 text-sm">
+                  <p className="font-medium">
+                    {justScreened.decision === "ACCEPTED_FOR_ASSESSMENT"
+                      ? "Sent to the evaluators for scientific review."
+                      : "Returned to the MAH."}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {justScreened.filename} is off your desk.{" "}
+                    {justScreened.decision === "ACCEPTED_FOR_ASSESSMENT"
+                      ? "An evaluator will pick it up from their queue."
+                      : "Download the directive from “Already screened” below to send it."}{" "}
+                    Upload another report, or choose one from the queue, to screen it.
+                  </p>
+                </div>
+              </div>
+            ) : null}
 
-        <Section
-          title="Receive a report"
-          description="Uploading records the submission as received and runs the screening checks. The date of receipt is taken from this moment."
-        >
-          <label
-            className={cn(
-              "flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-border px-4 py-3 text-sm transition-colors hover:bg-muted",
-              uploading && "pointer-events-none opacity-60",
-            )}
-          >
-            <Upload className="size-4" />
-            <span>{uploading ? "Screening the submission…" : "Choose a PSUR/PBRER file"}</span>
-            <input
-              type="file"
-              className="hidden"
-              accept=".pdf,.xlsx,.xls,.csv"
-              disabled={uploading}
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                setUploading(true);
-                try {
-                  const created = await psurApi.upload(file);
-                  open(created.id);
-                  toast.success("Received. The screening checklist is ready for your review.");
-                  refresh();
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Could not receive this file.");
-                } finally {
-                  setUploading(false);
-                  e.target.value = "";
-                }
-              }}
-            />
-          </label>
-        </Section>
+            <Section
+              title="Receive a report"
+              description="Uploading records the submission as received and runs the screening checks. The date of receipt is taken from this moment."
+            >
+              <label
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-border px-4 py-3 text-sm transition-colors hover:bg-muted",
+                  uploading && "pointer-events-none opacity-60",
+                )}
+              >
+                <Upload className="size-4" />
+                <span>{uploading ? "Screening the submission…" : "Choose a PSUR/PBRER file"}</span>
+                <input
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.xlsx,.xls,.csv"
+                  disabled={uploading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setUploading(true);
+                    try {
+                      const created = await psurApi.upload(file);
+                      open(created.id);
+                      toast.success("Received. The screening checklist is ready for your review.");
+                      refresh();
+                    } catch (err) {
+                      toast.error(
+                        err instanceof Error ? err.message : "Could not receive this file.",
+                      );
+                    } finally {
+                      setUploading(false);
+                      e.target.value = "";
+                    }
+                  }}
+                />
+              </label>
+            </Section>
 
-        <QueryBoundary query={docs} loadingLabel="Loading screening queue">
-          {(items) => {
-            const untriaged = items.filter(isAwaitingScreening);
-            const triaged = items.filter((d) => !isAwaitingScreening(d));
-            return (
-              <>
-                <Section
-                  title="Awaiting screening"
-                  description={
-                    untriaged.length === 0
-                      ? "Nothing is waiting on you right now."
-                      : `${untriaged.length} report${untriaged.length === 1 ? "" : "s"} to screen.`
-                  }
-                >
-                  {untriaged.length === 0 ? (
-                    <EmptyState
-                      title="Nothing to screen"
-                      description="Reports appear here as soon as they are received."
-                    />
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        {paginate(untriaged, queuePage).map((doc) => (
-                          <QueueRow
-                            key={doc.id}
-                            doc={doc}
-                            selected={doc.id === selectedId}
-                            onSelect={() => open(doc.id)}
+            <QueryBoundary query={docs} loadingLabel="Loading screening queue">
+              {(items) => {
+                const untriaged = items.filter(isAwaitingScreening);
+                const triaged = items.filter((d) => !isAwaitingScreening(d));
+                return (
+                  <>
+                    <Section
+                      title="Awaiting screening"
+                      description={
+                        untriaged.length === 0
+                          ? "Nothing is waiting on you right now."
+                          : `${untriaged.length} report${untriaged.length === 1 ? "" : "s"} to screen.`
+                      }
+                    >
+                      {untriaged.length === 0 ? (
+                        <EmptyState
+                          title="Nothing to screen"
+                          description="Reports appear here as soon as they are received."
+                        />
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            {paginate(untriaged, queuePage).map((doc) => (
+                              <QueueRow
+                                key={doc.id}
+                                doc={doc}
+                                selected={doc.id === selectedId}
+                                onSelect={() => open(doc.id)}
+                              />
+                            ))}
+                          </div>
+                          <Pager
+                            page={queuePage}
+                            total={untriaged.length}
+                            onPageChange={setQueuePage}
                           />
-                        ))}
-                      </div>
-                      <Pager
-                        page={queuePage}
-                        total={untriaged.length}
-                        onPageChange={setQueuePage}
-                      />
-                    </>
-                  )}
-                </Section>
+                        </>
+                      )}
+                    </Section>
 
-                {activeSummary && !active ? (
-                  <Section title={`Screening: ${activeSummary.filename}`}>
-                    <p className="text-sm text-muted-foreground">
-                      {opened.error ? "Could not open this report." : "Opening the report…"}
-                    </p>
-                  </Section>
-                ) : null}
-                {active ? (
-                  <Section
-                    title={`Screening: ${active.filename}`}
-                    description={`${active.product} · ${active.reportingPeriod}`}
-                  >
-                    <PsurScreeningChecklist
-                      key={active.id}
-                      doc={active}
-                      onChanged={refresh}
-                      onScreened={(decision) => {
-                        setJustScreened({ filename: active.filename, decision });
-                        setSelectedId(null);
-                        void docs.refetch();
-                      }}
-                    />
-                  </Section>
-                ) : null}
+                    {activeSummary && !active ? (
+                      <Section title={`Screening: ${activeSummary.filename}`}>
+                        <p className="text-sm text-muted-foreground">
+                          {opened.error ? "Could not open this report." : "Opening the report…"}
+                        </p>
+                      </Section>
+                    ) : null}
+                    {active ? (
+                      <Section
+                        title={`Screening: ${active.filename}`}
+                        description={`${active.product} · ${active.reportingPeriod}`}
+                      >
+                        <PsurScreeningChecklist
+                          key={active.id}
+                          doc={active}
+                          onChanged={refresh}
+                          onScreened={(decision) => {
+                            setJustScreened({ filename: active.filename, decision });
+                            setSelectedId(null);
+                            void docs.refetch();
+                          }}
+                        />
+                      </Section>
+                    ) : null}
 
-                <Section
-                  title="Already screened"
-                  description="Reports you have accepted or returned. The compliance directive for a completed review is downloaded from here."
-                >
-                  {triaged.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Nothing screened yet.</p>
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        {paginate(triaged, screenedPage).map((doc) => (
-                          <TriagedRow key={doc.id} doc={doc} onOpen={() => open(doc.id)} />
-                        ))}
-                      </div>
-                      <Pager
-                        page={screenedPage}
-                        total={triaged.length}
-                        onPageChange={setScreenedPage}
-                      />
-                    </>
-                  )}
-                </Section>
-              </>
-            );
-          }}
-        </QueryBoundary>
-      </div>
+                    <Section
+                      title="Already screened"
+                      description="Reports you have accepted or returned. The compliance directive for a completed review is downloaded from here."
+                    >
+                      {triaged.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nothing screened yet.</p>
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            {paginate(triaged, screenedPage).map((doc) => (
+                              <TriagedRow key={doc.id} doc={doc} onOpen={() => open(doc.id)} />
+                            ))}
+                          </div>
+                          <Pager
+                            page={screenedPage}
+                            total={triaged.length}
+                            onPageChange={setScreenedPage}
+                          />
+                        </>
+                      )}
+                    </Section>
+                  </>
+                );
+              }}
+            </QueryBoundary>
+          </div>
+        </TabsContent>
+      </Tabs>
     </>
   );
 }

@@ -44,6 +44,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { LineListDecisionControl } from "@/components/pv/linelist-decision-control";
 import { LineListChangesPanel } from "@/components/pv/linelist-changes-panel";
+import {
+  ClusterFlagsCard,
+  CrossFileDuplicatesPanel,
+  validatedJobsKey,
+} from "@/components/pv/linelist-cross-file-panels";
 import { notHeld } from "@/services/api/linelist-change-log";
 import {
   decidedRowsWithoutIssues,
@@ -56,6 +61,9 @@ import type { LineListIssue, LineListJob } from "@/types/pv";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/line-list")({
+  // ?job= opens one line list — the batch/facility flags link to their cases.
+  validateSearch: (search: Record<string, unknown>): { job?: string } =>
+    typeof search.job === "string" && search.job ? { job: search.job } : {},
   head: () => ({
     meta: [
       { title: "Line-list processing — MedNova PV Assist" },
@@ -95,7 +103,11 @@ function LineListPage() {
     () => linelistApi.jobs(),
     () => demoLineListJobs,
   );
-  const [selected, setSelected] = useState<string | null>(null);
+  const { job: jobFromLink } = Route.useSearch();
+  const [selected, setSelected] = useState<string | null>(jobFromLink ?? null);
+  useEffect(() => {
+    if (jobFromLink) setSelected(jobFromLink);
+  }, [jobFromLink]);
   const activeJob = (jobs.data?.data ?? []).find((j) => j.id === selected) ?? jobs.data?.data?.[0];
   // The list leaves each job's rows out; the open one is read in full for
   // the case IDs beside its issues and changes.
@@ -734,6 +746,18 @@ function LineListPage() {
             </QueryBoundary>
           </Section>
         ) : null}
+        {activeJob ? (
+          <CrossFileDuplicatesPanel
+            jobId={activeJob.id}
+            stage={activeJob.stage}
+            refreshKey={validatedJobsKey(jobs.data?.data ?? [])}
+            onDecided={() => {
+              jobs.refetch();
+              issues.refetch();
+            }}
+          />
+        ) : null}
+        <ClusterFlagsCard refreshKey={validatedJobsKey(jobs.data?.data ?? [])} />
       </div>
     </>
   );

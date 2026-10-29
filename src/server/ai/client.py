@@ -27,6 +27,9 @@ import random
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from . import disclosure
+from .deidentify import PLACEHOLDER_NOTICE, pseudonymise_request
+
 from openai import (
     APIConnectionError,
     APIError,
@@ -195,8 +198,16 @@ async def structured_completion(
     model: str = DEFAULT_MODEL,
     max_output_tokens: int = 4000,
 ) -> StructuredCompletion:
-    """Text-only JSON-mode completion, with retry on transient failures."""
+    """Text-only JSON-mode completion, with retry on transient failures.
+
+    Direct identifiers are replaced by placeholder tokens before the request
+    leaves the server and put back into the answer afterwards (see
+    ai/deidentify.py). This is the one path every AI route takes, so the
+    de-identification cannot be skipped by a route or by the browser."""
     client = get_client()
+    user_content, pseudonyms = pseudonymise_request(user_content)
+    if pseudonyms.summary()["total"]:
+        system_prompt = system_prompt + PLACEHOLDER_NOTICE
     last_error: Optional[Exception] = None
     send_temperature = model not in _MODELS_WITHOUT_CUSTOM_TEMPERATURE
     send_seed = model not in _MODELS_WITHOUT_SEED
@@ -252,7 +263,13 @@ async def structured_completion(
                 raise AiRequestError(f"OpenAI returned invalid JSON: {exc}") from exc
 
             in_tok, out_tok = _record_usage(response)
-            return StructuredCompletion(data=data, model=response.model, usage_input_tokens=in_tok, usage_output_tokens=out_tok)
+            disclosure.record(pseudonyms.summary(), model=response.model or model)
+            return StructuredCompletion(
+                data=pseudonyms.restore(data),
+                model=response.model,
+                usage_input_tokens=in_tok,
+                usage_output_tokens=out_tok,
+            )
         except _RETRYABLE_ERRORS as exc:
             last_error = exc
             if attempt < MAX_RETRIES:
@@ -295,8 +312,17 @@ async def vision_structured_completion(
 ) -> StructuredCompletion:
     """Same contract as structured_completion, for a single-image vision
     request (used by ICSR image extraction). image_data_url must be a
-    data: URI (base64) — nothing is uploaded to third-party storage."""
+    data: URI (base64) — nothing is uploaded to third-party storage.
+
+    The text part is de-identified like any other request. The IMAGE cannot
+    be: a photo of a paper form shows whatever was written on it. The log
+    records that an unredacted image was sent, and docs/DATA-PROTECTION.md
+    lists it as an open item."""
     client = get_client()
+    user_text, pseudonyms = pseudonymise_request(user_text)
+    if pseudonyms.summary()["total"]:
+        system_prompt = system_prompt + PLACEHOLDER_NOTICE
+    pseudonyms.fields["image (not de-identified)"] += 1
     last_error: Optional[Exception] = None
     send_temperature = model not in _MODELS_WITHOUT_CUSTOM_TEMPERATURE
 
@@ -350,7 +376,13 @@ async def vision_structured_completion(
                 raise AiRequestError(f"OpenAI returned invalid JSON: {exc}") from exc
 
             in_tok, out_tok = _record_usage(response)
-            return StructuredCompletion(data=data, model=response.model, usage_input_tokens=in_tok, usage_output_tokens=out_tok)
+            disclosure.record(pseudonyms.summary(), model=response.model or model, kind="image")
+            return StructuredCompletion(
+                data=pseudonyms.restore(data),
+                model=response.model,
+                usage_input_tokens=in_tok,
+                usage_output_tokens=out_tok,
+            )
         except _RETRYABLE_ERRORS as exc:
             last_error = exc
             if attempt < MAX_RETRIES:

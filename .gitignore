@@ -83,3 +83,7 @@ ondo-report.txt
 
 # Supabase CLI scratch (version cache etc.) — local only.
 supabase/.temp/
+
+# Generated seed files and local E2E output
+scripts/seed/out/
+e2e-out/
