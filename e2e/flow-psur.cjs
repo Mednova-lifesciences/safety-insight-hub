@@ -272,15 +272,18 @@ async function main() {
       "download screening letter (officer)",
       async () => {
         await L.nav(officer, "Report screening", /^Report screening$/);
+        // The report's own row in "Already screened": a bordered row with
+        // its own "View checklist" button.
         const row = officer
-          .locator("li, tr, div")
+          .locator("div.rounded-md.border")
+          .filter({ has: officer.getByRole("button", { name: "View checklist" }) })
           .filter({ hasText: filename.replace(/\.pdf$/, "") })
           .filter({
             has: officer.getByRole("button", {
               name: /(Screening Directive|MAH Feedback Letter) \(Word\)/,
             }),
           })
-          .last();
+          .first();
         await L.download(officer, () =>
           row
             .getByRole("button", { name: /(Screening Directive|MAH Feedback Letter) \(Word\)/ })

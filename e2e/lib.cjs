@@ -51,7 +51,8 @@ const statePath = (who) => path.join(OUT_DIR, `session-${who}.json`);
  *  run already rotated is refused (seen as a 401 and a bounce to sign-in). */
 const SESSION_MAX_AGE_MS = 30 * 60 * 1000;
 const freshState = (who) =>
-  fs.existsSync(statePath(who)) && Date.now() - fs.statSync(statePath(who)).mtimeMs < SESSION_MAX_AGE_MS;
+  fs.existsSync(statePath(who)) &&
+  Date.now() - fs.statSync(statePath(who)).mtimeMs < SESSION_MAX_AGE_MS;
 
 async function newPage(browser, label, who) {
   const cached = who && freshState(who) ? statePath(who) : undefined;

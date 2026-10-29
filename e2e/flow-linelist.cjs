@@ -240,8 +240,21 @@ async function main() {
         );
       });
       await step("VigiFlow preflight again", async () => {
-        await page.locator('button[data-e2e-preflight="1"]').click();
-        await L.waitNoLoading(page);
+        // The page refreshes itself after the C.1.7 decisions; run preflight
+        // once that has settled, and wait for this card's new verdict.
+        const btn = page.locator('button[data-e2e-preflight="1"]');
+        await page.waitForTimeout(3000);
+        await btn.waitFor({ state: "visible" });
+        await page.waitForFunction(
+          () => !document.querySelector('button[data-e2e-preflight="1"]')?.hasAttribute("disabled"),
+          null,
+          { timeout: 60000 },
+        );
+        await btn.click();
+        await jobCard()
+          .getByText(/^(READY_FOR_VALIDATED_IMPORT|EXPORTABLE WITH OVERRIDE.*)$/)
+          .first()
+          .waitFor({ timeout: 180000 });
       });
     } else console.log("  (no C.1.7 recommendations pending)");
     await step("XML download enabled", async () => {
