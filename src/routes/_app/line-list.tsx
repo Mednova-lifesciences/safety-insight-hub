@@ -44,6 +44,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { LineListDecisionControl } from "@/components/pv/linelist-decision-control";
 import { LineListChangesPanel } from "@/components/pv/linelist-changes-panel";
+import {
+  ClusterFlagsCard,
+  CrossFileDuplicatesPanel,
+  validatedJobsKey,
+} from "@/components/pv/linelist-cross-file-panels";
 import { notHeld } from "@/services/api/linelist-change-log";
 import {
   decidedRowsWithoutIssues,
@@ -56,6 +61,9 @@ import type { LineListIssue, LineListJob } from "@/types/pv";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/line-list")({
+  // ?job= opens one line list — the batch/facility flags link to their cases.
+  validateSearch: (search: Record<string, unknown>): { job?: string } =>
+    typeof search["job"] === "string" && search["job"] ? { job: search["job"] } : {},
   head: () => ({
     meta: [
       { title: "Line-list processing — MedNova PV Assist" },
@@ -95,8 +103,17 @@ function LineListPage() {
     () => linelistApi.jobs(),
     () => demoLineListJobs,
   );
-  const [selected, setSelected] = useState<string | null>(null);
-  const activeJob = (jobs.data?.data ?? []).find((j) => j.id === selected) ?? jobs.data?.data?.[0];
+  const { job: jobFromLink } = Route.useSearch();
+  const [selected, setSelected] = useState<string | null>(jobFromLink ?? null);
+  useEffect(() => {
+    if (jobFromLink) setSelected(jobFromLink);
+  }, [jobFromLink]);
+  // A selected job that is not in the list yet (just uploaded, list not yet
+  // refetched) shows nothing rather than falling back to the first job: the
+  // fallback put the PREVIOUS file on screen, and Re-run validation then
+  // validated that file instead of the one just uploaded.
+  const listed = jobs.data?.data ?? [];
+  const activeJob = selected ? listed.find((j) => j.id === selected) : listed[0];
   // The list leaves each job's rows out; the open one is read in full for
   // the case IDs beside its issues and changes.
   const fullJob = useLineListJob(activeJob);
@@ -158,11 +175,12 @@ function LineListPage() {
     try {
       const created = await linelistApi.upload(file, sourceProfileId);
       // Show the file just uploaded, so Re-run validation acts on it and
-      // not on whichever job happened to be on screen before.
+      // not on whichever job happened to be on screen before. The list is
+      // refreshed first, so the new job is there the moment it is selected.
+      await jobs.refetch();
       setSelected(created.id);
       toast.success("File uploaded.");
       setJobsPage(1);
-      jobs.refetch();
     } catch (err) {
       toast.error(
         isNotConfigured(err)
@@ -734,6 +752,18 @@ function LineListPage() {
             </QueryBoundary>
           </Section>
         ) : null}
+        {activeJob ? (
+          <CrossFileDuplicatesPanel
+            jobId={activeJob.id}
+            stage={activeJob.stage}
+            refreshKey={validatedJobsKey(jobs.data?.data ?? [])}
+            onDecided={() => {
+              jobs.refetch();
+              issues.refetch();
+            }}
+          />
+        ) : null}
+        <ClusterFlagsCard refreshKey={validatedJobsKey(jobs.data?.data ?? [])} />
       </div>
     </>
   );

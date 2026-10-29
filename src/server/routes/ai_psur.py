@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 
 from ..ai.client import (
+    LONG_REVIEW_TIMEOUT_SECONDS,
     VALIDATION_MODEL,
     AiNotConfiguredError,
     AiRequestError,
@@ -293,6 +294,7 @@ async def review_pdf(
             system_prompt=PSUR_REVIEW_PDF_PROMPT,
             user_content=json.dumps(payload),
             max_output_tokens=10000,
+            timeout_seconds=LONG_REVIEW_TIMEOUT_SECONDS,
         )
         parsed = AiPsurReview.model_validate(completion.data)
         return ReviewResponse(
@@ -377,6 +379,7 @@ async def review_pdf_text(
             system_prompt=PSUR_REVIEW_PDF_PROMPT,
             user_content=json.dumps(payload),
             max_output_tokens=10000,
+            timeout_seconds=LONG_REVIEW_TIMEOUT_SECONDS,
         )
         parsed = AiPsurReview.model_validate(completion.data)
         return ReviewResponse(

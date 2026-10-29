@@ -476,6 +476,9 @@ export interface LineListJob {
   /** The current Drop / Step down decision per case. No entry means Keep.
    *  History lives in the audit trail. */
   decisions?: LineListDecision[] | undefined;
+  /** Cross-file pairs a person looked at and said are NOT the same case
+   *  (linelist-cross-duplicates pairKey), so they are not offered again. */
+  notDuplicatePairs?: { key: string; by: string; at: string }[] | undefined;
   /** When the deterministic + E2B checks last ran. */
   checkedAt?: string | undefined;
   /** Goes up by one with every save; a save that read an older version is

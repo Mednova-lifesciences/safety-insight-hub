@@ -189,6 +189,54 @@ function resolveJobRuntimeProfile(job: {
   );
 }
 
+/** The job fields that decide how its rows are read — enough to answer
+ *  "is this case serious" without the rest of the job. */
+export const ROW_READING_FIELDS = [
+  "filename",
+  "sheetName",
+  "sourceProfileId",
+  "outcomeVocabulary",
+  "discardedRows",
+  "parsingOptions",
+  "codeList",
+  "mapping",
+] as const;
+
+type RowReadingJob = Parameters<typeof resolveJobRuntimeProfile>[0] & {
+  parsedRows?: ParsedRow[] | undefined;
+};
+
+/**
+ * Each row as the rule engine reads it — decoded through the file's own
+ * code list — with the rule engine's own seriousness test: serious text,
+ * a serious-criterion code that is not a "no seriousness" placeholder, or
+ * an outcome that decodes to FATAL. Shared so the batch/facility flag can
+ * never call a case serious that the line-list checks do not.
+ */
+export function readRowsWithSeriousness(
+  job: RowReadingJob,
+  orgConfig?: OrgRegulatoryConfig | null,
+): { row: ParsedRow; serious: boolean }[] {
+  const jobProfile = resolveJobRuntimeProfile(job);
+  const profile = orgConfig
+    ? mergeOrgRegulatoryConfigIntoProfile(jobProfile, orgConfig)
+    : jobProfile;
+  return (job.parsedRows ?? []).map((raw) => {
+    const row = decodeCodedFields(
+      raw as Record<string, string>,
+      profile.fieldCodebooks,
+    ) as ParsedRow;
+    const text = row.seriousness ? normalizeSeriousness(row.seriousness) : "";
+    const serious =
+      SERIOUS_TEXT_VALUES.has(text) ||
+      (!!row.serious_code && !isNoSeriousnessCode(row.serious_code)) ||
+      (!!row.outcome &&
+        resolveFieldConcept(row.outcome, profile, "outcome", mapConceptToOutcome)
+          ?.canonicalValue === "FATAL");
+    return { row, serious };
+  });
+}
+
 export interface ColumnInspection {
   jobId: string;
   detectedColumns: { name: string; sample: string[]; suggestedField: string | null }[];
@@ -3042,6 +3090,7 @@ const JOB_LIST_FIELDS = [
     changeLog: true,
     lastFixCorrections: true,
     decisions: true,
+    notDuplicatePairs: true,
     checkedAt: true,
     version: true,
   } satisfies Record<keyof LineListJob, true>),
@@ -4052,6 +4101,31 @@ export const linelist = {
         entity: "LineListJob",
         entityId: jobId,
         newValue: `${rowLabel(job, input.row)}: ${describeDecision(decisionFor(decisions, input.row)!)}`,
+      });
+      return next;
+    }),
+
+  /** A cross-file pair a person says is NOT the same case: kept on the
+   *  job so it is not offered again, and audited. */
+  markNotDuplicate: (jobId: string, key: string, description: string): Promise<LineListJob> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      if ((job.notDuplicatePairs ?? []).some((p) => p.key === key)) return job;
+      const actor = currentActor();
+      const next: LineListJobRow = {
+        ...job,
+        notDuplicatePairs: [
+          ...(job.notDuplicatePairs ?? []),
+          { key, by: actor.name, at: new Date().toISOString() },
+        ],
+      };
+      await saveJob(next);
+      await recordAudit({
+        action: "LINELIST_NOT_DUPLICATE",
+        entity: "LineListJob",
+        entityId: jobId,
+        newValue: description,
+        reason: "Reviewer judged a possible cross-file duplicate to be a different case",
       });
       return next;
     }),

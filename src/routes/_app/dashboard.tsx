@@ -35,6 +35,8 @@ import {
   WorkflowBadge,
 } from "@/components/pv/primitives";
 import { AuditTimeline } from "@/components/pv/audit-timeline";
+import { ClusterFlagsCard } from "@/components/pv/linelist-cross-file-panels";
+import { PsurForecastCard } from "@/components/pv/psur-forecast-card";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS, useAuth } from "@/lib/auth";
 import { countByStage } from "@/services/psur/workflow";
@@ -323,6 +325,7 @@ function ReviewOfficerDashboard() {
             </div>
           )}
         </AssessorMetrics>
+        <PsurForecastCard limit={6} />
         <AssessorActivity />
       </div>
     </>
@@ -364,6 +367,7 @@ function EvaluatorDashboard() {
             </div>
           )}
         </AssessorMetrics>
+        <ClusterFlagsCard />
         <AssessorActivity />
       </div>
     </>

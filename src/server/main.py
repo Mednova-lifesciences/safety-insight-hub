@@ -94,6 +94,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def _ai_request_context(request, call_next):
+    # The endpoint each AI call was made from, for the disclosure log.
+    from .ai import disclosure
+
+    disclosure.set_endpoint(request.url.path)
+    return await call_next(request)
+
+
 # Include routes
 app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(cases.router, prefix="/api/cases", tags=["cases"])

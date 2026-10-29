@@ -105,7 +105,10 @@ export type Permission =
   | "follow_up.create"
   | "catalog.view"
   | "catalog.manage"
-  | "regulatory.manage";
+  | "regulatory.manage"
+  /** Read the AI data log: what each AI request disclosed, as field names
+   *  and counts (pv_ai_disclosures). Administrators only. */
+  | "ai_log.view";
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   FIELD_ASSOCIATE: [
@@ -163,6 +166,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "catalog.view",
     "catalog.manage",
     "regulatory.manage",
+    "ai_log.view",
   ],
   // The three NAFDAC assessor roles below hold ONLY what their own step of
   // the assessment needs. They are narrow on purpose: the whole point of
@@ -181,8 +185,9 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "psur.screen",
     "linelist.process",
     "e2b.generate",
+    "ai_log.view",
   ],
-  EVALUATOR: ["psur.review", "psur.evaluate", "linelist.process", "e2b.generate"],
+  EVALUATOR: ["psur.review", "psur.evaluate", "linelist.process", "e2b.generate", "ai_log.view"],
   PEER_REVIEWER: [
     // Holds `psur.evaluate` as well: a peer reviewer is expected to correct
     // what they find before countersigning, not just accept or bounce it.
@@ -197,6 +202,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "psur.peer_review",
     "linelist.process",
     "e2b.generate",
+    "ai_log.view",
   ],
 };
 

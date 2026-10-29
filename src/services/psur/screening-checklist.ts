@@ -320,6 +320,19 @@ function parseDate(value: string): Date | null {
  * outcome here.
  */
 export function intervalMonths(intervalCovered: string): number | null {
+  const bounds = intervalBounds(intervalCovered);
+  if (!bounds) return null;
+  const { from, to } = bounds;
+  const months =
+    (to.getUTCFullYear() - from.getUTCFullYear()) * 12 +
+    (to.getUTCMonth() - from.getUTCMonth()) +
+    (to.getUTCDate() >= from.getUTCDate() ? 0 : -1);
+  return months;
+}
+
+/** The interval's first and last day (UTC midnights), or null when the
+ *  string cannot be read as two dates in order. */
+export function intervalBounds(intervalCovered: string): { from: Date; to: Date } | null {
   // Matches the shapes the form and real cover letters actually use:
   // "01 Jul 2025 – 30 Jun 2026", "2025-07-01 to 2026-06-30", "... - ...".
   const parts = intervalCovered.split(/\s(?:–|-|—|to)\s/i);
@@ -327,11 +340,22 @@ export function intervalMonths(intervalCovered: string): number | null {
   const from = parseDate(parts[0]!);
   const to = parseDate(parts[parts.length - 1]!);
   if (!from || !to || to < from) return null;
-  const months =
-    (to.getUTCFullYear() - from.getUTCFullYear()) * 12 +
-    (to.getUTCMonth() - from.getUTCMonth()) +
-    (to.getUTCDate() >= from.getUTCDate() ? 0 : -1);
-  return months;
+  return { from, to };
+}
+
+/** A document date as a UTC midnight, read the way item 8 reads it. */
+export function screeningDate(value: string | undefined): Date | null {
+  return value ? parseDate(value) : null;
+}
+
+/** The submission window (70 or 90 days) for an interval, or null when the
+ *  interval cannot be read. */
+export function submissionWindowDays(intervalCovered: string): number | null {
+  const months = intervalMonths(intervalCovered);
+  if (months === null) return null;
+  return months > 12
+    ? SUBMISSION_WINDOW_DAYS.INTERVAL_OVER_12_MONTHS
+    : SUBMISSION_WINDOW_DAYS.INTERVAL_UP_TO_12_MONTHS;
 }
 
 /**

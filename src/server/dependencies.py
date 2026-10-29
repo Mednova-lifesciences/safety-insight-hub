@@ -110,6 +110,13 @@ async def _verify_token_with_supabase(token: str) -> httpx.Response:
     raise last_error
 
 
+def _note_caller(user: "AuthenticatedUser") -> None:
+    """Who is asking, for the AI disclosure log (ai/disclosure.py)."""
+    from .ai import disclosure
+
+    disclosure.set_caller(user.organization_id, user.user_id, user.role)
+
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> AuthenticatedUser:
     """
     Verify JWT token from Supabase and return authenticated user
@@ -118,6 +125,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
     remembered = _cached_identity(token)
     if remembered is not None:
+        _note_caller(remembered)
         return remembered
 
     # Verify token with Supabase
@@ -178,6 +186,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             role=role,
         )
         _remember_identity(token, user)
+        _note_caller(user)
         return user
 
     except HTTPException:
