@@ -120,6 +120,23 @@ async function buttons(page) {
 async function signIn(page, who) {
   const email = ACCOUNTS[who];
   const admin = ADMIN_ROLES.has(who);
+  // A dropped connection on the test machine can lose one attempt (the
+  // browser's own Supabase call fails after the backend said yes); it is
+  // tried again from the start, up to three times.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await signInOnce(page, who, email, admin);
+      return;
+    } catch (e) {
+      if (attempt >= 3) throw e;
+      console.log(
+        `  sign-in ${who}: attempt ${attempt} failed (${e.message.split("\n")[0]}), retrying`,
+      );
+    }
+  }
+}
+
+async function signInOnce(page, who, email, admin) {
   await timed(`sign-in ${who}`, async () => {
     await page.goto(`${BASE_URL}${admin ? "/admin/sign-in" : "/auth"}`, {
       waitUntil: "domcontentloaded",
@@ -138,7 +155,7 @@ async function signIn(page, who) {
       .click();
     // The Render backend can be cold: its first sign-in takes ~20-60 s.
     await page.waitForURL((u) => !/sign-in|\/auth$/.test(u.pathname), {
-      timeout: 120000,
+      timeout: 90000,
       waitUntil: "commit",
     });
   });

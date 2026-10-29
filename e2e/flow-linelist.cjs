@@ -101,8 +101,27 @@ async function main() {
         } else console.log("  (no change to undo)");
       } else console.log("  (no Fix button: nothing fixable)");
 
+      // Every decision goes through the case's own row, found by its ID:
+      // positions shift as cases move between the kept and decided groups.
+      // A dialog or menu still closing blocks clicks, so wait for none first.
+      const settle = async () => {
+        await page.keyboard.press("Escape");
+        await page
+          .locator("[role=dialog], [role=menu]")
+          .first()
+          .waitFor({ state: "detached", timeout: 15000 })
+          .catch(() => {});
+      };
+      const caseRow = (id) => page.locator("tr").filter({ hasText: id }).first();
+      const openMenu = async (id) => {
+        await settle();
+        await caseRow(id).getByRole("button", { name: "Decide this case" }).click();
+      };
+      const pill = (id, text) =>
+        caseRow(id).getByText(text, { exact: true }).waitFor({ timeout: 60000 });
+
       await step("drop a case", async () => {
-        await page.getByRole("button", { name: "Decide this case" }).nth(0).click();
+        await openMenu("TST-A-012");
         await page.getByRole("menuitem", { name: "Drop…" }).click();
         const dialog = page.getByRole("dialog");
         await dialog.getByRole("radio", { name: "Not an AEFI" }).click();
@@ -110,46 +129,28 @@ async function main() {
         await L.expectNewToast(page, /Case dropped/, () =>
           dialog.getByRole("button", { name: "Drop case" }).click(),
         );
+        await pill("TST-A-012", "Dropped");
       });
       await step("hold a case", async () => {
-        // A different case, found by its ID: positions shift as cases move
-        // between the kept and decided groups.
-        const row = page.locator("tr").filter({ hasText: "TST-A-007" }).first();
-        await row.getByRole("button", { name: "Decide this case" }).click();
+        await openMenu("TST-A-011");
         await L.expectNewToast(page, /Case held/, () =>
           page.getByRole("menuitem", { name: "Step down" }).click(),
         );
-        // The decision is on the case itself, not only in a toast.
-        await page
-          .locator("tr")
-          .filter({ hasText: "TST-A-007" })
-          .first()
-          .getByText("Held", { exact: true })
-          .waitFor({ timeout: 60000 });
+        await pill("TST-A-011", "Held");
       });
-      // A held case moves under the "not counted" divider, so it is found by
-      // its pill rather than by position.
-      const heldRow = () =>
-        page
-          .locator("tr")
-          .filter({ has: page.getByText("Held", { exact: true }) })
-          .first();
       await step("keep it again", async () => {
-        await heldRow().getByRole("button", { name: "Decide this case" }).click();
+        await openMenu("TST-A-011");
         await L.expectNewToast(page, /returned to Keep/, () =>
           page.getByRole("menuitem", { name: "Keep" }).click(),
         );
+        await pill("TST-A-011", "Keep");
       });
-      await step("hold it once more", async () => {
-        await page.keyboard.press("Escape");
-        await page
-          .locator("[data-radix-popper-content-wrapper]")
-          .waitFor({ state: "detached", timeout: 10000 })
-          .catch(() => {});
-        await page.getByRole("button", { name: "Decide this case" }).nth(1).click();
+      await step("hold another case", async () => {
+        await openMenu("TST-A-007");
         await L.expectNewToast(page, /Case held/, () =>
           page.getByRole("menuitem", { name: "Step down" }).click(),
         );
+        await pill("TST-A-007", "Held");
       });
 
       await step("download fixed CSV", () =>
