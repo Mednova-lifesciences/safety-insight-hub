@@ -64,6 +64,10 @@ VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
 # without editing code — falls back to DEFAULT_MODEL when unset.
 VALIDATION_MODEL = os.getenv("OPENAI_VALIDATION_MODEL", DEFAULT_MODEL)
 DEFAULT_TIMEOUT_SECONDS = 60.0
+# One whole-document scientific review: a reasoning model writing up to
+# 10,000 tokens of findings regularly needs more than a minute. Seen live on
+# 29 Oct 2026: every attempt timed out at 60 s.
+LONG_REVIEW_TIMEOUT_SECONDS = 180.0
 MAX_RETRIES = 2
 # An empty-response retry costs a full model regeneration (tens of seconds
 # for a reasoning-tier model), unlike a network/rate-limit retry which
@@ -197,8 +201,13 @@ async def structured_completion(
     user_content: str,
     model: str = DEFAULT_MODEL,
     max_output_tokens: int = 4000,
+    timeout_seconds: Optional[float] = None,
 ) -> StructuredCompletion:
     """Text-only JSON-mode completion, with retry on transient failures.
+
+    `timeout_seconds` overrides DEFAULT_TIMEOUT_SECONDS for one call whose
+    answer is long by nature (a whole PSUR reviewed in one request): at the
+    default 60 s such a call can time out on every attempt alike.
 
     Direct identifiers are replaced by placeholder tokens before the request
     leaves the server and put back into the answer afterwards (see
@@ -235,6 +244,8 @@ async def structured_completion(
                 kwargs["temperature"] = 0
             if send_seed:
                 kwargs["seed"] = COMPLETION_SEED
+            if timeout_seconds is not None:
+                kwargs["timeout"] = timeout_seconds
             response = await client.chat.completions.create(**kwargs)
             raw = response.choices[0].message.content
             if not raw:

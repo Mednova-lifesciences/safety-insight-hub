@@ -46,9 +46,15 @@ async function launch() {
 }
 
 const statePath = (who) => path.join(OUT_DIR, `session-${who}.json`);
+/** A saved session is reused only while its access token is surely still
+ *  valid: an older one would have to refresh, and a refresh token another
+ *  run already rotated is refused (seen as a 401 and a bounce to sign-in). */
+const SESSION_MAX_AGE_MS = 30 * 60 * 1000;
+const freshState = (who) =>
+  fs.existsSync(statePath(who)) && Date.now() - fs.statSync(statePath(who)).mtimeMs < SESSION_MAX_AGE_MS;
 
 async function newPage(browser, label, who) {
-  const cached = who && fs.existsSync(statePath(who)) ? statePath(who) : undefined;
+  const cached = who && freshState(who) ? statePath(who) : undefined;
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     acceptDownloads: true,
@@ -80,7 +86,7 @@ async function timed(name, fn) {
  *  still accepted, otherwise signs in and saves it. */
 async function session(browser, who) {
   const page = await newPage(browser, who, who);
-  if (fs.existsSync(statePath(who))) {
+  if (freshState(who)) {
     await page.goto(`${BASE_URL}/dashboard`, { waitUntil: "domcontentloaded" });
     const ok = await page
       .locator("h1")

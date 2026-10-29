@@ -186,26 +186,48 @@ async function main() {
     // ---- E2B ----
     await step("open /e2b", () => L.nav(page, "E2B(R3) preparation", /E2B/));
     await L.shot(page, "e2b-open");
+    // The job card whose preflight was run (tagged in the step below).
+    const jobCard = () =>
+      page.locator("li").filter({ has: page.locator('button[data-e2e-preflight="1"]') });
     await step("VigiFlow preflight", async () => {
       // The closest card around the file name that has its own preflight
       // button — not an outer block holding every job's card.
-      const card = page
-        .getByText("TEST-facility-return-A.xlsx", { exact: true })
-        .first()
-        .locator(
-          'xpath=ancestor::div[.//button[contains(normalize-space(.), "Run VigiFlow preflight")]][1]',
-        );
-      await card.getByRole("button", { name: /Run VigiFlow preflight/ }).click();
-      await page
-        .getByText(
-          /READY_FOR_VALIDATED_IMPORT|NOT_READY|case\(s\) (pass|ready|blocked)|Preflight (passed|failed|complete)/i,
-        )
-        .first()
+      // Each preflight button belongs to the nearest block that names one
+      // file: tag the one whose block names file A, then click it.
+      // A seed file that is ready (an enabled preflight button): B when it
+      // was uploaded — A still has one case waiting for a MedDRA term
+      // choice, which blocks VigiFlow until a person makes it.
+      const tagged = await page.evaluate(
+        (files) => {
+          for (const file of files)
+            for (const b of document.querySelectorAll("button")) {
+              if (!/Run VigiFlow preflight/.test(b.textContent || "") || b.disabled) continue;
+              // Each job is one list item on the page.
+              const el = b.closest("li");
+              if (el && (el.textContent || "").includes(file)) {
+                b.setAttribute("data-e2e-preflight", "1");
+                return true;
+              }
+            }
+          return false;
+        },
+        ["TEST-state-return-B.csv", "TEST-facility-return-A.xlsx"],
+      );
+      if (!tagged) throw new Error("no seed file is ready for VigiFlow preflight");
+      await page.locator('button[data-e2e-preflight="1"]').click();
+      // Preflight is done when this job's card offers its XML download.
+      await jobCard()
+        .getByRole("button", { name: /Download validated E2B\(R3\) XML/ })
         .waitFor({ timeout: 180000 });
       await L.waitNoLoading(page);
     });
     await L.shot(page, "e2b-preflight");
-    const accept = page.getByRole("button", { name: /Accept the recommendations/ }).first();
+    // The C.1.7 panel loads a moment after preflight; when the rule has
+    // recommendations, a person accepts them with a rationale.
+    const accept = jobCard()
+      .getByRole("button", { name: /Accept the recommendations/ })
+      .first();
+    await accept.waitFor({ timeout: 30000 }).catch(() => {});
     if (await accept.count()) {
       await step("finalize C.1.7 as recommended", async () => {
         await accept.click();
@@ -217,22 +239,43 @@ async function main() {
           dialog.getByRole("button", { name: "Accept and finalize" }).click(),
         );
       });
+      await step("VigiFlow preflight again", async () => {
+        await page.locator('button[data-e2e-preflight="1"]').click();
+        await L.waitNoLoading(page);
+      });
     } else console.log("  (no C.1.7 recommendations pending)");
-    const override = page.getByRole("button", { name: /Override & Export Anyway/ }).first();
-    if (await override.count()) {
-      await step("record export override", async () => {
+    await step("XML download enabled", async () => {
+      const ok = await page
+        .waitForFunction(
+          () => {
+            const b = [...document.querySelectorAll("li")]
+              .find((li) => li.querySelector('button[data-e2e-preflight="1"]'))
+              ?.querySelectorAll("button");
+            return [...(b ?? [])].some(
+              (x) => /Download validated E2B\(R3\) XML/.test(x.textContent || "") && !x.disabled,
+            );
+          },
+          null,
+          { timeout: 60000 },
+        )
+        .then(() => true)
+        .catch(() => false);
+      if (!ok) {
+        const override = jobCard()
+          .getByRole("button", { name: /Override & Export Anyway/ })
+          .first();
+        if (!(await override.count())) throw new Error("XML download stayed disabled");
         await override.click();
         const dialog = page.getByRole("alertdialog");
         await dialog
           .locator("textarea")
           .fill("E2E (synthetic): export the includable cases for the test run.");
         await dialog.getByRole("button", { name: "Record override" }).click();
-        await dialog.waitFor({ state: "detached", timeout: 60000 }).catch(() => {});
-      });
-    }
+      }
+    });
     await step("download E2B(R3) XML", () =>
       L.download(page, () =>
-        page
+        jobCard()
           .getByRole("button", { name: /Download validated E2B\(R3\) XML/ })
           .first()
           .click(),
