@@ -1,0 +1,257 @@
+/**
+ * PSUR / PBRER end to end, on the synthetic sample PSUR:
+ *   Review Officer — upload on /screening, the 16-item checklist, Proceed to
+ *     scientific review (password);
+ *   Evaluator — open on /psur, wait for the AI scientific review, work a
+ *     finding, save Sections 9–12, Section 13 conclusion, sign (password);
+ *   Peer Reviewer — countersign (password);
+ *   downloads — V4 report, assessment memo, executive summary, MAH feedback
+ *     letter, and the screening directive/letter from /screening.
+ */
+const path = require("node:path");
+const L = require("./lib.cjs");
+
+const PDF = path.join(__dirname, "..", "sample-psur-complete.pdf");
+const PASSWORD = process.env.TEST_PASSWORD;
+
+const steps = [];
+async function step(name, fn, { critical = true } = {}) {
+  console.log(`▶ ${name}`);
+  try {
+    const out = await L.timed(name, fn);
+    steps.push({ name, ok: true });
+    return out;
+  } catch (e) {
+    steps.push({ name, ok: false, error: e.message.split("\n")[0] });
+    console.log(`  ✗ ${name}: ${e.message.split("\n")[0]}`);
+    if (critical) throw e;
+    return undefined;
+  }
+}
+
+async function confirmPassword(page, confirmLabel) {
+  await page.locator('input[type="password"]').last().fill(PASSWORD);
+  await page.getByRole("button", { name: confirmLabel }).click();
+}
+
+async function openDoc(page, filename) {
+  // The document list: open the newest row for this file.
+  const row = page.locator("tr, li, div[role='button']").filter({ hasText: filename }).first();
+  await row.waitFor({ timeout: 90000 });
+  const open = row.getByRole("button", { name: /Open|Review|View|Select/ }).first();
+  if (await open.count()) await open.click();
+  else await row.click();
+}
+
+async function main() {
+  const browser = await L.launch();
+  const filename = path.basename(PDF);
+  try {
+    // ---- Review Officer ----
+    const officer = await L.session(browser, "officer");
+    await step("open /screening", () => L.nav(officer, "Report screening", /^Report screening$/));
+    await step("upload PSUR + AI screening", async () => {
+      await L.expectNewToast(
+        officer,
+        /Received\. The screening checklist|Could not receive/,
+        () => officer.locator('input[type="file"]').setInputFiles(PDF),
+        420000,
+      );
+      await officer.getByText("B. Screening checks").first().waitFor({ timeout: 60000 });
+    });
+    await L.shot(officer, "psur-checklist");
+    await step(
+      "16 checks shown",
+      async () => {
+        const n = await officer.locator("text=/^\\s*(1[0-6]|[1-9])\\.\\s/").count();
+        console.log(`  numbered items visible: ${n}`);
+      },
+      { critical: false },
+    );
+    await step(
+      "save checklist",
+      () =>
+        L.expectNewToast(officer, /saved|Saved/, () =>
+          officer.getByRole("button", { name: /Save checklist/ }).click(),
+        ),
+      { critical: false },
+    );
+    await step("record outcome: proceed (signed)", async () => {
+      await officer
+        .locator("#screening-conclusions")
+        .fill("E2E (synthetic): administratively complete; proceed to scientific assessment.");
+      await officer.locator("#screening-officer").fill("TEST Review Officer");
+      await officer.getByRole("button", { name: /Proceed to scientific review/ }).click();
+      await confirmPassword(officer, /Confirm — proceed to scientific review/);
+      await officer
+        .getByText("Sent to the evaluators for scientific review.")
+        .waitFor({ timeout: 120000 });
+    });
+
+    // ---- Evaluator ----
+    const evaluator = await L.session(browser, "evaluator");
+    await step("open /psur", () =>
+      L.nav(evaluator, "PSUR / PBRER scientific review", /PSUR \/ PBRER review/),
+    );
+    await step("open the report + AI scientific review", async () => {
+      await openDoc(evaluator, filename.replace(/\.pdf$/, ""));
+      await evaluator
+        .getByText(/Review findings/)
+        .first()
+        .waitFor({ timeout: 120000 });
+      await evaluator
+        .waitForFunction(
+          () =>
+            !/Analysing document…|Running scientific review|Reviewing…/.test(
+              document.body.innerText,
+            ),
+          null,
+          { timeout: 600000 },
+        )
+        .catch(() => {});
+      await L.waitNoLoading(evaluator, 600000);
+    });
+    await L.shot(evaluator, "psur-evaluator");
+    console.log("EVALUATOR buttons:", (await L.buttons(evaluator)).slice(0, 60).join(" | "));
+    await step(
+      "work a finding",
+      async () => {
+        const act = evaluator
+          .getByRole("button", { name: /^(Accept|Agree|Confirm|Keep|Mark resolved)/ })
+          .first();
+        if (!(await act.count())) throw new Error("no finding action button found");
+        await act.click();
+        await L.waitNoLoading(evaluator);
+      },
+      { critical: false },
+    );
+    for (const label of [
+      /Save special populations/,
+      /Save benefit-risk assessment/,
+      /Save uncertainties/,
+    ]) {
+      await step(
+        `save ${label.source}`,
+        () =>
+          L.expectNewToast(
+            evaluator,
+            /saved|Saved/,
+            () => evaluator.getByRole("button", { name: label }).first().click(),
+            60000,
+          ),
+        { critical: false },
+      );
+    }
+    await step("section 13 + evaluator sign-off", async () => {
+      const s13 = evaluator.locator("#v4-S13_CONCLUSION_SIGNOFF");
+      await s13.scrollIntoViewIfNeeded();
+      await s13
+        .locator("textarea")
+        .first()
+        .fill("E2E (synthetic): benefit-risk remains favourable; routine pharmacovigilance.");
+      await s13.locator("input").first().fill("TEST Evaluator");
+      await s13.getByRole("button", { name: /Sign off and submit for peer review/ }).click();
+      await confirmPassword(evaluator, /^Sign off and submit$/);
+      await s13
+        .getByText(/Signed \d{4}-\d{2}-\d{2}/)
+        .first()
+        .waitFor({ timeout: 120000 });
+    });
+
+    // ---- Peer Reviewer ----
+    const peer = await L.session(browser, "peer");
+    await step("peer: open the report", async () => {
+      await L.nav(peer, "PSUR / PBRER scientific review", /PSUR \/ PBRER review/);
+      await openDoc(peer, filename.replace(/\.pdf$/, ""));
+      await peer.locator("#v4-S13_CONCLUSION_SIGNOFF").waitFor({ timeout: 120000 });
+    });
+    await step("peer: countersign", async () => {
+      const s13 = peer.locator("#v4-S13_CONCLUSION_SIGNOFF");
+      await s13.scrollIntoViewIfNeeded();
+      await s13.locator("input").nth(1).fill("TEST Peer Reviewer");
+      await s13.getByRole("button", { name: /Countersign and complete/ }).click();
+      await confirmPassword(peer, /^Countersign and complete$/);
+      await s13
+        .getByText(/signed off by both the evaluator and the peer reviewer/)
+        .waitFor({ timeout: 120000 });
+    });
+    await L.shot(peer, "psur-countersigned");
+
+    // ---- Downloads ----
+    await step(
+      "download V4 report",
+      () =>
+        L.download(peer, () =>
+          peer
+            .getByRole("button", { name: /Generate V4 Evaluation Report/ })
+            .first()
+            .click(),
+        ),
+      { critical: false },
+    );
+    await step(
+      "download executive summary",
+      () =>
+        L.download(peer, () =>
+          peer
+            .getByRole("button", { name: /Download Executive Summary \(Word\)/ })
+            .first()
+            .click(),
+        ),
+      { critical: false },
+    );
+    await step(
+      "download MAH feedback letter",
+      () =>
+        L.download(peer, () =>
+          peer
+            .getByRole("button", { name: /Download MAH Feedback Letter \(Word\)/ })
+            .first()
+            .click(),
+        ),
+      { critical: false },
+    );
+    await step(
+      "download assessment memo",
+      async () => {
+        const show = peer.getByRole("button", { name: "Show memo" });
+        if (await show.count()) await show.click();
+        await L.download(peer, () =>
+          peer
+            .getByRole("button", { name: /Generate memo \(Word\)/ })
+            .first()
+            .click(),
+        );
+      },
+      { critical: false },
+    );
+    await step(
+      "download screening letter (officer)",
+      async () => {
+        await L.nav(officer, "Report screening", /^Report screening$/);
+        const row = officer
+          .locator("li, tr, div")
+          .filter({ hasText: filename.replace(/\.pdf$/, "") })
+          .filter({
+            has: officer.getByRole("button", {
+              name: /(Screening Directive|MAH Feedback Letter) \(Word\)/,
+            }),
+          })
+          .last();
+        await L.download(officer, () =>
+          row
+            .getByRole("button", { name: /(Screening Directive|MAH Feedback Letter) \(Word\)/ })
+            .click(),
+        );
+      },
+      { critical: false },
+    );
+  } catch (e) {
+    console.log("FLOW STOPPED:", e.message.split("\n")[0]);
+  } finally {
+    L.report({ flow: "psur", steps });
+    await browser.close();
+  }
+}
+
+main();

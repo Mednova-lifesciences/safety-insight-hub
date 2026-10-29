@@ -63,7 +63,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_app/line-list")({
   // ?job= opens one line list — the batch/facility flags link to their cases.
   validateSearch: (search: Record<string, unknown>): { job?: string } =>
-    typeof search.job === "string" && search.job ? { job: search.job } : {},
+    typeof search["job"] === "string" && search["job"] ? { job: search["job"] } : {},
   head: () => ({
     meta: [
       { title: "Line-list processing — MedNova PV Assist" },

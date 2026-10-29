@@ -4,11 +4,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Flag } from "lucide-react";
 import { toast } from "sonner";
 import { linelist as linelistApi } from "@/services/api/linelist";
-import { loadValidatedCases, type LoadedCase } from "@/services/api/linelist-cross-file";
+import { loadValidatedCases } from "@/services/api/linelist-cross-file";
 import {
   DUPLICATE_FIELD_LABELS,
   duplicateDropNote,
   findCrossFileDuplicates,
+  type CrossFileCase,
   type DuplicatePair,
 } from "@/services/api/linelist-cross-duplicates";
 import { CLUSTER_WINDOW_DAYS, findClusterFlags } from "@/services/api/linelist-clusters";
@@ -48,7 +49,7 @@ export function validatedJobsKey(
     .join("|");
 }
 
-const SIDE_FIELDS: { label: string; get: (c: LoadedCase) => string | undefined }[] = [
+const SIDE_FIELDS: { label: string; get: (c: CrossFileCase) => string | undefined }[] = [
   { label: "Case ID", get: (c) => c.caseId },
   { label: "Patient", get: (c) => c.patientIdentifier },
   { label: "Sex", get: (c) => c.sex },
@@ -61,7 +62,7 @@ const SIDE_FIELDS: { label: string; get: (c: LoadedCase) => string | undefined }
   { label: "Facility", get: (c) => c.facility },
 ];
 
-function CaseColumn({ c, heading }: { c: LoadedCase; heading: string }) {
+function CaseColumn({ c, heading }: { c: CrossFileCase; heading: string }) {
   return (
     <div className="min-w-0 flex-1 rounded-md border border-border p-3">
       <p className="label-caps mb-1">{heading}</p>

@@ -14,6 +14,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
+import { Route as AppAiLogRouteImport } from './routes/_app/ai-log'
 import { Route as AppAuditRouteImport } from './routes/_app/audit'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppDrugsRouteImport } from './routes/_app/drugs'
@@ -61,6 +62,11 @@ const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppAiLogRoute = AppAiLogRouteImport.update({
+  id: '/ai-log',
+  path: '/ai-log',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppAuditRoute = AppAuditRouteImport.update({
   id: '/audit',
@@ -183,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/ai-log': typeof AppAiLogRoute
   '/audit': typeof AppAuditRoute
   '/dashboard': typeof AppDashboardRoute
   '/drugs': typeof AppDrugsRoute
@@ -212,6 +219,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/ai-log': typeof AppAiLogRoute
   '/audit': typeof AppAuditRoute
   '/dashboard': typeof AppDashboardRoute
   '/drugs': typeof AppDrugsRoute
@@ -243,6 +251,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/_app/ai-log': typeof AppAiLogRoute
   '/_app/audit': typeof AppAuditRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/drugs': typeof AppDrugsRoute
@@ -274,6 +283,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/reset-password'
     | '/signup'
+    | '/ai-log'
     | '/audit'
     | '/dashboard'
     | '/drugs'
@@ -303,6 +313,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/reset-password'
     | '/signup'
+    | '/ai-log'
     | '/audit'
     | '/dashboard'
     | '/drugs'
@@ -333,6 +344,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/reset-password'
     | '/signup'
+    | '/_app/ai-log'
     | '/_app/audit'
     | '/_app/dashboard'
     | '/_app/drugs'
@@ -406,6 +418,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/signup'
       preLoaderRoute: typeof SignupRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/ai-log': {
+      id: '/_app/ai-log'
+      path: '/ai-log'
+      fullPath: '/ai-log'
+      preLoaderRoute: typeof AppAiLogRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/audit': {
       id: '/_app/audit'
@@ -572,6 +591,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppAiLogRoute: typeof AppAiLogRoute
   AppAuditRoute: typeof AppAuditRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDrugsRoute: typeof AppDrugsRoute
@@ -594,6 +614,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAiLogRoute: AppAiLogRoute,
   AppAuditRoute: AppAuditRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDrugsRoute: AppDrugsRoute,

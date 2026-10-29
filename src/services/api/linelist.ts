@@ -3090,6 +3090,7 @@ const JOB_LIST_FIELDS = [
     changeLog: true,
     lastFixCorrections: true,
     decisions: true,
+    notDuplicatePairs: true,
     checkedAt: true,
     version: true,
   } satisfies Record<keyof LineListJob, true>),
