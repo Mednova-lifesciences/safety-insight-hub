@@ -74,6 +74,29 @@ async function main() {
       }
     });
 
+    // ---- Observed vs expected (Phase 3) ----
+    if (process.env.EXPECT_FLAGS === "1") {
+      await step("evaluator: observed vs expected, HPV anaphylaxis", async () => {
+        await L.nav(evaluator, "Dashboard", /Scientific review queue/);
+        const card = evaluator
+          .locator("section, div")
+          .filter({
+            has: evaluator.getByText("Observed vs expected (screening check)", { exact: true }),
+          })
+          .last();
+        await card.scrollIntoViewIfNeeded();
+        await evaluator.getByLabel("Doses administered").fill("50000");
+        await evaluator.getByRole("button", { name: /Run check/ }).click();
+        // A3 and B2 are the same case reported twice: counted once.
+        await evaluator
+          .getByText(/Observed\s*1\s*·\s*expected\s*0\.085/)
+          .first()
+          .waitFor({ timeout: 60000 });
+        await evaluator.getByText("Higher than expected, within chance").first().waitFor();
+        await L.shot(evaluator, "feat-observed-expected");
+      });
+    }
+
     // ---- Line list: duplicates ----
     if (process.env.EXPECT_FLAGS === "1") {
       await step("line list: possible duplicates for file B", async () => {

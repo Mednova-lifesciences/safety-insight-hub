@@ -37,6 +37,7 @@ import {
 import { AuditTimeline } from "@/components/pv/audit-timeline";
 import { ClusterFlagsCard } from "@/components/pv/linelist-cross-file-panels";
 import { PsurForecastCard } from "@/components/pv/psur-forecast-card";
+import { ObservedExpectedCard } from "@/components/pv/observed-expected-card";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS, useAuth } from "@/lib/auth";
 import { countByStage } from "@/services/psur/workflow";
@@ -368,6 +369,7 @@ function EvaluatorDashboard() {
           )}
         </AssessorMetrics>
         <ClusterFlagsCard />
+        <ObservedExpectedCard />
         <AssessorActivity />
       </div>
     </>
