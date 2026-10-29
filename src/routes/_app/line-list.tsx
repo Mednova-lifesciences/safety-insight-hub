@@ -108,7 +108,12 @@ function LineListPage() {
   useEffect(() => {
     if (jobFromLink) setSelected(jobFromLink);
   }, [jobFromLink]);
-  const activeJob = (jobs.data?.data ?? []).find((j) => j.id === selected) ?? jobs.data?.data?.[0];
+  // A selected job that is not in the list yet (just uploaded, list not yet
+  // refetched) shows nothing rather than falling back to the first job: the
+  // fallback put the PREVIOUS file on screen, and Re-run validation then
+  // validated that file instead of the one just uploaded.
+  const listed = jobs.data?.data ?? [];
+  const activeJob = selected ? listed.find((j) => j.id === selected) : listed[0];
   // The list leaves each job's rows out; the open one is read in full for
   // the case IDs beside its issues and changes.
   const fullJob = useLineListJob(activeJob);
@@ -170,11 +175,12 @@ function LineListPage() {
     try {
       const created = await linelistApi.upload(file, sourceProfileId);
       // Show the file just uploaded, so Re-run validation acts on it and
-      // not on whichever job happened to be on screen before.
+      // not on whichever job happened to be on screen before. The list is
+      // refreshed first, so the new job is there the moment it is selected.
+      await jobs.refetch();
       setSelected(created.id);
       toast.success("File uploaded.");
       setJobsPage(1);
-      jobs.refetch();
     } catch (err) {
       toast.error(
         isNotConfigured(err)

@@ -112,7 +112,10 @@ async function main() {
         );
       });
       await step("hold a case", async () => {
-        await page.getByRole("button", { name: "Decide this case" }).nth(1).click();
+        // A different case, found by its ID: positions shift as cases move
+        // between the kept and decided groups.
+        const row = page.locator("tr").filter({ hasText: "TST-A-007" }).first();
+        await row.getByRole("button", { name: "Decide this case" }).click();
         await L.expectNewToast(page, /Case held/, () =>
           page.getByRole("menuitem", { name: "Step down" }).click(),
         );
@@ -131,6 +134,11 @@ async function main() {
         );
       });
       await step("hold it once more", async () => {
+        await page.keyboard.press("Escape");
+        await page
+          .locator("[data-radix-popper-content-wrapper]")
+          .waitFor({ state: "detached", timeout: 10000 })
+          .catch(() => {});
         await page.getByRole("button", { name: "Decide this case" }).nth(1).click();
         await L.expectNewToast(page, /Case held/, () =>
           page.getByRole("menuitem", { name: "Step down" }).click(),
@@ -189,6 +197,39 @@ async function main() {
       await L.waitNoLoading(page);
     });
     await L.shot(page, "e2b-preflight");
+    const accept = page.getByRole("button", { name: /Accept the recommendations/ }).first();
+    if (await accept.count()) {
+      await step("finalize C.1.7 as recommended", async () => {
+        await accept.click();
+        const dialog = page.getByRole("alertdialog");
+        await dialog
+          .locator("textarea")
+          .fill("E2E (synthetic): the rule's C.1.7 recommendation is accepted.");
+        await L.expectNewToast(page, /C\.1\.7 finalized/, () =>
+          dialog.getByRole("button", { name: "Accept and finalize" }).click(),
+        );
+      });
+    } else console.log("  (no C.1.7 recommendations pending)");
+    const override = page.getByRole("button", { name: /Override & Export Anyway/ }).first();
+    if (await override.count()) {
+      await step("record export override", async () => {
+        await override.click();
+        const dialog = page.getByRole("alertdialog");
+        await dialog
+          .locator("textarea")
+          .fill("E2E (synthetic): export the includable cases for the test run.");
+        await dialog.getByRole("button", { name: "Record override" }).click();
+        await dialog.waitFor({ state: "detached", timeout: 60000 }).catch(() => {});
+      });
+    }
+    await step("download E2B(R3) XML", () =>
+      L.download(page, () =>
+        page
+          .getByRole("button", { name: /Download validated E2B\(R3\) XML/ })
+          .first()
+          .click(),
+      ),
+    );
     console.log("E2B buttons after preflight:", (await L.buttons(page)).join(" | "));
     console.log("E2B headings:", (await page.getByRole("heading").allInnerTexts()).join(" | "));
   } catch (e) {

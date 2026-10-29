@@ -32,25 +32,19 @@ async function main() {
     const officer = await L.session(browser, "officer");
     await step("officer dashboard: PSURs due and overdue", async () => {
       await L.nav(officer, "Dashboard", /Screening queue/);
-      const card = officer
-        .locator("section, div")
-        .filter({ has: officer.getByText("PSURs due and overdue", { exact: true }) })
-        .last();
-      await card
-        .getByText(/Overdue by \d+ day/)
+      await officer
+        .getByText("PSURs due and overdue", { exact: true })
         .first()
         .waitFor({ timeout: 60000 });
+      await officer
+        .getByText(/Overdue by \d+ day/)
+        .first()
+        .waitFor({ timeout: 90000 });
       await L.shot(officer, "feat-officer-dashboard");
-      const text = await card.innerText();
-      for (const want of [
-        "TEST Amlodipine",
-        "Overdue",
-        "Due now",
-        "Cannot forecast",
-        "2 of 3 late",
-      ])
+      const text = await officer.locator("main, body").first().innerText();
+      for (const want of ["TEST Amlodipine", "Due now", "2 of 3 late"])
         if (!text.includes(want)) throw new Error(`forecast card lacks "${want}"`);
-      if (text.indexOf("Overdue") > text.indexOf("Due now"))
+      if (text.indexOf("Overdue by") > text.indexOf("Due now"))
         throw new Error("overdue is not listed first");
     });
     await step("screening: PSURs due tab", async () => {

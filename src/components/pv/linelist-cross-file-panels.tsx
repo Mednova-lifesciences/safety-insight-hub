@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Flag } from "lucide-react";
@@ -23,14 +23,39 @@ const QUERY_KEY = ["linelist", "validated-cases"];
  *  a panel is on screen. It reads every validated file's rows, so it is not
  *  re-read on every window focus; `refreshKey` (the light job list's ids,
  *  check times and versions) brings it up to date when a file changes. */
-function useValidatedCases(refreshKey = "") {
+function useValidatedCases(refreshKey = "", enabled = true) {
   return useQuery({
     queryKey: [...QUERY_KEY, refreshKey],
     queryFn: async () => ({ data: await loadValidatedCases(), source: "live" as const }),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
     retry: false,
+    enabled,
   });
+}
+
+/** True once the element has come near the viewport — so the panels below
+ *  the issues table read the other files' rows only when someone scrolls
+ *  to them, and opening a line list costs nothing extra. */
+function useSeen<T extends Element>(): [React.RefObject<T | null>, boolean] {
+  const ref = useRef<T | null>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    if (seen || !ref.current) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setSeen(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setSeen(true);
+      },
+      { rootMargin: "300px" },
+    );
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [seen]);
+  return [ref, seen];
 }
 
 /** What `refreshKey` is made of, from the job list the page already has. */
@@ -98,7 +123,8 @@ export function CrossFileDuplicatesPanel({
   refreshKey?: string;
   onDecided: () => void;
 }) {
-  const query = useValidatedCases(refreshKey);
+  const [ref, seen] = useSeen<HTMLDivElement>();
+  const query = useValidatedCases(refreshKey, seen);
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const validated = stage === "VALIDATED" || stage === "E2B_GENERATED";
@@ -147,76 +173,80 @@ export function CrossFileDuplicatesPanel({
   };
 
   return (
-    <Section
-      title="Possible duplicates in other files"
-      description="Rows of this line list that look like the same case as a row in another validated file of your organisation — same vaccine, vaccinated within 3 days, and enough of sex, age, initials, batch, reaction, onset and facility agreeing. Rule-based; you decide each pair."
-    >
-      {!validated ? (
-        <EmptyState
-          title="Validate this file first"
-          description="Only validated line lists are compared with each other."
-        />
-      ) : (
-        <QueryBoundary query={query} loadingLabel="Comparing with your other line lists">
-          {() =>
-            pairs.length === 0 ? (
-              <EmptyState
-                title="No possible duplicates found"
-                description="No row here closely matches a row in another validated line list."
-              />
-            ) : (
-              <ul className="space-y-3">
-                {pairs.map((p) => (
-                  <li key={p.key} className="rounded-md border border-border p-3">
-                    <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                      <Copy className="size-3.5 text-muted-foreground" />
-                      <span className="font-medium">Matched on:</span>
-                      <StatusPill tone="info">Vaccine</StatusPill>
-                      <StatusPill tone="info">
-                        Vaccination date
-                        {p.vaccinationDaysApart ? ` (${p.vaccinationDaysApart} day(s) apart)` : ""}
-                      </StatusPill>
-                      {p.matched.map((f) => (
-                        <StatusPill key={f} tone="info">
-                          {DUPLICATE_FIELD_LABELS[f]}
+    <div ref={ref}>
+      <Section
+        title="Possible duplicates in other files"
+        description="Rows of this line list that look like the same case as a row in another validated file of your organisation — same vaccine, vaccinated within 3 days, and enough of sex, age, initials, batch, reaction, onset and facility agreeing. Rule-based; you decide each pair."
+      >
+        {!validated ? (
+          <EmptyState
+            title="Validate this file first"
+            description="Only validated line lists are compared with each other."
+          />
+        ) : (
+          <QueryBoundary query={query} loadingLabel="Comparing with your other line lists">
+            {() =>
+              pairs.length === 0 ? (
+                <EmptyState
+                  title="No possible duplicates found"
+                  description="No row here closely matches a row in another validated line list."
+                />
+              ) : (
+                <ul className="space-y-3">
+                  {pairs.map((p) => (
+                    <li key={p.key} className="rounded-md border border-border p-3">
+                      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                        <Copy className="size-3.5 text-muted-foreground" />
+                        <span className="font-medium">Matched on:</span>
+                        <StatusPill tone="info">Vaccine</StatusPill>
+                        <StatusPill tone="info">
+                          Vaccination date
+                          {p.vaccinationDaysApart
+                            ? ` (${p.vaccinationDaysApart} day(s) apart)`
+                            : ""}
                         </StatusPill>
-                      ))}
-                      {p.conflicting.map((f) => (
-                        <StatusPill key={f} tone="warning">
-                          Differs: {DUPLICATE_FIELD_LABELS[f]}
-                        </StatusPill>
-                      ))}
-                      <span className="ml-auto text-muted-foreground">score {p.score}</span>
-                    </div>
-                    <div className="flex flex-col gap-2 md:flex-row">
-                      <CaseColumn c={p.a} heading="This file" />
-                      <CaseColumn c={p.b} heading="Other file" />
-                    </div>
-                    <div className="mt-2 flex flex-wrap justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy !== null}
-                        onClick={() => void act(p, "keep")}
-                      >
-                        Not a duplicate
-                      </Button>
-                      <Button
-                        size="sm"
-                        disabled={busy !== null}
-                        onClick={() => void act(p, "drop")}
-                      >
-                        Drop row {p.a.row} as duplicate
-                      </Button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )
-          }
-        </QueryBoundary>
-      )}
-    </Section>
+                        {p.matched.map((f) => (
+                          <StatusPill key={f} tone="info">
+                            {DUPLICATE_FIELD_LABELS[f]}
+                          </StatusPill>
+                        ))}
+                        {p.conflicting.map((f) => (
+                          <StatusPill key={f} tone="warning">
+                            Differs: {DUPLICATE_FIELD_LABELS[f]}
+                          </StatusPill>
+                        ))}
+                        <span className="ml-auto text-muted-foreground">score {p.score}</span>
+                      </div>
+                      <div className="flex flex-col gap-2 md:flex-row">
+                        <CaseColumn c={p.a} heading="This file" />
+                        <CaseColumn c={p.b} heading="Other file" />
+                      </div>
+                      <div className="mt-2 flex flex-wrap justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy !== null}
+                          onClick={() => void act(p, "keep")}
+                        >
+                          Not a duplicate
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={busy !== null}
+                          onClick={() => void act(p, "drop")}
+                        >
+                          Drop row {p.a.row} as duplicate
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )
+            }
+          </QueryBoundary>
+        )}
+      </Section>
+    </div>
   );
 }
 
@@ -227,61 +257,64 @@ export function CrossFileDuplicatesPanel({
  * signal and not a conclusion.
  */
 export function ClusterFlagsCard({ refreshKey }: { refreshKey?: string }) {
-  const query = useValidatedCases(refreshKey);
+  const [ref, seen] = useSeen<HTMLDivElement>();
+  const query = useValidatedCases(refreshKey, seen);
   return (
-    <Section
-      title="Batch and facility flags for review"
-      description={`Two or more serious cases sharing a vaccine batch, or the same vaccine at the same reporting facility, within ${CLUSTER_WINDOW_DAYS} days, across your validated line lists. Dropped and held cases (including confirmed duplicates) are left out. A flag for review — not a signal, and not a conclusion about the vaccine.`}
-    >
-      <QueryBoundary query={query} loadingLabel="Looking across your line lists">
-        {(jobs) => {
-          const flags = findClusterFlags(jobs.flatMap((j) => j.cases));
-          if (flags.length === 0)
+    <div ref={ref}>
+      <Section
+        title="Batch and facility flags for review"
+        description={`Two or more serious cases sharing a vaccine batch, or the same vaccine at the same reporting facility, within ${CLUSTER_WINDOW_DAYS} days, across your validated line lists. Dropped and held cases (including confirmed duplicates) are left out. A flag for review — not a signal, and not a conclusion about the vaccine.`}
+      >
+        <QueryBoundary query={query} loadingLabel="Looking across your line lists">
+          {(jobs) => {
+            const flags = findClusterFlags(jobs.flatMap((j) => j.cases));
+            if (flags.length === 0)
+              return (
+                <EmptyState
+                  title="Nothing to flag"
+                  description="No two serious cases share a batch, or a vaccine and facility, within 30 days."
+                />
+              );
             return (
-              <EmptyState
-                title="Nothing to flag"
-                description="No two serious cases share a batch, or a vaccine and facility, within 30 days."
-              />
+              <ul className="space-y-3">
+                {flags.map((f) => (
+                  <li key={f.key} className="rounded-md border border-border p-3">
+                    <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+                      <Flag className="size-3.5 text-warning" />
+                      <StatusPill tone="warning">Flag for review</StatusPill>
+                      <span className="font-medium">
+                        {f.kind === "BATCH" ? `Batch ${f.label}` : f.label}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {f.cases.length} serious case(s), {f.from} to {f.to}
+                      </span>
+                    </div>
+                    <ul className="space-y-1 text-xs">
+                      {f.cases.map((c) => (
+                        <li key={`${c.jobId}#${c.row}`} className="flex flex-wrap gap-x-2">
+                          <Link
+                            to="/line-list"
+                            search={{ job: c.jobId }}
+                            className="font-medium text-primary underline-offset-2 hover:underline"
+                          >
+                            {c.filename} · row {c.row}
+                          </Link>
+                          <span>{c.caseId ?? ""}</span>
+                          <span className="text-muted-foreground">
+                            {[c.product, c.batch, c.facility, c.vaccinationDate]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
             );
-          return (
-            <ul className="space-y-3">
-              {flags.map((f) => (
-                <li key={f.key} className="rounded-md border border-border p-3">
-                  <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
-                    <Flag className="size-3.5 text-warning" />
-                    <StatusPill tone="warning">Flag for review</StatusPill>
-                    <span className="font-medium">
-                      {f.kind === "BATCH" ? `Batch ${f.label}` : f.label}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {f.cases.length} serious case(s), {f.from} to {f.to}
-                    </span>
-                  </div>
-                  <ul className="space-y-1 text-xs">
-                    {f.cases.map((c) => (
-                      <li key={`${c.jobId}#${c.row}`} className="flex flex-wrap gap-x-2">
-                        <Link
-                          to="/line-list"
-                          search={{ job: c.jobId }}
-                          className="font-medium text-primary underline-offset-2 hover:underline"
-                        >
-                          {c.filename} · row {c.row}
-                        </Link>
-                        <span>{c.caseId ?? ""}</span>
-                        <span className="text-muted-foreground">
-                          {[c.product, c.batch, c.facility, c.vaccinationDate]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-          );
-        }}
-      </QueryBoundary>
-    </Section>
+          }}
+        </QueryBoundary>
+      </Section>
+    </div>
   );
 }
