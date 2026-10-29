@@ -161,20 +161,23 @@ async function shot(page, name) {
 }
 
 /** Count matching toasts, run the action, then wait for a NEW one. */
+/** Run the action, then wait for a toast matching `re` that was NOT on
+ *  screen before it. Toasts already showing are marked first — counting
+ *  them was wrong whenever an older toast faded out during the action. */
 async function expectNewToast(page, re, action, timeout = 120000) {
-  const toasts = page.locator("[data-sonner-toast]").filter({ hasText: re });
-  const before = await toasts.count();
+  await page.evaluate(() => {
+    for (const t of document.querySelectorAll("[data-sonner-toast]"))
+      t.setAttribute("data-e2e-seen", "1");
+  });
   await action();
   await page.waitForFunction(
-    ({ src, flags, before }) => {
+    ({ src, flags }) => {
       const r = new RegExp(src, flags);
-      return (
-        [...document.querySelectorAll("[data-sonner-toast]")].filter((t) =>
-          r.test(t.textContent || ""),
-        ).length > before
+      return [...document.querySelectorAll("[data-sonner-toast]:not([data-e2e-seen])")].some((t) =>
+        r.test(t.textContent || ""),
       );
     },
-    { src: re.source, flags: re.flags, before },
+    { src: re.source, flags: re.flags },
     { timeout },
   );
 }

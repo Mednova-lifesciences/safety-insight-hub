@@ -119,6 +119,13 @@ async function main() {
         await L.expectNewToast(page, /Case held/, () =>
           page.getByRole("menuitem", { name: "Step down" }).click(),
         );
+        // The decision is on the case itself, not only in a toast.
+        await page
+          .locator("tr")
+          .filter({ hasText: "TST-A-007" })
+          .first()
+          .getByText("Held", { exact: true })
+          .waitFor({ timeout: 60000 });
       });
       // A held case moves under the "not counted" divider, so it is found by
       // its pill rather than by position.
@@ -180,13 +187,14 @@ async function main() {
     await step("open /e2b", () => L.nav(page, "E2B(R3) preparation", /E2B/));
     await L.shot(page, "e2b-open");
     await step("VigiFlow preflight", async () => {
+      // The closest card around the file name that has its own preflight
+      // button — not an outer block holding every job's card.
       const card = page
-        .locator("div")
-        .filter({ hasText: /TEST-facility-return-A\.xlsx/ })
-        .filter({
-          has: page.getByRole("button", { name: /Run VigiFlow preflight/ }),
-        })
-        .last();
+        .getByText("TEST-facility-return-A.xlsx", { exact: true })
+        .first()
+        .locator(
+          'xpath=ancestor::div[.//button[contains(normalize-space(.), "Run VigiFlow preflight")]][1]',
+        );
       await card.getByRole("button", { name: /Run VigiFlow preflight/ }).click();
       await page
         .getByText(
