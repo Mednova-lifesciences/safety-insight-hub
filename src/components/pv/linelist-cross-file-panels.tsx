@@ -23,7 +23,7 @@ const QUERY_KEY = ["linelist", "validated-cases"];
  *  a panel is on screen. It reads every validated file's rows, so it is not
  *  re-read on every window focus; `refreshKey` (the light job list's ids,
  *  check times and versions) brings it up to date when a file changes. */
-function useValidatedCases(refreshKey = "", enabled = true) {
+export function useValidatedCases(refreshKey = "", enabled = true) {
   return useQuery({
     queryKey: [...QUERY_KEY, refreshKey],
     queryFn: async () => ({ data: await loadValidatedCases(), source: "live" as const }),
@@ -37,7 +37,7 @@ function useValidatedCases(refreshKey = "", enabled = true) {
 /** True once the element has come near the viewport — so the panels below
  *  the issues table read the other files' rows only when someone scrolls
  *  to them, and opening a line list costs nothing extra. */
-function useSeen<T extends Element>(): [React.RefObject<T | null>, boolean] {
+export function useSeen<T extends Element>(): [React.RefObject<T | null>, boolean] {
   const ref = useRef<T | null>(null);
   const [seen, setSeen] = useState(false);
   useEffect(() => {

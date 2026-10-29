@@ -39,7 +39,19 @@ const consoleErrors = [];
 async function launch() {
   const browser = await chromium.launch({
     headless: process.env.HEADLESS === "1",
+    timeout: 180000,
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
+    // LOW_MEMORY=1: a lighter Chromium for a machine short of memory.
+    ...(process.env.LOW_MEMORY === "1"
+      ? {
+          args: [
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--renderer-process-limit=1",
+            "--js-flags=--max-old-space-size=256",
+          ],
+        }
+      : {}),
     slowMo: Number(process.env.SLOWMO || 60),
   });
   return browser;
