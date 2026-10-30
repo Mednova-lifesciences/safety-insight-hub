@@ -148,8 +148,11 @@ What was set up:
 - **A stable preview:** branch `preview/e2e`, with the same code as production, at `safety-insight-hub-git-preview-e2e-mednova.vercel.app`.
 - **Supabase settings for that branch only:** the two public values (URL and publishable key). This preview therefore uses the live database, like production. It stays behind Vercel's login, and the tests touch only the synthetic test organisation.
 - **Test access:** the E2E runs pass Vercel's login with the signed-in CLI's short-lived development token, sent only to the preview's address. Deployment Protection stays on.
-- **CORS:** the backend's list was not changed, because its current value could not be read. Instead, the test browser passes the preview's backend calls through itself under the production address. The preview's code, the backend and the database are all real; only the backend's CORS list is not exercised. To let people use the preview directly, add `https://safety-insight-hub-git-preview-e2e-mednova.vercel.app` to `CORS_ORIGINS` on Render.
+- **CORS:** the backend's list was not changed, because its current value could not be read. Instead, the throwaway test browser skips its own CORS check (`PREVIEW_SKIP_CORS=1`, Chrome's `--disable-web-security`). Requests still go straight from the preview page to the real backend and database; only the backend's CORS list is not exercised. An earlier attempt re-sent the backend calls through Playwright, which broke PDF uploads ("No /Root object!" in the backend log). To let people use the preview directly, add `https://safety-insight-hub-git-preview-e2e-mednova.vercel.app` to `CORS_ORIGINS` on Render.
 
-**Result on the preview:** line lists A and B through the E2B XML, and every new feature, passed with 0 console errors. The PSUR flow and the isolation check were not reached: the run was stopped because the test machine ran out of memory, not because of a failed step.
+**Result on the preview so far:**
+- **Passed, with 0 console errors:** line lists A and B through the E2B XML, and every new feature.
+- **Isolation:** 41/41, run alongside.
+- **PSUR flow:** not yet complete on the preview. Two attempts went through the broken pass-through (the PDF arrived damaged), and both were then stopped because the test machine ran out of memory. A third attempt uses the corrected harness.
 
 **Follow-up:** the other long AI steps (`runScientificReview`, `runFullFix`) still save the whole PSUR document. They run before hand-over, so they did not cause this problem, but they can be moved to field-level writes like the pre-fill.
