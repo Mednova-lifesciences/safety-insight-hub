@@ -2,7 +2,7 @@
 
 - **PR #94:** merged 29 Oct 2026 20:33 UTC; deployed to Render at 20:35 and to Vercel production.
 - **PR #95 (Phase 3), #96 (formatting), #97, #98, #99 (fixes):** merged and deployed on 30 Oct 2026.
-- **Final result:** one full E2E run on production, covering every flow and role, passed with no failures (see the end of this report).
+- **Final result:** every flow and role passed on production (two full runs, no failures) and on a Vercel preview (see the end of this report).
 
 All testing used the synthetic test organisation "MedNova TEST A (synthetic data only)". A second synthetic organisation (TEST B) was used for the isolation checks. No real organisation's data was read or changed.
 
@@ -150,9 +150,18 @@ What was set up:
 - **Test access:** the E2E runs pass Vercel's login with the signed-in CLI's short-lived development token, sent only to the preview's address. Deployment Protection stays on.
 - **CORS:** the backend's list was not changed, because its current value could not be read. Instead, the throwaway test browser skips its own CORS check (`PREVIEW_SKIP_CORS=1`, Chrome's `--disable-web-security`). Requests still go straight from the preview page to the real backend and database; only the backend's CORS list is not exercised. An earlier attempt re-sent the backend calls through Playwright, which broke PDF uploads ("No /Root object!" in the backend log). To let people use the preview directly, add `https://safety-insight-hub-git-preview-e2e-mednova.vercel.app` to `CORS_ORIGINS` on Render.
 
-**Result on the preview so far:**
-- **Passed, with 0 console errors:** line lists A and B through the E2B XML, and every new feature.
-- **Isolation:** 41/41, run alongside.
-- **PSUR flow:** not yet complete on the preview. Two attempts went through the broken pass-through (the PDF arrived damaged), and both were then stopped because the test machine ran out of memory. A third attempt uses the corrected harness.
+**Result on the preview (30 Oct): every flow passed.** These were two runs against `preview/e2e`, the same code as production:
+
+| Flow | Result |
+|---|---|
+| Line lists A and B: upload, mapping, validate, Drop / Hold / Keep, the 3 downloads, VigiFlow preflight, C.1.7, preflight again, E2B(R3) XML | Pass |
+| New features: PSUR forecast card and tab, batch/facility flags, observed vs expected, 6 possible duplicates, Not a duplicate, Drop as duplicate, AI data log | Pass |
+| PSUR: upload and AI screening (50 s), 16 checks, signed outcome, AI scientific review (72 s), Sections 9–11, memo inputs, evaluator sign-off, peer countersign | Pass |
+| Downloads: V4 report, executive summary, MAH feedback letter, assessment memo, the officer's screening letter | Pass |
+| Isolation between organisations | 41/41 |
+| Console errors | 0 |
+
+- **Why two runs:** the first preview run covered line lists, E2B and the features before the test machine ran out of memory.
+- **Earlier PSUR attempts on the preview** failed only because of the test-harness bug described above (the PDF re-sent as damaged bytes); the backend log confirmed it.
 
 **Follow-up:** the other long AI steps (`runScientificReview`, `runFullFix`) still save the whole PSUR document. They run before hand-over, so they did not cause this problem, but they can be moved to field-level writes like the pre-fill.
