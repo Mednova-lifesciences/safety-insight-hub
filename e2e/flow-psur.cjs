@@ -271,6 +271,11 @@ async function main() {
     await step(
       "download screening letter (officer)",
       async () => {
+        // The officer's tab has sat on this page since screening, and the
+        // list it shows predates the peer review that adds the letter. A
+        // person coming back refocuses the tab, which refreshes the list; a
+        // headless background tab never regains focus, so reload it.
+        await officer.reload({ waitUntil: "domcontentloaded" });
         await L.nav(officer, "Report screening", /^Report screening$/);
         // The report's own row in "Already screened": a bordered row with
         // its own "View checklist" button.
