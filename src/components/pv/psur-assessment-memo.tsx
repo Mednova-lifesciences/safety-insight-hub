@@ -545,11 +545,7 @@ function CriterionCard(
         onChanged: () => void;
       },
 ) {
-  return props.mode === "research" ? (
-    <ResearchCard {...props} />
-  ) : (
-    <AnswersCard {...props} />
-  );
+  return props.mode === "research" ? <ResearchCard {...props} /> : <AnswersCard {...props} />;
 }
 
 function AnswersCard({

@@ -279,4 +279,3 @@ export const STATUS_LABELS: Record<CheckStatus, string> = {
   HIGHER_WITHIN_CHANCE: "Higher than expected, within chance",
   NOT_ABOVE: "Not above expected",
 };
-

@@ -257,8 +257,11 @@ describe("dates are read day-first, as Nigerian and international documents writ
   it("written-out and ISO dates still read", () => {
     expect(intervalMonths("01 Sep 2025 – 31 Aug 2026")).toBe(11);
     expect(
-      assessTimeliness({ dlp: "31 August 2026", dateReceived: "2026-10-09T08:00:00Z", intervalCovered: "01 Sep 2025 – 31 Aug 2026" })
-        .daysToReceipt,
+      assessTimeliness({
+        dlp: "31 August 2026",
+        dateReceived: "2026-10-09T08:00:00Z",
+        intervalCovered: "01 Sep 2025 – 31 Aug 2026",
+      }).daysToReceipt,
     ).toBe(39);
   });
 });

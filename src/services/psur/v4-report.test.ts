@@ -428,12 +428,7 @@ describe("the V4 report stands apart from the memo", () => {
 
 describe("the V4 template checklist", () => {
   const norm = (t: string) =>
-    t
-      .replace(/[’‘]/g, "'")
-      .replace(/\s+/g, " ")
-      .replace(/[:.]$/, "")
-      .trim()
-      .toLowerCase();
+    t.replace(/[’‘]/g, "'").replace(/\s+/g, " ").replace(/[:.]$/, "").trim().toLowerCase();
   const texts = (m: ReturnType<typeof buildV4ReportModel>): string[] => {
     const out = [m.title, m.agency, m.subtitle, m.instructions];
     for (const s of m.sections) {
@@ -479,9 +474,10 @@ describe("the AI pre-fill and the evaluator's answers", () => {
       `SmPC version 6.2, 14 January 2026 (p. 11). ${AI_EXTRACT_MARK}`,
     );
     expect(tableRows(m, 7, "SOC / Event")).toEqual([["Skin", "12", "140", "2", ""]]);
-    expect(
-      m.sections.find((s) => s.number === 7)!.blocks,
-    ).toContainEqual({ kind: "instruction", text: AI_TABLE_NOTE });
+    expect(m.sections.find((s) => s.number === 7)!.blocks).toContainEqual({
+      kind: "instruction",
+      text: AI_TABLE_NOTE,
+    });
   });
 
   it("prints the evaluator's saved answer and table instead, unmarked", () => {

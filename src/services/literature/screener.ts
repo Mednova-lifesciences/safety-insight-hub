@@ -102,9 +102,7 @@ export function screenArticle(article: LiteratureArticle): FlaggedLiteratureSign
 }
 
 export function screenArticles(articles: LiteratureArticle[]): FlaggedLiteratureSignal[] {
-  return articles
-    .map(screenArticle)
-    .filter((s): s is FlaggedLiteratureSignal => s !== null);
+  return articles.map(screenArticle).filter((s): s is FlaggedLiteratureSignal => s !== null);
 }
 
 function csvEscape(value: string): string {

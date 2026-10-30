@@ -235,7 +235,10 @@ describe("buildComplianceDirectiveModel — narrower, action-oriented, MAH-facin
     const resolvedHigh = mahFinding({ id: "pf-r", severity: "HIGH", resolved: true });
     const openLow = mahFinding({ id: "pf-o", severity: "LOW" });
     const model = buildComplianceDirectiveModel(baseDoc(), [resolvedHigh, openLow]);
-    expect(model.deficiencies.map((d) => d.status)).toEqual(["FOR_NEXT_PSUR", "RESOLVED_BY_NAFDAC"]);
+    expect(model.deficiencies.map((d) => d.status)).toEqual([
+      "FOR_NEXT_PSUR",
+      "RESOLVED_BY_NAFDAC",
+    ]);
   });
 
   it("reads as advisory: says no response is required and asks for none", () => {

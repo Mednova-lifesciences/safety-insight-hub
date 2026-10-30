@@ -108,9 +108,15 @@ describe("the rendered memo", () => {
           epidemiologyOfDisease: { seriousness: 2, duration: 2, incidence: 2 },
           effectivenessOfProduct: { seriousness: 3, duration: 3, incidence: 0 },
           adrs: [
-            { reaction: "Respiratory Depression", scores: { seriousness: 3, duration: 1, incidence: 1 } },
+            {
+              reaction: "Respiratory Depression",
+              scores: { seriousness: 3, duration: 1, incidence: 1 },
+            },
             { reaction: "Seizures", scores: { seriousness: 2, duration: 1, incidence: 1 } },
-            { reaction: "Serotonin Syndrome", scores: { seriousness: 3, duration: 1, incidence: 1 } },
+            {
+              reaction: "Serotonin Syndrome",
+              scores: { seriousness: 3, duration: 1, incidence: 1 },
+            },
           ],
         },
       }),
@@ -128,7 +134,9 @@ describe("the rendered memo", () => {
     const out = renderAssessmentMemoText(
       model({ totals: { epidemiology: 6, effectiveness: 6, adrs: [6] } }),
     );
-    expect(out).toContain("is not less than the epidemiology of the disease itself; a score of 6 vs.");
+    expect(out).toContain(
+      "is not less than the epidemiology of the disease itself; a score of 6 vs.",
+    );
   });
 
   it("shows an unestablished criterion in words, never as a blank", () => {
