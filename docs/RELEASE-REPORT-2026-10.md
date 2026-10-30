@@ -1,7 +1,8 @@
 # Release report: admin features and data protection (29–30 Oct 2026)
 
 - **PR #94:** merged 29 Oct 2026 20:33 UTC; deployed to Render at 20:35 and to Vercel production.
-- **PR #95 (Phase 3):** open at the time of writing.
+- **PR #95 (Phase 3), #96 (formatting), #97, #98, #99 (fixes):** merged and deployed on 30 Oct 2026.
+- **Final result:** one full E2E run on production, covering every flow and role, passed with no failures (see the end of this report).
 
 All testing used the synthetic test organisation "MedNova TEST A (synthetic data only)". A second synthetic organisation (TEST B) was used for the isolation checks. No real organisation's data was read or changed.
 
@@ -29,6 +30,9 @@ All testing used the synthetic test organisation "MedNova TEST A (synthetic data
 2. **The PSUR scientific review timed out on production on every attempt.** The client limit was 60 s; it is now 180 s for the two whole-document review endpoints. On production the review now completes in 92 s.
 3. **The wrong line list could be validated.** Just after an upload, *Re-run validation* could act on the previous file.
 4. **The audit timeline had blank keys** for C.1.7 events written by the database functions.
+5. **Batch/facility flags and observed-vs-expected cards could keep loading indefinitely** (PR #97). A request lost on a poor connection had no timeout or retry. Now: 30 s timeout, two retries.
+6. **Finalized C.1.7 decisions were undone by the next preflight** (PR #98). Preflight could run before the organisation's E2B settings had loaded. Each assessment was then saved against a case without the report type, sender and reporter qualification. The next preflight saw a "changed" case and created new pending assessments over the reviewer's decisions. On production, 12 cases were finalized at 05:49:37–41 and superseded at 05:49:44–54. Preflight and export now wait for the settings.
+7. **A peer reviewer's countersignature could be erased** (PR #99). The V4 pre-fill is an AI reading that runs when a report is opened and can finish a minute later. It saved the whole document back, so the evaluator's still-open page erased the peer's countersignature 0.6 s after it was made; the audit trail still recorded it. The pre-fill is now written alone by `psur_set_v4_prefill` (migration `20261030120000`, applied live, with a rollback).
 
 ## Test results
 
@@ -36,7 +40,7 @@ All testing used the synthetic test organisation "MedNova TEST A (synthetic data
 - **Backend:** pytest passes, including the de-identification tests.
 - **Typecheck:** clean.
 - **Build:** passes (on Vercel; it ran out of memory on the test machine on 30 Oct).
-- **Lint:** the files added or changed are clean. The 101 Prettier formatting errors that existed before this work remain (about 240 files would have to be reformatted). They are left for a separate formatting-only change.
+- **Lint:** 0 errors on `main` since the formatting-only PR #96 (warnings only).
 
 **Production E2E after the merge:**
 
@@ -54,29 +58,36 @@ All testing used the synthetic test organisation "MedNova TEST A (synthetic data
 
 ## Timings on production, before vs after (median, ms)
 
-| Action | Before | After |
-|---|---|---|
-| Upload line list A | 15,516 | 22,552 |
-| Validate | 29,682 | 40,239 |
-| Fix Issues | 9,776 | 9,819 |
-| Download fixed CSV | 2,743 | 2,409 |
-| Download executive summary | 1,847 | 1,381 |
-| PSUR upload + AI screening | 76,054 | 42,888 |
-| Signed screening outcome | 9,187 | 4,393 |
-| AI scientific review | failed (timeout) | 92,344 |
-| Open `/psur` | 2,362 | 1,228 |
-| Section saves | 2,000–3,258 | 2,211–3,105 |
+"Final" is the clean full run on 30 Oct after every fix (PRs #94–#99), a single sample.
 
-- **Slower rows:** the upload, validate and page-load rows that look slower were single samples taken while the test machine's connection was dropping requests.
+| Action | Before | After (29 Oct) | Final (30 Oct) |
+|---|---|---|---|
+| Upload line list A | 15,516 | 22,552 | 17,582 |
+| Validate | 29,682 | 40,239 | 24,659 |
+| Fix Issues | 9,776 | 9,819 | — |
+| Download fixed CSV | 2,743 | 2,409 | 1,364 |
+| Download executive summary | 1,847 | 1,381 | 705 |
+| PSUR upload + AI screening | 76,054 | 42,888 | 42,545 |
+| Signed screening outcome | 9,187 | 4,393 | 3,842 |
+| AI scientific review | failed (timeout) | 92,344 | 83,322 |
+| Open `/psur` | 2,362 | 1,228 | 360 |
+| Section saves | 2,000–3,258 | 2,211–3,105 | 1,600–4,009 |
+| VigiFlow preflight / again | — | — | 6,508 / 3,114 |
+| E2B(R3) XML download | — | — | 2,211 |
+| Evaluator flags card | — | — | 3,175 |
+| Possible duplicates panel | — | — | 4,053 |
+| Peer countersign | — | — | 5,379 |
+
+- **Fix Issues:** not exercised in the seeded run, because the seed files have no fixable issues.
+- **Slower rows on 29 Oct:** the upload, validate and page-load rows that looked slower were single samples taken while the test machine's connection was dropping requests. In the final run they are at or below the baseline.
 - **Direct timing:** measured directly as a signed-in user, the page queries take about 1 s: job list 0.8–1.1 s (1 KB), PSUR list 0.6–1.9 s (35 KB), and the cross-file loader 1.4–1.9 s (17 KB, read only when its panel is scrolled into view).
 - **Job list:** still light; no rows were added to it.
 - **Conclusion:** no slowdown attributable to the changes was found.
 
 ## Phase 3 status
 
-- Built and tested; Vercel build passes.
-- Opened as PR #95, to be merged after Phases 0–2 passed on production.
-- After the merge, run the evaluator check on production. The expected result on the seed files: HPV anaphylaxis with 50,000 doses gives observed 1 (the case reported in both files is counted once) against expected 0.085, "within chance".
+- Built, tested and merged (PR #95) after Phases 0–2 passed on production.
+- Passes on production in the final full run; the result is below.
 
 ## Still to do (MedNova and NAFDAC)
 
@@ -93,27 +104,28 @@ Software gaps in the same document: image intake is not de-identified, and unlab
 
 ## Final production verification (30 Oct 2026)
 
-All four phases are merged: #94, #95, #96 (formatting only; lint on `main` now has **0 errors**) and #97 (this fix).
+**One full run of `e2e/run-all.sh` on production passed with no failures.** It ran after every fix (#94–#99) were deployed, from a freshly reset test organisation with the seed data loaded, and covered every flow and role.
 
-**One-pass full run on production.** A single run of `e2e/run-all.sh` covered every role. Everything passed except three steps:
+| Flow | Result |
+|---|---|
+| Line lists A and B: upload, mapping, validate, Drop / Hold / Keep, fixed CSV, dropped & held, executive summary | Pass |
+| E2B: VigiFlow preflight, C.1.7 accepted as recommended, preflight again, E2B(R3) XML (152 KB) | Pass |
+| Review Officer: PSURs due and overdue (card and `/screening` tab) | Pass |
+| Evaluator: batch/facility flags, observed vs expected, 6 possible duplicates, Not a duplicate, Drop as duplicate (4 left), AI data log | Pass |
+| PSUR: upload and AI screening, 16 checks, signed outcome, AI scientific review, a finding, Sections 9–11, memo inputs, evaluator sign-off, peer countersign | Pass |
+| Downloads: V4 report, executive summary, MAH feedback letter, assessment memo, the officer's screening letter | Pass |
+| Isolation between organisations | 41/41 |
+| Console errors | 0 |
+| Render logs during the run | No errors and no 5xx; one routine model-temperature retry warning |
 
-| Step that failed | Why | Re-check |
+**Earlier runs that day, corrected.** Earlier runs failed at three steps, and two were first put down to the connection:
+
+| Step | Cause | Status |
 |---|---|---|
-| Second VigiFlow preflight | Timed out on the test machine's connection | E2B re-run passed: preflight, C.1.7, preflight again, XML (96 KB), 0 console errors |
-| Officer's screening-letter download | Timed out the same way | Passed: V4 report, executive summary, MAH letter, memo and screening letter, 0 console errors |
-| Batch/facility flags card on the Evaluator dashboard | **A real bug**, fixed by #97: a request lost on a poor connection had no timeout or retry, so the card kept loading | — |
-
-Everything else in that run passed:
-
-- line lists A and B up to the first preflight;
-- PSURs due and overdue;
-- duplicates: 6 pairs, then Not a duplicate and Drop as duplicate;
-- observed vs expected;
-- the AI log;
-- the whole PSUR flow, from officer screening through evaluator sign-off and peer countersign;
-- isolation: 41/41.
-
-**Render logs since the deploys:** no errors; one routine model-temperature retry warning.
+| Flags card kept loading | No timeout or retry on a lost request | Fixed by #97 |
+| Second VigiFlow preflight | **The C.1.7 bug above**, not the connection | Fixed by #98 |
+| Peer countersign | **The pre-fill overwrite above** | Fixed by #99 |
+| Officer's screening letter | A test gap: the officer's background tab never regained focus, so its list stayed as it was before the peer review | The test now reloads the tab, as a person returning to it would |
 
 **Phase 3 on production.** The evaluator ran HPV anaphylaxis with 50,000 doses:
 
@@ -124,4 +136,6 @@ Everything else in that run passed:
 
 The run is recorded in the audit trail with the full calculation.
 
-**Not done as written: the Vercel preview.** The production backend's CORS setting refuses preview origins, so a preview cannot reach the API. With the user's agreement, the branch was instead tested end to end with its own frontend and backend before merging. To make previews testable, add the preview domain to the Render `CORS_ORIGINS` setting.
+**Not done as written: the Vercel preview.** The production backend's CORS setting refuses preview origins, so a preview cannot reach the API. With the user's agreement, branches were tested end to end on their own frontend and backend, or directly against production after merging. To make previews testable, add the preview domain to the Render `CORS_ORIGINS` setting.
+
+**Follow-up:** the other long AI steps (`runScientificReview`, `runFullFix`) still save the whole PSUR document. They run before hand-over, so they did not cause this problem, but they can be moved to field-level writes like the pre-fill.
