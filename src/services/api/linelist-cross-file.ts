@@ -66,15 +66,24 @@ function toCase(
   };
 }
 
+const LOAD_TIMEOUT_MS = 30_000;
+
 export async function loadValidatedCases(): Promise<LoadedJob[]> {
   const { data, error } = await supabase
     .from("pv_linelist_jobs")
     .select(selectDataFields(FIELDS))
-    .in("data->>stage", ["VALIDATED", "E2B_GENERATED"]);
+    .in("data->>stage", ["VALIDATED", "E2B_GENERATED"])
+    // A request lost on a poor connection would otherwise never settle and
+    // leave the panel loading for good; it fails after 30 s and is retried.
+    .abortSignal(AbortSignal.timeout(LOAD_TIMEOUT_MS));
   if (error) throw new Error(error.message);
   let orgConfig = null;
   try {
-    orgConfig = await regulatoryConfig.get();
+    // Same rule: a config read that never comes back is treated as none.
+    orgConfig = await Promise.race([
+      regulatoryConfig.get(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), LOAD_TIMEOUT_MS / 2)),
+    ]);
   } catch {
     orgConfig = null;
   }
