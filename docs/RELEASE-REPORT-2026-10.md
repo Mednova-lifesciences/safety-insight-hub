@@ -90,3 +90,38 @@ See `docs/DATA-PROTECTION.md` §7:
 - retention periods.
 
 Software gaps in the same document: image intake is not de-identified, and unlabelled names in free text are not detected.
+
+## Final production verification (30 Oct 2026)
+
+All four phases are merged: #94, #95, #96 (formatting only; lint on `main` now has **0 errors**) and #97 (this fix).
+
+**One-pass full run on production.** A single run of `e2e/run-all.sh` covered every role. Everything passed except three steps:
+
+| Step that failed | Why | Re-check |
+|---|---|---|
+| Second VigiFlow preflight | Timed out on the test machine's connection | E2B re-run passed: preflight, C.1.7, preflight again, XML (96 KB), 0 console errors |
+| Officer's screening-letter download | Timed out the same way | Passed: V4 report, executive summary, MAH letter, memo and screening letter, 0 console errors |
+| Batch/facility flags card on the Evaluator dashboard | **A real bug**, fixed by #97: a request lost on a poor connection had no timeout or retry, so the card kept loading | — |
+
+Everything else in that run passed:
+
+- line lists A and B up to the first preflight;
+- PSURs due and overdue;
+- duplicates: 6 pairs, then Not a duplicate and Drop as duplicate;
+- observed vs expected;
+- the AI log;
+- the whole PSUR flow, from officer screening through evaluator sign-off and peer countersign;
+- isolation: 41/41.
+
+**Render logs since the deploys:** no errors; one routine model-temperature retry warning.
+
+**Phase 3 on production.** The evaluator ran HPV anaphylaxis with 50,000 doses:
+
+- expected 0.085;
+- observed 1 (TST-A-003; the same case in file B was counted once);
+- exact 95% CI 0.025–5.572;
+- result: higher than expected, within chance.
+
+The run is recorded in the audit trail with the full calculation.
+
+**Not done as written: the Vercel preview.** The production backend's CORS setting refuses preview origins, so a preview cannot reach the API. With the user's agreement, the branch was instead tested end to end with its own frontend and backend before merging. To make previews testable, add the preview domain to the Render `CORS_ORIGINS` setting.
