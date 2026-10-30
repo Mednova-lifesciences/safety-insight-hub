@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { FullLineListJob } from "@/lib/use-linelist-job";
 import type { LineListJob } from "@/types/pv";
@@ -131,23 +131,46 @@ function E2bPage() {
   // The org's persisted NAFDAC E2B(R3) regulatory configuration (sender/
   // receiver identifiers, C.1.3, the outcome codelist, and reporter-
   // qualification mappings — see Settings → Regulatory Profiles). Starts
-  // honestly unconfigured and is replaced by the real persisted value
-  // once loaded — preflight still runs against the unconfigured default
-  // so data-quality gaps are visible even before those decisions land,
-  // but export stays blocked separately on transmissionConfigConfirmed
-  // regardless of preflight (see runValidatedPreflightForJob).
+  // as the unconfigured placeholder for display only and is replaced by
+  // the persisted value once loaded. An organization that has not yet
+  // decided those settings gets them back unconfigured from the server,
+  // so preflight still shows its data-quality gaps, and export stays
+  // blocked separately on transmissionConfigConfirmed (see
+  // runValidatedPreflightForJob).
   const [regConfig, setRegConfig] = useState<OrgRegulatoryConfig>(
     unconfiguredOrgRegulatoryConfig(),
   );
 
+  // Preflight and export wait for the organization's own settings and never
+  // run on the placeholder above: a preflight run before they arrive saves
+  // each C.1.7 assessment against a case without the organization's report
+  // type, sender and reporter qualification, so the next preflight sees a
+  // changed case and supersedes the decisions the reviewer just finalized.
+  const regConfigLoad = useRef<Promise<OrgRegulatoryConfig> | null>(null);
+  function loadRegConfig(): Promise<OrgRegulatoryConfig> {
+    regConfigLoad.current ??= regulatoryConfig.get().then(
+      (config) => {
+        setRegConfig(config);
+        return config;
+      },
+      (err: unknown) => {
+        // Not kept: the next preflight or export asks again.
+        regConfigLoad.current = null;
+        throw err instanceof Error
+          ? new Error(`Could not read your organization's E2B settings: ${err.message}`)
+          : err;
+      },
+    );
+    return regConfigLoad.current;
+  }
+
   useEffect(() => {
-    regulatoryConfig
-      .get()
-      .then(setRegConfig)
-      .catch(() => {
-        /* stays on the honest unconfigured default — export remains
-         * correctly blocked either way. */
-      });
+    loadRegConfig().catch(() => {
+      /* Shown when preflight or export is run — both wait for the settings
+       * and report the failure instead of using the placeholder. */
+    });
+    // Loaded once; loadRegConfig keeps its own promise.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Lists leave each job's rows out. A preflight result names its cases
@@ -173,7 +196,7 @@ function E2bPage() {
       // No explicit profile: the job's own saved reading (parsing options,
       // discovered codebook, organization outcome words and designations)
       // is exactly what line-list validation used.
-      const result = await runValidatedPreflightForJob(jobId, regConfig);
+      const result = await runValidatedPreflightForJob(jobId, await loadRegConfig());
       const job = (jobs.data?.data ?? []).find((item) => item.id === jobId);
       setPreflightBasis((prev) => ({ ...prev, [jobId]: job?.checkedAt ?? "" }));
       setPreflightResults((prev) => ({ ...prev, [jobId]: result }));
@@ -298,7 +321,7 @@ function E2bPage() {
   async function exportValidated(jobId: string) {
     setPreflightBusy(jobId);
     try {
-      const batches = await generateValidatedExportForJob(jobId, regConfig);
+      const batches = await generateValidatedExportForJob(jobId, await loadRegConfig());
       for (const b of batches) await downloadValidatedBatch(jobId, b);
       toast.success(
         `Downloaded ${batches.length} real E2B(R3) batch file(s) — ${batches.reduce((n, b) => n + b.caseCount, 0)} case(s) total.`,
