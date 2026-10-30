@@ -41,17 +41,23 @@ async function launch() {
     headless: process.env.HEADLESS === "1",
     timeout: 180000,
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
-    // LOW_MEMORY=1: a lighter Chromium for a machine short of memory.
-    ...(process.env.LOW_MEMORY === "1"
-      ? {
-          args: [
+    args: [
+      // LOW_MEMORY=1: a lighter Chromium for a machine short of memory.
+      ...(process.env.LOW_MEMORY === "1"
+        ? [
             "--disable-gpu",
             "--disable-dev-shm-usage",
             "--renderer-process-limit=1",
             "--js-flags=--max-old-space-size=256",
-          ],
-        }
-      : {}),
+          ]
+        : []),
+      // PREVIEW_SKIP_CORS=1: the backend's CORS list does not include
+      // Vercel previews, so this throwaway test browser skips its own CORS
+      // check. Requests still go straight from the page to the real backend
+      // with their bodies untouched (re-sending them through Playwright broke
+      // PDF uploads); only the backend's CORS list is not exercised.
+      ...(process.env.PREVIEW_SKIP_CORS === "1" ? ["--disable-web-security"] : []),
+    ],
     slowMo: Number(process.env.SLOWMO || 60),
   });
   return browser;
@@ -87,31 +93,6 @@ async function newPage(browser, label, who) {
         },
       }),
     );
-  }
-  // PREVIEW_VIA_ORIGIN=https://…: the backend's CORS list does not include
-  // the preview, so its calls are passed through the test browser under an
-  // origin the backend accepts, and answered with the preview's own CORS
-  // headers. The preview's code, backend and database are all real; only
-  // the backend's CORS list itself is not exercised by such a run.
-  if (process.env.PREVIEW_VIA_ORIGIN && process.env.PV_API_URL) {
-    const preview = new URL(BASE_URL).origin;
-    const cors = (req) => ({
-      "access-control-allow-origin": preview,
-      "access-control-allow-credentials": "true",
-      "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-      "access-control-allow-headers":
-        req.headers()["access-control-request-headers"] || "authorization, content-type",
-      vary: "Origin",
-    });
-    await context.route(`${process.env.PV_API_URL.replace(/\/$/, "")}/**`, async (route) => {
-      const req = route.request();
-      if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors(req) });
-      const response = await route.fetch({
-        headers: { ...req.headers(), origin: process.env.PREVIEW_VIA_ORIGIN },
-        timeout: 300000,
-      });
-      return route.fulfill({ response, headers: { ...response.headers(), ...cors(req) } });
-    });
   }
   const page = await context.newPage();
   page.setDefaultNavigationTimeout(90000);
