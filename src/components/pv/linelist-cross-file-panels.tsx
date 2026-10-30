@@ -29,7 +29,10 @@ export function useValidatedCases(refreshKey = "", enabled = true) {
     queryFn: async () => ({ data: await loadValidatedCases(), source: "live" as const }),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
-    retry: false,
+    // The read times out after 30 s (see loadValidatedCases); try twice more
+    // before showing the error, so one dropped request does not leave the
+    // panel empty.
+    retry: 2,
     enabled,
   });
 }
