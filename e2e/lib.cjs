@@ -41,17 +41,23 @@ async function launch() {
     headless: process.env.HEADLESS === "1",
     timeout: 180000,
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
-    // LOW_MEMORY=1: a lighter Chromium for a machine short of memory.
-    ...(process.env.LOW_MEMORY === "1"
-      ? {
-          args: [
+    args: [
+      // LOW_MEMORY=1: a lighter Chromium for a machine short of memory.
+      ...(process.env.LOW_MEMORY === "1"
+        ? [
             "--disable-gpu",
             "--disable-dev-shm-usage",
             "--renderer-process-limit=1",
             "--js-flags=--max-old-space-size=256",
-          ],
-        }
-      : {}),
+          ]
+        : []),
+      // PREVIEW_SKIP_CORS=1: the backend's CORS list does not include
+      // Vercel previews, so this throwaway test browser skips its own CORS
+      // check. Requests still go straight from the page to the real backend
+      // with their bodies untouched (re-sending them through Playwright broke
+      // PDF uploads); only the backend's CORS list is not exercised.
+      ...(process.env.PREVIEW_SKIP_CORS === "1" ? ["--disable-web-security"] : []),
+    ],
     slowMo: Number(process.env.SLOWMO || 60),
   });
   return browser;
@@ -73,6 +79,21 @@ async function newPage(browser, label, who) {
     acceptDownloads: true,
     ...(cached ? { storageState: cached } : {}),
   });
+  // A protected Vercel preview: the short-lived development token from a
+  // signed-in Vercel CLI (VERCEL_OIDC_TOKEN, e.g. via `vercel env pull`)
+  // is sent to the preview's own origin only — never to Supabase or the
+  // backend — so Deployment Protection stays on.
+  if (process.env.VERCEL_OIDC_TOKEN && BASE_URL.endsWith(".vercel.app")) {
+    const origin = new URL(BASE_URL).origin;
+    await context.route(`${origin}/**`, (route) =>
+      route.continue({
+        headers: {
+          ...route.request().headers(),
+          "x-vercel-trusted-oidc-idp-token": process.env.VERCEL_OIDC_TOKEN,
+        },
+      }),
+    );
+  }
   const page = await context.newPage();
   page.setDefaultNavigationTimeout(90000);
   page.setDefaultTimeout(60000);

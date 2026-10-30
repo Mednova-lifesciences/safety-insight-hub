@@ -1,6 +1,7 @@
 /**
  * Line list → E2B, as the Review Officer, on synthetic seed file A (and B
- * when FILE_B=1): upload, mapping, validate, Fix, Undo/Re-apply,
+ * when FILE_B=1, and C — the signal-screen and quality-flag file — when
+ * FILE_C=1): upload, mapping, validate, Fix, Undo/Re-apply,
  * Keep/Drop/Hold, the three downloads, then VigiFlow preflight, C.1.7 and
  * the XML export on /e2b.
  *
@@ -12,6 +13,7 @@ const L = require("./lib.cjs");
 const SEED = path.join(__dirname, "..", "scripts", "seed", "out");
 const FILE_A = path.join(SEED, "TEST-facility-return-A.xlsx");
 const FILE_B = path.join(SEED, "TEST-state-return-B.csv");
+const FILE_C = path.join(SEED, "TEST-surveillance-return-C.csv");
 
 const steps = [];
 async function step(name, fn) {
@@ -174,6 +176,17 @@ async function main() {
       if (process.env.FILE_B === "1") {
         await step("upload B", () => uploadFile(page, FILE_B));
         await step("validate B", () =>
+          L.expectNewToast(
+            page,
+            /Validated/,
+            () => page.getByRole("button", { name: /Re-run validation/ }).click(),
+            300000,
+          ),
+        );
+      }
+      if (process.env.FILE_C === "1") {
+        await step("upload C", () => uploadFile(page, FILE_C));
+        await step("validate C", () =>
           L.expectNewToast(
             page,
             /Validated/,

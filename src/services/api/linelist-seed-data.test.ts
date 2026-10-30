@@ -3,11 +3,20 @@ import { describe, expect, it } from "vitest";
 import {
   A_CASES,
   B_CASES,
+  C_CASES,
   EXPECTED_DUPLICATES,
   NEAR_MISS_B_ROWS,
 } from "../../../scripts/seed/linelist-seed-data.mjs";
+import { screenLineLists } from "./linelist-signals";
 import { findCrossFileDuplicates, type CrossFileCase } from "./linelist-cross-duplicates";
 import { findClusterFlags, type ClusterCase } from "./linelist-clusters";
+
+// The generic profile's reaction separators (generic-verbatim.ts).
+const split = (r: string | undefined) =>
+  (r ?? "")
+    .split(/[,;|]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
 
 const aCase = (c: string[], i: number): CrossFileCase & ClusterCase => ({
   jobId: "A",
@@ -25,10 +34,16 @@ const aCase = (c: string[], i: number): CrossFileCase & ClusterCase => ({
   reaction: c[10],
   facility: c[14],
   serious: c[11] === "Serious",
+  reactions: split(c[10]),
 });
-const bCase = (c: string[], i: number): CrossFileCase & ClusterCase => ({
-  jobId: "B",
-  filename: "TEST-state-return-B.csv",
+const bCase = (
+  c: string[],
+  i: number,
+  jobId = "B",
+  filename = "TEST-state-return-B.csv",
+): CrossFileCase & ClusterCase => ({
+  jobId,
+  filename,
   row: i + 1,
   caseId: c[0],
   patientIdentifier: c[1],
@@ -42,10 +57,15 @@ const bCase = (c: string[], i: number): CrossFileCase & ClusterCase => ({
   reaction: c[9],
   facility: c[12],
   serious: c[10] === "Y",
+  reactions: split(c[9]),
 });
 
 const A = (A_CASES as string[][]).map(aCase);
-const B = (B_CASES as string[][]).map(bCase);
+const B = (B_CASES as string[][]).map((c, i) => bCase(c, i));
+const C = (C_CASES as string[][]).map((c, i) => bCase(c, i, "C", "TEST-surveillance-return-C.csv"));
+const duplicateB = new Set((EXPECTED_DUPLICATES as number[][]).map(([, b]) => b));
+/** What the line lists hold once the six confirmed duplicates are dropped. */
+const kept = [...A, ...B.filter((b) => !duplicateB.has(b.row)), ...C];
 
 describe("the synthetic demo line lists", () => {
   it("find exactly the six true duplicates and none of the near-misses", () => {
@@ -67,5 +87,37 @@ describe("the synthetic demo line lists", () => {
     expect(
       flags.some((f) => f.kind === "FACILITY" && f.label === "Pentavalent at PHC Igbatoro"),
     ).toBe(true);
+  });
+
+  it("add no duplicates from file C", () => {
+    expect(findCrossFileDuplicates(C, [...A, ...B])).toEqual([]);
+  });
+
+  it("give the signal screen exactly one candidate: HPV × Syncope", () => {
+    const screen = screenLineLists(kept.map((c) => ({ ...c, reactions: c.reactions ?? [] })));
+    expect(screen.candidates.map((p) => `${p.product} × ${p.reaction}`)).toEqual(["HPV × Syncope"]);
+    expect(screen.candidates[0]!.a).toBe(6); // 5 in C, TST-A-010 in A
+    expect(screen.smallPool).toBe(true);
+    const under = screen.pairs.find((p) => p.reaction === "Thrombocytopenia")!;
+    expect(under).toMatchObject({ a: 2, candidate: false });
+    expect(under.prr.value).toBeGreaterThanOrEqual(2);
+  });
+
+  it("flag batch BCG-0420 at three facilities as a possible product quality concern", () => {
+    const flag = findClusterFlags(kept).find((f) => f.kind === "BATCH" && f.label === "BCG-0420")!;
+    expect(flag).toMatchObject({ pattern: "PRODUCT_QUALITY" });
+    expect(flag.facilities).toHaveLength(3);
+    expect(flag.warningSigns.map((w) => w.sign)).toEqual([
+      "LACK_OF_EFFECT",
+      "INJECTION_SITE_ABSCESS",
+    ]);
+  });
+
+  it("flag OPV at PHC Ilara across three batches as a possible site problem", () => {
+    const flag = findClusterFlags(kept).find(
+      (f) => f.kind === "FACILITY" && f.label === "OPV at PHC Ilara",
+    )!;
+    expect(flag).toMatchObject({ pattern: "STORAGE_OR_ADMINISTRATION" });
+    expect(flag.batches).toHaveLength(3);
   });
 });

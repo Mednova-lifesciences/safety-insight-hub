@@ -2,7 +2,7 @@
 
 - **PR #94:** merged 29 Oct 2026 20:33 UTC; deployed to Render at 20:35 and to Vercel production.
 - **PR #95 (Phase 3), #96 (formatting), #97, #98, #99 (fixes):** merged and deployed on 30 Oct 2026.
-- **Final result:** one full E2E run on production, covering every flow and role, passed with no failures (see the end of this report).
+- **Final result:** every flow and role passed on production (two full runs, no failures) and on a Vercel preview (see the end of this report).
 
 All testing used the synthetic test organisation "MedNova TEST A (synthetic data only)". A second synthetic organisation (TEST B) was used for the isolation checks. No real organisation's data was read or changed.
 
@@ -56,33 +56,37 @@ All testing used the synthetic test organisation "MedNova TEST A (synthetic data
 - **AI results with and without de-identification:** the same payload was sent 3 times each way. The same date and batch findings came back each time; the differences were ordinary run-to-run variation.
 - **Vercel preview:** not used. The production backend's CORS setting refuses preview origins, so a preview could not reach the API. The branch was instead tested end to end with its own backend and frontend on the test machine before merging.
 
-## Timings on production, before vs after (median, ms)
+## Timings on production, before vs after (ms)
 
-"Final" is the clean full run on 30 Oct after every fix (PRs #94–#99), a single sample.
+"Final" is two clean full runs on 30 Oct after every fix (PRs #94–#99), from a reset test organisation; both runs are shown.
 
-| Action | Before | After (29 Oct) | Final (30 Oct) |
-|---|---|---|---|
-| Upload line list A | 15,516 | 22,552 | 17,582 |
-| Validate | 29,682 | 40,239 | 24,659 |
-| Fix Issues | 9,776 | 9,819 | — |
-| Download fixed CSV | 2,743 | 2,409 | 1,364 |
-| Download executive summary | 1,847 | 1,381 | 705 |
-| PSUR upload + AI screening | 76,054 | 42,888 | 42,545 |
-| Signed screening outcome | 9,187 | 4,393 | 3,842 |
-| AI scientific review | failed (timeout) | 92,344 | 83,322 |
-| Open `/psur` | 2,362 | 1,228 | 360 |
-| Section saves | 2,000–3,258 | 2,211–3,105 | 1,600–4,009 |
-| VigiFlow preflight / again | — | — | 6,508 / 3,114 |
-| E2B(R3) XML download | — | — | 2,211 |
-| Evaluator flags card | — | — | 3,175 |
-| Possible duplicates panel | — | — | 4,053 |
-| Peer countersign | — | — | 5,379 |
+| Action | Before | After (29 Oct) | Final run 1 | Final run 2 |
+|---|---|---|---|---|
+| Upload line list A | 15,516 | 22,552 | 17,582 | 23,619 |
+| Validate | 29,682 | 40,239 | 24,659 | 32,332 |
+| Fix Issues | 9,776 | 9,819 | — | — |
+| Download fixed CSV | 2,743 | 2,409 | 1,364 | 1,387 |
+| Download executive summary | 1,847 | 1,381 | 705 | 685 |
+| PSUR upload + AI screening | 76,054 | 42,888 | 42,545 | 43,973 |
+| Signed screening outcome | 9,187 | 4,393 | 3,842 | 4,577 |
+| AI scientific review | failed (timeout) | 92,344 | 83,322 | 75,275 |
+| Open `/psur` | 2,362 | 1,228 | 360 | 561 |
+| Section saves | 2,000–3,258 | 2,211–3,105 | 1,600–4,009 | — |
+| VigiFlow preflight | — | — | 6,508 | 5,496 |
+| E2B(R3) XML download | — | — | 2,211 | 2,106 |
+| Evaluator flags card | — | — | 3,175 | 5,242 |
+| Possible duplicates panel | — | — | 4,053 | 2,431 |
+| Peer countersign | — | — | 5,379 | 6,215 |
 
+- **Upload line list A is slower than the baseline in both final runs** (17.6 s and 23.6 s against 15.5 s; mean 20.6 s). Nothing in this release adds to it:
+  - The step ends when the page shows the **new** file's heading. Before the wrong-file fix, the job list refreshed unawaited and the page first showed the previous file, so the new file's heading appeared only after that same refresh. The fix waits for the refresh before selecting the file, so the correct file appears at the same moment as before.
+  - The rest of the step is the backend receiving and parsing the file, which this release did not change. The two final runs differ from each other by 6 s, and the baseline is a single sample, so the gap is run-to-run variation.
+- **Validate:** 24.7 s and 32.3 s against 29.7 s; about level on average.
+- **Everything else** is at or below the baseline. The PSUR screening, the signed outcome and opening `/psur` are faster, and the AI scientific review now completes instead of timing out.
 - **Fix Issues:** not exercised in the seeded run, because the seed files have no fixable issues.
-- **Slower rows on 29 Oct:** the upload, validate and page-load rows that looked slower were single samples taken while the test machine's connection was dropping requests. In the final run they are at or below the baseline.
 - **Direct timing:** measured directly as a signed-in user, the page queries take about 1 s: job list 0.8–1.1 s (1 KB), PSUR list 0.6–1.9 s (35 KB), and the cross-file loader 1.4–1.9 s (17 KB, read only when its panel is scrolled into view).
 - **Job list:** still light; no rows were added to it.
-- **Conclusion:** no slowdown attributable to the changes was found.
+- **A third run did not finish:** the laptop's battery hit critical at 10:35 and it slept until 10:56 (Windows Kernel-Power events 524, 42, 107), during the AI scientific review. It is not counted.
 
 ## Phase 3 status
 
@@ -136,6 +140,31 @@ Software gaps in the same document: image intake is not de-identified, and unlab
 
 The run is recorded in the audit trail with the full calculation.
 
-**Not done as written: the Vercel preview.** The production backend's CORS setting refuses preview origins, so a preview cannot reach the API. With the user's agreement, branches were tested end to end on their own frontend and backend, or directly against production after merging. To make previews testable, add the preview domain to the Render `CORS_ORIGINS` setting.
+**Vercel preview (30 Oct).** The goal asked for tests on a Vercel preview, and that was not possible at first. Two settings were missing:
+- the preview builds had no Supabase settings (they were set for Production only);
+- the backend's `CORS_ORIGINS` list does not include preview addresses.
+
+What was set up:
+- **A stable preview:** branch `preview/e2e`, with the same code as production, at `safety-insight-hub-git-preview-e2e-mednova.vercel.app`.
+- **Supabase settings for that branch only:** the two public values (URL and publishable key). This preview therefore uses the live database, like production. It stays behind Vercel's login, and the tests touch only the synthetic test organisation.
+- **Test access:** the E2E runs pass Vercel's login with the signed-in CLI's short-lived development token, sent only to the preview's address. Deployment Protection stays on.
+- **CORS:** the backend's list was not changed, because its current value could not be read. Instead, the throwaway test browser skips its own CORS check (`PREVIEW_SKIP_CORS=1`, Chrome's `--disable-web-security`). Requests still go straight from the preview page to the real backend and database; only the backend's CORS list is not exercised. An earlier attempt re-sent the backend calls through Playwright, which broke PDF uploads ("No /Root object!" in the backend log). To let people use the preview directly, add `https://safety-insight-hub-git-preview-e2e-mednova.vercel.app` to `CORS_ORIGINS` on Render.
+
+**Result on the preview (30 Oct): every flow passed, in one uninterrupted run** of `e2e/run-all.sh` against `preview/e2e` (the same code as production), from a reset test organisation. It had 0 failures, 0 console errors, 9 downloads and isolation 41/41. In that run, upload line list A took 16.7 s and validation 29.4 s, at the baseline (15.5 s and 29.7 s); the AI scientific review took 67 s. Two earlier runs, which together covered the same flows, are summarised here:
+
+| Flow | Result |
+|---|---|
+| Line lists A and B: upload, mapping, validate, Drop / Hold / Keep, the 3 downloads, VigiFlow preflight, C.1.7, preflight again, E2B(R3) XML | Pass |
+| New features: PSUR forecast card and tab, batch/facility flags, observed vs expected, 6 possible duplicates, Not a duplicate, Drop as duplicate, AI data log | Pass |
+| PSUR: upload and AI screening (50 s), 16 checks, signed outcome, AI scientific review (72 s), Sections 9–11, memo inputs, evaluator sign-off, peer countersign | Pass |
+| Downloads: V4 report, executive summary, MAH feedback letter, assessment memo, the officer's screening letter | Pass |
+| Isolation between organisations | 41/41 |
+| Console errors | 0 |
+
+- **Why earlier runs were incomplete:**
+  - One ran out of memory after the features.
+  - In one, merging a docs-only PR restarted the backend mid-review, giving a 502 on Render's free plan.
+- **Recommended Render setting:** under Build Filters, list Included Paths so that only backend changes redeploy: `src/server/**`, `src/__init__.py`, `requirements.txt`, `.python-version`, `docs/MedDRA_29_1_English/**`, `mednova-pv-assist/**`. The backend reads the MedDRA files under `docs/`, so `docs/**` must not simply be ignored.
+- **Earlier PSUR attempts on the preview** failed only because of the test-harness bug described above (the PDF re-sent as damaged bytes); the backend log confirmed it.
 
 **Follow-up:** the other long AI steps (`runScientificReview`, `runFullFix`) still save the whole PSUR document. They run before hand-over, so they did not cause this problem, but they can be moved to field-level writes like the pre-fill.

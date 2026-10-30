@@ -18,6 +18,13 @@
  *     different child, which it must NOT match.
  * Serious cases share batch PCV-7781 (3 in A, 1 in B) and Penta at PHC
  *   Igbatoro (2 in A), for the batch/facility flag.
+ * File C — surveillance return (CSV, B's columns, October dates, so no
+ *   duplicates of A or B), for the signal screen and the quality flags:
+ *   - HPV × Syncope (5 here, 1 in A): the one clear screen candidate;
+ *   - Measles-Rubella × Thrombocytopenia, 2 reports: below N = 3;
+ *   - batch BCG-0420 at 3 facilities, serious, with injection-site abscess
+ *     and lack-of-effect cases: a possible product quality concern;
+ *   - OPV at PHC Ilara across 3 batches, serious: a possible site problem.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -29,7 +36,15 @@ const XLSX = require("xlsx");
 const outDir = process.argv[2] || path.join(process.cwd(), "scripts", "seed", "out");
 fs.mkdirSync(outDir, { recursive: true });
 
-import { A_CASES, A_HEADER, B_CASES, B_HEADER, LEGEND } from "./linelist-seed-data.mjs";
+import {
+  A_CASES,
+  A_HEADER,
+  B_CASES,
+  B_HEADER,
+  C_CASES,
+  C_HEADER,
+  LEGEND,
+} from "./linelist-seed-data.mjs";
 
 function writeFileA() {
   const rows = [
@@ -66,9 +81,21 @@ function writeFileB() {
   return file;
 }
 
+function writeFileC() {
+  const lines = [
+    "SYNTHETIC TEST DATA - NOT REAL PATIENTS - ONDO STATE (TEST) AEFI SURVEILLANCE RETURN, OCTOBER 2026",
+    C_HEADER.map(csvCell).join(","),
+    ...C_CASES.map((c) => c.map(csvCell).join(",")),
+  ];
+  const file = path.join(outDir, "TEST-surveillance-return-C.csv");
+  fs.writeFileSync(file, lines.join("\n") + "\n");
+  return file;
+}
+
 const a = writeFileA();
 const b = writeFileB();
-console.log(`Wrote ${a}\nWrote ${b}`);
+const cFile = writeFileC();
+console.log(`Wrote ${a}\nWrote ${b}\nWrote ${cFile}`);
 console.log(
-  "Expected cross-file duplicates (A row ↔ B row): 1↔1, 3↔2, 4↔3, 6↔4, 8↔5, 18↔6; near-misses B7, B8 must not match.",
+  "Expected cross-file duplicates (A row ↔ B row): 1↔1, 3↔2, 4↔3, 6↔4, 8↔5, 18↔6; near-misses B7, B8 must not match. File C has no duplicates.",
 );
