@@ -211,10 +211,7 @@ const CRITERION_SOURCE_TYPES: Partial<Record<MemoCriterionId, EvidenceSourceType
   PATIENT_EXPOSURE: ["VIGIFLOW_NIGERIA", "SUBMITTED_PSUR", "PATIENT_HCP_FEEDBACK", "OTHER"],
 };
 
-function fitsCriterionBySource(
-  id: MemoCriterionId,
-  sourceType: EvidenceSourceType,
-): boolean {
+function fitsCriterionBySource(id: MemoCriterionId, sourceType: EvidenceSourceType): boolean {
   const allowed = CRITERION_SOURCE_TYPES[id];
   return !allowed || allowed.includes(sourceType);
 }
@@ -274,7 +271,8 @@ export function answerLine(id: MemoCriterionId, answers: MemoAnswers): string | 
   if (id === "PATIENT_EXPOSURE") {
     const lines = [
       answers.PATIENT_EXPOSURE_AFRICAN && `African component: ${answers.PATIENT_EXPOSURE_AFRICAN}`,
-      answers.PATIENT_EXPOSURE_NIGERIAN && `Nigerian component: ${answers.PATIENT_EXPOSURE_NIGERIAN}`,
+      answers.PATIENT_EXPOSURE_NIGERIAN &&
+        `Nigerian component: ${answers.PATIENT_EXPOSURE_NIGERIAN}`,
     ].filter((l): l is string => !!l);
     return lines.length > 0 ? lines.join("\n") : undefined;
   }
@@ -371,9 +369,7 @@ export interface AssessmentMemoInput {
  * are offered in the UI; they never reach the document on their own. See
  * the spec's section 6.
  */
-export function buildAssessmentMemoModel(
-  input: AssessmentMemoInput,
-): AssessmentMemoModel | null {
+export function buildAssessmentMemoModel(input: AssessmentMemoInput): AssessmentMemoModel | null {
   // A matrix nobody has scored would total 0 / 0 with no reactions, and
   // printing that reads as a scored finding of zero risk rather than an
   // empty table. Refuse, the same way an untotalable matrix is refused.
@@ -387,8 +383,7 @@ export function buildAssessmentMemoModel(
     to: input.to,
     from: input.from,
     subject:
-      "Submission of Periodic Safety Update Report (PSUR) for " +
-      input.productNameAndStrength,
+      "Submission of Periodic Safety Update Report (PSUR) for " + input.productNameAndStrength,
     productNameAndStrength: input.productNameAndStrength,
     signatory: input.signatory,
     signatoryTitle: (input.signatoryTitle ?? "").trim(),

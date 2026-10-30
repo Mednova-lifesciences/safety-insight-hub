@@ -125,6 +125,8 @@ describe("proposing a verdict", () => {
 
   it("proposes nothing when the rubric carries no verdict rule", () => {
     const noRule: CiomsRubric = { provenance: "test", provisional: true, bands: [] };
-    expect(proposeVerdict({ epidemiology: 6, effectiveness: 6, adrs: [5] }, noRule)).toBeUndefined();
+    expect(
+      proposeVerdict({ epidemiology: 6, effectiveness: 6, adrs: [5] }, noRule),
+    ).toBeUndefined();
   });
 });

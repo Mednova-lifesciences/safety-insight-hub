@@ -6,12 +6,12 @@ describe("semantic structural recovery", () => {
     const row = {
       "Patient Name": "23",
       "Patient Age": "ADEOLA TEST",
-      "Sex": "Female",
+      Sex: "Female",
     };
     const mapping = {
       "Patient Name": "patient_identifier",
       "Patient Age": "age",
-      "Sex": "sex",
+      Sex: "sex",
     };
 
     const proposal = generateRecoveryProposal(row, mapping);
@@ -60,29 +60,33 @@ describe("semantic structural recovery", () => {
     expect(proposal).toBeNull();
     const repaired = applyRecoveryProposal(row, mapping, {
       rowIndex: 0,
-      moves: [{
-        sourceColumn: "Patient Name",
-        sourceValue: "Bob",
-        targetField: "patient_identifier",
-        reason: "invented",
-        confidence: "high",
-        fixerType: "ai",
-      }],
+      moves: [
+        {
+          sourceColumn: "Patient Name",
+          sourceValue: "Bob",
+          targetField: "patient_identifier",
+          reason: "invented",
+          confidence: "high",
+          fixerType: "ai",
+        },
+      ],
       overallConfidence: "high",
     });
     expect(repaired).toBeNull();
   });
 
   it("leaves a row alone when the data is already consistent", () => {
-    const rows = [{
-      "Patient Name": "ADEOLA TEST",
-      "Patient Age": "23",
-      "Sex": "Female",
-    }];
+    const rows = [
+      {
+        "Patient Name": "ADEOLA TEST",
+        "Patient Age": "23",
+        Sex: "Female",
+      },
+    ];
     const mapping = {
       "Patient Name": "patient_identifier",
       "Patient Age": "age",
-      "Sex": "sex",
+      Sex: "sex",
     };
 
     expect(generateRecoveryProposal(rows[0]!, mapping)).toBeNull();

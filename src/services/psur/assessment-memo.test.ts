@@ -110,7 +110,12 @@ function section(id: AssessmentSection["section"], evidence: EvidenceEntry[]): A
 
 describe("which working section feeds which criterion", () => {
   it("maps each evidence criterion to at least one section", () => {
-    for (const id of ["RSI_CHANGES", "WORLDWIDE_ACTIONS", "PATIENT_EXPOSURE", "RELEVANT_STUDIES"] as const) {
+    for (const id of [
+      "RSI_CHANGES",
+      "WORLDWIDE_ACTIONS",
+      "PATIENT_EXPOSURE",
+      "RELEVANT_STUDIES",
+    ] as const) {
       expect(CRITERION_SECTIONS[id].length).toBeGreaterThan(0);
     }
   });

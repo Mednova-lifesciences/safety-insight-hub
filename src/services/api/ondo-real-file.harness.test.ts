@@ -60,11 +60,10 @@ describe.skipIf(!present)("real Ondo AEFI line list — data preparation", () =>
 
     console.log("\n================ CODEBOOK DISCOVERY ================");
     const base = getSourceProfile(DEFAULT_SOURCE_PROFILE_ID);
-    const { discovered, runtimeProfile } = discoverAndApplyCodebook(
-      base,
-      parsed.discardedRows,
-      { file: path.basename(FILE), sheet: parsed.sheetName },
-    );
+    const { discovered, runtimeProfile } = discoverAndApplyCodebook(base, parsed.discardedRows, {
+      file: path.basename(FILE),
+      sheet: parsed.sheetName,
+    });
     console.log("codebooks discovered from the file's own legend:");
     const byField = new Map<string, { code: string; meaning: string }[]>();
     for (const e of discovered.entries) {
@@ -80,7 +79,12 @@ describe.skipIf(!present)("real Ondo AEFI line list — data preparation", () =>
     const evidenced = discovered.entries.filter(
       (e) => !!e.sourceEvidence && !!e.sourceEvidence.row,
     ).length;
-    console.log("codes carrying file+sheet+row provenance:", evidenced, "of", discovered.entries.length);
+    console.log(
+      "codes carrying file+sheet+row provenance:",
+      evidenced,
+      "of",
+      discovered.entries.length,
+    );
     console.log("\nruntime profile id:", runtimeProfile.id);
 
     console.log("\n================ FIRST 3 CASE ROWS ================");

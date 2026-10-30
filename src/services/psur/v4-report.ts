@@ -411,15 +411,15 @@ export function buildV4ReportModel(
         widths: [42, 58],
         rows: [
           ["Date of Review", s1.dateOfReview ?? reviewDate],
-          ["Name of Product / Strength / Dosage Form", orNotStated(s1.product ?? details.productName)],
+          [
+            "Name of Product / Strength / Dosage Form",
+            orNotStated(s1.product ?? details.productName),
+          ],
           ["Marketing Authorisation Holder (MAH)", orNotStated(s1.mah ?? details.mah)],
           ["NAFDAC Registration Number", orNotStated(s1.regNo ?? details.nafdacRegNo)],
           ["Reporting Period", orNotStated(s1.period ?? details.intervalCovered)],
           ["International Birth Date (IBD)", orNotStated(s1.ibd ?? details.ibd)],
-          [
-            "Nigerian Birth Date (NBD)",
-            orNotStated(s1.nbd ?? details.firstNafdacRegistrationDate),
-          ],
+          ["Nigerian Birth Date (NBD)", orNotStated(s1.nbd ?? details.firstNafdacRegistrationDate)],
           [
             "Therapeutic Indication(s)",
             orNotStated(
