@@ -150,7 +150,7 @@ What was set up:
 - **Test access:** the E2E runs pass Vercel's login with the signed-in CLI's short-lived development token, sent only to the preview's address. Deployment Protection stays on.
 - **CORS:** the backend's list was not changed, because its current value could not be read. Instead, the throwaway test browser skips its own CORS check (`PREVIEW_SKIP_CORS=1`, Chrome's `--disable-web-security`). Requests still go straight from the preview page to the real backend and database; only the backend's CORS list is not exercised. An earlier attempt re-sent the backend calls through Playwright, which broke PDF uploads ("No /Root object!" in the backend log). To let people use the preview directly, add `https://safety-insight-hub-git-preview-e2e-mednova.vercel.app` to `CORS_ORIGINS` on Render.
 
-**Result on the preview (30 Oct): every flow passed.** These were two runs against `preview/e2e`, the same code as production:
+**Result on the preview (30 Oct): every flow passed, in one uninterrupted run** of `e2e/run-all.sh` against `preview/e2e` (the same code as production), from a reset test organisation. It had 0 failures, 0 console errors, 9 downloads and isolation 41/41. In that run, upload line list A took 16.7 s and validation 29.4 s, at the baseline (15.5 s and 29.7 s); the AI scientific review took 67 s. Two earlier runs, which together covered the same flows, are summarised here:
 
 | Flow | Result |
 |---|---|
@@ -161,7 +161,10 @@ What was set up:
 | Isolation between organisations | 41/41 |
 | Console errors | 0 |
 
-- **Why two runs:** the first preview run covered line lists, E2B and the features before the test machine ran out of memory.
+- **Why earlier runs were incomplete:**
+  - One ran out of memory after the features.
+  - In one, merging a docs-only PR restarted the backend mid-review, giving a 502 on Render's free plan.
+- **Recommended Render setting:** under Build Filters, list Included Paths so that only backend changes redeploy: `src/server/**`, `src/__init__.py`, `requirements.txt`, `.python-version`, `docs/MedDRA_29_1_English/**`, `mednova-pv-assist/**`. The backend reads the MedDRA files under `docs/`, so `docs/**` must not simply be ignored.
 - **Earlier PSUR attempts on the preview** failed only because of the test-harness bug described above (the PDF re-sent as damaged bytes); the backend log confirmed it.
 
 **Follow-up:** the other long AI steps (`runScientificReview`, `runFullFix`) still save the whole PSUR document. They run before hand-over, so they did not cause this problem, but they can be moved to field-level writes like the pre-fill.
