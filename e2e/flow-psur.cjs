@@ -110,18 +110,44 @@ async function main() {
       });
       await L.shot(evaluator, "psur-evaluator");
       console.log("EVALUATOR buttons:", (await L.buttons(evaluator)).slice(0, 60).join(" | "));
-      await step(
-        "work a finding",
-        async () => {
-          const act = evaluator
-            .getByRole("button", { name: /^(Yes, it's a real gap|Accept|Mark resolved)/ })
-            .first();
-          if (!(await act.count())) throw new Error("no finding action button found");
-          await act.click();
-          await L.waitNoLoading(evaluator);
-        },
-        { critical: false },
+      const acceptBtn = () =>
+        evaluator.getByRole("button", { name: /Yes, it's a real gap/ }).first();
+      await step("AI review returned findings", async () => {
+        await acceptBtn().waitFor({ timeout: 60000 });
+        const n = await evaluator.getByRole("button", { name: /Yes, it's a real gap/ }).count();
+        console.log(`  findings awaiting a decision: ${n}`);
+        if (n < 2) throw new Error(`expected at least 2 findings to decide, saw ${n}`);
+      });
+      await step("dismiss a finding", async () => {
+        await evaluator
+          .getByRole("button", { name: /No, dismiss it/ })
+          .last()
+          .click();
+        await evaluator
+          .getByLabel("Reason for dismissing")
+          .fill("E2E (synthetic): covered elsewhere in the PSUR.");
+        await L.expectNewToast(evaluator, /Dismissed\./, () =>
+          evaluator.getByRole("button", { name: /^Dismiss$/ }).click(),
+        );
+      });
+      await step("accept a finding", () =>
+        L.expectNewToast(evaluator, /Accepted as a real gap/, () => acceptBtn().click()),
       );
+      await step("Run Full Fix resolves accepted findings", async () => {
+        const fix = evaluator.getByRole("button", { name: /Run Full Fix \(\d+\)/ }).first();
+        await fix.waitFor({ timeout: 30000 });
+        await L.expectNewToast(
+          evaluator,
+          /finding\(s\) resolved|AI fix unavailable|Run Full Fix failed/,
+          () => fix.click(),
+          300000,
+        );
+        const toast = await evaluator.locator("[data-sonner-toast]").allInnerTexts();
+        const resolved = Number(toast.join(" ").match(/(\d+) finding\(s\) resolved/)?.[1] ?? 0);
+        console.log(`  Run Full Fix: ${toast.join(" | ").slice(0, 160)}`);
+        if (resolved < 1) throw new Error("Run Full Fix resolved no accepted finding");
+        await L.waitNoLoading(evaluator);
+      });
       for (const label of [
         /Save special populations/,
         /Save benefit-risk assessment/,

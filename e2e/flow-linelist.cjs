@@ -72,19 +72,41 @@ async function main() {
           300000,
         );
         await L.waitNoLoading(page);
+        // The issues are re-read just after the toast: wait until the panel
+        // no longer says the file is unvalidated, or the Fix button would be
+        // looked for before it can exist.
+        await page.waitForFunction(
+          () => !document.body.innerText.includes("has not been validated yet"),
+          null,
+          { timeout: 120000 },
+        );
+        await L.waitNoLoading(page);
       });
       await L.shot(page, "ll-validated");
 
       const fixBtn = page.getByRole("button", { name: /Fix Issues \(\d+\)/ });
+      await fixBtn.waitFor({ timeout: 20000 }).catch(() => {});
       if (await fixBtn.count()) {
-        await step("fix issues", () =>
-          L.expectNewToast(
+        const fixable = async () => {
+          const label = (await fixBtn.count()) ? await fixBtn.first().innerText() : "";
+          return Number(label.match(/\((\d+)\)/)?.[1] ?? 0);
+        };
+        const before = await fixable();
+        console.log(`  fixable before Fix: ${before}`);
+        await step("fix issues", async () => {
+          await L.expectNewToast(
             page,
             /corrected|Nothing Fix could|Fix failed/,
             () => fixBtn.click(),
             300000,
-          ),
-        );
+          );
+          if (await page.getByText(/Fix failed/).count()) throw new Error("Fix failed");
+          await L.waitNoLoading(page);
+          await page.waitForTimeout(2000);
+          const after = await fixable();
+          console.log(`  fixable after Fix: ${after}`);
+          if (after >= before) throw new Error(`Fix corrected nothing (${before} → ${after})`);
+        });
         await L.shot(page, "ll-fixed");
         const undo = page.getByRole("button", { name: /^Undo$/ }).first();
         await undo.waitFor({ timeout: 30000 }).catch(() => {});

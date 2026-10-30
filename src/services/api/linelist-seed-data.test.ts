@@ -103,6 +103,16 @@ describe("the synthetic demo line lists", () => {
     expect(under.prr.value).toBeGreaterThanOrEqual(2);
   });
 
+  it("keep that one candidate while the duplicates are still in the pool", () => {
+    // The end-to-end run opens the screen with A's drop and holds made
+    // (TST-A-012 dropped, TST-A-011 and TST-A-007 held) and B's duplicates
+    // not yet resolved, so they count twice.
+    const out = new Set(["TST-A-012", "TST-A-011", "TST-A-007"]);
+    const pool = [...A.filter((c) => !out.has(c.caseId!)), ...B, ...C];
+    const screen = screenLineLists(pool.map((c) => ({ ...c, reactions: c.reactions ?? [] })));
+    expect(screen.candidates.map((p) => `${p.product} × ${p.reaction}`)).toEqual(["HPV × Syncope"]);
+  });
+
   it("flag batch BCG-0420 at three facilities as a possible product quality concern", () => {
     const flag = findClusterFlags(kept).find((f) => f.kind === "BATCH" && f.label === "BCG-0420")!;
     expect(flag).toMatchObject({ pattern: "PRODUCT_QUALITY" });

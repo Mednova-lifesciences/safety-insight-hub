@@ -152,8 +152,8 @@ async function main() {
         evaluator.locator("li[data-e2e-flag]").filter({ hasText: "Batch BCG-0420" }).first();
       await step("evaluator: pattern note on batch BCG-0420", async () => {
         await L.nav(evaluator, "Dashboard", /Scientific review queue/);
-        await bcg().waitFor({ timeout: 60000 });
-        await bcg().getByText("Possible product quality concern").waitFor();
+        await bcg().waitFor({ timeout: 90000 });
+        await bcg().getByText("Possible product quality concern", { exact: true }).waitFor();
         for (const sign of ["Lack of effect / vaccine failure", "Injection-site abscess"])
           await bcg()
             .getByText(new RegExp(sign.replace(/[/]/g, "\\/")))
