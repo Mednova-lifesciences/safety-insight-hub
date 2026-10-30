@@ -78,9 +78,9 @@ All testing used the synthetic test organisation "MedNova TEST A (synthetic data
 | Possible duplicates panel | — | — | 4,053 | 2,431 |
 | Peer countersign | — | — | 5,379 | 6,215 |
 
-- **Upload line list A is slower than the baseline in both final runs** (17.6 s and 23.6 s against 15.5 s; mean 20.6 s).
-  - The two runs differ from each other by 6 s, and the baseline is a single sample, so most of the gap is run-to-run variation (file transfer and server parsing).
-  - One change does sit on this path: after an upload, the page now waits for the job list to refresh (1 KB, about 1 s) before it selects the new file. That is the fix for the wrong file being validated (Fixed #3).
+- **Upload line list A is slower than the baseline in both final runs** (17.6 s and 23.6 s against 15.5 s; mean 20.6 s). Nothing in this release adds to it:
+  - The step ends when the page shows the **new** file's heading. Before the wrong-file fix, the job list refreshed unawaited and the page first showed the previous file, so the new file's heading appeared only after that same refresh. The fix waits for the refresh before selecting the file, so the correct file appears at the same moment as before.
+  - The rest of the step is the backend receiving and parsing the file, which this release did not change. The two final runs differ from each other by 6 s, and the baseline is a single sample, so the gap is run-to-run variation.
 - **Validate:** 24.7 s and 32.3 s against 29.7 s; about level on average.
 - **Everything else** is at or below the baseline. The PSUR screening, the signed outcome and opening `/psur` are faster, and the AI scientific review now completes instead of timing out.
 - **Fix Issues:** not exercised in the seeded run, because the seed files have no fixable issues.
