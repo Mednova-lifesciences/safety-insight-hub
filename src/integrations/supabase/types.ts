@@ -753,6 +753,13 @@ export type Database = {
         };
         Returns: Json;
       };
+      psur_set_v4_prefill: {
+        Args: {
+          p_document_id: string;
+          p_prefill: Json;
+        };
+        Returns: Json;
+      };
       save_e2b_c17_ai_assessment: {
         Args: {
           p_ai_assessment_id: string;

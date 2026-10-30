@@ -3300,13 +3300,24 @@ export const psur = {
     });
     const prefill = prefillFromAi(r, new Date().toISOString());
     return inDocumentQueue(documentId, async () => {
-      const latest = await readDocument(documentId);
-      // A failed re-read never throws away a good earlier reading.
-      if (prefill.error && latest.v4Prefill && !latest.v4Prefill.error) {
-        throw new Error(`${prefill.error} The earlier pre-fill is kept.`);
+      // Only the pre-fill is written, in one statement. The reading can
+      // finish a minute after it started; writing the whole document back
+      // then erased whatever someone else had saved meanwhile — on
+      // production, a peer reviewer's countersignature.
+      const { data, error } = await supabase.rpc("psur_set_v4_prefill", {
+        p_document_id: documentId,
+        p_prefill: toJson(prefill),
+      });
+      if (error) throw new Error(error.message);
+      if (!data) {
+        // Nothing written: the report is gone (readDocument says so), or a
+        // failed re-read met a good earlier reading, which is kept.
+        await readDocument(documentId);
+        throw new Error(
+          `${prefill.error ?? "The pre-fill was not saved."} The earlier pre-fill is kept.`,
+        );
       }
-      const next: PsurDocumentRow = { ...latest, v4Prefill: prefill };
-      await saveDocument(next);
+      const next = data as unknown as PsurDocumentRow;
       await recordAudit({
         action: "PSUR_V4_PREFILL_GENERATED",
         entity: "PsurDocument",
