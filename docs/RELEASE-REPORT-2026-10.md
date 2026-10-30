@@ -56,33 +56,37 @@ All testing used the synthetic test organisation "MedNova TEST A (synthetic data
 - **AI results with and without de-identification:** the same payload was sent 3 times each way. The same date and batch findings came back each time; the differences were ordinary run-to-run variation.
 - **Vercel preview:** not used. The production backend's CORS setting refuses preview origins, so a preview could not reach the API. The branch was instead tested end to end with its own backend and frontend on the test machine before merging.
 
-## Timings on production, before vs after (median, ms)
+## Timings on production, before vs after (ms)
 
-"Final" is the clean full run on 30 Oct after every fix (PRs #94–#99), a single sample.
+"Final" is two clean full runs on 30 Oct after every fix (PRs #94–#99), from a reset test organisation; both runs are shown.
 
-| Action | Before | After (29 Oct) | Final (30 Oct) |
-|---|---|---|---|
-| Upload line list A | 15,516 | 22,552 | 17,582 |
-| Validate | 29,682 | 40,239 | 24,659 |
-| Fix Issues | 9,776 | 9,819 | — |
-| Download fixed CSV | 2,743 | 2,409 | 1,364 |
-| Download executive summary | 1,847 | 1,381 | 705 |
-| PSUR upload + AI screening | 76,054 | 42,888 | 42,545 |
-| Signed screening outcome | 9,187 | 4,393 | 3,842 |
-| AI scientific review | failed (timeout) | 92,344 | 83,322 |
-| Open `/psur` | 2,362 | 1,228 | 360 |
-| Section saves | 2,000–3,258 | 2,211–3,105 | 1,600–4,009 |
-| VigiFlow preflight / again | — | — | 6,508 / 3,114 |
-| E2B(R3) XML download | — | — | 2,211 |
-| Evaluator flags card | — | — | 3,175 |
-| Possible duplicates panel | — | — | 4,053 |
-| Peer countersign | — | — | 5,379 |
+| Action | Before | After (29 Oct) | Final run 1 | Final run 2 |
+|---|---|---|---|---|
+| Upload line list A | 15,516 | 22,552 | 17,582 | 23,619 |
+| Validate | 29,682 | 40,239 | 24,659 | 32,332 |
+| Fix Issues | 9,776 | 9,819 | — | — |
+| Download fixed CSV | 2,743 | 2,409 | 1,364 | 1,387 |
+| Download executive summary | 1,847 | 1,381 | 705 | 685 |
+| PSUR upload + AI screening | 76,054 | 42,888 | 42,545 | 43,973 |
+| Signed screening outcome | 9,187 | 4,393 | 3,842 | 4,577 |
+| AI scientific review | failed (timeout) | 92,344 | 83,322 | 75,275 |
+| Open `/psur` | 2,362 | 1,228 | 360 | 561 |
+| Section saves | 2,000–3,258 | 2,211–3,105 | 1,600–4,009 | — |
+| VigiFlow preflight | — | — | 6,508 | 5,496 |
+| E2B(R3) XML download | — | — | 2,211 | 2,106 |
+| Evaluator flags card | — | — | 3,175 | 5,242 |
+| Possible duplicates panel | — | — | 4,053 | 2,431 |
+| Peer countersign | — | — | 5,379 | 6,215 |
 
+- **Upload line list A is slower than the baseline in both final runs** (17.6 s and 23.6 s against 15.5 s; mean 20.6 s).
+  - The two runs differ from each other by 6 s, and the baseline is a single sample, so most of the gap is run-to-run variation (file transfer and server parsing).
+  - One change does sit on this path: after an upload, the page now waits for the job list to refresh (1 KB, about 1 s) before it selects the new file. That is the fix for the wrong file being validated (Fixed #3).
+- **Validate:** 24.7 s and 32.3 s against 29.7 s; about level on average.
+- **Everything else** is at or below the baseline. The PSUR screening, the signed outcome and opening `/psur` are faster, and the AI scientific review now completes instead of timing out.
 - **Fix Issues:** not exercised in the seeded run, because the seed files have no fixable issues.
-- **Slower rows on 29 Oct:** the upload, validate and page-load rows that looked slower were single samples taken while the test machine's connection was dropping requests. In the final run they are at or below the baseline.
 - **Direct timing:** measured directly as a signed-in user, the page queries take about 1 s: job list 0.8–1.1 s (1 KB), PSUR list 0.6–1.9 s (35 KB), and the cross-file loader 1.4–1.9 s (17 KB, read only when its panel is scrolled into view).
 - **Job list:** still light; no rows were added to it.
-- **Conclusion:** no slowdown attributable to the changes was found.
+- **A third run did not finish:** the laptop's battery hit critical at 10:35 and it slept until 10:56 (Windows Kernel-Power events 524, 42, 107), during the AI scientific review. It is not counted.
 
 ## Phase 3 status
 
@@ -136,6 +140,16 @@ Software gaps in the same document: image intake is not de-identified, and unlab
 
 The run is recorded in the audit trail with the full calculation.
 
-**Not done as written: the Vercel preview.** The production backend's CORS setting refuses preview origins, so a preview cannot reach the API. With the user's agreement, branches were tested end to end on their own frontend and backend, or directly against production after merging. To make previews testable, add the preview domain to the Render `CORS_ORIGINS` setting.
+**Vercel preview (30 Oct).** The goal asked for tests on a Vercel preview, and that was not possible at first. Two settings were missing:
+- the preview builds had no Supabase settings (they were set for Production only);
+- the backend's `CORS_ORIGINS` list does not include preview addresses.
+
+What was set up:
+- **A stable preview:** branch `preview/e2e`, with the same code as production, at `safety-insight-hub-git-preview-e2e-mednova.vercel.app`.
+- **Supabase settings for that branch only:** the two public values (URL and publishable key). This preview therefore uses the live database, like production. It stays behind Vercel's login, and the tests touch only the synthetic test organisation.
+- **Test access:** the E2E runs pass Vercel's login with the signed-in CLI's short-lived development token, sent only to the preview's address. Deployment Protection stays on.
+- **CORS:** the backend's list was not changed, because its current value could not be read. Instead, the test browser passes the preview's backend calls through itself under the production address. The preview's code, the backend and the database are all real; only the backend's CORS list is not exercised. To let people use the preview directly, add `https://safety-insight-hub-git-preview-e2e-mednova.vercel.app` to `CORS_ORIGINS` on Render.
+
+**Result on the preview:** line lists A and B through the E2B XML, and every new feature, passed with 0 console errors. The PSUR flow and the isolation check were not reached: the run was stopped because the test machine ran out of memory, not because of a failed step.
 
 **Follow-up:** the other long AI steps (`runScientificReview`, `runFullFix`) still save the whole PSUR document. They run before hand-over, so they did not cause this problem, but they can be moved to field-level writes like the pre-fill.

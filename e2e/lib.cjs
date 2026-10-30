@@ -73,6 +73,46 @@ async function newPage(browser, label, who) {
     acceptDownloads: true,
     ...(cached ? { storageState: cached } : {}),
   });
+  // A protected Vercel preview: the short-lived development token from a
+  // signed-in Vercel CLI (VERCEL_OIDC_TOKEN, e.g. via `vercel env pull`)
+  // is sent to the preview's own origin only — never to Supabase or the
+  // backend — so Deployment Protection stays on.
+  if (process.env.VERCEL_OIDC_TOKEN && BASE_URL.endsWith(".vercel.app")) {
+    const origin = new URL(BASE_URL).origin;
+    await context.route(`${origin}/**`, (route) =>
+      route.continue({
+        headers: {
+          ...route.request().headers(),
+          "x-vercel-trusted-oidc-idp-token": process.env.VERCEL_OIDC_TOKEN,
+        },
+      }),
+    );
+  }
+  // PREVIEW_VIA_ORIGIN=https://…: the backend's CORS list does not include
+  // the preview, so its calls are passed through the test browser under an
+  // origin the backend accepts, and answered with the preview's own CORS
+  // headers. The preview's code, backend and database are all real; only
+  // the backend's CORS list itself is not exercised by such a run.
+  if (process.env.PREVIEW_VIA_ORIGIN && process.env.PV_API_URL) {
+    const preview = new URL(BASE_URL).origin;
+    const cors = (req) => ({
+      "access-control-allow-origin": preview,
+      "access-control-allow-credentials": "true",
+      "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+      "access-control-allow-headers":
+        req.headers()["access-control-request-headers"] || "authorization, content-type",
+      vary: "Origin",
+    });
+    await context.route(`${process.env.PV_API_URL.replace(/\/$/, "")}/**`, async (route) => {
+      const req = route.request();
+      if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors(req) });
+      const response = await route.fetch({
+        headers: { ...req.headers(), origin: process.env.PREVIEW_VIA_ORIGIN },
+        timeout: 300000,
+      });
+      return route.fulfill({ response, headers: { ...response.headers(), ...cors(req) } });
+    });
+  }
   const page = await context.newPage();
   page.setDefaultNavigationTimeout(90000);
   page.setDefaultTimeout(60000);
