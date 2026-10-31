@@ -58,5 +58,32 @@ for (const [table, filter] of [
   console.log(`cleared ${table}${filter ? " (signal screen rows)" : ""}`);
 }
 
+// The coded demo files' term and designation choices, so each run starts
+// with them undecided and the MedDRA suggestions and Settings mapping can be
+// shown again. Only the demo's own words; other choices are configuration.
+const DEMO_DESIGNATIONS = [
+  "Nursing Sister",
+  "RN/RM",
+  "SMO",
+  "Pharm. Tech",
+  "Mother of child",
+  "DSNO",
+  "LIO",
+];
+for (const [table, filter] of [
+  ["pv_term_mappings", "&first_seen_file=like.DEMO-ondo-aefi*"],
+  [
+    "pv_reporter_qualification_mappings",
+    `&designation=in.(${DEMO_DESIGNATIONS.map((d) => `"${d}"`).join(",")})`,
+  ],
+]) {
+  const r = await fetch(
+    `${url}/rest/v1/${table}?organization_id=eq.${org.id}${encodeURI(filter)}`,
+    { method: "DELETE", headers },
+  );
+  if (!r.ok) throw new Error(`${table}: ${r.status} ${await r.text()}`);
+  console.log(`cleared ${table} (coded demo files)`);
+}
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 execFileSync(process.execPath, [path.join(here, "load-psurs.mjs")], { stdio: "inherit" });
