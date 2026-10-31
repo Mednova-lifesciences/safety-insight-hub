@@ -136,3 +136,17 @@ describe("quality warning signs", () => {
     expect(flag!.warningSigns).toEqual([]);
   });
 });
+
+describe("flag labels", () => {
+  it("use the spelling most cases use, whichever file is read first", () => {
+    const cases = [
+      c({ batch: "PCV 7781", facility: "PHC A" }),
+      c({ batch: "PCV-7781", facility: "PHC B", vaccinationDate: "2026-03-02" }),
+      c({ batch: "PCV-7781", facility: "PHC C", vaccinationDate: "2026-03-03" }),
+    ];
+    const label = (list: ClusterCase[]) =>
+      findClusterFlags(list).find((f) => f.kind === "BATCH")!.label;
+    expect(label(cases)).toBe("PCV-7781");
+    expect(label([...cases].reverse())).toBe("PCV-7781");
+  });
+});

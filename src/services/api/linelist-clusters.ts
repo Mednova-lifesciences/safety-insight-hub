@@ -176,7 +176,7 @@ export function findClusterFlags(cases: ClusterCase[]): ClusterFlag[] {
 
   const groups = new Map<
     string,
-    { kind: ClusterKind; label: string; items: { day: number; c: ClusterCase }[] }
+    { kind: ClusterKind; labels: Map<string, number>; items: { day: number; c: ClusterCase }[] }
   >();
   const add = (
     key: string,
@@ -184,10 +184,16 @@ export function findClusterFlags(cases: ClusterCase[]): ClusterFlag[] {
     label: string,
     item: { day: number; c: ClusterCase },
   ) => {
-    const g = groups.get(key) ?? { kind, label, items: [] };
+    const g = groups.get(key) ?? { kind, labels: new Map<string, number>(), items: [] };
+    g.labels.set(label, (g.labels.get(label) ?? 0) + 1);
     g.items.push(item);
     groups.set(key, g);
   };
+  /** The spelling most of the group's cases use (alphabetical on a tie), so
+   *  the label does not depend on which file happened to be read first:
+   *  "PCV-7781" in three files, not "PCV 7781" because one file was first. */
+  const labelOf = (labels: Map<string, number>) =>
+    [...labels.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0]![0];
   for (const item of serious) {
     const batch = batchKey(item.c.batch);
     if (batch) add(`BATCH:${batch}`, "BATCH", item.c.batch!.trim(), item);
@@ -220,7 +226,7 @@ export function findClusterFlags(cases: ClusterCase[]): ClusterFlag[] {
       flags.push({
         key: `${key}:${run[0]!.day}`,
         kind: g.kind,
-        label: g.label,
+        label: labelOf(g.labels),
         cases: runCases,
         from: isoOf(run[0]!.day),
         to: isoOf(run[run.length - 1]!.day),
