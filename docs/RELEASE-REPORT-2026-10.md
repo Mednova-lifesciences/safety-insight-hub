@@ -314,3 +314,29 @@ The full `e2e/run-all.sh` ran on production for every role, from a reset test or
 - **Signal screen load:** **2.2 s / 1.9 s / 1.2 s** (officer / evaluator / peer), all under the 3 s target.
 
 This closes the 3 s check that the two earlier runs missed while the test laptop was short of memory.
+
+### Second baseline: before vs after on the same preview (31 Oct 2026)
+
+To check "no slowdown" with a second baseline without touching production, the Vercel preview branch was set to the code just before the features (`22f634f`, #104), then back to current `main`. Each version ran its own full `e2e/run-all.sh`, one after the other, against the same backend and database:
+
+| | Baseline (#104) | Current (main) |
+|---|---|---|
+| Failures | 0 | 0 |
+| Isolation | 41/41 | 45/45 (adds the referral checks) |
+| Total of the 46 shared steps* | 246.6 s | 223.1 s (about 10% faster) |
+| Validate file A / file B | 30.2 s / 13.0 s | 22.3 s / 6.7 s |
+| Open /psur | 1.4 s | 0.5 s |
+| Upload PSUR + AI screening | 35.9 s | 40.3 s (the AI call varies run to run) |
+| Signal screen (officer / evaluator / peer) | n/a | 1.3 / 0.7 / 0.6 s |
+
+\*The baseline's evaluator sign-in took 90 s (a backend restart), so it is left out of the shared-step total. With it, the totals are 336.9 s against 227.4 s.
+
+No shared step got meaningfully slower. The only increase over 2 s is the PSUR AI screening, which depends on the AI service's response time.
+
+### Backend smoke scripts not run
+
+The seven `requests`-based scripts at the repo root (`test_api.py`, `test_e2e.py`, `test_phase1_complete.py`, `test_phase24/25/26.py`, `test_validation.py`) are early-phase smoke scripts that drive a running backend. They are not part of the 82-test backend pytest suite, which passes.
+- **Five of them sign in as `demo@example.com`**, which does not exist on the live project, so they would fail at sign-in.
+- **`test_api.py` and `test_phase1_complete.py` sign up new users and organisations in live production auth.** That breaks the test-org-only rule, so they were not run.
+
+To run them safely they need a local Supabase stack or a dedicated test project.
