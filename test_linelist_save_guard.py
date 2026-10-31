@@ -213,3 +213,45 @@ def test_a_save_cannot_supply_its_own_header(monkeypatch):
     p = _volume_fix(cur, "Dose")
     p["columns"] = ["Case ID", "Dose (mL)"]
     assert "Columns or column mapping changed in a cell save." in reasons(cur, p)
+
+
+def _serious_job(value):
+    cols = ["Case ID", "Seriousness"]
+    mapping = {"Case ID": "case_id", "Seriousness": "seriousness"}
+    return {"id": "ll-test", "version": 3, "columns": cols, "mapping": mapping,
+            "rawRows": [{"Case ID": "T-1", "Seriousness": value}],
+            "parsedRows": [{"case_id": "T-1", "seriousness": value}], "changeLog": []}
+
+
+def _serious_change(cur, new):
+    p = copy.deepcopy(cur)
+    old = cur["rawRows"][0]["Seriousness"]
+    p["rawRows"][0]["Seriousness"] = new
+    p["parsedRows"][0]["seriousness"] = new
+    p["changeLog"] = [entry(1, 1, "Seriousness", old, new, "rule", rule={"id": "fatal-outcome-serious", "version": "1"})]
+    return p
+
+
+def test_the_fatal_outcome_rule_may_mark_a_non_serious_case_serious():
+    cur = _serious_job("Non-serious")
+    assert reasons(cur, _serious_change(cur, "Serious")) == []
+    cur = _serious_job("No")
+    assert reasons(cur, _serious_change(cur, "Yes")) == []
+
+
+def test_the_fatal_outcome_rule_never_makes_a_case_less_serious_or_writes_anything_else():
+    cur = _serious_job("Serious")
+    assert reasons(cur, _serious_change(cur, "Non-serious")) == [
+        "The fatal-outcome rule only marks a non-serious case serious."]
+    cur = _serious_job("Non-serious")
+    assert reasons(cur, _serious_change(cur, "Hospitalised")) == [
+        "The fatal-outcome rule only marks a non-serious case serious."]
+
+
+def test_the_new_spelling_rules_are_reproduced_on_the_server():
+    cur = _serious_job("Serius")
+    p = copy.deepcopy(cur)
+    p["rawRows"][0]["Seriousness"] = "Serious"
+    p["parsedRows"][0]["seriousness"] = "Serious"
+    p["changeLog"] = [entry(1, 1, "Seriousness", "Serius", "Serious", "rule", rule={"id": "seriousness-spelling", "version": "1"})]
+    assert reasons(cur, p) == []
