@@ -304,3 +304,13 @@ The full `e2e/run-all.sh` ran on production for every role, from a reset test or
   - a clean confirmation run on a machine with free memory;
   - the six backend pytest files, which need a backend connected to the live database and are not limited to the test org, so they were not run;
   - a second "before" baseline, which would mean redeploying the old code.
+
+### Clean final production run (31 Oct 2026, same code)
+
+- **Full `e2e/run-all.sh` on production for every role:** 0 failures, 0 console errors, isolation 45/45.
+  - Line lists A, B and C: Fix 3 → 0, Undo / Re-apply, Keep / Drop / Hold, downloads, E2B.
+  - Duplicates (6 pairs), flags with pattern notes, the PMS referral, and the signal-screen decision.
+  - The full PSUR flow and all reports.
+- **Signal screen load:** **2.2 s / 1.9 s / 1.2 s** (officer / evaluator / peer), all under the 3 s target.
+
+This closes the 3 s check that the two earlier runs missed while the test laptop was short of memory.
