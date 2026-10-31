@@ -27,7 +27,6 @@ import { Route as AppOversightRouteImport } from './routes/_app/oversight'
 import { Route as AppPsurRouteImport } from './routes/_app/psur'
 import { Route as AppScreeningRouteImport } from './routes/_app/screening'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
-import { Route as AppSignalScreenRouteImport } from './routes/_app/signal-screen'
 import { Route as AppSignalsRouteImport } from './routes/_app/signals'
 import { Route as AppWhatsappIntakeRouteImport } from './routes/_app/whatsapp-intake'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
@@ -129,11 +128,6 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
-const AppSignalScreenRoute = AppSignalScreenRouteImport.update({
-  id: '/signal-screen',
-  path: '/signal-screen',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppSignalsRoute = AppSignalsRouteImport.update({
   id: '/signals',
   path: '/signals',
@@ -208,7 +202,6 @@ export interface FileRoutesByFullPath {
   '/psur': typeof AppPsurRoute
   '/screening': typeof AppScreeningRoute
   '/settings': typeof AppSettingsRoute
-  '/signal-screen': typeof AppSignalScreenRoute
   '/signals': typeof AppSignalsRoute
   '/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/admin/sign-in': typeof AdminSignInRoute
@@ -239,7 +232,6 @@ export interface FileRoutesByTo {
   '/psur': typeof AppPsurRoute
   '/screening': typeof AppScreeningRoute
   '/settings': typeof AppSettingsRoute
-  '/signal-screen': typeof AppSignalScreenRoute
   '/signals': typeof AppSignalsRoute
   '/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/admin/sign-in': typeof AdminSignInRoute
@@ -272,7 +264,6 @@ export interface FileRoutesById {
   '/_app/psur': typeof AppPsurRoute
   '/_app/screening': typeof AppScreeningRoute
   '/_app/settings': typeof AppSettingsRoute
-  '/_app/signal-screen': typeof AppSignalScreenRoute
   '/_app/signals': typeof AppSignalsRoute
   '/_app/whatsapp-intake': typeof AppWhatsappIntakeRoute
   '/admin/sign-in': typeof AdminSignInRoute
@@ -305,7 +296,6 @@ export interface FileRouteTypes {
     | '/psur'
     | '/screening'
     | '/settings'
-    | '/signal-screen'
     | '/signals'
     | '/whatsapp-intake'
     | '/admin/sign-in'
@@ -336,7 +326,6 @@ export interface FileRouteTypes {
     | '/psur'
     | '/screening'
     | '/settings'
-    | '/signal-screen'
     | '/signals'
     | '/whatsapp-intake'
     | '/admin/sign-in'
@@ -368,7 +357,6 @@ export interface FileRouteTypes {
     | '/_app/psur'
     | '/_app/screening'
     | '/_app/settings'
-    | '/_app/signal-screen'
     | '/_app/signals'
     | '/_app/whatsapp-intake'
     | '/admin/sign-in'
@@ -522,13 +510,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/signal-screen': {
-      id: '/_app/signal-screen'
-      path: '/signal-screen'
-      fullPath: '/signal-screen'
-      preLoaderRoute: typeof AppSignalScreenRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/signals': {
       id: '/_app/signals'
       path: '/signals'
@@ -623,7 +604,6 @@ interface AppRouteChildren {
   AppPsurRoute: typeof AppPsurRoute
   AppScreeningRoute: typeof AppScreeningRoute
   AppSettingsRoute: typeof AppSettingsRoute
-  AppSignalScreenRoute: typeof AppSignalScreenRoute
   AppSignalsRoute: typeof AppSignalsRoute
   AppWhatsappIntakeRoute: typeof AppWhatsappIntakeRoute
   AppCasesCaseIdRoute: typeof AppCasesCaseIdRoute
@@ -647,7 +627,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppPsurRoute: AppPsurRoute,
   AppScreeningRoute: AppScreeningRoute,
   AppSettingsRoute: AppSettingsRoute,
-  AppSignalScreenRoute: AppSignalScreenRoute,
   AppSignalsRoute: AppSignalsRoute,
   AppWhatsappIntakeRoute: AppWhatsappIntakeRoute,
   AppCasesCaseIdRoute: AppCasesCaseIdRoute,

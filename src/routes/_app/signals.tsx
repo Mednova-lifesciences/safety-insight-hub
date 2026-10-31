@@ -50,7 +50,6 @@ const statusTone: Record<Signal["status"], Tone> = {
   UNDER_REVIEW: "info",
   CONFIRMED: "critical",
   REFUTED: "neutral",
-  MONITOR: "info",
 };
 
 function SignalCard({

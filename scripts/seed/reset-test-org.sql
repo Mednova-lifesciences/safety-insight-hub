@@ -21,6 +21,4 @@ begin
   delete from public.pv_psur_documents where organization_id = org;
   delete from public.pv_e2b_c17_ai_assessments where organization_id = org;
   delete from public.pv_e2b_regulatory_assessments where organization_id = org;
-  delete from public.pv_signals where organization_id = org and data->>'source' = 'LINE_LIST';
-  delete from public.pv_pms_referrals where organization_id = org;
 end $$;

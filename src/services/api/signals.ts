@@ -120,11 +120,7 @@ export const signals = {
   list: async (status?: string): Promise<Signal[]> => {
     const { data, error } = await supabase.from("pv_signals").select("data");
     if (error) throw new Error(error.message);
-    // Decisions from the administrator-side line-list screen live in the
-    // same table but are not this page's signals (see signal-screen.ts).
-    const rows = (data ?? [])
-      .map((r) => r.data as unknown as Signal)
-      .filter((s) => s.source !== "LINE_LIST");
+    const rows = (data ?? []).map((r) => r.data as unknown as Signal);
     return status ? rows.filter((s) => s.status === status) : rows;
   },
 

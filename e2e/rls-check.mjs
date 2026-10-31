@@ -178,33 +178,6 @@ if (
   );
 }
 
-// Post-market surveillance referrals (administrators of the organisation only).
-const refA = await rest(tokenA, "pv_pms_referrals?select=id,organization_id&limit=200");
-if (refA.status === 404 || refA.body?.code === "42P01" || refA.body?.code === "PGRST205") {
-  console.log("  (pv_pms_referrals not created yet)");
-} else {
-  check(
-    "A reads only its own PMS referrals",
-    Array.isArray(refA.body) && refA.body.every((r) => r.organization_id === orgA),
-    `${Array.isArray(refA.body) ? refA.body.length : refA.status}`,
-  );
-  const refB = await rest(tokenB, "pv_pms_referrals?select=id,organization_id&limit=200");
-  check(
-    "B reads none of A's PMS referrals",
-    Array.isArray(refB.body) && refB.body.every((r) => r.organization_id !== orgA),
-  );
-  const forged = await rest(tokenB, "pv_pms_referrals", {
-    method: "POST",
-    body: JSON.stringify({ id: `rls-check-${Date.now()}`, organization_id: orgA, data: {} }),
-  });
-  check("B cannot file a PMS referral into A", forged.status >= 400, `status ${forged.status}`);
-  const refAnon = await rest(null, "pv_pms_referrals?select=id&limit=5");
-  check(
-    "anon reads no PMS referrals",
-    Array.isArray(refAnon.body) ? refAnon.body.length === 0 : refAnon.status >= 400,
-  );
-}
-
 const anonRpc = await rest(null, "rpc/get_organization_invite_code", {
   method: "POST",
   body: "{}",

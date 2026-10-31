@@ -1822,8 +1822,7 @@ export interface Signal {
   caseCount: number;
   statistic: { name: string; value: string; ci?: string | undefined }[];
   supportingCaseIds: string[];
-  /** MONITOR: the administrator-side screen's "keep watching" decision. */
-  status: "POTENTIAL" | "UNDER_REVIEW" | "CONFIRMED" | "REFUTED" | "MONITOR";
+  status: "POTENTIAL" | "UNDER_REVIEW" | "CONFIRMED" | "REFUTED";
   reviewer?: string | null | undefined;
   rationale?: string | null | undefined;
   decidedAt?: string | null | undefined;
@@ -1843,16 +1842,6 @@ export interface Signal {
         riskLevel: "HIGH" | "MODERATE" | "LOW";
       }
     | undefined;
-  /** "LINE_LIST": a decision recorded on the administrator-side signal
-   *  screen over validated line lists. Kept out of the other side's Signal
-   *  review page, which works from pv_cases. */
-  source?: "LINE_LIST" | undefined;
-  /** The screen's product|reaction key the decision belongs to. */
-  screenKey?: string | undefined;
-  /** The line-list cases behind the pair when the decision was recorded. */
-  lineListCases?: { jobId: string; filename: string; row: number; caseId?: string | undefined }[];
-  /** Reports in the screened pool when the decision was recorded. */
-  poolSize?: number | undefined;
 }
 
 export interface Notification {

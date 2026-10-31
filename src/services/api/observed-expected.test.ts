@@ -19,7 +19,6 @@ const c = (over: Partial<LoadedCase>): LoadedCase => ({
   vaccinationDate: "2026-09-07",
   onsetDate: "2026-09-07",
   serious: true,
-  reactions: ["Anaphylaxis"],
   ...over,
 });
 

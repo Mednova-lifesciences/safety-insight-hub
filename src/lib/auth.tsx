@@ -108,12 +108,7 @@ export type Permission =
   | "regulatory.manage"
   /** Read the AI data log: what each AI request disclosed, as field names
    *  and counts (pv_ai_disclosures). Administrators only. */
-  | "ai_log.view"
-  /** The administrator-side signal screen: disproportionality over the
-   *  organisation's validated line lists, and recording a decision on each
-   *  candidate. Separate from signal.view/signal.decide, which govern the
-   *  other side's Signal review page (/signals, built on pv_cases). */
-  | "signal.screen";
+  | "ai_log.view";
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   FIELD_ASSOCIATE: [
@@ -191,16 +186,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "linelist.process",
     "e2b.generate",
     "ai_log.view",
-    "signal.screen",
   ],
-  EVALUATOR: [
-    "psur.review",
-    "psur.evaluate",
-    "linelist.process",
-    "e2b.generate",
-    "ai_log.view",
-    "signal.screen",
-  ],
+  EVALUATOR: ["psur.review", "psur.evaluate", "linelist.process", "e2b.generate", "ai_log.view"],
   PEER_REVIEWER: [
     // Holds `psur.evaluate` as well: a peer reviewer is expected to correct
     // what they find before countersigning, not just accept or bounce it.
@@ -216,7 +203,6 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "linelist.process",
     "e2b.generate",
     "ai_log.view",
-    "signal.screen",
   ],
 };
 

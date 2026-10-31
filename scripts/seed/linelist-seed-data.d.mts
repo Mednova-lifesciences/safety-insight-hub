@@ -6,5 +6,3 @@ export const B_CASES: string[][];
 export const LEGEND: string[][];
 export const EXPECTED_DUPLICATES: [number, number][];
 export const NEAR_MISS_B_ROWS: number[];
-export const C_HEADER: string[];
-export const C_CASES: string[][];

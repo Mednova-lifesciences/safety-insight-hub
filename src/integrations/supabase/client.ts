@@ -62,10 +62,6 @@ function createSupabaseClient(persistSession = true) {
       storage: persistSession && typeof window !== "undefined" ? localStorage : undefined,
       persistSession,
       autoRefreshToken: persistSession,
-      // Its own key for the password-check client: supabase-js names the
-      // browser lock it holds around the session after the storage key, so
-      // sharing the default key made the two clients wait on one lock.
-      ...(persistSession ? {} : { storageKey: "sb-pv-assist-password-check" }),
     },
   });
 }

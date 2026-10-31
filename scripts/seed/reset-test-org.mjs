@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Clears the SYNTHETIC test organisation's line lists, issues, PSURs, E2B
- * assessments, signal-screen decisions and PMS referrals through the REST API (the same as reset-test-org.sql), then
+ * Clears the SYNTHETIC test organisation's line lists, issues, PSURs and E2B
+ * assessments through the REST API (the same as reset-test-org.sql), then
  * reloads the demo PSURs. Refuses any organisation whose name does not say
  * it holds synthetic data only. Configuration and the audit trail are kept.
  *
@@ -37,25 +37,6 @@ for (const table of [
   });
   if (!r.ok) throw new Error(`${table}: ${r.status} ${await r.text()}`);
   console.log(`cleared ${table}`);
-}
-
-// The signal screen's decisions and the post-market surveillance referrals.
-// Only the screen's own rows in pv_signals (source LINE_LIST); a table that
-// does not exist yet (migration not applied) is skipped, not an error.
-for (const [table, filter] of [
-  ["pv_signals", "&data->>source=eq.LINE_LIST"],
-  ["pv_pms_referrals", ""],
-]) {
-  const r = await fetch(`${url}/rest/v1/${table}?organization_id=eq.${org.id}${filter}`, {
-    method: "DELETE",
-    headers,
-  });
-  if (r.status === 404) {
-    console.log(`skipped ${table} (not created yet)`);
-    continue;
-  }
-  if (!r.ok) throw new Error(`${table}: ${r.status} ${await r.text()}`);
-  console.log(`cleared ${table}${filter ? " (signal screen rows)" : ""}`);
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));

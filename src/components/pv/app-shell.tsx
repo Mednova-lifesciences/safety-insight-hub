@@ -199,12 +199,6 @@ export const NAV: NavGroup[] = [
         permission: "audit.view.all",
         hiddenForRoles: ASSESSOR_ROLES,
       },
-      {
-        to: "/signal-screen",
-        label: "Signal screening",
-        icon: Radar,
-        permission: "signal.screen",
-      },
       { to: "/ai-log", label: "AI data log", icon: ShieldCheck, permission: "ai_log.view" },
       { to: "/notifications", label: "Notifications", icon: Bell },
     ],
