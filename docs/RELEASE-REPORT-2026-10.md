@@ -294,3 +294,13 @@ The full `e2e/run-all.sh` ran on production for every role, from a reset test or
   - Across the day's production and preview runs, the screen loaded in **0.6–1.7 s** in most runs, and over 3 s only on the two runs where everything was slow (3.7 s once, and this run).
   - About 1–1.4 s of each figure is opening the page itself.
   - Treat the 3 s target as met on a normal connection, not guaranteed on a slow one.
+
+### Second final production run (31 Oct 2026, same code)
+
+- **Every flow passed for every role,** with isolation 45/45 and 0 console errors, except one timing check.
+- **Signal screen load:** 2.1 s / 1.0 s / **6.2 s** (officer / evaluator / peer). Of the peer's 6.2 s, 4.3 s passed between the sidebar click and the page starting to fetch its data. The data load itself took about 1.9 s.
+- **The test laptop had only 230–370 MB of free memory during this run.** The overrun is the test machine: on runs with normal memory the screen loads in 0.6–1.7 s.
+- **Still open:**
+  - a clean confirmation run on a machine with free memory;
+  - the six backend pytest files, which need a backend connected to the live database and are not limited to the test org, so they were not run;
+  - a second "before" baseline, which would mean redeploying the old code.
