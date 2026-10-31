@@ -188,7 +188,15 @@ function CandidateCard({
         <Stat label="ROR" value={num(pair.ror.value)} sub={`95% CI ${ci(pair.ror)}`} />
         <Stat label="χ² (Yates)" value={pair.chiSquare.toFixed(2)} />
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">
+      <p className="mt-2 text-sm text-foreground">
+        In plain terms: {pair.reaction} is reported{" "}
+        <span className="font-semibold">
+          {pair.prr.value >= 10 ? Math.round(pair.prr.value) : pair.prr.value.toFixed(1)} times
+        </span>{" "}
+        as often with {pair.product} as with the other products in the pool. That is a reason to
+        look at these cases, not evidence that {pair.product} causes it.
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
         2×2: a {pair.a} · b {pair.b} · c {pair.c} · d {pair.d}
         {pair.corrected ? " — a cell was zero, so 0.5 was added to every cell for the ratios" : ""}
       </p>
