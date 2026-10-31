@@ -335,7 +335,7 @@ No shared step got meaningfully slower. The only increase over 2 s is the PSUR A
 
 ### Backend smoke scripts not run
 
-Six of the seven `requests`-based scripts at the repo root (`test_api.py`, `test_e2e.py`, `test_phase1_complete.py`, `test_phase24/25/26.py`; `test_validation.py` is the seventh) are early-phase smoke scripts. They are not part of the 82-test backend pytest suite, which passes.
+The seven `requests`-based scripts at the repo root (`test_api.py`, `test_e2e.py`, `test_phase1_complete.py`, `test_phase24/25/26.py`, `test_validation.py`) are early-phase smoke scripts that drive a running backend. They are not part of the 82-test backend pytest suite, which passes.
 - **Five of them sign in as `demo@example.com`**, which does not exist on the live project, so they would fail at sign-in.
 - **`test_api.py` and `test_phase1_complete.py` sign up new users and organisations in live production auth.** That breaks the test-org-only rule, so they were not run.
 
