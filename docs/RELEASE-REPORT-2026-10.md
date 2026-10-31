@@ -280,3 +280,17 @@ Tested on the Vercel preview first; then the full `e2e/run-all.sh` passed on pro
 **Testing:**
 - **#109–#111:** each passed a full `e2e/run-all.sh` on the Vercel preview with 0 failures before merging.
 - **Production after #111:** line lists A, B and C, E2B, duplicates, flags, the referral and the signal screen passed (0.7–1.3 s). The run was then stopped by Claude Code for low memory on the test machine, during the PSUR section, which these changes do not touch. The PSUR section passed in full on production earlier the same day.
+
+## Final production run (31 Oct 2026, after PRs #109–#112)
+
+The full `e2e/run-all.sh` ran on production for every role, from a reset test organisation with the seed loaded:
+
+- **Line lists A, B and C:** Fix (3 → 0), Undo / Re-apply, Keep / Drop / Hold, the three downloads, VigiFlow preflight, C.1.7 and the E2B XML: passed.
+- **Features:** duplicates (6 pairs, Not a duplicate, Drop as duplicate), the flags with pattern notes, the PMS referral and its note, the Monitor decision, and the AI data log: passed.
+- **PSUR:** upload and AI screening, 16 checks, signed outcome, AI review with dismiss / accept and Run Full Fix, sections, memo inputs, sign-off, countersign and all five reports: passed.
+- **Isolation (two organisations):** 45/45. **Console errors:** 0.
+- **Signal screen load:** **2.4 s / 4.1 s / 3.0 s** (officer / evaluator / peer), so two roles were over the 3 s limit on this run.
+  - The whole run was slower than usual: validation 49 s (23–34 s on other runs); opening the line-list page 4.4 s (about 1.5 s); peer countersign 9.5 s (about 4 s).
+  - Across the day's production and preview runs, the screen loaded in **0.6–1.7 s** in most runs, and over 3 s only on the two runs where everything was slow (3.7 s once, and this run).
+  - About 1–1.4 s of each figure is opening the page itself.
+  - Treat the 3 s target as met on a normal connection, not guaranteed on a slow one.
