@@ -183,11 +183,14 @@ async function main() {
       const label = (await fixBtn.count()) ? await fixBtn.first().innerText() : "";
       return Number(label.match(/\((\d+)\)/)?.[1] ?? 0);
     };
-    await step("coded: Fix corrects the fixable issues", async () => {
+    // Every one is an easy correction a rule settles: a stray asterisk in a
+    // batch, "Serius", "Mnths", a letter O in a date, a five-digit year and
+    // a death marked non-serious. Fix must clear them all.
+    await step("coded: Fix corrects every fixable issue", async () => {
       await fixBtn.waitFor({ timeout: 60000 });
       const before = await fixable();
       console.log(`  fixable before Fix: ${before}`);
-      if (before < 3) throw new Error(`expected at least 3 fixable issues, saw ${before}`);
+      if (before < 6) throw new Error(`expected at least 6 fixable issues, saw ${before}`);
       await L.expectNewToast(
         officer,
         /corrected|Nothing Fix could|Fix failed/,
@@ -199,7 +202,7 @@ async function main() {
       await officer.waitForTimeout(2000);
       const after = await fixable();
       console.log(`  fixable after Fix: ${after}`);
-      if (after >= before) throw new Error(`Fix corrected nothing (${before} → ${after})`);
+      if (after !== 0) throw new Error(`Fix left ${after} of ${before} fixable issues`);
     });
 
     // Decisions go through a case's own row; the duplicated EPID has two.
