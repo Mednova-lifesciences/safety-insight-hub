@@ -56,6 +56,19 @@ describe("codebook discovery -> resolution — real Ondo legend, explicit per-va
     expect(errors.some((e) => e.code === "E2B-OUTCOME-NOT-MAPPABLE")).toBe(false);
   });
 
+  it("outcome '4' resolves to death — the legend's closing '(insert appropriate number in column)' is not part of 'Died'", async () => {
+    const runtime = ondoRuntimeProfile();
+    const { pvCase } = await mapSourceRecordToPVCase(
+      { reaction: "19", product: "MR", outcome: "4", patient_identifier: "A B" },
+      runtime,
+      UNCONFIRMED_DEFAULT_CONFIG,
+      context,
+      providers,
+    );
+    expect(pvCase.reactions[0]!.outcome).toBe("FATAL");
+    expect(pvCase.reactions[0]!.outcomeResolution?.status).toBe("MAPPED");
+  });
+
   it("outcome '2' decodes to 'Hospitalized' (a real, understood concept) but has NO approved E2B mapping — HUMAN_REVIEW_REQUIRED, never guessed", async () => {
     const runtime = ondoRuntimeProfile();
     const { pvCase } = await mapSourceRecordToPVCase(

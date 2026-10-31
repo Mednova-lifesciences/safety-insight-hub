@@ -3,7 +3,10 @@
 #   reset + PSUR seed -> line lists A, B and C (upload ... E2B XML) -> the
 #   new features (forecast, flags + PMS referral, duplicates, signal screen
 #   as each assessor, AI log) -> PSUR officer/evaluator/
-#   peer + downloads -> two-organisation isolation check.
+#   peer + downloads -> the coded demo line lists (code list, MedDRA,
+#   designations, Fix, Hold/Drop, duplicates across two files, flag +
+#   referral, observed vs expected, signal screen) -> two-organisation
+#   isolation check.
 #
 #   PW_DIR=… CHROME_PATH=… OUT_DIR=… TEST_PASSWORD=… SUPABASE_URL=…
 #   SUPABASE_SERVICE_ROLE_KEY=… SUPABASE_PUBLISHABLE_KEY=… [BASE_URL=…] e2e/run-all.sh
@@ -16,5 +19,6 @@ run "reset test org" node scripts/seed/reset-test-org.mjs
 run "line lists + E2B" env FILE_B=1 FILE_C=1 node e2e/flow-linelist.cjs
 run "new features" env EXPECT_FLAGS=1 node e2e/flow-features.cjs
 run "PSUR" node e2e/flow-psur.cjs
+run "coded line lists" sh -c "node scripts/seed/generate-demo-25.mjs >/dev/null && node e2e/flow-coded.cjs"
 run "organisation isolation" node e2e/rls-check.mjs
 exit $status

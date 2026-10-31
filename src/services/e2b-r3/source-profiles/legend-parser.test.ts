@@ -50,9 +50,29 @@ describe("extractRawMappings — real Ondo legend text, verbatim", () => {
     expect(mappings.find((m) => m.code === "20")!.meaning).toBe("Fever (>=38oC)");
   });
 
-  it("code 28 is 'Others (specify)' (trailing instructional note attached, not fabricated)", () => {
+  it("code 28 is 'Others (specify)': the form's closing note to whoever fills it in is not part of it", () => {
     const mappings = extractRawMappings(REAL_REACTION_LINE);
-    expect(mappings.find((m) => m.code === "28")!.meaning).toContain("Others (specify)");
+    expect(mappings.find((m) => m.code === "28")!.meaning).toBe("Others (specify)");
+  });
+
+  it("keeps a closing parenthesis that is the form's own wording", () => {
+    const mappings = extractRawMappings(
+      "REACTION: 1=Fever, 2=Persistent cries (more than 3 hours), 3=Others (specify)",
+    );
+    expect(mappings.map((m) => m.meaning)).toEqual([
+      "Fever",
+      "Persistent cries (more than 3 hours)",
+      "Others (specify)",
+    ]);
+  });
+
+  it("drops other closing instructions to the form filler too", () => {
+    expect(
+      extractRawMappings("OUTCOME: 1=Recovered, 2=Died (enter the code in the column)")[1]!.meaning,
+    ).toBe("Died");
+    expect(
+      extractRawMappings("OUTCOME: 1=Recovered, 2=Died (Write number in box)")[1]!.meaning,
+    ).toBe("Died");
   });
 
   it("code 23 (Unconsciousness) is present in the real legend — used elsewhere as the 'genuinely unknown' negative-control code is a DIFFERENT number not in this list", () => {
@@ -64,16 +84,16 @@ describe("extractRawMappings — real Ondo legend text, verbatim", () => {
     const mappings = extractRawMappings(REAL_SERIOUS_LINE);
     expect(mappings).toHaveLength(5);
     expect(mappings[0]).toEqual({ code: "1", meaning: "Life treathening" });
-    expect(mappings[4]!.meaning).toContain("Death");
+    expect(mappings[4]!.meaning).toBe("Death");
   });
 
   it("extracts all 4 outcome mappings", () => {
     const mappings = extractRawMappings(REAL_OUTCOME_LINE);
     expect(mappings).toHaveLength(4);
     expect(mappings[0]).toEqual({ code: "1", meaning: "Recovered" });
-    // The trailing instructional note is real source text attached to the
-    // last code, same as reaction code 28 above — not fabricated.
-    expect(mappings.find((m) => m.code === "4")!.meaning).toContain("Died");
+    // "Died", not "Died (insert appropriate number in column)": the note is
+    // to the form filler, and left on it stopped death being recognised.
+    expect(mappings.find((m) => m.code === "4")!.meaning).toBe("Died");
   });
 
   it("never mistakes a decimal number for a code (no false anchor on '0.5')", () => {

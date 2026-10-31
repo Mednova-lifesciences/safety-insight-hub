@@ -67,6 +67,14 @@ export interface RawMapping {
   meaning: string;
 }
 
+/** A note to whoever fills the form in, closing a legend line — "(insert
+ *  appropriate number in column)". It is not part of the last code's
+ *  meaning: left on, "4=Died (insert …)" was not recognised as death and
+ *  needed a person each time. Only a closing parenthesis that starts with
+ *  an instruction verb is taken; "(specify)" or "(more than 3 hours)" is
+ *  the form's own wording and stays. */
+const FORM_INSTRUCTION = /\s*\(\s*(?:insert|enter|write|put|fill)\b[^()]*\)\s*$/i;
+
 /** Extracts every (code, meaning) pair from one legend line's mapping-list
  *  portion. Tolerant of: comma or semicolon between entries, "=" / ":" /
  *  "-" / ". " as the code/meaning separator, multiple mappings run
@@ -86,7 +94,10 @@ export function extractRawMappings(text: string): RawMapping[] {
     const start = anchors[i]!.matchEnd;
     const end = i + 1 < anchors.length ? anchors[i + 1]!.index : normalized.length;
     let meaning = normalized.slice(start, end).trim();
-    meaning = meaning.replace(/[,;]+\s*$/, "").trim();
+    meaning = meaning
+      .replace(FORM_INSTRUCTION, "")
+      .replace(/[,;]+\s*$/, "")
+      .trim();
     if (meaning) results.push({ code: anchors[i]!.code, meaning });
   }
   return results;
