@@ -251,3 +251,12 @@ Measured with `e2e/flow-timing-50.cjs` on `sample-linelist-50-cases.csv` (synthe
 - **The screen compares products within the pool.** It makes no comparison with VigiBase.
 - **Pattern notes and quality signs are rules.** A flag asks a person to look; a referral asks for laboratory testing. Neither is a finding.
 - **Every merge to `main` restarts the backend,** including documentation-only merges, and a review in progress at that moment gets a 502. To avoid this, set Render's Build Filters → Included Paths to `src/server/**`, `src/__init__.py`, `requirements.txt`, `.python-version`, `docs/MedDRA_29_1_English/**` and `mednova-pv-assist/**`.
+
+## Presentation polish (PR #107, 31 Oct 2026)
+
+- **The flags card is ordered for presenting:** possible product quality concerns first, then possible storage or administration errors, then "not yet clear". Within each group, flags with quality warning signs come first.
+- **A summary line above the flags,** for example "8 flags: 2 possible product quality concern · 1 possible storage or administration error · 5 batch or site — not yet clear".
+- **Plain plurals:** "3 facilities · 1 batch".
+- **The signal screen gives each candidate a plain-language reading:** "Syncope is reported 48 times as often with HPV as with the other products in the pool. That is a reason to look at these cases, not evidence that HPV causes it."
+
+Tested on the Vercel preview first; then the full `e2e/run-all.sh` passed on production for every role (0 failures, 0 console errors, isolation 45/45). On that run the signal screen loaded in 0.9–1.4 s.
