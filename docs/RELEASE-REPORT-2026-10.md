@@ -168,3 +168,64 @@ What was set up:
 - **Earlier PSUR attempts on the preview** failed only because of the test-harness bug described above (the PDF re-sent as damaged bytes); the backend log confirmed it.
 
 **Follow-up:** the other long AI steps (`runScientificReview`, `runFullFix`) still save the whole PSUR document. They run before hand-over, so they did not cause this problem, but they can be moved to field-level writes like the pre-fill.
+
+---
+
+# Release 2 (31 Oct 2026): signal screening and quality flags
+
+PR #105, merged 31 Oct 2026 (`dfcf006`), deployed to Vercel production and Render. Both features are for the administrator side only (Review Officer, Evaluator, Peer Reviewer). The other side's **Signal review** page (`/signals`) is unchanged. Rules and statistics only: a person decides, and every action is audited.
+
+## Built
+
+| Feature | What | Where |
+|---|---|---|
+| Signal screening | A disproportionality screen over the kept, de-duplicated cases of every validated line list. Each product–reaction pair gets N, PRR and ROR with 95% CIs, and Yates χ². Candidate rule: N ≥ 3, PRR ≥ 2, χ² ≥ 4. The organisation's MedDRA codings group reaction words. A pool banner gives the number of reports and warns about small numbers below 500 (Uppsala Monitoring Centre, *Drug Safety* 2020;43(5):479–487). Each candidate lists its cases and gives a plain-language reading. A reviewer records Confirmed / Refuted / Monitor with a rationale, which is audited. Labelled "statistical screen, not a confirmed signal". | `/signal-screen` |
+| Quality flags | Each batch/facility flag says what its pattern suggests: one batch at ≥ 2 facilities → possible product quality concern; one facility across batches → possible storage or administration error. It also lists the quality warning signs in its cases: lack of effect, injection-site abscess, unusual product/reaction, missing or odd batch. **Refer to post-market surveillance** stores a referral record (audited) and downloads a Word note; the flag shows its status. Wording: possible quality concern for laboratory testing, never "fake" or "counterfeit". | Evaluator dashboard, `/line-list` |
+| Data | New table `pv_pms_referrals`. Migration `20261030130000`, applied live, with a rollback script. Read and written by the three assessor roles only. | `supabase/` |
+| Seed | File C (`TEST-surveillance-return-C.csv`) holds one clear candidate (HPV × Syncope, 6 reports), pairs under N = 3, batch BCG-0420 at three facilities with abscess and lack-of-effect cases, and OPV at PHC Ilara across three batches. File A gains two report-date typos for Fix to correct. | `scripts/seed/` |
+
+## Fixed
+
+1. **A "Health Facility" column was not read as the reporting facility.** State returns use that heading, so their cases lost the facility: the flags, the duplicates' facility match and the new pattern note all saw "0 facilities".
+2. **The cross-file read could hang indefinitely** in about one production run in six. The whole read is now bounded at 20 s and retried. The password-check client also gets its own storage key, so it no longer shares the main client's session lock.
+3. **The E2E suite never actually ran Fix, Undo or Re-apply.** It looked for the Fix button before the issues had loaded, and file A had nothing Fix could correct anyway. It now does: Fix took the fixable count from 3 to 0 on the preview. It also now checks PSUR accept/dismiss and Run Full Fix, which it did not check before.
+
+## Test results
+
+- **Unit and backend:** vitest 2,219 tests pass. Typecheck clean; lint 0 errors. Backend pytest 82 pass; the test files that call a live API need `requests`, which is not installed on the test machine.
+- **Vercel preview (`preview/e2e`, the same code), full suite for every role:** every check passed in at least one of the last two runs. The two failures in the last run happened while the test machine had 128 MB of free memory:
+  - the Peer Reviewer's signal screen took 6.7 s (1.3 s in the run before);
+  - an assessment memo download timed out (passed in the run before).
+- **Production after the merge:** the isolation check (two organisations) passed 45/45, including the four new referral checks.
+- **Run Full Fix:** it gives every accepted finding an outcome, but it resolves only what the submission supports. In three runs the accepted finding was a missing therapeutic-context section, and it was correctly left unresolved: "the source material provides none of the epidemiological ... values needed". Nothing was invented.
+
+## Timings (ms)
+
+**Before:** production on 31 Oct, before the merge, during a slow-connection period. **After:** the preview with the same code, on a good connection (run 7).
+
+| Action | Before | After |
+|---|---|---|
+| Upload line list A | 19,655 | 12,427 |
+| Validate A | 83,930 | 33,799 |
+| Fix Issues | not run | 5,965 |
+| VigiFlow preflight | 28,178 | 4,581 |
+| E2B XML download | 2,684 | 2,340 |
+| Evaluator flags card | 66,445 | 1,796 |
+| Possible duplicates panel | 7,459 | 2,336 |
+| Signal screen load (officer / evaluator / peer) | — | 1,044 / 1,153 / 1,265 |
+| Referral recorded + note downloaded | — | 3,857 |
+| PSUR upload + AI screening | 50,063 | 39,282 |
+| AI scientific review | 80,495 | 64,053 |
+| Peer countersign | 4,984 | 4,447 |
+
+- **No slowdown was found.** The signal screen stays under its 3 s limit on a good connection.
+- **Single samples:** these timings come from single runs on a test machine whose connection and memory varied widely during the day.
+
+## Limits
+
+- **The pool is small:** about 50 reports in the test organisation, far below 500. The screen says so on every view.
+- **The screen compares products within the pool.** It makes no comparison with VigiBase.
+- **Pattern notes and quality signs are rules.** A flag asks a person to look; a referral asks for laboratory testing. Neither is a finding.
+- **Still to run, when the test machine has memory:**
+  - the 50-case line-list timing on production (`e2e/flow-timing-50.cjs`). The first attempt was stopped by Claude Code after sign-in (9.6 s) and opening the page (3.2 s), because the machine had about 100 MB free;
+  - a final full production run.
