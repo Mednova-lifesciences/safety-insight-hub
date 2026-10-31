@@ -1619,6 +1619,17 @@ export function runValidation(
   // code list defines them, exactly as export will read them.
   const rows = rawRows.map((r) => decodeCodedFields(r, runtimeProfile.fieldCodebooks));
   const issues: LineListIssue[] = [];
+  // The word this file uses for "serious" (its most common spelling), for
+  // a death the file marked non-serious; "Serious" if it never says it.
+  const seriousWord = (() => {
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const v = r.seriousness?.trim();
+      if (v && SERIOUS_TEXT_VALUES.has(normalizeSeriousness(v)))
+        counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+    return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Serious";
+  })();
   const mappedFields = new Set(Object.values(mapping));
   const headerForField = new Map<TargetField, string>();
   for (const [header, field] of Object.entries(mapping)) headerForField.set(field, header);
@@ -1968,13 +1979,14 @@ export function runValidation(
             severity: "HIGH",
             confidence: "HIGH",
             code: "FATAL_OUTCOME_NOT_MARKED_SERIOUS",
-            message: "Outcome is fatal but seriousness is not marked serious.",
+            message: `Outcome is fatal but seriousness is not marked serious. A death is serious by definition (ICH E2A), so Fix writes "${seriousWord}".`,
             value: row.seriousness,
             source: "rule",
             sources: ["rule"],
             issueType: "CROSS_FIELD_CONTRADICTION",
             affectedFields: ["outcome", "seriousness"],
             fixable: true,
+            suggestion: { value: seriousWord, rule: "fatal-outcome-serious", version: "1" },
           });
         }
       }
@@ -2556,6 +2568,23 @@ export async function suggestMedDraTerm(
   return null;
 }
 
+/** Findings that only say a cell is malformed. */
+const MALFORMED_CELL_CODES = new Set(["INVALID_DATE_FORMAT", "UNRECOGNISED_SERIOUSNESS_VALUE"]);
+
+/**
+ * The validation pass and the format rules can both report one malformed
+ * cell ("18/1O/2026" is not a date; the rule reads it as 18/10/2026). When
+ * a rule has a correction for the cell, the bare "malformed" finding says
+ * the same thing with less, so it is left out — one finding per problem.
+ */
+export function withoutSettledDuplicates(issues: LineListIssue[]): LineListIssue[] {
+  const settled = new Set(issues.filter((i) => i.suggestion).map((i) => `${i.row}:${i.column}`));
+  return issues.filter(
+    (i) =>
+      i.suggestion || !MALFORMED_CELL_CODES.has(i.code) || !settled.has(`${i.row}:${i.column}`),
+  );
+}
+
 /**
  * Every deterministic finding for a job: the line list's own data-quality
  * rules plus every E2B(R3)/VigiFlow blocker in its data, from the same
@@ -2577,14 +2606,14 @@ async function computeDeterministicIssues(job: LineListJobRow): Promise<LineList
     ? mergeOrgRegulatoryConfigIntoProfile(jobProfile, orgConfig)
     : jobProfile;
   const ruleIssues = RULE_BASED_DETECTION_ENABLED
-    ? [
+    ? withoutSettledDuplicates([
         ...runValidation(job.columns ?? [], job.mapping ?? {}, job.parsedRows ?? [], profile),
         // Read from the file's own cell text: what the mapped values hide
         // (a stray "'" cleaned on read, a report date never format-checked).
         ...(job.rawRows
           ? formatFindings(job.columns ?? [], job.mapping ?? {}, job.rawRows, profile.country)
           : []),
-      ]
+      ])
     : [];
   if (!job.parsedRows || job.parsedRows.length === 0) return ruleIssues;
   try {

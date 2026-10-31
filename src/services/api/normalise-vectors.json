@@ -659,5 +659,173 @@
     "value": "0,5",
     "expected": null,
     "rule": null
+  },
+  {
+    "field": "onset_date",
+    "value": "18/1O/2026",
+    "expected": "18/10/2026",
+    "rule": "date-letter-for-digit"
+  },
+  {
+    "field": "report_date",
+    "value": "O9/10/2026",
+    "expected": "09/10/2026",
+    "rule": "date-letter-for-digit"
+  },
+  {
+    "field": "vaccination_date",
+    "value": "2l/10/2026",
+    "expected": "21/10/2026",
+    "rule": "date-letter-for-digit"
+  },
+  {
+    "field": "date_of_birth",
+    "value": "2O26-1O-O3",
+    "expected": "2026-10-03",
+    "rule": "date-letter-for-digit"
+  },
+  {
+    "field": "onset_date",
+    "value": "1O/13/2026",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "onset_date",
+    "value": "Oct/10/2026",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "vaccine_batch",
+    "value": "PENTA-5530*",
+    "expected": "PENTA-5530",
+    "rule": "stray-edge-asterisk"
+  },
+  {
+    "field": "vaccine_batch",
+    "value": "*MR-7712",
+    "expected": "MR-7712",
+    "rule": "stray-edge-asterisk"
+  },
+  {
+    "field": "vaccine_batch",
+    "value": "MR*7712",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "seriousness",
+    "value": "Serius",
+    "expected": "Serious",
+    "rule": "seriousness-spelling"
+  },
+  {
+    "field": "seriousness",
+    "value": "SERIUS",
+    "expected": "SERIOUS",
+    "rule": "seriousness-spelling"
+  },
+  {
+    "field": "seriousness",
+    "value": "Seroius",
+    "expected": "Serious",
+    "rule": "seriousness-spelling"
+  },
+  {
+    "field": "seriousness",
+    "value": "Non-serius",
+    "expected": "Non-serious",
+    "rule": "seriousness-spelling"
+  },
+  {
+    "field": "seriousness",
+    "value": "Not serious",
+    "expected": "Non-serious",
+    "rule": "seriousness-spelling"
+  },
+  {
+    "field": "seriousness",
+    "value": "Serious",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "seriousness",
+    "value": "Non serious",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "seriousness",
+    "value": "Yes",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "seriousness",
+    "value": "Curious",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "age_unit",
+    "value": "Mnths",
+    "expected": "Months",
+    "rule": "age-unit-spelling"
+  },
+  {
+    "field": "age_unit",
+    "value": "Weks",
+    "expected": "Weeks",
+    "rule": "age-unit-spelling"
+  },
+  {
+    "field": "age_unit",
+    "value": "YEARZ",
+    "expected": "YEARS",
+    "rule": "age-unit-spelling"
+  },
+  {
+    "field": "age_unit",
+    "value": "Wks",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "age_unit",
+    "value": "Months",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "age_unit",
+    "value": "Mins",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "sex",
+    "value": "Femal",
+    "expected": "Female",
+    "rule": "sex-spelling"
+  },
+  {
+    "field": "sex",
+    "value": "Mael",
+    "expected": "Male",
+    "rule": "sex-spelling"
+  },
+  {
+    "field": "sex",
+    "value": "Male",
+    "expected": null,
+    "rule": null
+  },
+  {
+    "field": "sex",
+    "value": "Fem",
+    "expected": null,
+    "rule": null
   }
 ]

@@ -1,3 +1,4 @@
+import { mapAgeUnit, mapSex } from "@/services/e2b-r3/mapping";
 import { unitForSpelling } from "./linelist-onset";
 
 /**
@@ -63,6 +64,57 @@ const TYPED_FIELDS = [
   "outcome",
   "serious_code",
   "reaction_code",
+] as const;
+
+const DATE_FIELDS = [
+  "vaccination_date",
+  "onset_date",
+  "report_date",
+  "state_received_date",
+  "national_received_date",
+  "date_of_birth",
+] as const;
+
+/** Typing slips between two words: a letter added, missing or wrong, or
+ *  two neighbouring letters swapped, each counting one. */
+function slips(a: string, b: string): number {
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) {
+      d[i]![j] = Math.min(
+        d[i - 1]![j]! + 1,
+        d[i]![j - 1]! + 1,
+        d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+        d[i]![j] = Math.min(d[i]![j]!, d[i - 2]![j - 2]! + 1);
+    }
+  return d[a.length]![b.length]!;
+}
+
+/** Of `choices` (each a group of spellings of one value), the one group
+ *  `written` is within a slip of — two for spellings of eight letters or
+ *  more — or null when no group is, or more than one is. */
+function onlyNear<T>(
+  written: string,
+  choices: readonly (readonly [T, readonly string[]])[],
+): T | null {
+  const near = choices.filter(([, words]) =>
+    words.some((w) => slips(written, w) <= (w.length >= 8 ? 2 : 1)),
+  );
+  return near.length === 1 ? near[0]![0] : null;
+}
+
+const letterWords = (v: string) => v.toLowerCase().replace(/[^a-z]/g, "");
+
+const AGE_UNITS = [
+  ["Days", ["day", "days"]],
+  ["Weeks", ["week", "weeks"]],
+  ["Months", ["month", "months"]],
+  ["Years", ["year", "years"]],
+  ["Hours", ["hour", "hours"]],
 ] as const;
 
 export const NORMALISATION_RULES: readonly NormalisationRule[] = [
@@ -164,6 +216,108 @@ export const NORMALISATION_RULES: readonly NormalisationRule[] = [
       const h = Number(t[1]);
       const ok = (t[4] ? h >= 1 && h <= 12 : h <= 23) && Number(t[2]) <= 59;
       return ok ? { value: out, why: "a letter O typed for a zero in the time" } : null;
+    },
+  },
+  {
+    id: "stray-edge-asterisk",
+    version: "1",
+    fields: TYPED_FIELDS,
+    precondition:
+      "an asterisk at either end of a date, batch, dose, age, sex, outcome or code, and removing it leaves the letters and digits exactly as they were",
+    never: "removes an asterisk inside the value, or any other character",
+    apply: (value) => {
+      const v = value
+        .trim()
+        .replace(/^\*+\s*/, "")
+        .replace(/\s*\*+$/, "");
+      return v && v !== value.trim() && alnum(v) === alnum(value)
+        ? { value: v, why: "a stray asterisk at the edge removed" }
+        : null;
+    },
+  },
+  {
+    id: "date-letter-for-digit",
+    version: "1",
+    fields: DATE_FIELDS,
+    precondition:
+      "a d/m/y or y-m-d date with at least one real digit, in which a letter O stands for 0 or a letter I or l for 1, and replacing them gives a valid day, month and a year from 1900 to next year (or two digits)",
+    never: "changes a digit, or a value that is not then a valid date",
+    apply: (value) => {
+      const v = value.trim();
+      if (!/[OoIl]/.test(v) || !/\d/.test(v)) return null;
+      const part = "[\\dOoIl]";
+      const shape = new RegExp(
+        `^(?:${part}{1,2}([/.-])${part}{1,2}\\1(?:${part}{2}|${part}{4})|${part}{4}([/.-])${part}{1,2}\\2${part}{1,2})$`,
+      );
+      if (!shape.test(v)) return null;
+      const out = v.replace(/[Oo]/g, "0").replace(/[Il]/g, "1");
+      const dmy = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/.exec(out);
+      const ymd = /^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})$/.exec(out);
+      const [d, m, y] = dmy ? [dmy[1], dmy[2], dmy[3]] : ymd ? [ymd[3], ymd[2], ymd[1]] : [];
+      const maxYear = new Date().getFullYear() + 1;
+      const yearOk = y?.length === 2 || (Number(y) >= 1900 && Number(y) <= maxYear);
+      return d &&
+        m &&
+        Number(d) >= 1 &&
+        Number(d) <= 31 &&
+        Number(m) >= 1 &&
+        Number(m) <= 12 &&
+        yearOk
+        ? { value: out, why: "a letter typed for a digit (O for 0, I or l for 1)" }
+        : null;
+    },
+  },
+  {
+    id: "seriousness-spelling",
+    version: "1",
+    fields: ["seriousness"],
+    precondition:
+      "a value the app does not read as serious or non-serious, whose letters are within one typing slip of exactly one of Serious and Non-serious (two for Non-serious), or the phrase 'not serious'",
+    never: "changes a value the app already reads, or turns serious into non-serious or back",
+    apply: (value) => {
+      const l = letterWords(value);
+      if (!l || ["serious", "nonserious", "yes", "no", "y", "n"].includes(l)) return null;
+      const word =
+        l === "notserious"
+          ? "Non-serious"
+          : onlyNear(l, [
+              ["Serious", ["serious"]],
+              ["Non-serious", ["nonserious"]],
+            ] as const);
+      return word ? { value: matchCase(value.trim(), word), why: `read as ${word}` } : null;
+    },
+  },
+  {
+    id: "age-unit-spelling",
+    version: "1",
+    fields: ["age_unit"],
+    precondition:
+      "a unit the app does not read, of two letters or more, within one typing slip of exactly one of days, weeks, months, years or hours",
+    never: "changes a unit the app already reads, or guesses between two units",
+    apply: (value) => {
+      if (mapAgeUnit(value)) return null;
+      const l = letterWords(value);
+      if (l.length < 2) return null;
+      const unit = onlyNear(l, AGE_UNITS);
+      return unit ? { value: matchCase(value.trim(), unit), why: `read as ${unit}` } : null;
+    },
+  },
+  {
+    id: "sex-spelling",
+    version: "1",
+    fields: ["sex"],
+    precondition:
+      "a value the app does not read as a sex, within one typing slip of exactly one of Male and Female",
+    never: "changes a value the app already reads, or turns one sex into the other",
+    apply: (value) => {
+      if (mapSex(value)) return null;
+      const l = letterWords(value);
+      if (l.length < 3) return null;
+      const sex = onlyNear(l, [
+        ["Male", ["male"]],
+        ["Female", ["female"]],
+      ] as const);
+      return sex ? { value: matchCase(value.trim(), sex), why: `read as ${sex}` } : null;
     },
   },
   {
