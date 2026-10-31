@@ -20,6 +20,10 @@
 const path = require("node:path");
 const L = require("./lib.cjs");
 
+// Persistent crying, as the file words it or, once its MedDRA suggestion
+// has been accepted, as the MedDRA term the screen then groups it under.
+const CRYING = /Persistent cries|Crying/;
+
 const SEED = path.join(__dirname, "..", "scripts", "seed", "out");
 const DEMO = path.join(SEED, "DEMO-ondo-aefi-line-list-25-cases.xlsx");
 const LGA = path.join(SEED, "DEMO-ondo-aefi-lga-return-8-cases.xlsx");
@@ -67,7 +71,40 @@ async function uploadCoded(page, file) {
   await L.waitNoLoading(page);
 }
 
+/** Earlier copies of the two demo files, from a run that stopped part-way,
+ *  would each be found as a duplicate of the new upload. Test org only. */
+async function removeEarlierCopies() {
+  const url = process.env.SUPABASE_URL.replace(/\/$/, "");
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const headers = { apikey: key, Authorization: `Bearer ${key}` };
+  const [org] = await (
+    await fetch(`${url}/rest/v1/organizations?slug=eq.mednova-test-a&select=id,name`, { headers })
+  ).json();
+  if (!org || !/synthetic data only/i.test(org.name)) throw new Error("test org not found");
+  let removed = 0;
+  for (const file of [DEMO, LGA]) {
+    const jobs = await (
+      await fetch(
+        `${url}/rest/v1/pv_linelist_jobs?organization_id=eq.${org.id}&data->>filename=eq.${encodeURIComponent(path.basename(file))}&select=id`,
+        { headers },
+      )
+    ).json();
+    for (const j of jobs) {
+      for (const table of ["pv_linelist_issues", "pv_linelist_jobs"]) {
+        const col = table === "pv_linelist_jobs" ? "id" : "job_id";
+        await fetch(`${url}/rest/v1/${table}?organization_id=eq.${org.id}&${col}=eq.${j.id}`, {
+          method: "DELETE",
+          headers,
+        });
+      }
+      removed++;
+    }
+  }
+  console.log(`  earlier copies of the demo files removed: ${removed}`);
+}
+
 async function main() {
+  await removeEarlierCopies();
   const browser = await L.launch();
   try {
     // ---- Review Officer: the 25-case coded demo ----
@@ -112,12 +149,24 @@ async function main() {
       await officer.goto(`${L.BASE_URL}/settings`, { waitUntil: "domcontentloaded" });
       const section = officer.locator("#reporter-designations");
       await section.waitFor({ timeout: 60000 });
-      for (const d of ["Nursing Sister", "RN/RM", "SMO", "Pharm. Tech", "Mother of child"]) {
-        const row = section.locator("tr, li, div").filter({ hasText: d }).last();
-        await row.waitFor({ timeout: 30000 });
-        if (!(await row.getByText("Not configured").count()))
-          throw new Error(`"${d}" is not shown as Not configured`);
+      await section.getByText("Not configured").first().waitFor({ timeout: 60000 });
+      // The list is paged, ten to a page: read every page.
+      let text = "";
+      for (let page = 1; page <= 5; page++) {
+        text += `\n${await section.innerText()}`;
+        const next = section.getByRole("button", { name: "Next" });
+        if (!(await next.count()) || (await next.isDisabled())) break;
+        await next.click();
+        await officer.waitForTimeout(800);
       }
+      const want = ["Nursing Sister", "RN/RM", "SMO", "Pharm. Tech", "Mother of child"];
+      const missing = want.filter(
+        (d) =>
+          !new RegExp(
+            `${d.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}\\s+Rename\\s+Not configured`,
+          ).test(text),
+      );
+      if (missing.length) throw new Error(`not listed as Not configured: ${missing.join(", ")}`);
     });
 
     await L.nav(officer, "Line-list processing", /^Line-list processing$/);
@@ -270,29 +319,39 @@ async function main() {
       await L.shot(evaluator, "coded-flag");
     });
     await step("coded: refer MR-7712 to post-market surveillance", async () => {
-      await mr().getByRole("button", { name: "Refer to post-market surveillance" }).click();
-      await mr()
-        .locator("textarea")
-        .fill("E2E demo: 3 serious cases at 3 facilities, one vaccine failure.");
-      await L.download(
-        evaluator,
-        () => mr().getByRole("button", { name: "Record referral and download note" }).click(),
-        "referral-MR-7712.docx",
-      );
+      // A run stopped part-way may already have referred it: then only the
+      // note is downloaded again.
+      if (
+        await mr()
+          .getByText(/Referred to PMS/)
+          .count()
+      ) {
+        console.log("  (already referred)");
+        await L.download(
+          evaluator,
+          () => mr().getByRole("button", { name: "Download referral note" }).click(),
+          "referral-MR-7712.docx",
+        );
+      } else {
+        await mr().getByRole("button", { name: "Refer to post-market surveillance" }).click();
+        await mr()
+          .locator("textarea")
+          .fill("E2E demo: 3 serious cases at 3 facilities, one vaccine failure.");
+        await L.download(
+          evaluator,
+          () => mr().getByRole("button", { name: "Record referral and download note" }).click(),
+          "referral-MR-7712.docx",
+        );
+      }
       await mr()
         .getByText(/Referred to PMS · PMS-\d{4}-\d{4}/)
         .waitFor({ timeout: 60000 });
     });
     await step("coded: observed vs expected counts the coded febrile seizure", async () => {
       await L.nav(evaluator, "Dashboard", /Scientific review queue/);
-      const card = evaluator
-        .locator("section, div")
-        .filter({
-          has: evaluator.getByText("Observed vs expected (screening check)", { exact: true }),
-        })
-        .last();
-      await card.scrollIntoViewIfNeeded();
-      await card.getByRole("combobox").first().click();
+      const pick = evaluator.getByRole("combobox", { name: "Vaccine and event" });
+      await pick.scrollIntoViewIfNeeded();
+      await pick.click();
       await evaluator.getByRole("option", { name: /Febrile seizures/ }).click();
       await evaluator.getByLabel("Doses administered").fill("50000");
       await evaluator.getByRole("button", { name: /Run check/ }).click();
@@ -308,7 +367,7 @@ async function main() {
       const penta = evaluator
         .locator("li[data-e2e-candidate]")
         .filter({ hasText: "Pentavalent" })
-        .filter({ hasText: "Persistent cries" })
+        .filter({ hasText: CRYING })
         .first();
       await penta.waitFor({ timeout: 60000 });
       await penta
@@ -321,8 +380,12 @@ async function main() {
       const penta = evaluator
         .locator("li[data-e2e-candidate]")
         .filter({ hasText: "Pentavalent" })
-        .filter({ hasText: "Persistent cries" })
+        .filter({ hasText: CRYING })
         .first();
+      if (await penta.getByText("Accepted as a signal", { exact: true }).count()) {
+        console.log("  (already accepted)");
+        return;
+      }
       await penta.getByRole("button", { name: /Accept as a signal/ }).click();
       await penta
         .locator("textarea")
