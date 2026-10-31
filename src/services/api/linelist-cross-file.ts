@@ -94,24 +94,23 @@ export function loadValidatedCases(): Promise<LoadedJob[]> {
 }
 
 async function readValidatedCases(): Promise<LoadedJob[]> {
+  // The organisation's settings are read at the same time as the jobs, not
+  // after them: one round trip less on every load of the cross-file panels
+  // and the signal screen. A config read that never comes back, or fails,
+  // is treated as none, as before.
+  const configRead = Promise.race([
+    regulatoryConfig.get(),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), LOAD_TIMEOUT_MS / 2)),
+  ]).catch(() => null);
   const { data, error } = await supabase
     .from("pv_linelist_jobs")
     .select(selectDataFields(FIELDS))
     .in("data->>stage", ["VALIDATED", "E2B_GENERATED"])
     // A request lost on a poor connection would otherwise never settle and
-    // leave the panel loading for good; it fails after 30 s and is retried.
+    // leave the panel loading for good; it fails after 20 s and is retried.
     .abortSignal(AbortSignal.timeout(LOAD_TIMEOUT_MS));
   if (error) throw new Error(error.message);
-  let orgConfig = null;
-  try {
-    // Same rule: a config read that never comes back is treated as none.
-    orgConfig = await Promise.race([
-      regulatoryConfig.get(),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), LOAD_TIMEOUT_MS / 2)),
-    ]);
-  } catch {
-    orgConfig = null;
-  }
+  const orgConfig = await configRead;
   return ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
     const job = fromDataFields<
       Parameters<typeof readRowsWithSeriousness>[0] & {
