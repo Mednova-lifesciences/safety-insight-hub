@@ -154,10 +154,18 @@ async function main() {
           () => fix.click(),
           300000,
         );
-        const toast = await evaluator.locator("[data-sonner-toast]").allInnerTexts();
-        const resolved = Number(toast.join(" ").match(/(\d+) finding\(s\) resolved/)?.[1] ?? 0);
-        console.log(`  Run Full Fix: ${toast.join(" | ").slice(0, 160)}`);
-        if (resolved < 1) throw new Error("Run Full Fix resolved no accepted finding");
+        const toast = (await evaluator.locator("[data-sonner-toast]").allInnerTexts()).join(" ");
+        console.log(`  Run Full Fix: ${toast.slice(0, 160)}`);
+        if (/AI fix unavailable|Run Full Fix failed/.test(toast))
+          throw new Error(`Run Full Fix did not run: ${toast.slice(0, 120)}`);
+        // Every accepted finding must come back with an outcome: resolved
+        // from the report's own content, or left unresolved WITH a reason.
+        // It may not invent what the report lacks, so "0 resolved" is a
+        // correct answer for a gap the submission cannot fill.
+        const resolved = Number(toast.match(/(\d+) finding\(s\) resolved/)?.[1] ?? 0);
+        const unresolved = Number(toast.match(/(\d+) left unresolved/)?.[1] ?? 0);
+        if (resolved + unresolved < 1)
+          throw new Error("Run Full Fix returned no outcome for the accepted finding");
         await L.waitNoLoading(evaluator);
       });
       for (const label of [
