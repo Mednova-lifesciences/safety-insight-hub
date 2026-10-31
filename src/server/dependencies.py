@@ -3,6 +3,7 @@ Authentication and authorization dependencies
 """
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import asyncio
 import hashlib
 import httpx
 import os
@@ -80,6 +81,13 @@ def forget_cached_identities() -> None:
     _identity_cache.clear()
 
 
+# A token being verified right now, by digest. Requests that arrive while it
+# is (a line list's MedDRA look-ups, sent together) wait for that one answer
+# instead of each verifying the same token again: measured on Render, nine
+# at once took five seconds each, against a quarter-second once verified.
+_identity_in_flight: "dict[str, asyncio.Future]" = {}
+
+
 async def _verify_token_with_supabase(token: str) -> httpx.Response:
     """Asks Supabase whether this token is valid, retrying a transport
     failure once.
@@ -128,6 +136,32 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         _note_caller(remembered)
         return remembered
 
+    key = _token_key(token)
+    pending = _identity_in_flight.get(key)
+    if pending is not None:
+        user = await asyncio.shield(pending)
+        _note_caller(user)
+        return user
+
+    future: asyncio.Future = asyncio.get_running_loop().create_future()
+    _identity_in_flight[key] = future
+    try:
+        user = await _verified_identity(token)
+    except BaseException as error:
+        future.set_exception(error)
+        # Retrieved here so a token nobody else was waiting on does not log
+        # "exception was never retrieved"; waiters still receive it.
+        future.exception()
+        raise
+    else:
+        future.set_result(user)
+        return user
+    finally:
+        _identity_in_flight.pop(key, None)
+
+
+async def _verified_identity(token: str) -> AuthenticatedUser:
+    """Asks Supabase who this token belongs to and loads their profile."""
     # Verify token with Supabase
     try:
         response = await _verify_token_with_supabase(token)
