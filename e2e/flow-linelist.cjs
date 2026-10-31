@@ -139,6 +139,9 @@ async function main() {
       const caseRow = (id) => page.locator("tr").filter({ hasText: id }).first();
       const openMenu = async (id) => {
         await settle();
+        // Centre the row first: scrolled only just into view it can sit
+        // under the sticky top bar, which then takes the click.
+        await caseRow(id).evaluate((el) => el.scrollIntoView({ block: "center" }));
         await caseRow(id).getByRole("button", { name: "Decide this case" }).click();
       };
       const pill = (id, text) =>

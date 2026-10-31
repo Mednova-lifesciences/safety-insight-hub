@@ -994,6 +994,10 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["facilityname", 85],
     ["institutionname", 85],
     ["nameoffacility", 85],
+    // "Health Facility" — the usual heading on state AEFI returns. Weighted
+    // below the facility's LGA/city keywords (88), so "Health Facility LGA"
+    // stays a location; an address heading is excluded by tabular-parse.
+    ["healthfacility", 80],
   ],
   // C.2.r.2.4 / C.2.r.2.5 — reporter-qualified spellings only. A bare
   // "City", "State" or "LGA" column is deliberately left to the AI
