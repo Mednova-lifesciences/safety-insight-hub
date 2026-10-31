@@ -193,39 +193,61 @@ PR #105, merged 31 Oct 2026 (`dfcf006`), deployed to Vercel production and Rende
 ## Test results
 
 - **Unit and backend:** vitest 2,219 tests pass. Typecheck clean; lint 0 errors. Backend pytest 82 pass; the test files that call a live API need `requests`, which is not installed on the test machine.
-- **Vercel preview (`preview/e2e`, the same code), full suite for every role:** every check passed in at least one of the last two runs. The two failures in the last run happened while the test machine had 128 MB of free memory:
-  - the Peer Reviewer's signal screen took 6.7 s (1.3 s in the run before);
-  - an assessment memo download timed out (passed in the run before).
-- **Production after the merge:** the isolation check (two organisations) passed 45/45, including the four new referral checks.
+- **Production after the merge: full `e2e/run-all.sh` for every role passed with 0 failures and 0 console errors** (31 Oct 2026, from a reset test organisation with the seed loaded):
+  - line lists A, B and C: upload, mapping, validate, **Fix (2 → 0 fixable)**, Undo / Re-apply, Keep / Drop / Hold, the three downloads, then VigiFlow preflight, C.1.7 and the E2B XML;
+  - duplicates (6 pairs, Not a duplicate, Drop as duplicate), batch/facility flags with the BCG-0420 pattern note, and a PMS referral with its note downloaded;
+  - the signal screen as Review Officer, Evaluator and Peer Reviewer (one candidate, the small-numbers banner, the pair under N = 3), with a Monitor decision seen by the Peer Reviewer;
+  - PSUR forecast and observed vs expected;
+  - PSUR: upload and AI screening, 16 checks, signed outcome, AI review with findings, dismiss and accept, Run Full Fix, sections, memo inputs, evaluator sign-off, peer countersign, and all five reports;
+  - the AI data log;
+  - isolation between two organisations: 45/45, including referrals.
+- **Render logs** from the deploy to the end of the run: no errors and no server failures; only the routine model-temperature retry warning.
+- **On the Vercel preview first:** every check passed in at least one of the last two full runs. The two failures in the last run happened while the test machine had 128 MB of free memory, and both passed on production.
 - **Run Full Fix:** it gives every accepted finding an outcome, but it resolves only what the submission supports. In three runs the accepted finding was a missing therapeutic-context section, and it was correctly left unresolved: "the source material provides none of the epidemiological ... values needed". Nothing was invented.
 
 ## Timings (ms)
 
-**Before:** production on 31 Oct, before the merge, during a slow-connection period. **After:** the preview with the same code, on a good connection (run 7).
+**Before:** production on 31 Oct, before the merge, during a slow-connection period. **After:** production after the merge, in the final full run.
 
 | Action | Before | After |
 |---|---|---|
-| Upload line list A | 19,655 | 12,427 |
-| Validate A | 83,930 | 33,799 |
-| Fix Issues | not run | 5,965 |
-| VigiFlow preflight | 28,178 | 4,581 |
-| E2B XML download | 2,684 | 2,340 |
-| Evaluator flags card | 66,445 | 1,796 |
-| Possible duplicates panel | 7,459 | 2,336 |
-| Signal screen load (officer / evaluator / peer) | — | 1,044 / 1,153 / 1,265 |
-| Referral recorded + note downloaded | — | 3,857 |
-| PSUR upload + AI screening | 50,063 | 39,282 |
-| AI scientific review | 80,495 | 64,053 |
-| Peer countersign | 4,984 | 4,447 |
+| Upload line list A | 19,655 | 12,350 |
+| Validate A | 83,930 | 23,134 |
+| Fix Issues | not run | 6,440 |
+| VigiFlow preflight | 28,178 | 5,005 |
+| E2B XML download | 2,684 | 2,456 |
+| Evaluator flags card | 66,445 | 7,753 |
+| Possible duplicates panel | 7,459 | 2,513 |
+| Signal screen load (officer / evaluator / peer) | — | 1,247 / 534 / 1,383 |
+| Referral recorded + note downloaded | — | 1,850 |
+| PSUR upload + AI screening | 50,063 | 40,319 |
+| AI scientific review | 80,495 | 54,264 |
+| Signed screening outcome | 18,972 | 3,453 |
+| Peer countersign | 4,984 | 4,126 |
 
-- **No slowdown was found.** The signal screen stays under its 3 s limit on a good connection.
-- **Single samples:** these timings come from single runs on a test machine whose connection and memory varied widely during the day.
+No action got slower, and the signal screen loads well under its 3 s limit. These are single samples from a test machine whose connection varied during the day; the "before" run was taken on a slow connection.
+
+### A 50-case line list on production
+
+Measured with `e2e/flow-timing-50.cjs` on `sample-linelist-50-cases.csv` (synthetic), as the Review Officer, three runs:
+
+| Step | Run 1 | Run 2 | Run 3 | Median |
+|---|---|---|---|---|
+| Upload 50 cases | 43,860 | 11,144 | 10,166 | **11,144** |
+| Validate 50 cases (AI + rules) | 111,596 | 71,783 | 60,779 | **71,783** |
+| Download fixed CSV | 1,496 | 1,722 | 1,158 | 1,496 |
+| Open page → fixed CSV | 180,219 | 107,037 | 93,881 | **107,037** |
+
+- **About 1 minute 47 seconds (median)** from opening the page to the fixed CSV. Validation, which includes the AI pass, is most of it. The first run is slower each time.
+- **Accuracy:** in every run, all 50 cases were stored with the file's case IDs in the file's order. Validation's findings match the file:
+  - 4 blank seriousness cells (OG-925, OG-931, OG-945, OG-949), the anaphylaxis case OG-931 marked high;
+  - 1 cell with two vaccines (OG-913, "Penta + OPV");
+  - 3 outcome words, 11 reaction words and 31 reporter titles for a person to map once.
+- **Fix had nothing to correct** in this file: every finding is a decision for a person.
 
 ## Limits
 
 - **The pool is small:** about 50 reports in the test organisation, far below 500. The screen says so on every view.
 - **The screen compares products within the pool.** It makes no comparison with VigiBase.
 - **Pattern notes and quality signs are rules.** A flag asks a person to look; a referral asks for laboratory testing. Neither is a finding.
-- **Still to run, when the test machine has memory:**
-  - the 50-case line-list timing on production (`e2e/flow-timing-50.cjs`). The first attempt was stopped by Claude Code after sign-in (9.6 s) and opening the page (3.2 s), because the machine had about 100 MB free;
-  - a final full production run.
+- **Every merge to `main` restarts the backend,** including documentation-only merges, and a review in progress at that moment gets a 502. To avoid this, set Render's Build Filters → Included Paths to `src/server/**`, `src/__init__.py`, `requirements.txt`, `.python-version`, `docs/MedDRA_29_1_English/**` and `mednova-pv-assist/**`.
