@@ -260,3 +260,23 @@ Measured with `e2e/flow-timing-50.cjs` on `sample-linelist-50-cases.csv` (synthe
 - **The signal screen gives each candidate a plain-language reading:** "Syncope is reported 48 times as often with HPV as with the other products in the pool. That is a reason to look at these cases, not evidence that HPV causes it."
 
 Tested on the Vercel preview first; then the full `e2e/run-all.sh` passed on production for every role (0 failures, 0 console errors, isolation 45/45). On that run the signal screen loaded in 0.9–1.4 s.
+
+## Follow-ups (PRs #109–#111, 31 Oct 2026)
+
+- **#109: signal candidates you can read and act on.** Each candidate now reads, in order:
+  - **What this is about:** "6 reports of Syncope after HPV. In this pool, Syncope is reported 48 times as often…";
+  - **Where it comes from:** one row per line list, with its cases (case ID and row) and an *Open this line list* button;
+  - **The statistics;**
+  - **Your decision:** *Accept as a signal*, *Decline: not a signal* or *Keep monitoring*, each with one line on what it means; a reason is required and audited.
+  
+  The page also waits for recorded decisions before drawing candidates, so a decided candidate no longer flashes "Awaiting review".
+- **#110: a faster load.** The cross-file read (signal screen, flags, duplicates, observed vs expected) now fetches the organisation's settings alongside the line lists instead of after them. The Peer Reviewer's first load had reached 3.7 s; since then the screen has loaded in 0.7–1.7 s on production.
+- **#111: stable flag labels.** A flag took its label from whichever file was read first, so batch PCV-7781 sometimes showed as "PCV 7781". It now uses the spelling most of its cases use.
+- **The E2E tests:**
+  - log the Supabase requests of a slow dashboard visit;
+  - wait for the page to settle after Re-apply before opening a case's menu, and reopen the menu if the redraw closes it;
+  - fall back to the keyboard if a pointer click is blocked.
+
+**Testing:**
+- **#109–#111:** each passed a full `e2e/run-all.sh` on the Vercel preview with 0 failures before merging.
+- **Production after #111:** line lists A, B and C, E2B, duplicates, flags, the referral and the signal screen passed (0.7–1.3 s). The run was then stopped by Claude Code for low memory on the test machine, during the PSUR section, which these changes do not touch. The PSUR section passed in full on production earlier the same day.

@@ -139,20 +139,36 @@ async function main() {
       const caseRow = (id) => page.locator("tr").filter({ hasText: id }).first();
       const openMenu = async (id) => {
         await settle();
-        // Centre the row first: scrolled only just into view it can sit
-        // under the sticky top bar, which then takes the click.
-        await caseRow(id).evaluate((el) => el.scrollIntoView({ block: "center" }));
-        const btn = caseRow(id).getByRole("button", { name: "Decide this case" });
-        try {
-          await btn.click({ timeout: 15000 });
-        } catch (e) {
-          // Say why the pointer could not click, then open the menu the way
-          // a keyboard user does.
-          const why = e.message.split(/\r?\n/).slice(0, 6).join(" | ");
-          console.log(`  (pointer click on ${id} blocked: ${why})`);
-          await btn.focus();
-          await page.keyboard.press("Enter");
+        // Let the page finish re-reading after the last action (Fix, Undo,
+        // Re-apply): that re-read redraws the table and closes a menu that
+        // was opened during it.
+        await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          // Centre the row: scrolled only just into view it can sit under
+          // the sticky top bar, which then takes the click.
+          await caseRow(id).evaluate((el) => el.scrollIntoView({ block: "center" }));
+          const btn = caseRow(id).getByRole("button", { name: "Decide this case" });
+          try {
+            await btn.click({ timeout: 15000 });
+          } catch (e) {
+            // Say why the pointer could not click, then open the menu the
+            // way a keyboard user does.
+            const why = e.message.split("\n").slice(0, 6).join(" | ");
+            console.log(`  (pointer click on ${id} blocked: ${why})`);
+            await btn.focus();
+            await page.keyboard.press("Enter");
+          }
+          const opened = await page
+            .getByRole("menuitem")
+            .first()
+            .waitFor({ timeout: 5000 })
+            .then(() => true)
+            .catch(() => false);
+          if (opened) return;
+          console.log(`  (menu for ${id} closed before use; opening it again)`);
+          await page.waitForTimeout(2000);
         }
+        throw new Error(`the decision menu for ${id} would not stay open`);
       };
       const pill = (id, text) =>
         caseRow(id).getByText(text, { exact: true }).waitFor({ timeout: 60000 });
