@@ -212,7 +212,7 @@ async function main() {
       }
       await step("signal screen: evaluator records Monitor", async () => {
         const candidate = evaluator.locator("li[data-e2e-candidate]").first();
-        await candidate.getByRole("button", { name: /Monitor/ }).click();
+        await candidate.getByRole("button", { name: /Keep monitoring/ }).click();
         await candidate
           .locator("textarea")
           .fill("E2E (synthetic): school-age vaccination syncope; monitor at the next screen.");
@@ -224,7 +224,7 @@ async function main() {
       await step("signal screen: peer sees the Monitor decision", async () => {
         await peer.reload({ waitUntil: "domcontentloaded" });
         const candidate = peer.locator("li[data-e2e-candidate]").first();
-        await candidate.getByText("Recorded rationale").waitFor({ timeout: 60000 });
+        await candidate.getByText("Decision recorded").waitFor({ timeout: 60000 });
         await candidate.getByText("Monitor", { exact: true }).first().waitFor();
       });
     }

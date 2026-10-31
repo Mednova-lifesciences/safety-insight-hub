@@ -57,6 +57,19 @@ export const Route = createFileRoute("/_app/signal-screen")({
   ),
 });
 
+/** What each decision button says, and what choosing it means. */
+const ACTION_LABELS: Record<ScreenDecision, string> = {
+  CONFIRMED: "Accept as a signal",
+  REFUTED: "Decline — not a signal",
+  MONITOR: "Keep monitoring",
+};
+const ACTION_HELP: Record<ScreenDecision, string> = {
+  CONFIRMED:
+    "The cases point to a possible new safety concern. It goes forward for signal evaluation.",
+  REFUTED: "The pattern is explained: a known reaction, duplicates, coding or chance.",
+  MONITOR: "Not enough yet. Look at it again at the next screen.",
+};
+
 const DECISION_TONE: Record<ScreenDecision, Tone> = {
   CONFIRMED: "critical",
   REFUTED: "neutral",
@@ -164,6 +177,22 @@ function CandidateCard({
     }
   }
 
+  // The cases grouped by the line list they came from, largest first.
+  const byFile = [
+    ...pair.cases
+      .reduce((m, c) => {
+        const g = m.get(c.jobId) ?? {
+          jobId: c.jobId,
+          filename: c.filename,
+          cases: [] as typeof pair.cases,
+        };
+        g.cases.push(c);
+        return m.set(c.jobId, g);
+      }, new Map<string, { jobId: string; filename: string; cases: typeof pair.cases }>())
+      .values(),
+  ].sort((x, y) => y.cases.length - x.cases.length || x.filename.localeCompare(y.filename));
+  const times = pair.prr.value >= 10 ? Math.round(pair.prr.value) : pair.prr.value.toFixed(1);
+
   return (
     <li className="rounded-md border border-border p-4" data-e2e-candidate={pair.key}>
       <div className="flex flex-wrap items-center gap-2">
@@ -177,9 +206,47 @@ function CandidateCard({
           {decided ? (
             <StatusPill tone={DECISION_TONE[decided]}>{SCREEN_DECISION_LABELS[decided]}</StatusPill>
           ) : (
-            <StatusPill tone="warning">Awaiting review</StatusPill>
+            <StatusPill tone="warning">Awaiting your decision</StatusPill>
           )}
         </span>
+      </div>
+
+      <div className="mt-3 rounded-md border border-assist/30 bg-assist-soft px-3 py-2">
+        <p className="label-caps">What this is about</p>
+        <p className="mt-1 text-sm text-foreground">
+          <span className="font-semibold">{pair.a}</span> report{pair.a === 1 ? "" : "s"} of{" "}
+          <span className="font-semibold">{pair.reaction}</span> after{" "}
+          <span className="font-semibold">{pair.product}</span>. In this pool, {pair.reaction} is
+          reported <span className="font-semibold">{times} times</span> as often with {pair.product}{" "}
+          as with the other products. That is a reason to look at these cases, not evidence that{" "}
+          {pair.product} causes it.
+        </p>
+      </div>
+
+      <div className="mt-3">
+        <p className="label-caps">
+          Where it comes from — {byFile.length} line list{byFile.length === 1 ? "" : "s"}
+        </p>
+        <ul className="mt-1 space-y-2">
+          {byFile.map((g) => (
+            <li key={g.jobId} className="rounded-md border border-border px-3 py-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{g.filename}</span>
+                <span className="text-xs text-muted-foreground">
+                  {g.cases.length} case{g.cases.length === 1 ? "" : "s"}
+                </span>
+                <Button asChild size="sm" variant="outline" className="ml-auto h-7">
+                  <Link to="/line-list" search={{ job: g.jobId }}>
+                    Open this line list
+                  </Link>
+                </Button>
+              </div>
+              <p className="mono-num mt-1 text-xs text-muted-foreground">
+                {g.cases.map((c) => `${c.caseId ?? "no case ID"} (row ${c.row})`).join(" · ")}
+              </p>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-4">
@@ -188,46 +255,14 @@ function CandidateCard({
         <Stat label="ROR" value={num(pair.ror.value)} sub={`95% CI ${ci(pair.ror)}`} />
         <Stat label="χ² (Yates)" value={pair.chiSquare.toFixed(2)} />
       </div>
-      <p className="mt-2 text-sm text-foreground">
-        In plain terms: {pair.reaction} is reported{" "}
-        <span className="font-semibold">
-          {pair.prr.value >= 10 ? Math.round(pair.prr.value) : pair.prr.value.toFixed(1)} times
-        </span>{" "}
-        as often with {pair.product} as with the other products in the pool. That is a reason to
-        look at these cases, not evidence that {pair.product} causes it.
-      </p>
       <p className="mt-1 text-xs text-muted-foreground">
         2×2: a {pair.a} · b {pair.b} · c {pair.c} · d {pair.d}
         {pair.corrected ? " — a cell was zero, so 0.5 was added to every cell for the ratios" : ""}
       </p>
 
-      <div className="mt-3">
-        <p className="label-caps">Cases behind this pair</p>
-        <ul className="mt-1 divide-y divide-border rounded-md border border-border text-sm">
-          {pair.cases.map((c) => (
-            <li
-              key={`${c.jobId}-${c.row}`}
-              className="flex flex-wrap items-center gap-x-3 px-3 py-1.5"
-            >
-              <span className="mono-num font-medium">{c.caseId ?? "—"}</span>
-              <span className="text-muted-foreground">
-                {c.filename} · row {c.row}
-              </span>
-              <Link
-                to="/line-list"
-                search={{ job: c.jobId }}
-                className="ml-auto text-xs text-primary hover:underline"
-              >
-                Open line list
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </div>
-
       {decision?.rationale ? (
         <div className="mt-3 rounded-md border border-border bg-muted/50 px-3 py-2">
-          <p className="label-caps">Recorded rationale</p>
+          <p className="label-caps">Decision recorded</p>
           <p className="mt-1 text-sm">{decision.rationale}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             {decision.reviewer ?? "Reviewer"} · {decision.decidedAt?.slice(0, 10)} · pool of{" "}
@@ -236,35 +271,41 @@ function CandidateCard({
         </div>
       ) : null}
 
-      <div className="mt-3 space-y-2">
-        <div className="flex flex-wrap gap-2">
-          {(Object.keys(SCREEN_DECISION_LABELS) as ScreenDecision[]).map((d) => (
-            <Button
+      <div className="mt-3 rounded-md border border-border px-3 py-3">
+        <p className="label-caps">{decided ? "Change the decision" : "Your decision"}</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          {(Object.keys(ACTION_LABELS) as ScreenDecision[]).map((d) => (
+            <button
               key={d}
-              size="sm"
-              variant={mode === d ? "default" : "outline"}
+              type="button"
               onClick={() => setMode(mode === d ? null : d)}
+              aria-pressed={mode === d}
+              className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                mode === d
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/50 hover:bg-muted/40"
+              }`}
             >
-              {decided ? "Change to: " : ""}
-              {SCREEN_DECISION_LABELS[d]}
-            </Button>
+              <span className="block font-medium text-foreground">{ACTION_LABELS[d]}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{ACTION_HELP[d]}</span>
+            </button>
           ))}
         </div>
         {mode ? (
-          <div className="space-y-2">
+          <div className="mt-3 space-y-2">
             <label className="label-caps" htmlFor={`rationale-${pair.key}`}>
-              Rationale (required, recorded in the audit trail)
+              Your reason (required, recorded in the audit trail)
             </label>
             <Textarea
               id={`rationale-${pair.key}`}
               rows={3}
               value={rationale}
               onChange={(e) => setRationale(e.target.value)}
-              placeholder="The clinical reasoning behind this decision: case review, plausibility, confounders, known reactions."
+              placeholder="What you found in the cases: plausibility, timing, known reactions, duplicates, coding, confounders."
             />
             <div className="flex gap-2">
               <Button size="sm" onClick={record} disabled={busy}>
-                Record “{SCREEN_DECISION_LABELS[mode]}”
+                Record: {ACTION_LABELS[mode]}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setMode(null)}>
                 Cancel
@@ -306,8 +347,10 @@ function SignalScreenPage() {
   }, [cases.data, codings.data]);
 
   const query = {
-    isPending: cases.isPending || codings.isPending,
-    error: (cases.error ?? codings.error) as Error | null,
+    // Decisions too: drawn before they load, a decided candidate would
+    // briefly read "Awaiting your decision".
+    isPending: cases.isPending || codings.isPending || decisions.isPending,
+    error: (cases.error ?? codings.error ?? decisions.error) as Error | null,
     data: screened ? { data: screened, source: "live" as const } : undefined,
   };
 
