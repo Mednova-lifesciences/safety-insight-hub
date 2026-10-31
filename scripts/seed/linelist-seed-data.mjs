@@ -70,7 +70,7 @@ export const A_CASES = [
     "TEST Nurse Bisi Ade",
     "Nurse",
     "+2348000000101",
-    "06/09/2026",
+    "06//09/2026", // typo for Fix: doubled separator
   ],
   [
     "TST-A-003",
@@ -322,7 +322,7 @@ export const A_CASES = [
     "TEST Dr Femi Ojo",
     "Medical Officer",
     "+2348000000102",
-    "29/09/2026",
+    "29/09/20226", // typo for Fix: repeated year digit
   ],
   [
     "TST-A-015",
