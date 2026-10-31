@@ -276,6 +276,14 @@ const PATTERN_TONE: Record<ClusterPattern, "warning" | "info" | "neutral"> = {
   ONE_BATCH_ONE_FACILITY: "neutral",
 };
 
+const PATTERN_ORDER: Record<ClusterPattern, number> = {
+  PRODUCT_QUALITY: 0,
+  STORAGE_OR_ADMINISTRATION: 1,
+  ONE_BATCH_ONE_FACILITY: 2,
+};
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
 const PATTERN_TITLE: Record<ClusterPattern, string> = {
   PRODUCT_QUALITY: "Possible product quality concern",
   STORAGE_OR_ADMINISTRATION: "Possible storage or administration error",
@@ -335,7 +343,8 @@ function ClusterFlagItem({
         <p className="flex flex-wrap items-center gap-2">
           <StatusPill tone={PATTERN_TONE[f.pattern]}>{PATTERN_TITLE[f.pattern]}</StatusPill>
           <span className="text-muted-foreground">
-            {f.facilities.length} facility(ies) · {f.batches.length} batch(es)
+            {plural(f.facilities.length, "facility", "facilities")} ·{" "}
+            {plural(f.batches.length, "batch", "batches")}
           </span>
         </p>
         <p className="mt-1.5 text-foreground">{PATTERN_NOTES[f.pattern]}</p>
@@ -431,7 +440,15 @@ export function ClusterFlagsCard({ refreshKey }: { refreshKey?: string }) {
       >
         <QueryBoundary query={query} loadingLabel="Looking across your line lists">
           {(jobs) => {
-            const flags = findClusterFlags(jobs.flatMap((j) => j.cases));
+            // The flags worth showing first come first: a possible product
+            // quality concern, then a possible site problem, then the rest;
+            // within each, those with quality warning signs.
+            const flags = findClusterFlags(jobs.flatMap((j) => j.cases)).sort(
+              (a, b) =>
+                PATTERN_ORDER[a.pattern] - PATTERN_ORDER[b.pattern] ||
+                b.warningSigns.length - a.warningSigns.length ||
+                b.cases.length - a.cases.length,
+            );
             if (flags.length === 0)
               return (
                 <EmptyState
@@ -439,20 +456,33 @@ export function ClusterFlagsCard({ refreshKey }: { refreshKey?: string }) {
                   description="No two serious cases share a batch, or a vaccine and facility, within 30 days."
                 />
               );
+            const count = (p: ClusterPattern) => flags.filter((f) => f.pattern === p).length;
             return (
-              <ul className="space-y-3">
-                {flags.map((f) => (
-                  <ClusterFlagItem
-                    key={f.key}
-                    flag={f}
-                    referral={referrals.data?.get(f.key)}
-                    canRefer={canRefer}
-                    onReferred={() =>
-                      queryClient.invalidateQueries({ queryKey: ["pms-referrals"] })
-                    }
-                  />
-                ))}
-              </ul>
+              <>
+                <p className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-medium">{plural(flags.length, "flag", "flags")}:</span>
+                  {(Object.keys(PATTERN_ORDER) as ClusterPattern[])
+                    .filter((p) => count(p) > 0)
+                    .map((p) => (
+                      <StatusPill key={p} tone={PATTERN_TONE[p]}>
+                        {count(p)} · {PATTERN_TITLE[p].toLowerCase()}
+                      </StatusPill>
+                    ))}
+                </p>
+                <ul className="space-y-3">
+                  {flags.map((f) => (
+                    <ClusterFlagItem
+                      key={f.key}
+                      flag={f}
+                      referral={referrals.data?.get(f.key)}
+                      canRefer={canRefer}
+                      onReferred={() =>
+                        queryClient.invalidateQueries({ queryKey: ["pms-referrals"] })
+                      }
+                    />
+                  ))}
+                </ul>
+              </>
             );
           }}
         </QueryBoundary>
