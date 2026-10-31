@@ -197,12 +197,131 @@ def _unit_in_own_column(value: str, field: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def _slips(a: str, b: str) -> int:
+    """Typing slips between two words: a letter added, missing or wrong, or
+    two neighbouring letters swapped, each counting one."""
+    d = [[i if j == 0 else j if i == 0 else 0 for j in range(len(b) + 1)] for i in range(len(a) + 1)]
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] != b[j - 1]))
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[len(a)][len(b)]
+
+
+def _only_near(written: str, choices):
+    """The one choice `written` is within a slip of (two for spellings of
+    eight letters or more), or None when no choice is, or more than one."""
+    near = [value for value, words in choices
+            if any(_slips(written, w) <= (2 if len(w) >= 8 else 1) for w in words)]
+    return near[0] if len(near) == 1 else None
+
+
+def _letter_words(v: str) -> str:
+    return re.sub(r"[^a-z]", "", v.lower())
+
+
+# The spellings the app already reads (mapAgeUnit / mapSex in mapping.ts).
+AGE_UNIT_WORDS = {
+    "DECADE", "DECADES", "Y", "YR", "YRS", "YEAR", "YEARS", "YEAROLD", "YEARSOLD", "A",
+    "M", "MO", "MOS", "MTH", "MTHS", "MONTH", "MONTHS", "W", "WK", "WKS", "WEEK", "WEEKS",
+    "D", "DY", "DAY", "DAYS", "H", "HR", "HRS", "HOUR", "HOURS",
+}
+SEX_WORDS = {
+    "M", "MALE", "MAN", "BOY", "F", "FEMALE", "WOMAN", "GIRL", "U", "UNK", "UNKNOWN",
+    "UNSPECIFIED", "NOTSPECIFIED", "NOTKNOWN", "NOTREPORTED", "NOTSTATED", "NOTRECORDED", "NA",
+}
+AGE_UNITS = [
+    ("Days", ("day", "days")),
+    ("Weeks", ("week", "weeks")),
+    ("Months", ("month", "months")),
+    ("Years", ("year", "years")),
+    ("Hours", ("hour", "hours")),
+]
+
+
+def _key(v: str) -> str:
+    return re.sub(r"[\s._-]+", "", v.strip().upper())
+
+
+def _stray_edge_asterisk(value: str, field: str) -> Optional[str]:
+    v = re.sub(r"\s*\*+$", "", re.sub(r"^\*+\s*", "", value.strip()))
+    return v if v and v != value.strip() and _alnum(v) == _alnum(value) else None
+
+
+def _date_letter_for_digit(value: str, field: str) -> Optional[str]:
+    v = value.strip()
+    if not re.search(r"[OoIl]", v) or not re.search(r"[0-9]", v):
+        return None
+    part = "[0-9OoIl]"
+    shape = (rf"^(?:{part}{{1,2}}([/.-]){part}{{1,2}}\1(?:{part}{{2}}|{part}{{4}})"
+             rf"|{part}{{4}}([/.-]){part}{{1,2}}\2{part}{{1,2}})$")
+    if not re.match(shape, v):
+        return None
+    out = re.sub(r"[Il]", "1", re.sub(r"[Oo]", "0", v))
+    dmy = re.match(r"^([0-9]{1,2})[/.-]([0-9]{1,2})[/.-]([0-9]{2}|[0-9]{4})$", out)
+    ymd = re.match(r"^([0-9]{4})[/.-]([0-9]{1,2})[/.-]([0-9]{1,2})$", out)
+    if dmy:
+        d, m, y = dmy.group(1), dmy.group(2), dmy.group(3)
+    elif ymd:
+        d, m, y = ymd.group(3), ymd.group(2), ymd.group(1)
+    else:
+        return None
+    year_ok = len(y) == 2 or 1900 <= int(y) <= datetime.date.today().year + 1
+    return out if 1 <= int(d) <= 31 and 1 <= int(m) <= 12 and year_ok else None
+
+
+def _seriousness_spelling(value: str, field: str) -> Optional[str]:
+    l = _letter_words(value)
+    if not l or l in {"serious", "nonserious", "yes", "no", "y", "n"}:
+        return None
+    word = "Non-serious" if l == "notserious" else _only_near(
+        l, [("Serious", ("serious",)), ("Non-serious", ("nonserious",))])
+    return _match_case(value.strip(), word) if word else None
+
+
+def _age_unit_spelling(value: str, field: str) -> Optional[str]:
+    if _key(value) in AGE_UNIT_WORDS:
+        return None
+    l = _letter_words(value)
+    if len(l) < 2:
+        return None
+    unit = _only_near(l, AGE_UNITS)
+    return _match_case(value.strip(), unit) if unit else None
+
+
+def _sex_spelling(value: str, field: str) -> Optional[str]:
+    if _key(value) in SEX_WORDS:
+        return None
+    l = _letter_words(value)
+    if len(l) < 3:
+        return None
+    sex = _only_near(l, [("Male", ("male",)), ("Female", ("female",))])
+    return _match_case(value.strip(), sex) if sex else None
+
+
+SERIOUS_WORDS = {"serious", "yes", "y"}
+NON_SERIOUS_WORDS = {"nonserious", "no", "n", "notserious"}
+
+
+def fatal_outcome_serious(before: str, after: str) -> bool:
+    """The fatal-outcome rule's only change: a non-serious word made a
+    serious one (a death is serious by definition). The outcome is read in
+    the browser; here the change is checked to go only towards serious."""
+    return _letter_words(before) in NON_SERIOUS_WORDS and _letter_words(after) in SERIOUS_WORDS
+
+
 # (id, version, fields, apply) — the same order as NORMALISATION_RULES.
 RULES = [
     ("stray-edge-character", "1", TYPED_FIELDS, _stray_edge),
     ("date-year-repeated-digit", "1", DATE_FIELDS, _date_year_repeated_digit),
     ("date-doubled-separator", "1", DATE_FIELDS, _date_doubled_separator),
     ("time-letter-for-digit", "1", {"vaccination_time"}, _time_letter_for_digit),
+    ("stray-edge-asterisk", "1", TYPED_FIELDS, _stray_edge_asterisk),
+    ("date-letter-for-digit", "1", DATE_FIELDS, _date_letter_for_digit),
+    ("seriousness-spelling", "1", {"seriousness"}, _seriousness_spelling),
+    ("age-unit-spelling", "1", {"age_unit"}, _age_unit_spelling),
+    ("sex-spelling", "1", {"sex"}, _sex_spelling),
     ("interval-unit-spelling", "1", {"onset_interval"}, _interval_unit_spelling),
     ("dose-decimal-comma", "3", {"dose"}, _dose_decimal_comma),
     ("ordinal-suffix-typo", "1", {"dose"}, _ordinal_suffix_typo),

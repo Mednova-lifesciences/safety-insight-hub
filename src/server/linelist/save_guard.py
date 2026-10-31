@@ -26,7 +26,7 @@ from collections import Counter
 from typing import Any, Optional
 
 from ..ai.fix_guard import is_derived_value
-from .normalise import normalise, unestablished_decimal_comma
+from .normalise import fatal_outcome_serious, normalise, unestablished_decimal_comma
 
 PROTECTED_FIELDS = {"case_id", "patient_id", "previous_case_id"}
 IMMUTABLE_ENTRY_KEYS = ("id", "row", "column", "oldValue", "newValue", "source", "group", "rule", "appliedAt")
@@ -137,6 +137,10 @@ def validate_cell_save(current: dict, proposed: dict) -> list:
             continue
         if source == "rule":
             rule = entry.get("rule") or {}
+            if rule.get("id") == "fatal-outcome-serious" and rule.get("version") == "1":
+                if mapping.get(col) != "seriousness" or not fatal_outcome_serious(before, after):
+                    problem(row, col, "The fatal-outcome rule only marks a non-serious case serious.")
+                continue
             got = normalise(mapping.get(col, ""), before.strip(), col)
             if not got or got[0] != after or got[1] != rule.get("id") or got[2] != rule.get("version"):
                 problem(row, col, "The rule does not give this value on the server.")
