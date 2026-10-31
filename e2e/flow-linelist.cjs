@@ -1,6 +1,7 @@
 /**
  * Line list → E2B, as the Review Officer, on synthetic seed file A (and B
- * when FILE_B=1): upload, mapping, validate, Fix, Undo/Re-apply,
+ * when FILE_B=1, and C — the signal-screen and quality-flag file — when
+ * FILE_C=1): upload, mapping, validate, Fix, Undo/Re-apply,
  * Keep/Drop/Hold, the three downloads, then VigiFlow preflight, C.1.7 and
  * the XML export on /e2b.
  *
@@ -12,6 +13,7 @@ const L = require("./lib.cjs");
 const SEED = path.join(__dirname, "..", "scripts", "seed", "out");
 const FILE_A = path.join(SEED, "TEST-facility-return-A.xlsx");
 const FILE_B = path.join(SEED, "TEST-state-return-B.csv");
+const FILE_C = path.join(SEED, "TEST-surveillance-return-C.csv");
 
 const steps = [];
 async function step(name, fn) {
@@ -70,19 +72,41 @@ async function main() {
           300000,
         );
         await L.waitNoLoading(page);
+        // The issues are re-read just after the toast: wait until the panel
+        // no longer says the file is unvalidated, or the Fix button would be
+        // looked for before it can exist.
+        await page.waitForFunction(
+          () => !document.body.innerText.includes("has not been validated yet"),
+          null,
+          { timeout: 120000 },
+        );
+        await L.waitNoLoading(page);
       });
       await L.shot(page, "ll-validated");
 
       const fixBtn = page.getByRole("button", { name: /Fix Issues \(\d+\)/ });
+      await fixBtn.waitFor({ timeout: 20000 }).catch(() => {});
       if (await fixBtn.count()) {
-        await step("fix issues", () =>
-          L.expectNewToast(
+        const fixable = async () => {
+          const label = (await fixBtn.count()) ? await fixBtn.first().innerText() : "";
+          return Number(label.match(/\((\d+)\)/)?.[1] ?? 0);
+        };
+        const before = await fixable();
+        console.log(`  fixable before Fix: ${before}`);
+        await step("fix issues", async () => {
+          await L.expectNewToast(
             page,
             /corrected|Nothing Fix could|Fix failed/,
             () => fixBtn.click(),
             300000,
-          ),
-        );
+          );
+          if (await page.getByText(/Fix failed/).count()) throw new Error("Fix failed");
+          await L.waitNoLoading(page);
+          await page.waitForTimeout(2000);
+          const after = await fixable();
+          console.log(`  fixable after Fix: ${after}`);
+          if (after >= before) throw new Error(`Fix corrected nothing (${before} → ${after})`);
+        });
         await L.shot(page, "ll-fixed");
         const undo = page.getByRole("button", { name: /^Undo$/ }).first();
         await undo.waitFor({ timeout: 30000 }).catch(() => {});
@@ -115,6 +139,9 @@ async function main() {
       const caseRow = (id) => page.locator("tr").filter({ hasText: id }).first();
       const openMenu = async (id) => {
         await settle();
+        // Centre the row first: scrolled only just into view it can sit
+        // under the sticky top bar, which then takes the click.
+        await caseRow(id).evaluate((el) => el.scrollIntoView({ block: "center" }));
         await caseRow(id).getByRole("button", { name: "Decide this case" }).click();
       };
       const pill = (id, text) =>
@@ -174,6 +201,17 @@ async function main() {
       if (process.env.FILE_B === "1") {
         await step("upload B", () => uploadFile(page, FILE_B));
         await step("validate B", () =>
+          L.expectNewToast(
+            page,
+            /Validated/,
+            () => page.getByRole("button", { name: /Re-run validation/ }).click(),
+            300000,
+          ),
+        );
+      }
+      if (process.env.FILE_C === "1") {
+        await step("upload C", () => uploadFile(page, FILE_C));
+        await step("validate C", () =>
           L.expectNewToast(
             page,
             /Validated/,

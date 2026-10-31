@@ -5,9 +5,14 @@
  *   - Evaluator: "Batch and facility flags for review" on the dashboard;
  *   - /line-list: possible duplicates for seed file B against A, Not a
  *     duplicate and Drop as duplicate;
+ *   - the batch BCG-0420 flag: its pattern note and quality warning signs,
+ *     and a referral to post-market surveillance with the note downloaded;
+ *   - /signal-screen as the Review Officer, Evaluator and Peer Reviewer: the
+ *     one candidate (HPV × Syncope), the small-numbers warning, a pair
+ *     under N = 3, a load time under 3 s, and a Monitor decision;
  *   - /ai-log for an administrator.
- * Needs the two seed files uploaded and validated (flow-linelist.cjs with
- * FILE_B=1) for the line-list part.
+ * Needs the three seed files uploaded and validated (flow-linelist.cjs with
+ * FILE_B=1 FILE_C=1) for the line-list part.
  */
 const L = require("./lib.cjs");
 
@@ -138,6 +143,89 @@ async function main() {
           null,
           { timeout: 60000 },
         );
+      });
+    }
+
+    // ---- Quality flag: pattern note and PMS referral (seed file C) ----
+    if (process.env.EXPECT_FLAGS === "1") {
+      const bcg = () =>
+        evaluator.locator("li[data-e2e-flag]").filter({ hasText: "Batch BCG-0420" }).first();
+      await step("evaluator: pattern note on batch BCG-0420", async () => {
+        await L.nav(evaluator, "Dashboard", /Scientific review queue/);
+        await bcg().waitFor({ timeout: 90000 });
+        await bcg().getByText("Possible product quality concern", { exact: true }).waitFor();
+        for (const sign of ["Lack of effect / vaccine failure", "Injection-site abscess"])
+          await bcg()
+            .getByText(new RegExp(sign.replace(/[/]/g, "\\/")))
+            .first()
+            .waitFor();
+        const text = await bcg().innerText();
+        if (/fake|counterfeit/i.test(text)) throw new Error("flag text says fake/counterfeit");
+        await bcg().scrollIntoViewIfNeeded();
+        await L.shot(evaluator, "feat-quality-flag");
+      });
+      await step("evaluator: refer BCG-0420 to post-market surveillance", async () => {
+        await bcg().getByRole("button", { name: "Refer to post-market surveillance" }).click();
+        await bcg()
+          .locator("textarea")
+          .fill("E2E (synthetic): abscess and lack of effect at three facilities on one batch.");
+        await L.download(evaluator, () =>
+          bcg().getByRole("button", { name: "Record referral and download note" }).click(),
+        );
+        await bcg()
+          .getByText(/Referred to PMS · PMS-\d{4}-\d{4}/)
+          .waitFor({ timeout: 60000 });
+        await L.shot(evaluator, "feat-pms-referral");
+      });
+    }
+
+    // ---- Signal screen, as each assessor ----
+    if (process.env.EXPECT_FLAGS === "1") {
+      const peer = await L.session(browser, "peer");
+      const roles = [
+        ["officer", officer],
+        ["evaluator", evaluator],
+        ["peer", peer],
+      ];
+      for (const [who, page] of roles) {
+        await step(`signal screen as ${who}`, async () => {
+          const t0 = Date.now();
+          await L.nav(page, "Signal screening", /^Signal screening$/);
+          const candidate = page.locator("li[data-e2e-candidate]").first();
+          await candidate.waitFor({ timeout: 60000 });
+          const ms = Date.now() - t0;
+          console.log(`  signal screen loaded in ${ms} ms`);
+          await candidate.getByText("HPV").first().waitFor();
+          await candidate.getByText("Syncope").first().waitFor();
+          await page.getByText("Small numbers — interpret with caution").waitFor();
+          await page.getByText("Statistical screen, not a confirmed signal").first().waitFor();
+          const n = await page.locator("li[data-e2e-candidate]").count();
+          if (n !== 1) throw new Error(`expected 1 candidate, saw ${n}`);
+          await page
+            .locator("tr[data-e2e-other-pair]")
+            .filter({ hasText: "Thrombocytopenia" })
+            .getByText(/N 2 < 3/)
+            .waitFor();
+          if (who === "officer") await L.shot(page, "feat-signal-screen");
+          if (ms > 3000) throw new Error(`signal screen took ${ms} ms (limit 3000)`);
+        });
+      }
+      await step("signal screen: evaluator records Monitor", async () => {
+        const candidate = evaluator.locator("li[data-e2e-candidate]").first();
+        await candidate.getByRole("button", { name: /Monitor/ }).click();
+        await candidate
+          .locator("textarea")
+          .fill("E2E (synthetic): school-age vaccination syncope; monitor at the next screen.");
+        await L.expectNewToast(evaluator, /Recorded: Monitor/, () =>
+          candidate.getByRole("button", { name: /Record/ }).click(),
+        );
+        await candidate.getByText("Monitor", { exact: true }).first().waitFor({ timeout: 30000 });
+      });
+      await step("signal screen: peer sees the Monitor decision", async () => {
+        await peer.reload({ waitUntil: "domcontentloaded" });
+        const candidate = peer.locator("li[data-e2e-candidate]").first();
+        await candidate.getByText("Recorded rationale").waitFor({ timeout: 60000 });
+        await candidate.getByText("Monitor", { exact: true }).first().waitFor();
       });
     }
 
