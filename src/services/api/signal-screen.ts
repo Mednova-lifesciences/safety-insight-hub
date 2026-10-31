@@ -15,8 +15,8 @@ import type { Signal } from "@/types/pv";
 export type ScreenDecision = "CONFIRMED" | "REFUTED" | "MONITOR";
 
 export const SCREEN_DECISION_LABELS: Record<ScreenDecision, string> = {
-  CONFIRMED: "Confirmed signal",
-  REFUTED: "Refuted",
+  CONFIRMED: "Accepted as a signal",
+  REFUTED: "Declined — not a signal",
   MONITOR: "Monitor",
 };
 
