@@ -130,9 +130,21 @@ async function main() {
           evaluator.getByRole("button", { name: /^Dismiss$/ }).click(),
         );
       });
-      await step("accept a finding", () =>
-        L.expectNewToast(evaluator, /Accepted as a real gap/, () => acceptBtn().click()),
-      );
+      // Run Full Fix only writes what the report itself supports: a missing
+      // section with no source facts stays unresolved, with its reason. So
+      // accept a finding the report CAN answer — the benefit-risk narrative
+      // that should be a table — and, beside it, one more that may not be.
+      await step("accept a finding", async () => {
+        const tableGap = evaluator
+          .locator("li")
+          .filter({ hasText: /narrative rather than|evidence-and-uncertainty table/ })
+          .filter({ has: evaluator.getByRole("button", { name: /Yes, it's a real gap/ }) })
+          .last();
+        const target = (await tableGap.count())
+          ? tableGap.getByRole("button", { name: /Yes, it's a real gap/ })
+          : acceptBtn();
+        await L.expectNewToast(evaluator, /Accepted as a real gap/, () => target.click());
+      });
       await step("Run Full Fix resolves accepted findings", async () => {
         const fix = evaluator.getByRole("button", { name: /Run Full Fix \(\d+\)/ }).first();
         await fix.waitFor({ timeout: 30000 });
