@@ -137,7 +137,9 @@ function LineListPage() {
         const last = await linelistApi.lastTermChoiceAt();
         if (!current || !isStaleForTermChoices(job, last)) return;
         setCatchingUp(true);
-        await linelistApi.recheck(job.id);
+        // Skipped if the background update after the choice reached this
+        // line list first: the listing it was opened from can be older.
+        await linelistApi.recheckIfStale(job.id, last);
         if (current) {
           void jobs.refetch();
           void issues.refetch();

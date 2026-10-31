@@ -271,19 +271,22 @@ export async function mapJobToCases(
   );
   const runtimeProfile = mergeOrgRegulatoryConfigIntoProfile(discoveredProfile, regulatoryConfig);
 
-  const cases: PVCase[] = [];
-  const mappingWarnings: MappingWarning[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const { pvCase, warnings } = await mapSourceRecordToPVCase(
-      toSourceRecord(rows[i]!),
-      runtimeProfile,
-      regulatoryConfig.transmission,
-      { jobId: job.id, sourceFile: job.filename, sourceRow: i + 1, processedAt },
-      providers,
-    );
-    cases.push(pvCase);
-    mappingWarnings.push(...warnings);
-  }
+  // Rows are independent, so they are mapped together: each waits on its
+  // own MedDRA look-ups, and one after another those were most of a
+  // recheck's time (ten terms, a quarter-second each). Order is kept.
+  const mapped = await Promise.all(
+    rows.map((row, i) =>
+      mapSourceRecordToPVCase(
+        toSourceRecord(row),
+        runtimeProfile,
+        regulatoryConfig.transmission,
+        { jobId: job.id, sourceFile: job.filename, sourceRow: i + 1, processedAt },
+        providers,
+      ),
+    ),
+  );
+  const cases: PVCase[] = mapped.map((m) => m.pvCase);
+  const mappingWarnings: MappingWarning[] = mapped.flatMap((m) => m.warnings);
   return { cases, mappingWarnings, sourceProfile, runtimeProfile, discovered };
 }
 
