@@ -216,11 +216,12 @@ type RowReadingJob = Parameters<typeof resolveJobRuntimeProfile>[0] & {
 export function readRowsWithSeriousness(
   job: RowReadingJob,
   orgConfig?: OrgRegulatoryConfig | null,
-): { row: ParsedRow; serious: boolean }[] {
+): { row: ParsedRow; serious: boolean; reactions: string[] }[] {
   const jobProfile = resolveJobRuntimeProfile(job);
   const profile = orgConfig
     ? mergeOrgRegulatoryConfigIntoProfile(jobProfile, orgConfig)
     : jobProfile;
+  const separators = profile.reactionDelimiter?.separators ?? [];
   return (job.parsedRows ?? []).map((raw) => {
     const row = decodeCodedFields(
       raw as Record<string, string>,
@@ -233,8 +234,17 @@ export function readRowsWithSeriousness(
       (!!row.outcome &&
         resolveFieldConcept(row.outcome, profile, "outcome", mapConceptToOutcome)
           ?.canonicalValue === "FATAL");
-    return { row, serious };
+    return { row, serious, reactions: splitReactions(row.reaction, separators) };
   });
+}
+
+/** A reaction cell split on the file's own declared separators — the same
+ *  rule the E2B mapping uses: a separator the profile does not declare is
+ *  never guessed, so the cell then stays whole. */
+function splitReactions(raw: string | undefined, separators: string[]): string[] {
+  let parts = [raw ?? ""];
+  for (const sep of separators) parts = parts.flatMap((p) => p.split(sep));
+  return parts.map((p) => p.trim()).filter((p) => p.length > 0);
 }
 
 export interface ColumnInspection {
@@ -984,6 +994,10 @@ export const FIELD_KEYWORDS: Record<TargetField, KeywordEntry[]> = {
     ["facilityname", 85],
     ["institutionname", 85],
     ["nameoffacility", 85],
+    // "Health Facility" — the usual heading on state AEFI returns. Weighted
+    // below the facility's LGA/city keywords (88), so "Health Facility LGA"
+    // stays a location; an address heading is excluded by tabular-parse.
+    ["healthfacility", 80],
   ],
   // C.2.r.2.4 / C.2.r.2.5 — reporter-qualified spellings only. A bare
   // "City", "State" or "LGA" column is deliberately left to the AI

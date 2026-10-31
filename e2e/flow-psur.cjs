@@ -110,18 +110,64 @@ async function main() {
       });
       await L.shot(evaluator, "psur-evaluator");
       console.log("EVALUATOR buttons:", (await L.buttons(evaluator)).slice(0, 60).join(" | "));
-      await step(
-        "work a finding",
-        async () => {
-          const act = evaluator
-            .getByRole("button", { name: /^(Yes, it's a real gap|Accept|Mark resolved)/ })
-            .first();
-          if (!(await act.count())) throw new Error("no finding action button found");
-          await act.click();
-          await L.waitNoLoading(evaluator);
-        },
-        { critical: false },
-      );
+      const acceptBtn = () =>
+        evaluator.getByRole("button", { name: /Yes, it's a real gap/ }).first();
+      await step("AI review returned findings", async () => {
+        await acceptBtn().waitFor({ timeout: 60000 });
+        const n = await evaluator.getByRole("button", { name: /Yes, it's a real gap/ }).count();
+        console.log(`  findings awaiting a decision: ${n}`);
+        if (n < 2) throw new Error(`expected at least 2 findings to decide, saw ${n}`);
+      });
+      await step("dismiss a finding", async () => {
+        await evaluator
+          .getByRole("button", { name: /No, dismiss it/ })
+          .last()
+          .click();
+        await evaluator
+          .getByLabel("Reason for dismissing")
+          .fill("E2E (synthetic): covered elsewhere in the PSUR.");
+        await L.expectNewToast(evaluator, /Dismissed\./, () =>
+          evaluator.getByRole("button", { name: /^Dismiss$/ }).click(),
+        );
+      });
+      // Run Full Fix only writes what the report itself supports: a missing
+      // section with no source facts stays unresolved, with its reason. So
+      // accept a finding the report CAN answer — the benefit-risk narrative
+      // that should be a table — and, beside it, one more that may not be.
+      await step("accept a finding", async () => {
+        const tableGap = evaluator
+          .locator("li")
+          .filter({ hasText: /narrative rather than|evidence-and-uncertainty table/ })
+          .filter({ has: evaluator.getByRole("button", { name: /Yes, it's a real gap/ }) })
+          .last();
+        const target = (await tableGap.count())
+          ? tableGap.getByRole("button", { name: /Yes, it's a real gap/ })
+          : acceptBtn();
+        await L.expectNewToast(evaluator, /Accepted as a real gap/, () => target.click());
+      });
+      await step("Run Full Fix resolves accepted findings", async () => {
+        const fix = evaluator.getByRole("button", { name: /Run Full Fix \(\d+\)/ }).first();
+        await fix.waitFor({ timeout: 30000 });
+        await L.expectNewToast(
+          evaluator,
+          /finding\(s\) resolved|AI fix unavailable|Run Full Fix failed/,
+          () => fix.click(),
+          300000,
+        );
+        const toast = (await evaluator.locator("[data-sonner-toast]").allInnerTexts()).join(" ");
+        console.log(`  Run Full Fix: ${toast.slice(0, 160)}`);
+        if (/AI fix unavailable|Run Full Fix failed/.test(toast))
+          throw new Error(`Run Full Fix did not run: ${toast.slice(0, 120)}`);
+        // Every accepted finding must come back with an outcome: resolved
+        // from the report's own content, or left unresolved WITH a reason.
+        // It may not invent what the report lacks, so "0 resolved" is a
+        // correct answer for a gap the submission cannot fill.
+        const resolved = Number(toast.match(/(\d+) finding\(s\) resolved/)?.[1] ?? 0);
+        const unresolved = Number(toast.match(/(\d+) left unresolved/)?.[1] ?? 0);
+        if (resolved + unresolved < 1)
+          throw new Error("Run Full Fix returned no outcome for the accepted finding");
+        await L.waitNoLoading(evaluator);
+      });
       for (const label of [
         /Save special populations/,
         /Save benefit-risk assessment/,

@@ -168,3 +168,149 @@ What was set up:
 - **Earlier PSUR attempts on the preview** failed only because of the test-harness bug described above (the PDF re-sent as damaged bytes); the backend log confirmed it.
 
 **Follow-up:** the other long AI steps (`runScientificReview`, `runFullFix`) still save the whole PSUR document. They run before hand-over, so they did not cause this problem, but they can be moved to field-level writes like the pre-fill.
+
+---
+
+# Release 2 (31 Oct 2026): signal screening and quality flags
+
+PR #105, merged 31 Oct 2026 (`dfcf006`), deployed to Vercel production and Render. Both features are for the administrator side only (Review Officer, Evaluator, Peer Reviewer). The other side's **Signal review** page (`/signals`) is unchanged. Rules and statistics only: a person decides, and every action is audited.
+
+## Built
+
+| Feature | What | Where |
+|---|---|---|
+| Signal screening | A disproportionality screen over the kept, de-duplicated cases of every validated line list. Each product–reaction pair gets N, PRR and ROR with 95% CIs, and Yates χ². Candidate rule: N ≥ 3, PRR ≥ 2, χ² ≥ 4. The organisation's MedDRA codings group reaction words. A pool banner gives the number of reports and warns about small numbers below 500 (Uppsala Monitoring Centre, *Drug Safety* 2020;43(5):479–487). Each candidate lists its cases and gives a plain-language reading. A reviewer records Confirmed / Refuted / Monitor with a rationale, which is audited. Labelled "statistical screen, not a confirmed signal". | `/signal-screen` |
+| Quality flags | Each batch/facility flag says what its pattern suggests: one batch at ≥ 2 facilities → possible product quality concern; one facility across batches → possible storage or administration error. It also lists the quality warning signs in its cases: lack of effect, injection-site abscess, unusual product/reaction, missing or odd batch. **Refer to post-market surveillance** stores a referral record (audited) and downloads a Word note; the flag shows its status. Wording: possible quality concern for laboratory testing, never "fake" or "counterfeit". | Evaluator dashboard, `/line-list` |
+| Data | New table `pv_pms_referrals`. Migration `20261030130000`, applied live, with a rollback script. Read and written by the three assessor roles only. | `supabase/` |
+| Seed | File C (`TEST-surveillance-return-C.csv`) holds one clear candidate (HPV × Syncope, 6 reports), pairs under N = 3, batch BCG-0420 at three facilities with abscess and lack-of-effect cases, and OPV at PHC Ilara across three batches. File A gains two report-date typos for Fix to correct. | `scripts/seed/` |
+
+## Fixed
+
+1. **A "Health Facility" column was not read as the reporting facility.** State returns use that heading, so their cases lost the facility: the flags, the duplicates' facility match and the new pattern note all saw "0 facilities".
+2. **The cross-file read could hang indefinitely** in about one production run in six. The whole read is now bounded at 20 s and retried. The password-check client also gets its own storage key, so it no longer shares the main client's session lock.
+3. **The E2E suite never actually ran Fix, Undo or Re-apply.** It looked for the Fix button before the issues had loaded, and file A had nothing Fix could correct anyway. It now does: Fix took the fixable count from 3 to 0 on the preview. It also now checks PSUR accept/dismiss and Run Full Fix, which it did not check before.
+
+## Test results
+
+- **Unit and backend:** vitest 2,219 tests pass. Typecheck clean; lint 0 errors. Backend pytest 82 pass; the test files that call a live API need `requests`, which is not installed on the test machine.
+- **Production after the merge: full `e2e/run-all.sh` for every role passed with 0 failures and 0 console errors** (31 Oct 2026, from a reset test organisation with the seed loaded):
+  - line lists A, B and C: upload, mapping, validate, **Fix (2 → 0 fixable)**, Undo / Re-apply, Keep / Drop / Hold, the three downloads, then VigiFlow preflight, C.1.7 and the E2B XML;
+  - duplicates (6 pairs, Not a duplicate, Drop as duplicate), batch/facility flags with the BCG-0420 pattern note, and a PMS referral with its note downloaded;
+  - the signal screen as Review Officer, Evaluator and Peer Reviewer (one candidate, the small-numbers banner, the pair under N = 3), with a Monitor decision seen by the Peer Reviewer;
+  - PSUR forecast and observed vs expected;
+  - PSUR: upload and AI screening, 16 checks, signed outcome, AI review with findings, dismiss and accept, Run Full Fix, sections, memo inputs, evaluator sign-off, peer countersign, and all five reports;
+  - the AI data log;
+  - isolation between two organisations: 45/45, including referrals.
+- **Render logs** from the deploy to the end of the run: no errors and no server failures; only the routine model-temperature retry warning.
+- **On the Vercel preview first:** every check passed in at least one of the last two full runs. The two failures in the last run happened while the test machine had 128 MB of free memory, and both passed on production.
+- **Run Full Fix:** it gives every accepted finding an outcome, but it resolves only what the submission supports. In three runs the accepted finding was a missing therapeutic-context section, and it was correctly left unresolved: "the source material provides none of the epidemiological ... values needed". Nothing was invented.
+
+## Timings (ms)
+
+**Before:** production on 31 Oct, before the merge, during a slow-connection period. **After:** production after the merge, in the final full run.
+
+| Action | Before | After |
+|---|---|---|
+| Upload line list A | 19,655 | 12,350 |
+| Validate A | 83,930 | 23,134 |
+| Fix Issues | not run | 6,440 |
+| VigiFlow preflight | 28,178 | 5,005 |
+| E2B XML download | 2,684 | 2,456 |
+| Evaluator flags card | 66,445 | 7,753 |
+| Possible duplicates panel | 7,459 | 2,513 |
+| Signal screen load (officer / evaluator / peer) | — | 1,247 / 534 / 1,383 |
+| Referral recorded + note downloaded | — | 1,850 |
+| PSUR upload + AI screening | 50,063 | 40,319 |
+| AI scientific review | 80,495 | 54,264 |
+| Signed screening outcome | 18,972 | 3,453 |
+| Peer countersign | 4,984 | 4,126 |
+
+No action got slower, and the signal screen loads well under its 3 s limit. These are single samples from a test machine whose connection varied during the day; the "before" run was taken on a slow connection.
+
+### A 50-case line list on production
+
+Measured with `e2e/flow-timing-50.cjs` on `sample-linelist-50-cases.csv` (synthetic), as the Review Officer, three runs:
+
+| Step | Run 1 | Run 2 | Run 3 | Median |
+|---|---|---|---|---|
+| Upload 50 cases | 43,860 | 11,144 | 10,166 | **11,144** |
+| Validate 50 cases (AI + rules) | 111,596 | 71,783 | 60,779 | **71,783** |
+| Download fixed CSV | 1,496 | 1,722 | 1,158 | 1,496 |
+| Open page → fixed CSV | 180,219 | 107,037 | 93,881 | **107,037** |
+
+- **About 1 minute 47 seconds (median)** from opening the page to the fixed CSV. Validation, which includes the AI pass, is most of it. The first run is slower each time.
+- **Accuracy:** in every run, all 50 cases were stored with the file's case IDs in the file's order. Validation's findings match the file:
+  - 4 blank seriousness cells (OG-925, OG-931, OG-945, OG-949), the anaphylaxis case OG-931 marked high;
+  - 1 cell with two vaccines (OG-913, "Penta + OPV");
+  - 3 outcome words, 11 reaction words and 31 reporter titles for a person to map once.
+- **Fix had nothing to correct** in this file: every finding is a decision for a person.
+
+## Limits
+
+- **The pool is small:** about 50 reports in the test organisation, far below 500. The screen says so on every view.
+- **The screen compares products within the pool.** It makes no comparison with VigiBase.
+- **Pattern notes and quality signs are rules.** A flag asks a person to look; a referral asks for laboratory testing. Neither is a finding.
+- **Every merge to `main` restarts the backend,** including documentation-only merges, and a review in progress at that moment gets a 502. To avoid this, set Render's Build Filters → Included Paths to `src/server/**`, `src/__init__.py`, `requirements.txt`, `.python-version`, `docs/MedDRA_29_1_English/**` and `mednova-pv-assist/**`.
+
+## Presentation polish (PR #107, 31 Oct 2026)
+
+- **The flags card is ordered for presenting:** possible product quality concerns first, then possible storage or administration errors, then "not yet clear". Within each group, flags with quality warning signs come first.
+- **A summary line above the flags,** for example "8 flags: 2 possible product quality concern · 1 possible storage or administration error · 5 batch or site — not yet clear".
+- **Plain plurals:** "3 facilities · 1 batch".
+- **The signal screen gives each candidate a plain-language reading:** "Syncope is reported 48 times as often with HPV as with the other products in the pool. That is a reason to look at these cases, not evidence that HPV causes it."
+
+Tested on the Vercel preview first; then the full `e2e/run-all.sh` passed on production for every role (0 failures, 0 console errors, isolation 45/45). On that run the signal screen loaded in 0.9–1.4 s.
+
+## Follow-ups (PRs #109–#111, 31 Oct 2026)
+
+- **#109: signal candidates you can read and act on.** Each candidate now reads, in order:
+  - **What this is about:** "6 reports of Syncope after HPV. In this pool, Syncope is reported 48 times as often…";
+  - **Where it comes from:** one row per line list, with its cases (case ID and row) and an *Open this line list* button;
+  - **The statistics;**
+  - **Your decision:** *Accept as a signal*, *Decline: not a signal* or *Keep monitoring*, each with one line on what it means; a reason is required and audited.
+  
+  The page also waits for recorded decisions before drawing candidates, so a decided candidate no longer flashes "Awaiting review".
+- **#110: a faster load.** The cross-file read (signal screen, flags, duplicates, observed vs expected) now fetches the organisation's settings alongside the line lists instead of after them. The Peer Reviewer's first load had reached 3.7 s; since then the screen has loaded in 0.7–1.7 s on production.
+- **#111: stable flag labels.** A flag took its label from whichever file was read first, so batch PCV-7781 sometimes showed as "PCV 7781". It now uses the spelling most of its cases use.
+- **The E2E tests:**
+  - log the Supabase requests of a slow dashboard visit;
+  - wait for the page to settle after Re-apply before opening a case's menu, and reopen the menu if the redraw closes it;
+  - fall back to the keyboard if a pointer click is blocked.
+
+**Testing:**
+- **#109–#111:** each passed a full `e2e/run-all.sh` on the Vercel preview with 0 failures before merging.
+- **Production after #111:** line lists A, B and C, E2B, duplicates, flags, the referral and the signal screen passed (0.7–1.3 s). The run was then stopped by Claude Code for low memory on the test machine, during the PSUR section, which these changes do not touch. The PSUR section passed in full on production earlier the same day.
+
+## Final production run (31 Oct 2026, after PRs #109–#112)
+
+The full `e2e/run-all.sh` ran on production for every role, from a reset test organisation with the seed loaded:
+
+- **Line lists A, B and C:** Fix (3 → 0), Undo / Re-apply, Keep / Drop / Hold, the three downloads, VigiFlow preflight, C.1.7 and the E2B XML: passed.
+- **Features:** duplicates (6 pairs, Not a duplicate, Drop as duplicate), the flags with pattern notes, the PMS referral and its note, the Monitor decision, and the AI data log: passed.
+- **PSUR:** upload and AI screening, 16 checks, signed outcome, AI review with dismiss / accept and Run Full Fix, sections, memo inputs, sign-off, countersign and all five reports: passed.
+- **Isolation (two organisations):** 45/45. **Console errors:** 0.
+- **Signal screen load:** **2.4 s / 4.1 s / 3.0 s** (officer / evaluator / peer), so two roles were over the 3 s limit on this run.
+  - The whole run was slower than usual: validation 49 s (23–34 s on other runs); opening the line-list page 4.4 s (about 1.5 s); peer countersign 9.5 s (about 4 s).
+  - Across the day's production and preview runs, the screen loaded in **0.6–1.7 s** in most runs, and over 3 s only on the two runs where everything was slow (3.7 s once, and this run).
+  - About 1–1.4 s of each figure is opening the page itself.
+  - Treat the 3 s target as met on a normal connection, not guaranteed on a slow one.
+
+### Second final production run (31 Oct 2026, same code)
+
+- **Every flow passed for every role,** with isolation 45/45 and 0 console errors, except one timing check.
+- **Signal screen load:** 2.1 s / 1.0 s / **6.2 s** (officer / evaluator / peer). Of the peer's 6.2 s, 4.3 s passed between the sidebar click and the page starting to fetch its data. The data load itself took about 1.9 s.
+- **The test laptop had only 230–370 MB of free memory during this run.** The overrun is the test machine: on runs with normal memory the screen loads in 0.6–1.7 s.
+- **Still open:**
+  - a clean confirmation run on a machine with free memory;
+  - the six backend pytest files, which need a backend connected to the live database and are not limited to the test org, so they were not run;
+  - a second "before" baseline, which would mean redeploying the old code.
+
+### Clean final production run (31 Oct 2026, same code)
+
+- **Full `e2e/run-all.sh` on production for every role:** 0 failures, 0 console errors, isolation 45/45.
+  - Line lists A, B and C: Fix 3 → 0, Undo / Re-apply, Keep / Drop / Hold, downloads, E2B.
+  - Duplicates (6 pairs), flags with pattern notes, the PMS referral, and the signal-screen decision.
+  - The full PSUR flow and all reports.
+- **Signal screen load:** **2.2 s / 1.9 s / 1.2 s** (officer / evaluator / peer), all under the 3 s target.
+
+This closes the 3 s check that the two earlier runs missed while the test laptop was short of memory.

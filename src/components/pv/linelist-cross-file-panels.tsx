@@ -12,7 +12,17 @@ import {
   type CrossFileCase,
   type DuplicatePair,
 } from "@/services/api/linelist-cross-duplicates";
-import { CLUSTER_WINDOW_DAYS, findClusterFlags } from "@/services/api/linelist-clusters";
+import {
+  CLUSTER_WINDOW_DAYS,
+  PATTERN_NOTES,
+  QUALITY_SIGN_LABELS,
+  findClusterFlags,
+  type ClusterFlag,
+  type ClusterPattern,
+} from "@/services/api/linelist-clusters";
+import { pmsReferrals, type PmsReferral } from "@/services/api/pms-referrals";
+import { usePermission } from "@/lib/auth";
+import { Textarea } from "@/components/ui/textarea";
 import { StaleJobError } from "@/services/api/linelist-job-store";
 import { EmptyState, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
@@ -29,10 +39,11 @@ export function useValidatedCases(refreshKey = "", enabled = true) {
     queryFn: async () => ({ data: await loadValidatedCases(), source: "live" as const }),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
-    // The read times out after 30 s (see loadValidatedCases); try twice more
-    // before showing the error, so one dropped request does not leave the
-    // panel empty.
+    // The read gives up after 20 s (see loadValidatedCases); try twice more,
+    // a second apart, before showing the error, so one stuck read does not
+    // leave the panel empty.
     retry: 2,
+    retryDelay: 1000,
     enabled,
   });
 }
@@ -259,9 +270,168 @@ export function CrossFileDuplicatesPanel({
  * across every validated line list. A flag for a person to look at — not a
  * signal and not a conclusion.
  */
+const PATTERN_TONE: Record<ClusterPattern, "warning" | "info" | "neutral"> = {
+  PRODUCT_QUALITY: "warning",
+  STORAGE_OR_ADMINISTRATION: "info",
+  ONE_BATCH_ONE_FACILITY: "neutral",
+};
+
+const PATTERN_ORDER: Record<ClusterPattern, number> = {
+  PRODUCT_QUALITY: 0,
+  STORAGE_OR_ADMINISTRATION: 1,
+  ONE_BATCH_ONE_FACILITY: 2,
+};
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+const PATTERN_TITLE: Record<ClusterPattern, string> = {
+  PRODUCT_QUALITY: "Possible product quality concern",
+  STORAGE_OR_ADMINISTRATION: "Possible storage or administration error",
+  ONE_BATCH_ONE_FACILITY: "Batch or site — not yet clear",
+};
+
+function ClusterFlagItem({
+  flag: f,
+  referral,
+  canRefer,
+  onReferred,
+}: {
+  flag: ClusterFlag;
+  referral?: PmsReferral | undefined;
+  canRefer: boolean;
+  onReferred: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function refer() {
+    setBusy(true);
+    try {
+      const created = await pmsReferrals.refer(f, note);
+      toast.success(`Referred to post-market surveillance (${created.reference}).`);
+      await pmsReferrals.downloadNote(created);
+      setOpen(false);
+      setNote("");
+      onReferred();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "The referral could not be recorded.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="rounded-md border border-border p-3" data-e2e-flag={f.key}>
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+        <Flag className="size-3.5 text-warning" />
+        <StatusPill tone="warning">Flag for review</StatusPill>
+        <span className="font-medium">{f.kind === "BATCH" ? `Batch ${f.label}` : f.label}</span>
+        <span className="text-xs text-muted-foreground">
+          {f.cases.length} serious case(s), {f.from} to {f.to}
+        </span>
+        {referral ? (
+          <span className="ml-auto">
+            <StatusPill tone="info">
+              Referred to PMS · {referral.reference} · {referral.referredAt.slice(0, 10)}
+            </StatusPill>
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mb-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+        <p className="flex flex-wrap items-center gap-2">
+          <StatusPill tone={PATTERN_TONE[f.pattern]}>{PATTERN_TITLE[f.pattern]}</StatusPill>
+          <span className="text-muted-foreground">
+            {plural(f.facilities.length, "facility", "facilities")} ·{" "}
+            {plural(f.batches.length, "batch", "batches")}
+          </span>
+        </p>
+        <p className="mt-1.5 text-foreground">{PATTERN_NOTES[f.pattern]}</p>
+        {f.warningSigns.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {f.warningSigns.map((w) => (
+              <StatusPill key={w.sign} tone="critical">
+                {QUALITY_SIGN_LABELS[w.sign]} · {w.cases.length}
+              </StatusPill>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-1 text-muted-foreground">No quality warning signs in these cases.</p>
+        )}
+      </div>
+
+      <ul className="space-y-1 text-xs">
+        {f.cases.map((c) => (
+          <li key={`${c.jobId}#${c.row}`} className="flex flex-wrap gap-x-2">
+            <Link
+              to="/line-list"
+              search={{ job: c.jobId }}
+              className="font-medium text-primary underline-offset-2 hover:underline"
+            >
+              {c.filename} · row {c.row}
+            </Link>
+            <span>{c.caseId ?? ""}</span>
+            <span className="text-muted-foreground">
+              {[c.product, c.batch, c.facility, c.vaccinationDate].filter(Boolean).join(" · ")}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {canRefer ? (
+        <div className="mt-3 space-y-2">
+          {referral ? (
+            <Button size="sm" variant="outline" onClick={() => pmsReferrals.downloadNote(referral)}>
+              Download referral note
+            </Button>
+          ) : (
+            <Button size="sm" variant={open ? "default" : "outline"} onClick={() => setOpen(!open)}>
+              Refer to post-market surveillance
+            </Button>
+          )}
+          {open && !referral ? (
+            <div className="space-y-2">
+              <label className="label-caps" htmlFor={`pms-${f.key}`}>
+                Note for NAFDAC post-market surveillance (recorded in the audit trail)
+              </label>
+              <Textarea
+                id={`pms-${f.key}`}
+                rows={3}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Why this should be tested: what you saw in the cases, and what you are asking PMS to check."
+              />
+              <p className="text-xs text-muted-foreground">
+                The referral asks for laboratory testing of a possible quality concern. It does not
+                say the product is substandard or falsified.
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={refer} disabled={busy}>
+                  Record referral and download note
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
 export function ClusterFlagsCard({ refreshKey }: { refreshKey?: string }) {
   const [ref, seen] = useSeen<HTMLDivElement>();
   const query = useValidatedCases(refreshKey, seen);
+  const canRefer = usePermission("signal.screen");
+  const queryClient = useQueryClient();
+  const referrals = useQuery({
+    queryKey: ["pms-referrals"],
+    queryFn: pmsReferrals.byFlag,
+    enabled: seen && canRefer,
+  });
   return (
     <div ref={ref}>
       <Section
@@ -270,7 +440,15 @@ export function ClusterFlagsCard({ refreshKey }: { refreshKey?: string }) {
       >
         <QueryBoundary query={query} loadingLabel="Looking across your line lists">
           {(jobs) => {
-            const flags = findClusterFlags(jobs.flatMap((j) => j.cases));
+            // The flags worth showing first come first: a possible product
+            // quality concern, then a possible site problem, then the rest;
+            // within each, those with quality warning signs.
+            const flags = findClusterFlags(jobs.flatMap((j) => j.cases)).sort(
+              (a, b) =>
+                PATTERN_ORDER[a.pattern] - PATTERN_ORDER[b.pattern] ||
+                b.warningSigns.length - a.warningSigns.length ||
+                b.cases.length - a.cases.length,
+            );
             if (flags.length === 0)
               return (
                 <EmptyState
@@ -278,42 +456,33 @@ export function ClusterFlagsCard({ refreshKey }: { refreshKey?: string }) {
                   description="No two serious cases share a batch, or a vaccine and facility, within 30 days."
                 />
               );
+            const count = (p: ClusterPattern) => flags.filter((f) => f.pattern === p).length;
             return (
-              <ul className="space-y-3">
-                {flags.map((f) => (
-                  <li key={f.key} className="rounded-md border border-border p-3">
-                    <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
-                      <Flag className="size-3.5 text-warning" />
-                      <StatusPill tone="warning">Flag for review</StatusPill>
-                      <span className="font-medium">
-                        {f.kind === "BATCH" ? `Batch ${f.label}` : f.label}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {f.cases.length} serious case(s), {f.from} to {f.to}
-                      </span>
-                    </div>
-                    <ul className="space-y-1 text-xs">
-                      {f.cases.map((c) => (
-                        <li key={`${c.jobId}#${c.row}`} className="flex flex-wrap gap-x-2">
-                          <Link
-                            to="/line-list"
-                            search={{ job: c.jobId }}
-                            className="font-medium text-primary underline-offset-2 hover:underline"
-                          >
-                            {c.filename} · row {c.row}
-                          </Link>
-                          <span>{c.caseId ?? ""}</span>
-                          <span className="text-muted-foreground">
-                            {[c.product, c.batch, c.facility, c.vaccinationDate]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <p className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-medium">{plural(flags.length, "flag", "flags")}:</span>
+                  {(Object.keys(PATTERN_ORDER) as ClusterPattern[])
+                    .filter((p) => count(p) > 0)
+                    .map((p) => (
+                      <StatusPill key={p} tone={PATTERN_TONE[p]}>
+                        {count(p)} · {PATTERN_TITLE[p].toLowerCase()}
+                      </StatusPill>
+                    ))}
+                </p>
+                <ul className="space-y-3">
+                  {flags.map((f) => (
+                    <ClusterFlagItem
+                      key={f.key}
+                      flag={f}
+                      referral={referrals.data?.get(f.key)}
+                      canRefer={canRefer}
+                      onReferred={() =>
+                        queryClient.invalidateQueries({ queryKey: ["pms-referrals"] })
+                      }
+                    />
+                  ))}
+                </ul>
+              </>
             );
           }}
         </QueryBoundary>
