@@ -63,7 +63,8 @@ function toCase(
     ageUnit: row.age_unit,
     patientIdentifier: row.patient_identifier,
     batch: row.vaccine_batch,
-    reaction: row.reaction,
+    // Decoded, so a coded file's "5, 4" compares as the words it stands for.
+    reaction: reactions.length > 0 ? reactions.join(", ") : row.reaction,
     onsetDate: row.onset_date,
     facility: row.reporter_organization,
     serious,

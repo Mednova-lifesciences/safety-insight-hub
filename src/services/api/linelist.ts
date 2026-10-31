@@ -73,6 +73,7 @@ import {
 import { getSourceProfile } from "@/services/e2b-r3/source-profiles/registry";
 import { decodeCodedFields } from "@/services/e2b-r3/source-profiles/code-list-text";
 import {
+  decodeReactionField,
   isNoSeriousnessCode,
   resolveFieldConcept,
   mapConceptToOutcome,
@@ -221,7 +222,6 @@ export function readRowsWithSeriousness(
   const profile = orgConfig
     ? mergeOrgRegulatoryConfigIntoProfile(jobProfile, orgConfig)
     : jobProfile;
-  const separators = profile.reactionDelimiter?.separators ?? [];
   return (job.parsedRows ?? []).map((raw) => {
     const row = decodeCodedFields(
       raw as Record<string, string>,
@@ -234,17 +234,19 @@ export function readRowsWithSeriousness(
       (!!row.outcome &&
         resolveFieldConcept(row.outcome, profile, "outcome", mapConceptToOutcome)
           ?.canonicalValue === "FATAL");
-    return { row, serious, reactions: splitReactions(row.reaction, separators) };
+    return { row, serious, reactions: readReactions(row, profile) };
   });
 }
 
-/** A reaction cell split on the file's own declared separators — the same
- *  rule the E2B mapping uses: a separator the profile does not declare is
- *  never guessed, so the cell then stays whole. */
-function splitReactions(raw: string | undefined, separators: string[]): string[] {
-  let parts = [raw ?? ""];
-  for (const sep of separators) parts = parts.flatMap((p) => p.split(sep));
-  return parts.map((p) => p.trim()).filter((p) => p.length > 0);
+/** The reactions in a row as the E2B export reads them (export.ts): the
+ *  reaction column, else a coded file's reaction-code column, split on the
+ *  file's own separators and decoded through its own codebook. Without
+ *  this a coded line list had no reactions here, so the signal screen and
+ *  the quality warning signs never saw it. A code the codebook does not
+ *  define is kept as written. */
+function readReactions(row: ParsedRow, profile: SourceProfile): string[] {
+  const cell = row.reaction?.trim() ? row.reaction : row.reaction_code;
+  return decodeReactionField(cell, profile).map((d) => d.sourceTerm ?? d.localCode);
 }
 
 export interface ColumnInspection {
