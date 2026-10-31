@@ -65,7 +65,29 @@ async function main() {
 
     // ---- Evaluator ----
     const evaluator = await L.session(browser, "evaluator");
+    // Every Supabase request on this visit, with start and end, so a slow
+    // flags card shows which request it was waiting on.
+    const trace = [];
+    let traceT0 = Date.now();
+    const traced = (u) => /\/rest\/v1\/|\/auth\/v1\//.test(u);
+    const short = (u) => u.replace(/^https?:\/\/[^/]+/, "").slice(0, 70);
+    evaluator.on(
+      "request",
+      (r) => traced(r.url()) && trace.push(`+${Date.now() - traceT0} start ${short(r.url())}`),
+    );
+    evaluator.on(
+      "requestfinished",
+      (r) => traced(r.url()) && trace.push(`+${Date.now() - traceT0} done  ${short(r.url())}`),
+    );
+    evaluator.on(
+      "requestfailed",
+      (r) =>
+        traced(r.url()) &&
+        trace.push(`+${Date.now() - traceT0} FAIL  ${short(r.url())} ${r.failure()?.errorText}`),
+    );
     await step("evaluator dashboard: batch and facility flags", async () => {
+      traceT0 = Date.now();
+      trace.length = 0;
       await L.nav(evaluator, "Dashboard", /Scientific review queue/);
       await evaluator
         .getByText("Batch and facility flags for review")
@@ -74,7 +96,13 @@ async function main() {
       await L.waitNoLoading(evaluator);
       await L.shot(evaluator, "feat-evaluator-dashboard");
       if (process.env.EXPECT_FLAGS === "1") {
-        await evaluator.getByText("Batch PCV-7781").first().waitFor({ timeout: 60000 });
+        try {
+          await evaluator.getByText("Batch PCV-7781").first().waitFor({ timeout: 60000 });
+        } catch (e) {
+          console.log("  request trace for this visit:");
+          for (const t of trace.slice(0, 60)) console.log(`    ${t}`);
+          throw e;
+        }
         await evaluator.getByText("Flag for review").first().waitFor();
       }
     });
