@@ -379,3 +379,14 @@ On a reset test organisation, upload takes 10–16 s and evaluation 47–86 s. T
   - PSUR;
   - the coded files: 9 MedDRA suggestions, Fix 6 → 0, and 4 duplicate pairs with the LGA return;
   - isolation 45/45.
+- **Production after the merge (1 Nov 2026) confirmed the timings:**
+  - accepting a term took 1.1–1.3 s (0.3 s inside the coded run);
+  - a designation showed "Configured" on its row after 1.5 s;
+  - an outcome word was saved in 1.0 s;
+  - the line list opened with no update banner.
+- **Every section of `e2e/run-all.sh` passed on production with 0 console errors:**
+  - line lists A, B and C (Fix 2 → 0) through to the E2B XML;
+  - the new features;
+  - PSUR. Its first attempt stopped when the test browser tab crashed, with the test machine short of memory, and the rerun passed;
+  - the coded files: 9 suggestions, Fix 6 → 0, 4 pairs;
+  - isolation 45/45.
