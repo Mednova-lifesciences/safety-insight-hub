@@ -415,6 +415,10 @@ export function ReactionTermsPanel({
   const [saved, setSaved] = useState<Record<string, OrgTermMapping>>({});
   const [suggestions, setSuggestions] = useState<Record<string, Llt | null>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  // Terms coded on this visit: shown as done at once, while the line list
+  // is rechecked (that, not saving the choice, is what takes the time).
+  const [coded, setCoded] = useState<Record<string, Llt>>({});
   const [searchFor, setSearchFor] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Llt[]>([]);
@@ -437,18 +441,23 @@ export function ReactionTermsPanel({
 
   async function accept(term: string, llt: Llt) {
     setBusy(term);
+    setSaving(term);
     try {
-      const { others, done } = await linelistApi.codeReactionTerm(job.id, term, llt);
-      toast.success(
-        `"${term}" will be coded as ${llt.term} (${llt.code}) in every line list.${others ? ` ${others} other line list(s) are being updated.` : ""}`,
-      );
+      const { updated } = await linelistApi.codeReactionTerm(job.id, term, llt, job.filename);
+      setCoded((c) => ({ ...c, [reactionTermKey(term)]: llt }));
       setSearchFor(null);
+      toast.success(`"${term}" will be coded as ${llt.term} (${llt.code}) in every line list.`);
+      setSaving(null);
+      setBusy(null);
+      const { others, done } = await updated;
       onDecided();
+      if (others) toast.info(`${others} other line list(s) are being updated.`);
       // The other line lists finish in the background; refresh once they have.
       void done.then(onDecided);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save that term.");
     } finally {
+      setSaving(null);
       setBusy(null);
     }
   }
@@ -511,7 +520,12 @@ export function ReactionTermsPanel({
                 <span className="text-xs text-muted-foreground">
                   {rows} case{rows === 1 ? "" : "s"}
                 </span>
-                {suggestion ? (
+                {coded[key] ? (
+                  <StatusPill tone="success">
+                    Coded as {coded[key].term} ({coded[key].code}) — updating the line list…
+                  </StatusPill>
+                ) : null}
+                {coded[key] ? null : suggestion ? (
                   <>
                     <StatusPill tone="assist" icon={<Sparkles className="size-3" />}>
                       AI: {suggestion.term} ({suggestion.code})
@@ -521,30 +535,38 @@ export function ReactionTermsPanel({
                       disabled={busy === term}
                       onClick={() => accept(term, suggestion)}
                     >
-                      Use this term
+                      {saving === term ? "Saving…" : "Use this term"}
                     </Button>
                   </>
                 ) : null}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy === term}
-                  onClick={() => askAi(term)}
-                >
-                  <Sparkles className="size-3.5" />
-                  {busy === term ? "Asking AI…" : suggestion ? "Ask AI again" : "Suggest with AI"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setSearchFor(searchFor === term ? null : term);
-                    setQuery(term);
-                    setResults([]);
-                  }}
-                >
-                  <Search className="size-3.5" /> Search MedDRA
-                </Button>
+                {coded[key] ? null : (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy === term}
+                      onClick={() => askAi(term)}
+                    >
+                      <Sparkles className="size-3.5" />
+                      {busy === term && saving !== term
+                        ? "Asking AI…"
+                        : suggestion
+                          ? "Ask AI again"
+                          : "Suggest with AI"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setSearchFor(searchFor === term ? null : term);
+                        setQuery(term);
+                        setResults([]);
+                      }}
+                    >
+                      <Search className="size-3.5" /> Search MedDRA
+                    </Button>
+                  </>
+                )}
               </div>
               {searchFor === term ? (
                 <div className="mt-2 space-y-2">

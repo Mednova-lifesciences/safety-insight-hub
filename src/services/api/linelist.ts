@@ -3022,9 +3022,8 @@ function changeAudits(
  * a queued call on its own job (it would wait on itself forever).
  */
 async function recheckJob(jobId: string, read?: LineListJobRow): Promise<LineListJob> {
-  const job = read ?? (await readJob(jobId));
+  const [job, previous] = await Promise.all([read ?? readJob(jobId), linelist.issues(jobId)]);
   if (!job.parsedRows) return job;
-  const previous = await linelist.issues(jobId);
   const priorAi = previous.filter((i) => i.source === "ai" && !(i.sources ?? []).includes("rule"));
   const issues = mergeFindings(await computeDeterministicIssues(job), priorAi);
   return storeIssues(job, issues);
@@ -3758,10 +3757,13 @@ export const linelist = {
     jobId: string,
     term: string,
     llt: { code: string; term: string },
-  ): Promise<{ others: number; done: Promise<void> }> => {
-    const job = await readJob(jobId);
-    await termMappings.decideByTerm("REACTION", term, llt.code, llt.term, job.filename);
-    return linelist.recheckAffected("REACTION_TERMS", jobId);
+    filename?: string,
+  ): Promise<{ updated: Promise<{ others: number; done: Promise<void> }> }> => {
+    const file = filename ?? (await readJob(jobId)).filename;
+    await termMappings.decideByTerm("REACTION", term, llt.code, llt.term, file);
+    // The choice is saved and can be shown as made; the line lists catch up
+    // from here (this one first), which is most of the time it takes.
+    return { updated: linelist.recheckAffected("REACTION_TERMS", jobId) };
   },
 
   issues: async (jobId: string): Promise<LineListIssue[]> => {
