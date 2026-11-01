@@ -33,6 +33,7 @@ import {
   isPeerReviewed,
 } from "@/services/psur/workflow";
 import type { PsurDocument, PsurDocumentSummary, PsurScreeningOutcomeDecision } from "@/types/pv";
+import { SubmissionRelationNote, useSameFileGuard } from "@/components/pv/psur-submission-relation";
 
 /**
  * The Review Officer's desk — NAFDAC's PSUR Administrative Screening
@@ -80,6 +81,7 @@ function ScreeningPage() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const sameFile = useSameFileGuard();
   /** What was just decided, if anything — cleared the moment the officer
    *  picks up another report. */
   const [justScreened, setJustScreened] = useState<{
@@ -112,6 +114,7 @@ function ScreeningPage() {
 
   return (
     <>
+      {sameFile.dialog}
       <PageHeader
         title="Report screening"
         description="Complete the administrative screening checklist on receipt, before the report is allocated for scientific assessment."
@@ -179,7 +182,9 @@ function ScreeningPage() {
                     if (!file) return;
                     setUploading(true);
                     try {
-                      const created = await psurApi.upload(file);
+                      const { proceed, fileSha256 } = await sameFile.check(file);
+                      if (!proceed) return;
+                      const created = await psurApi.upload(file, fileSha256 ? { fileSha256 } : {});
                       open(created.id);
                       toast.success("Received. The screening checklist is ready for your review.");
                       refresh();
@@ -248,6 +253,7 @@ function ScreeningPage() {
                         title={`Screening: ${active.filename}`}
                         description={`${active.product} · ${active.reportingPeriod}`}
                       >
+                        <SubmissionRelationNote doc={active} docs={items} />
                         <PsurScreeningChecklist
                           key={active.id}
                           doc={active}

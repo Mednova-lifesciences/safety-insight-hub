@@ -775,6 +775,10 @@ export interface PsurDocument {
   product: string;
   ibdDecision?: PsurIbdDecision | undefined;
   forecastDismissal?: PsurForecastDismissal | undefined;
+  /** SHA-256 of the uploaded file's bytes, so the exact same file is
+   *  recognised again whatever it is called. Absent on reports uploaded
+   *  before fingerprinting existed. */
+  fileSha256?: string | undefined;
   /** Marketing Authorisation Holder — Section 1 (Product & Regulatory
    *  Information) requires this, but it is only ever populated from what
    *  the AI could actually read off the submitted document's own text
