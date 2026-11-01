@@ -13,7 +13,12 @@ import type { IbdRegisterEntry } from "@/services/psur/ibd-register";
  */
 
 export const PSUR_IBD_REGISTER_KIND = "PSUR_IBD_REGISTER";
-const REGISTER_ID = "psur-ibd-register";
+// Each organisation has its own register row. The first one ever saved was
+// called "psur-ibd-register" and is still read and written under that id; a
+// fixed id for everyone, though, meant that row (primary key) belonged to the
+// first organisation that saved, and every other organisation's save hit it
+// and was refused. A new register therefore gets an id of its own.
+const NEW_REGISTER_PREFIX = "psur-ibd-register";
 
 export function isPsurRegisterRow(data: unknown): boolean {
   return (
@@ -33,24 +38,34 @@ const substanceKey = (s: string) =>
     .sort()
     .join(" ");
 
-async function read(): Promise<IbdRegisterEntry[]> {
-  const { data, error } = await supabase
-    .from("pv_psur_documents")
-    .select("data")
-    .eq("id", REGISTER_ID)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  const row = data?.data as { entries?: IbdRegisterEntry[] } | undefined;
-  return row?.entries ?? [];
+interface Register {
+  /** The row holding this organisation's register, or null before its first save. */
+  rowId: string | null;
+  entries: IbdRegisterEntry[];
 }
 
-async function write(entries: IbdRegisterEntry[]): Promise<void> {
+/** This organisation's register. Row-level security limits the read to the
+ *  caller's own organisation, so it is found by its kind, not a fixed id. */
+async function read(): Promise<Register> {
+  const { data, error } = await supabase
+    .from("pv_psur_documents")
+    .select("id, data")
+    .eq("data->>kind", PSUR_IBD_REGISTER_KIND)
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if (error) throw new Error(error.message);
+  const row = data?.[0] as { id: string; data: { entries?: IbdRegisterEntry[] } } | undefined;
+  return { rowId: row?.id ?? null, entries: row?.data?.entries ?? [] };
+}
+
+async function write(register: Register, entries: IbdRegisterEntry[]): Promise<void> {
+  const id = register.rowId ?? newId(NEW_REGISTER_PREFIX);
   const { error } = await supabase.from("pv_psur_documents").upsert(
     {
-      id: REGISTER_ID,
+      id,
       data: toJson({
         kind: PSUR_IBD_REGISTER_KIND,
-        id: REGISTER_ID,
+        id,
         entries,
         updatedAt: new Date().toISOString(),
       }),
@@ -65,14 +80,15 @@ const describe = (e: Pick<IbdRegisterEntry, "activeSubstance" | "ibd">) =>
 
 export const ibdRegister = {
   list: async (): Promise<IbdRegisterEntry[]> =>
-    (await read()).sort((a, b) => a.activeSubstance.localeCompare(b.activeSubstance)),
+    (await read()).entries.sort((a, b) => a.activeSubstance.localeCompare(b.activeSubstance)),
 
   /** Adds an entry, or updates the one with this id. One entry per active
    *  substance: a second entry for the same substance is refused. */
   save: async (
     input: Omit<IbdRegisterEntry, "id" | "by" | "at"> & { id?: string },
   ): Promise<IbdRegisterEntry> => {
-    const entries = await read();
+    const register = await read();
+    const { entries } = register;
     const actor = currentActor();
     const key = substanceKey(input.activeSubstance);
     const clash = entries.find((e) => substanceKey(e.activeSubstance) === key && e.id !== input.id);
@@ -87,7 +103,10 @@ export const ibdRegister = {
       by: actor.name,
       at: new Date().toISOString(),
     };
-    await write(before ? entries.map((e) => (e.id === entry.id ? entry : e)) : [...entries, entry]);
+    await write(
+      register,
+      before ? entries.map((e) => (e.id === entry.id ? entry : e)) : [...entries, entry],
+    );
     await recordAudit({
       action: before ? "PSUR_IBD_REGISTER_UPDATED" : "PSUR_IBD_REGISTER_ADDED",
       entity: "PsurIbdRegister",
@@ -107,7 +126,8 @@ export const ibdRegister = {
     id: string,
     spellings: { productName?: string; nafdacRegNo?: string },
   ): Promise<IbdRegisterEntry> => {
-    const entries = await read();
+    const register = await read();
+    const { entries } = register;
     const e = entries.find((x) => x.id === id);
     if (!e) throw new Error("That register entry no longer exists.");
     const has = (list: string[], v: string) =>
@@ -119,7 +139,10 @@ export const ibdRegister = {
       productNames: name && !has(e.productNames, name) ? [...e.productNames, name] : e.productNames,
       nafdacRegNos: reg && !has(e.nafdacRegNos, reg) ? [...e.nafdacRegNos, reg] : e.nafdacRegNos,
     };
-    await write(entries.map((x) => (x.id === id ? next : x)));
+    await write(
+      register,
+      entries.map((x) => (x.id === id ? next : x)),
+    );
     await recordAudit({
       action: "PSUR_IBD_REGISTER_SPELLING_ADDED",
       entity: "PsurIbdRegister",
@@ -131,10 +154,14 @@ export const ibdRegister = {
   },
 
   remove: async (id: string): Promise<void> => {
-    const entries = await read();
+    const register = await read();
+    const { entries } = register;
     const gone = entries.find((e) => e.id === id);
     if (!gone) return;
-    await write(entries.filter((e) => e.id !== id));
+    await write(
+      register,
+      entries.filter((e) => e.id !== id),
+    );
     await recordAudit({
       action: "PSUR_IBD_REGISTER_REMOVED",
       entity: "PsurIbdRegister",
@@ -150,7 +177,8 @@ export const ibdRegister = {
     rows: Omit<IbdRegisterEntry, "id" | "by" | "at">[],
     filename: string,
   ): Promise<{ added: number; updated: number; unchanged: number }> => {
-    const entries = await read();
+    const register = await read();
+    const { entries } = register;
     const actor = currentActor();
     const at = new Date().toISOString();
     let added = 0,
@@ -174,7 +202,7 @@ export const ibdRegister = {
         updated++;
       } else unchanged++;
     }
-    await write(next);
+    await write(register, next);
     await recordAudit({
       action: "PSUR_IBD_REGISTER_IMPORTED",
       entity: "PsurIbdRegister",
