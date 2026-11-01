@@ -171,6 +171,16 @@ import {
   nigerianExposureRequired,
 } from "@/services/psur/nigeria-requirements";
 
+/** SHA-256 of a file's bytes, as hex. */
+export async function fileFingerprint(file: Blob): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error("Web Crypto SHA-256 is unavailable.");
+  const hash = await subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 async function computeSha256(input: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
   if (!subtle) {
@@ -263,6 +273,8 @@ const PSUR_LIST_FIELDS = [
     ibdDecision: true,
     // The "PSURs due and overdue" card hides a dismissed reminder.
     forecastDismissal: true,
+    // Recognises the exact same file uploaded again.
+    fileSha256: true,
     mah: true,
     reportingPeriod: true,
     uploadedAt: true,
@@ -2409,8 +2421,35 @@ export const psur = {
    * Upload performs administrative screening only. Scientific review is
    * deliberately deferred until an evaluator explicitly starts it.
    */
-  upload: async (file: File): Promise<PsurDocument> => {
+  /**
+   * Was this exact file already uploaded in this organisation? Compared by
+   * a fingerprint of the file's contents, so a renamed copy is recognised
+   * too; a corrected version, being different bytes, is not (the dashboard
+   * tells a corrected resubmission apart by its Data Lock Point instead).
+   */
+  findSameFile: async (
+    file: File,
+  ): Promise<{
+    fileSha256: string;
+    match: { id: string; filename: string; uploadedAt: string } | null;
+  }> => {
+    const fileSha256 = await fileFingerprint(file);
+    const { data, error } = await supabase
+      .from("pv_psur_documents")
+      .select("data")
+      .eq("data->>fileSha256", fileSha256)
+      .limit(1);
+    if (error) throw new Error(error.message);
+    const row = data?.[0]?.data as { id: string; filename: string; uploadedAt: string } | undefined;
+    return {
+      fileSha256,
+      match: row ? { id: row.id, filename: row.filename, uploadedAt: row.uploadedAt } : null,
+    };
+  },
+
+  upload: async (file: File, opts: { fileSha256?: string } = {}): Promise<PsurDocument> => {
     const actor = currentActor();
+    const fileSha256 = opts.fileSha256 ?? (await fileFingerprint(file).catch(() => undefined));
 
     if (isSpreadsheetFile(file)) {
       let doc: PsurDocumentRow;
@@ -2441,6 +2480,7 @@ export const psur = {
           reportingPeriod: detectReportingPeriod(parsedRows),
           uploadedAt: new Date().toISOString(),
           uploadedBy: actor.name,
+          ...(fileSha256 ? { fileSha256 } : {}),
           stage: "UPLOADED",
           workflowStage: "SCREENING",
           pages: parsedRows.length,
@@ -2499,6 +2539,7 @@ export const psur = {
       reportingPeriod: "Not yet extracted",
       uploadedAt: new Date().toISOString(),
       uploadedBy: actor.name,
+      ...(fileSha256 ? { fileSha256 } : {}),
       stage: "UPLOADED",
       // Every new report starts on the Review Officer's desk — they decide
       // whether it goes on for scientific review or back to the MAH.

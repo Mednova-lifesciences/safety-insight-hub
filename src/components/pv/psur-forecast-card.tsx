@@ -6,6 +6,7 @@ import { usePvQuery } from "@/lib/data-source";
 import { psur as psurApi } from "@/services/api/psur";
 import { demoPsurDocuments } from "@/services/demo/dataset";
 import {
+  ARRIVAL_LABELS,
   FORECAST_STATUS_LABELS,
   describeMahHistory,
   forecastPsurs,
@@ -39,6 +40,21 @@ function statusText(f: PsurForecast): string {
 }
 
 const COLUMNS = ["", "Status", "Product", "Next DLP", "Deadline", ""];
+
+/** The latest report waiting that is NOT the next one (that one already
+ *  shows as "Next report received"), to note under the status. */
+const waiting = (f: PsurForecast) =>
+  f.status === "RECEIVED" ? undefined : f.arrivals.filter((a) => a.kind !== "NEXT").at(-1);
+
+const ARRIVAL_EXPLAINED: Record<PsurForecast["arrivals"][number]["kind"], string> = {
+  NEXT: "the next report: its Data Lock Point is later than the one screened.",
+  RESUBMISSION:
+    "a corrected or repeated copy of the report already screened (same Data Lock Point), not the next one. The next report is still due.",
+  SAME_FILE: "exactly the same file as one already uploaded, whatever it is called.",
+  EARLIER_PERIOD: "for an earlier period than the report already screened, so not the next one.",
+  PERIOD_UNCONFIRMED:
+    "its Data Lock Point could not be read, so it is not counted as the next report until it is screened.",
+};
 
 /**
  * "PSURs due and overdue" — when each product's next periodic report is
@@ -163,6 +179,11 @@ export function PsurForecastCard({ limit }: { limit?: number }) {
                     >
                       {statusText(f)}
                     </StatusPill>
+                    {waiting(f) ? (
+                      <p className="mt-1 text-xs text-info" data-e2e-arrival={waiting(f)!.kind}>
+                        {ARRIVAL_LABELS[waiting(f)!.kind]}
+                      </p>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 font-medium">{f.product}</td>
                   <td className="mono-num px-3 py-2">{f.nextDlp ? showDate(f.nextDlp) : "—"}</td>
@@ -230,6 +251,21 @@ export function PsurForecastCard({ limit }: { limit?: number }) {
                     <td colSpan={COLUMNS.length - 1} className="px-3 py-3">
                       <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
                         <Detail label="Why">{f.note}</Detail>
+                        {f.arrivals.length ? (
+                          <Detail label="Waiting to be screened" wide>
+                            <ul className="space-y-0.5">
+                              {f.arrivals.map((a) => (
+                                <li key={a.documentId}>
+                                  {a.filename}
+                                  {a.dlp ? ` (DLP ${a.dlp})` : ""} —{" "}
+                                  <span className="text-muted-foreground">
+                                    {ARRIVAL_EXPLAINED[a.kind]}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </Detail>
+                        ) : null}
                         <Detail label="MAH">{f.mah || "—"}</Detail>
                         <Detail label="Based on">
                           {f.basedOn.filename}

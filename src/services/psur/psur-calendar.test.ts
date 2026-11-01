@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PsurDocumentSummary, PsurScreeningCheckItem } from "@/types/pv";
-import { describeMahHistory, forecastPsurs } from "./psur-calendar";
+import { describeMahHistory, forecastPsurs, submissionRelation } from "./psur-calendar";
 import { emptyChecks } from "./screening-checklist";
 
 let n = 0;
@@ -66,6 +66,18 @@ function doc(over: {
 
 const TODAY = new Date(Date.UTC(2026, 9, 29)); // 29 Oct 2026
 
+/** Uploaded and read at upload (its details, including the DLP), but not
+ *  screened yet: no outcome recorded. */
+function pending(over: Parameters<typeof doc>[0] & { sha?: string }): PsurDocumentSummary {
+  const d = doc(over) as PsurDocumentSummary & { fileSha256?: string };
+  const s = d.administrativeScreening!;
+  return {
+    ...d,
+    ...(over.sha ? { fileSha256: over.sha } : {}),
+    administrativeScreening: { ...s, outcome: undefined },
+  } as PsurDocumentSummary;
+}
+
 describe("forecastPsurs", () => {
   it("projects the next DLP from the same interval and adds 70 days for ≤ 12 months", () => {
     const [f] = forecastPsurs(
@@ -117,10 +129,12 @@ describe("forecastPsurs", () => {
     expect(f!.daysToDeadline).toBeLessThan(0);
   });
 
-  it("says a newer report was received instead of overdue", () => {
+  it("says the next report was received when one with a later DLP is waiting", () => {
     const old = doc({ dlp: "30 Jun 2025", interval: "01 Jan 2025 – 30 Jun 2025" });
-    const newer = doc({ screened: false, uploadedAt: "2026-03-01T00:00:00Z" });
-    expect(forecastPsurs([old, newer], TODAY)[0]!.status).toBe("RECEIVED");
+    const newer = pending({ dlp: "31 Dec 2025", uploadedAt: "2026-03-01T00:00:00Z" });
+    const [f] = forecastPsurs([old, newer], TODAY);
+    expect(f!.status).toBe("RECEIVED");
+    expect(f!.arrivals.map((a) => a.kind)).toEqual(["NEXT"]);
   });
 
   it("cannot forecast when the interval is unreadable — never guesses", () => {
@@ -214,5 +228,98 @@ describe("a dismissed reminder", () => {
     expect(
       forecastPsurs([{ ...d, forecastDismissal: dismissal(null, "OVERDUE") }], TODAY)[0]!.dismissal,
     ).toBeUndefined();
+  });
+});
+
+describe("what a report uploaded after the screened one is", () => {
+  // Screened: DLP 30 Jun 2025, so the next is due (overdue by now).
+  const screened = () => ({
+    ...doc({ dlp: "30 Jun 2025", interval: "01 Jan 2025 – 30 Jun 2025" }),
+    fileSha256: "aaa",
+  });
+  const later = "2026-03-01T00:00:00Z";
+
+  it("a corrected copy of the same period is a resubmission, and the next PSUR stays due", () => {
+    const [f] = forecastPsurs(
+      [screened(), pending({ dlp: "30 Jun 2025", uploadedAt: later, sha: "bbb" })],
+      TODAY,
+    );
+    expect(f!.status).toBe("OVERDUE");
+    expect(f!.arrivals.map((a) => a.kind)).toEqual(["RESUBMISSION"]);
+  });
+
+  it("the same date written differently is still the same period", () => {
+    const [f] = forecastPsurs(
+      [screened(), pending({ dlp: "2025-06-30", uploadedAt: later })],
+      TODAY,
+    );
+    expect(f!.arrivals[0]!.kind).toBe("RESUBMISSION");
+  });
+
+  it("the exact same file uploaded again is recognised, whatever it is called", () => {
+    const again = {
+      ...pending({ dlp: "30 Jun 2025", uploadedAt: later, sha: "aaa" }),
+      filename: "renamed.pdf",
+    };
+    const [f] = forecastPsurs([screened(), again], TODAY);
+    expect(f!.status).toBe("OVERDUE");
+    expect(f!.arrivals[0]).toMatchObject({ kind: "SAME_FILE", filename: "renamed.pdf" });
+  });
+
+  it("a report whose DLP could not be read is never assumed to be the next one", () => {
+    const unread = pending({ dlp: "", uploadedAt: later });
+    const [f] = forecastPsurs([screened(), unread], TODAY);
+    expect(f!.status).toBe("OVERDUE");
+    expect(f!.arrivals[0]!.kind).toBe("PERIOD_UNCONFIRMED");
+  });
+
+  it("an older period is not the next report", () => {
+    const [f] = forecastPsurs(
+      [screened(), pending({ dlp: "31 Dec 2024", uploadedAt: later })],
+      TODAY,
+    );
+    expect(f!.status).toBe("OVERDUE");
+    expect(f!.arrivals[0]!.kind).toBe("EARLIER_PERIOD");
+  });
+});
+
+describe("submissionRelation — the link shown on a report's page", () => {
+  const returned = () => {
+    const d = doc({ dlp: "30 Jun 2025", interval: "01 Jan 2025 – 30 Jun 2025", cited: [3, 7] });
+    d.administrativeScreening!.outcome!.decision = "NOT_ACCEPTED_RESUBMIT";
+    return { ...d, fileSha256: "aaa" };
+  };
+
+  it("names the earlier report a resubmission corrects, with its decision and cited items", () => {
+    const first = returned();
+    const fixed = pending({ dlp: "30 Jun 2025", uploadedAt: "2026-03-01T00:00:00Z", sha: "bbb" });
+    const rel = submissionRelation(fixed, [first, fixed]);
+    expect(rel).toMatchObject({ kind: "RESUBMISSION", earlier: { id: first.id } });
+    expect(rel!.screened!.decision).toBe("NOT_ACCEPTED_RESUBMIT");
+    expect(rel!.screened!.citedItems.map((c) => c.number)).toEqual([3, 7]);
+  });
+
+  it("says when it is the same file as an earlier upload", () => {
+    const first = returned();
+    const again = pending({ dlp: "30 Jun 2025", uploadedAt: "2026-03-01T00:00:00Z", sha: "aaa" });
+    expect(submissionRelation(again, [first, again])!.kind).toBe("SAME_FILE");
+  });
+
+  it("finds nothing for a different period or a different product", () => {
+    const first = returned();
+    const next = pending({ dlp: "31 Dec 2025", uploadedAt: "2026-03-01T00:00:00Z" });
+    const other = pending({
+      product: "Metformin 500 mg",
+      dlp: "30 Jun 2025",
+      uploadedAt: "2026-03-01T00:00:00Z",
+    });
+    expect(submissionRelation(next, [first, next])).toBeNull();
+    expect(submissionRelation(other, [first, other])).toBeNull();
+  });
+
+  it("is never the report itself, nor a later one", () => {
+    const first = returned();
+    const fixed = pending({ dlp: "30 Jun 2025", uploadedAt: "2026-03-01T00:00:00Z" });
+    expect(submissionRelation(first, [first, fixed])).toBeNull();
   });
 });
