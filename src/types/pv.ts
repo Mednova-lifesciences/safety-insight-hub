@@ -754,11 +754,27 @@ export interface PsurIbdDecision {
   at: string;
 }
 
+/** A person dismissed the "PSURs due and overdue" reminder that this
+ *  report's forecast produced. It holds for that deadline only: a newer
+ *  screened report, or a changed deadline, brings the reminder back. For
+ *  the whole organisation, and audited. */
+export interface PsurForecastDismissal {
+  /** The deadline dismissed (ISO), or null when none could be worked out. */
+  deadline: string | null;
+  /** The status shown when it was dismissed, e.g. "OVERDUE". */
+  status: string;
+  by: string;
+  role: string;
+  at: string;
+  reason?: string | undefined;
+}
+
 export interface PsurDocument {
   id: string;
   filename: string;
   product: string;
   ibdDecision?: PsurIbdDecision | undefined;
+  forecastDismissal?: PsurForecastDismissal | undefined;
   /** Marketing Authorisation Holder — Section 1 (Product & Regulatory
    *  Information) requires this, but it is only ever populated from what
    *  the AI could actually read off the submitted document's own text
