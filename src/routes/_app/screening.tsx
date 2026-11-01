@@ -34,6 +34,7 @@ import {
 } from "@/services/psur/workflow";
 import type { PsurDocument, PsurDocumentSummary, PsurScreeningOutcomeDecision } from "@/types/pv";
 import { SubmissionRelationNote, useSameFileGuard } from "@/components/pv/psur-submission-relation";
+import { returnsToMah } from "@/services/psur/screening-checklist";
 
 /**
  * The Review Officer's desk — NAFDAC's PSUR Administrative Screening
@@ -112,6 +113,31 @@ function ScreeningPage() {
     setSelectedId(id);
   }
 
+  /** Receives a report: a new one, or the corrected version of a report
+   *  that was returned to the MAH (resubmissionOf = that report's id). */
+  async function receive(file: File, resubmissionOf?: string) {
+    setUploading(true);
+    try {
+      const { proceed, fileSha256 } = await sameFile.check(file);
+      if (!proceed) return;
+      const created = await psurApi.upload(file, {
+        ...(fileSha256 ? { fileSha256 } : {}),
+        ...(resubmissionOf ? { resubmissionOf } : {}),
+      });
+      open(created.id);
+      toast.success(
+        resubmissionOf
+          ? "Corrected version received. Its screening checklist is ready for your review."
+          : "Received. The screening checklist is ready for your review.",
+      );
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not receive this file.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <>
       {sameFile.dialog}
@@ -179,23 +205,9 @@ function ScreeningPage() {
                   disabled={uploading}
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
+                    e.target.value = "";
                     if (!file) return;
-                    setUploading(true);
-                    try {
-                      const { proceed, fileSha256 } = await sameFile.check(file);
-                      if (!proceed) return;
-                      const created = await psurApi.upload(file, fileSha256 ? { fileSha256 } : {});
-                      open(created.id);
-                      toast.success("Received. The screening checklist is ready for your review.");
-                      refresh();
-                    } catch (err) {
-                      toast.error(
-                        err instanceof Error ? err.message : "Could not receive this file.",
-                      );
-                    } finally {
-                      setUploading(false);
-                      e.target.value = "";
-                    }
+                    await receive(file);
                   }}
                 />
               </label>
@@ -277,7 +289,13 @@ function ScreeningPage() {
                         <>
                           <div className="space-y-2">
                             {paginate(triaged, screenedPage).map((doc) => (
-                              <TriagedRow key={doc.id} doc={doc} onOpen={() => open(doc.id)} />
+                              <TriagedRow
+                                key={doc.id}
+                                doc={doc}
+                                onOpen={() => open(doc.id)}
+                                uploading={uploading}
+                                onUploadCorrected={(file) => receive(file, doc.id)}
+                              />
                             ))}
                           </div>
                           <Pager
@@ -334,7 +352,17 @@ function QueueRow({
   );
 }
 
-function TriagedRow({ doc, onOpen }: { doc: PsurDocumentSummary; onOpen: () => void }) {
+function TriagedRow({
+  doc,
+  onOpen,
+  uploading,
+  onUploadCorrected,
+}: {
+  doc: PsurDocumentSummary;
+  onOpen: () => void;
+  uploading: boolean;
+  onUploadCorrected: (file: File) => Promise<void>;
+}) {
   const [downloading, setDownloading] = useState(false);
   const stage = deriveWorkflowStage(doc);
   // The directive is built from the findings of the COMPLETED scientific
@@ -376,6 +404,31 @@ function TriagedRow({ doc, onOpen }: { doc: PsurDocumentSummary; onOpen: () => v
         <Button size="sm" variant="ghost" onClick={onOpen}>
           View checklist
         </Button>
+        {/* A report sent back to the MAH: their corrected version is
+            uploaded from here, so it is linked to this report for certain. */}
+        {doc.administrativeScreening?.outcome &&
+        returnsToMah(doc.administrativeScreening.outcome.decision) ? (
+          <label
+            className={cn(
+              "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted",
+              uploading && "pointer-events-none opacity-60",
+            )}
+          >
+            <Upload className="size-3.5" /> Upload corrected version
+            <input
+              type="file"
+              className="sr-only"
+              accept=".pdf,.xlsx,.xls,.csv"
+              aria-label={`Upload the corrected version of ${doc.filename}`}
+              disabled={uploading}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void onUploadCorrected(file);
+              }}
+            />
+          </label>
+        ) : null}
         {directiveReady ? (
           <>
             <Button

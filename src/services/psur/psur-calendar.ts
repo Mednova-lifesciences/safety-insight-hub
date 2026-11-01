@@ -4,6 +4,8 @@ import type {
   PsurScreeningOutcomeDecision,
 } from "@/types/pv";
 import {
+  OUTCOME_LABELS,
+  returnsToMah,
   assessTimeliness,
   intervalBounds,
   SCREENING_CHECKS,
@@ -52,6 +54,18 @@ export interface Arrival {
   dlp?: string | undefined;
 }
 
+export interface ResubmissionDue {
+  /** "Not accepted — resubmit" or "Compliance directive". */
+  decision: string;
+  returnedAt: string;
+  /** ISO date the corrected report is due back, when the officer set one. */
+  due?: string | undefined;
+  /** Days until it is due (negative once late). */
+  daysToDue?: number | undefined;
+  /** A corrected version has arrived (linked or same DLP). */
+  received: boolean;
+}
+
 export const ARRIVAL_LABELS: Record<ArrivalKind, string> = {
   NEXT: "Next report received",
   RESUBMISSION: "Corrected resubmission received",
@@ -90,6 +104,10 @@ export interface PsurForecast {
    *  with how it relates to the screened one. Only a NEXT one stops the
    *  reminder; the others are shown beside it. */
   arrivals: Arrival[];
+  /** When the report this forecast is built on was returned to the MAH:
+   *  the corrected version they owe. Separate from the next periodic
+   *  report, which is still forecast from the DLP and interval. */
+  resubmission?: ResubmissionDue | undefined;
   /** Set when a person dismissed this reminder for this same deadline. */
   dismissal?: PsurForecastDismissal | undefined;
 }
@@ -191,7 +209,13 @@ export function forecastPsurs(
     // Reports for the same product uploaded since the last screening and
     // not screened yet. Only one with a later Data Lock Point is the next
     // report; a corrected copy of the same period is not.
-    const arrivals: Arrival[] = list
+    // Also any report uploaded as the corrected version of one of these,
+    // even if its product or MAH was read differently.
+    const ids = new Set(list.map((d) => d.id));
+    const linked = docs.filter(
+      (d) => !ids.has(d.id) && d.resubmissionOf && ids.has(d.resubmissionOf),
+    );
+    const arrivals: Arrival[] = [...list, ...linked]
       .filter(
         (d) =>
           d.id !== latest.d.id &&
@@ -202,7 +226,7 @@ export function forecastPsurs(
       .map((d) => {
         const dlp = d.administrativeScreening?.submissionDetails.dlp?.trim();
         return {
-          kind: arrivalKind(d, list, latest.dlp),
+          kind: arrivalKind(d, [...list, ...linked], latest.dlp, ids),
           documentId: d.id,
           filename: d.filename,
           ...(dlp ? { dlp } : {}),
@@ -211,9 +235,23 @@ export function forecastPsurs(
     const newer = arrivals.find((a) => a.kind === "NEXT");
     base.arrivals = arrivals;
 
+    // A returned report: the corrected version is owed by the date the
+    // officer set ("PSUR/PBRER resubmission date" on the directive).
+    if (returnsToMah(s.outcome!.decision)) {
+      const due = screeningDate(s.outcome!.nextPsurDueDate);
+      base.resubmission = {
+        decision: OUTCOME_LABELS[s.outcome!.decision],
+        returnedAt: s.outcome!.at,
+        ...(due ? { due: iso(due), daysToDue: Math.round((due.getTime() - todayUtc) / DAY) } : {}),
+        received: arrivals.some((a) => a.kind === "RESUBMISSION"),
+      };
+    }
+
     const windowDays = submissionWindowDays(details.intervalCovered);
+    // The officer's date is the next-PSUR date only for an accepted report;
+    // for a returned one it is when the corrected report is due back.
     const recorded =
-      screeningDate(s.outcome!.nextPsurDueDate) ??
+      (returnsToMah(s.outcome!.decision) ? null : screeningDate(s.outcome!.nextPsurDueDate)) ??
       screeningDate(latest.d.regulatoryDecision?.nextPsurDueDate);
     let nextDlp: Date | null = recorded;
     let nextDlpSource: PsurForecast["nextDlpSource"] = recorded ? "RECORDED" : undefined;
@@ -341,6 +379,7 @@ function arrivalKind(
   d: PsurDocumentSummary,
   sameProduct: PsurDocumentSummary[],
   screenedDlp: Date | null,
+  screenedIds: ReadonlySet<string> = new Set(),
 ): ArrivalKind {
   if (
     d.fileSha256 &&
@@ -349,6 +388,8 @@ function arrivalKind(
     )
   )
     return "SAME_FILE";
+  // The officer uploaded it as the corrected version of one of these.
+  if (d.resubmissionOf && screenedIds.has(d.resubmissionOf)) return "RESUBMISSION";
   const dlp = screeningDate(d.administrativeScreening?.submissionDetails.dlp);
   if (!dlp || !screenedDlp) return "PERIOD_UNCONFIRMED";
   if (sameDay(dlp, screenedDlp)) return "RESUBMISSION";
@@ -358,6 +399,9 @@ function arrivalKind(
 /** An earlier report this one repeats or corrects, for the report's page. */
 export interface SubmissionRelation {
   kind: "SAME_FILE" | "RESUBMISSION";
+  /** True when the officer uploaded it as the corrected version of that
+   *  report; false when it was recognised by product, MAH and DLP. */
+  linked?: boolean;
   earlier: { id: string; filename: string; uploadedAt: string; dlp: string };
   /** The earlier report's screening decision, when it had one. */
   screened?: {
@@ -399,6 +443,18 @@ export function submissionRelation(
         .filter((x): x is { number: number; label: string } => x !== null),
     };
   };
+  if (doc.resubmissionOf) {
+    const target = docs.find((d) => d.id === doc.resubmissionOf);
+    if (target) {
+      const screened = screenedOf(target);
+      return {
+        kind: "RESUBMISSION",
+        linked: true,
+        earlier: describe(target),
+        ...(screened ? { screened } : {}),
+      };
+    }
+  }
   if (doc.fileSha256) {
     const same = earlier.find((d) => d.fileSha256 === doc.fileSha256);
     if (same) {
