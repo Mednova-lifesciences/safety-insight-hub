@@ -340,3 +340,53 @@ The seven `requests`-based scripts at the repo root (`test_api.py`, `test_e2e.py
 - **`test_api.py` and `test_phase1_complete.py` sign up new users and organisations in live production auth.** That breaks the test-org-only rule, so they were not run.
 
 To run them safely they need a local Supabase stack or a dedicated test project.
+
+# Release 3 (31 Oct – 1 Nov 2026): coded line lists, easier Fix, faster decisions
+
+PRs #117–#122. Admin side only. All measurements are on the synthetic test organisation.
+
+## Fixed and built
+
+| PR | What changed |
+|---|---|
+| #117 | **Coded reactions were invisible to the signal screen, quality flags and cross-file duplicates.** A coded line list keeps its reactions as codes (`reaction_code`, decoded by the file's legend). Those three features read only the text column, so a coded file showed no reactions there. They now decode the codes first. |
+| #118 | **Legend notes such as "Died (insert appropriate number in column)"** are stripped from the meaning, so "Died" is read as a death. The 25-case coded demo and the 8-case LGA return (4 true duplicates, 2 near-misses) are now part of `e2e/run-all.sh` (section "coded line lists"). |
+| #119, #120 | **Fix now corrects easy errors itself**, with no AI and no guessing: a letter in a date (`18/1O/2026` → `18/10/2026`), misspelt seriousness (`Serius` → `Serious`), a stray asterisk at the edge of a cell, misspelt age units and sex, and a death marked non-serious (→ serious). The server checks the same rules before it saves (#119 shipped first, because the preview uses the production backend). On the demo, Fix takes the fixable count from 6 to 0. |
+| #121 | **Sign-in is checked once when many requests arrive together.** The MedDRA look-ups on a line list are sent together, and each one used to check the sign-in with Supabase separately; nine at once took about 5 s each. They now share one check. |
+| #122 | **Decisions show as done sooner** (below). The MedDRA look-ups run in parallel and are remembered for the visit. Accepting a term shows "Coded as … — updating the line list…" as soon as it is saved, while the line lists are re-checked in the background. A Settings row stays where it is after mapping instead of moving to another page. The line list no longer re-checks a second time when it opens after a Settings change. While a term is being saved, the button reads "Saving…" (it used to say "Asking AI…"). |
+
+## How long a decision takes to show as done
+
+**Before:** production, 31 Oct 2026. **After:** the Vercel preview of #122 on 1 Nov 2026, against the same backend and database as production (`probe-decisions.cjs`, 25-case coded demo).
+
+| Action | Before | After |
+|---|---|---|
+| Accept a MedDRA suggestion ("Use this term") | 9.3 s | 1.1 s (0.3 s inside the full coded run) |
+| Map a reporter designation in Settings | Saved in 2–3 s, but the row moved to page 2, so "Configured" never showed where you were looking | "Configured" shows on the same row after 1.4 s |
+| Map an outcome word in Settings | 1.3 s | 1.0 s |
+| Open the line list after Settings changes | 7 s of "Updating this line list…" | No update banner; the page's requests finish within about 1.3 s |
+
+## The 25-case coded demo
+
+On a reset test organisation, upload takes 10–16 s and evaluation 47–86 s. The upper end is the first time the file's terms are seen.
+
+## Test results
+
+- **Unit:** vitest 2,267 tests pass. Typecheck clean; lint 0 errors on the changed files. **Backend:** pytest 82 pass, including 3 new sign-in tests.
+- **The Vercel preview of #122 passed every section of `e2e/run-all.sh`** with 0 console errors:
+  - line lists A, B and C through to the E2B XML;
+  - the new features;
+  - PSUR;
+  - the coded files: 9 MedDRA suggestions, Fix 6 → 0, and 4 duplicate pairs with the LGA return;
+  - isolation 45/45.
+- **Production after the merge (1 Nov 2026) confirmed the timings:**
+  - accepting a term took 1.1–1.3 s (0.3 s inside the coded run);
+  - a designation showed "Configured" on its row after 1.5 s;
+  - an outcome word was saved in 1.0 s;
+  - the line list opened with no update banner.
+- **Every section of `e2e/run-all.sh` passed on production with 0 console errors:**
+  - line lists A, B and C (Fix 2 → 0) through to the E2B XML;
+  - the new features;
+  - PSUR. Its first attempt stopped when the test browser tab crashed, with the test machine short of memory, and the rerun passed;
+  - the coded files: 9 suggestions, Fix 6 → 0, 4 pairs;
+  - isolation 45/45.
