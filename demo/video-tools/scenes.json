@@ -1,0 +1,269 @@
+[
+  {
+    "id": "s01-title",
+    "picture": {
+      "still": "stills/title.png",
+      "secs": 20
+    }
+  },
+  {
+    "id": "s02-sheet",
+    "picture": [
+      {
+        "still": "stills/sheet-plain.png",
+        "secs": 8,
+        "weight": 7
+      },
+      {
+        "still": "stills/sheet-marked.png",
+        "secs": 6,
+        "weight": 5
+      },
+      {
+        "still": "stills/sheet-marked.png",
+        "crop": [0, 228, 1440, 810],
+        "crop_to": [802, 228],
+        "secs": 15,
+        "weight": 15
+      }
+    ]
+  },
+  {
+    "id": "s03-upload",
+    "picture": [
+      {
+        "rec": "01-linelist",
+        "from": "line-list page",
+        "to": "demo: file chosen",
+        "to_off": 1.5,
+        "zoom": [288, 30, 1632, 918]
+      },
+      {
+        "rec": "01-linelist",
+        "from": "demo: uploaded",
+        "from_off": -0.5,
+        "to": "demo: validation started",
+        "to_off": 1.0,
+        "zoom": [288, 30, 1632, 918]
+      }
+    ]
+  },
+  {
+    "id": "s04-codebook",
+    "picture": {
+      "rec": "01-linelist",
+      "from": "demo: validated",
+      "from_off": -0.8,
+      "to": "code list",
+      "to_off": 5,
+      "zoom": [288, 30, 1632, 918]
+    }
+  },
+  {
+    "id": "s05-issues",
+    "picture": {
+      "rec": "01-linelist",
+      "from": "issues",
+      "to": "meddra suggestion",
+      "zoom": [288, 30, 1632, 918]
+    }
+  },
+  {
+    "id": "s06-meddra",
+    "picture": {
+      "rec": "01-linelist",
+      "from": "meddra suggestion",
+      "to": "meddra rest",
+      "to_off": 6,
+      "zoom": [288, 30, 1632, 918]
+    }
+  },
+  {
+    "id": "s07-fix",
+    "picture": {
+      "rec": "01-linelist",
+      "from": "fix",
+      "from_off": -1,
+      "to": "hold",
+      "to_off": -0.8,
+      "zoom": [288, 30, 1632, 918]
+    }
+  },
+  {
+    "id": "s08-decide",
+    "picture": {
+      "rec": "01-linelist",
+      "from": "hold",
+      "to": "dropped",
+      "to_off": 3,
+      "zoom": [288, 30, 1632, 918]
+    }
+  },
+  {
+    "id": "s09-settings",
+    "extra": 3,
+    "picture": [
+      {
+        "rec": "01-linelist",
+        "from": "settings designations",
+        "to": "map designation",
+        "to_off": 8,
+        "zoom": [288, 30, 1632, 918]
+      },
+      {
+        "rec": "01-linelist",
+        "from": "map outcome",
+        "to": "map outcome",
+        "to_off": 12,
+        "zoom": [288, 30, 1632, 918]
+      },
+      {
+        "rec": "01-linelist",
+        "from": "line list after settings",
+        "to": "line list after settings",
+        "to_off": 4.5,
+        "zoom": [288, 30, 1632, 918]
+      }
+    ]
+  },
+  {
+    "id": "s10-dups",
+    "picture": {
+      "rec": "01-linelist",
+      "from": "lga: validated",
+      "from_off": -1,
+      "to": "duplicate dropped",
+      "to_off": 3,
+      "zoom": [288, 30, 1632, 918]
+    }
+  },
+  {
+    "id": "s11-flag",
+    "picture": [
+      {
+        "rec": "02-evaluator",
+        "from": "quality flag",
+        "from_off": -1,
+        "to": "refer",
+        "zoom": [288, 30, 1632, 918]
+      },
+      {
+        "rec": "02-evaluator",
+        "from": "refer",
+        "to": "referred",
+        "to_off": 5,
+        "zoom": [288, 30, 1632, 918]
+      }
+    ]
+  },
+  {
+    "id": "s12-ove",
+    "picture": {
+      "rec": "02-evaluator",
+      "from": "observed vs expected",
+      "to": "observed result",
+      "to_off": 5,
+      "zoom": [288, 30, 1632, 918]
+    }
+  },
+  {
+    "id": "s13-signal",
+    "picture": {
+      "rec": "02-evaluator",
+      "from": "signal screen",
+      "to": "signal accepted",
+      "to_off": 4,
+      "zoom": [288, 30, 1632, 918]
+    }
+  },
+  {
+    "id": "s14-e2b",
+    "picture": [
+      {
+        "rec": "05-e2b-xml",
+        "from": "preflight",
+        "from_off": -0.5,
+        "to": "preflight result",
+        "to_off": 3,
+        "zoom": [288, 30, 1632, 918]
+      },
+      {
+        "rec": "05-e2b-xml",
+        "from": "c17",
+        "to": "c17",
+        "to_off": 4.5,
+        "zoom": [288, 30, 1632, 918]
+      },
+      {
+        "rec": "05-e2b-xml",
+        "from": "c17 finalized",
+        "from_off": -0.5,
+        "to": "c17 finalized",
+        "to_off": 2.5,
+        "zoom": [288, 30, 1632, 918]
+      },
+      {
+        "rec": "05-e2b-xml",
+        "from": "preflight again",
+        "from_off": -1,
+        "to": "xml downloaded",
+        "to_off": 3.5,
+        "zoom": [288, 30, 1632, 918]
+      }
+    ]
+  },
+  {
+    "id": "s15-psur",
+    "extra": 4,
+    "picture": [
+      {
+        "rec": "03-e2b-psur",
+        "from": "psur upload",
+        "from_off": -0.5,
+        "to": "psur upload",
+        "to_off": 3,
+        "zoom": [288, 30, 1632, 918]
+      },
+      {
+        "rec": "03-e2b-psur",
+        "from": "psur screened",
+        "to": "psur screened",
+        "to_off": 6,
+        "zoom": [288, 30, 1632, 918]
+      },
+      {
+        "rec": "03-e2b-psur",
+        "from": "outcome",
+        "from_off": 12,
+        "to": "signed",
+        "to_off": 2.5,
+        "zoom": [288, 30, 1632, 918]
+      },
+      {
+        "rec": "04-psur-review",
+        "from": "finding",
+        "from_off": -0.5,
+        "to": "finding accepted",
+        "to_off": 2.5,
+        "zoom": [288, 30, 1632, 918]
+      }
+    ]
+  },
+  {
+    "id": "s16-log",
+    "picture": {
+      "rec": "03-e2b-psur",
+      "from": "ai log",
+      "from_off": -0.5,
+      "to": "_end",
+      "zoom": [288, 30, 1632, 918]
+    }
+  },
+  {
+    "id": "s17-close",
+    "picture": {
+      "still": "stills/close.png",
+      "secs": 18
+    }
+  }
+]

@@ -1,0 +1,6 @@
+rec/out/
+build/
+voice/
+stills/*.png
+stills/sheet-*.html
+*.mp4
