@@ -261,6 +261,8 @@ const PSUR_LIST_FIELDS = [
     filename: true,
     product: true,
     ibdDecision: true,
+    // The "PSURs due and overdue" card hides a dismissed reminder.
+    forecastDismissal: true,
     mah: true,
     reportingPeriod: true,
     uploadedAt: true,
@@ -2351,6 +2353,56 @@ export const psur = {
       newValue: `${shown} — registered IBD for ${entry.activeSubstance}${entry.source ? ` (source: ${entry.source})` : ""}`,
     });
     return next;
+  },
+
+  /**
+   * A person dismisses a "PSURs due and overdue" reminder: the forecast
+   * built on this report, for this deadline. It is hidden for the whole
+   * organisation until the deadline changes or a newer report is screened,
+   * and can be restored. Audited, with the reason when one is given.
+   */
+  dismissForecast: async (
+    documentId: string,
+    forecast: { product: string; status: string; deadline?: string | undefined },
+    reason?: string,
+  ): Promise<void> => {
+    const actor = currentActor();
+    const doc = await readDocument(documentId);
+    const why = reason?.trim() || undefined;
+    await saveDocument({
+      ...doc,
+      forecastDismissal: {
+        deadline: forecast.deadline ?? null,
+        status: forecast.status,
+        by: actor.name,
+        role: actor.role,
+        at: new Date().toISOString(),
+        ...(why ? { reason: why } : {}),
+      },
+    });
+    await recordAudit({
+      action: "PSUR_FORECAST_REMINDER_DISMISSED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      previousValue: `${forecast.product}: ${forecast.status}${forecast.deadline ? `, deadline ${forecast.deadline}` : ""}`,
+      newValue: "reminder dismissed",
+      ...(why ? { reason: why } : {}),
+    });
+  },
+
+  /** Brings a dismissed reminder back. Audited like dismissing it. */
+  restoreForecast: async (documentId: string, product: string): Promise<void> => {
+    const doc = await readDocument(documentId);
+    const previous = doc.forecastDismissal;
+    if (!previous) return;
+    await saveDocument({ ...doc, forecastDismissal: undefined });
+    await recordAudit({
+      action: "PSUR_FORECAST_REMINDER_RESTORED",
+      entity: "PsurDocument",
+      entityId: documentId,
+      previousValue: `${product}: dismissed by ${previous.by} on ${previous.at.slice(0, 10)}`,
+      newValue: "reminder shown again",
+    });
   },
 
   /**

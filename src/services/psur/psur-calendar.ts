@@ -1,4 +1,4 @@
-import type { PsurDocumentSummary } from "@/types/pv";
+import type { PsurDocumentSummary, PsurForecastDismissal } from "@/types/pv";
 import {
   assessTimeliness,
   intervalBounds,
@@ -52,6 +52,8 @@ export interface PsurForecast {
   mahHistory: MahTimeliness;
   /** Items the officer cited at the last screening — what to watch for. */
   watchFor: { number: number; label: string }[];
+  /** Set when a person dismissed this reminder for this same deadline. */
+  dismissal?: PsurForecastDismissal | undefined;
 }
 
 const DAY = 86_400_000;
@@ -222,6 +224,18 @@ export function forecastPsurs(
     CANNOT_FORECAST: 3,
     RECEIVED: 4,
   };
+  // A dismissal holds for the deadline it was made against: once a newer
+  // report is screened (another basis) or the deadline moves, it lapses.
+  const byId = new Map(docs.map((d) => [d.id, d]));
+  for (const f of out) {
+    const dismissal = byId.get(f.basedOn.documentId)?.forecastDismissal;
+    if (
+      dismissal &&
+      dismissal.deadline === (f.deadline ?? null) &&
+      (f.deadline !== undefined || dismissal.status === f.status)
+    )
+      f.dismissal = dismissal;
+  }
   return out.sort(
     (a, b) =>
       rank[a.status] - rank[b.status] ||

@@ -172,3 +172,47 @@ describe("forecastPsurs", () => {
     expect(f!.watchFor.map((w) => w.number)).toEqual([8, 15]);
   });
 });
+
+describe("a dismissed reminder", () => {
+  const overdue = () => doc({ dlp: "30 Jun 2025", interval: "01 Jan 2025 – 30 Jun 2025" });
+  const dismissal = (deadline: string | null, status = "OVERDUE") => ({
+    deadline,
+    status,
+    by: "TEST Officer",
+    role: "REVIEW_OFFICER",
+    at: "2026-10-20T09:00:00Z",
+  });
+
+  it("stays dismissed for the deadline it was dismissed against", () => {
+    const d = overdue();
+    const [first] = forecastPsurs([d], TODAY);
+    const [f] = forecastPsurs([{ ...d, forecastDismissal: dismissal(first!.deadline!) }], TODAY);
+    expect(f!.dismissal?.by).toBe("TEST Officer");
+  });
+
+  it("comes back when the deadline changes", () => {
+    const d = { ...overdue(), forecastDismissal: dismissal("2025-01-01") };
+    expect(forecastPsurs([d], TODAY)[0]!.dismissal).toBeUndefined();
+  });
+
+  it("comes back when a newer report is screened, which becomes the basis", () => {
+    const old = overdue();
+    const [first] = forecastPsurs([old], TODAY);
+    const dismissedOld = { ...old, forecastDismissal: dismissal(first!.deadline!) };
+    const newer = doc({ dlp: "31 Dec 2025", interval: "01 Jul 2025 – 31 Dec 2025" });
+    const [f] = forecastPsurs([dismissedOld, newer], TODAY);
+    expect(f!.basedOn.documentId).toBe(newer.id);
+    expect(f!.dismissal).toBeUndefined();
+  });
+
+  it("without a deadline, holds only while the status is the same", () => {
+    const d = doc({ interval: "unreadable" });
+    expect(
+      forecastPsurs([{ ...d, forecastDismissal: dismissal(null, "CANNOT_FORECAST") }], TODAY)[0]!
+        .dismissal,
+    ).toBeDefined();
+    expect(
+      forecastPsurs([{ ...d, forecastDismissal: dismissal(null, "OVERDUE") }], TODAY)[0]!.dismissal,
+    ).toBeUndefined();
+  });
+});
