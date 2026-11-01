@@ -390,3 +390,43 @@ On a reset test organisation, upload takes 10–16 s and evaluation 47–86 s. T
   - PSUR. Its first attempt stopped when the test browser tab crashed, with the test machine short of memory, and the rerun passed;
   - the coded files: 9 suggestions, Fix 6 → 0, 4 pairs;
   - isolation 45/45.
+
+## The other Settings actions (PR #124, 1 Nov 2026)
+
+Every other Settings action an assessor uses was timed with `probe-settings-all.cjs`, as the test organisation's Review Officer. The timing found one real bug and two display problems.
+
+### Fixed
+
+1. **A product IBD could not be saved in any organisation except one.** The IBD register was one record with the fixed id `psur-ibd-register`, shared by every organisation. The main organisation saved first and owns that record, so every other organisation's save was refused by row-level security, and "Add a product IBD" never saved. Each organisation now has its own record: the register is found by its kind and written back to that organisation's own row. The main organisation's existing record is unchanged and still used. Four new unit tests cover this:
+   - another organisation can save;
+   - it keeps its own row;
+   - the organisation that owns the original record keeps using it;
+   - organisations can't see each other's register.
+2. **The NAFDAC regulatory section disappeared** while it reloaded after every save (transmission settings, or adding, renaming or removing a designation), and the page jumped. It now stays on screen.
+3. **A newly added designation went to the end of the list**, usually onto a page the person wasn't looking at. It now shows at the top of page 1.
+
+### Timings
+
+| Action | Before (production) | After (production) |
+|---|---|---|
+| Open Settings | 2.6 s | 2.1 s |
+| Save profile | 0.4 s | 0.4 s |
+| Save transmission settings | 0.9 s; section vanished | 1.1 s; stays in place |
+| Add a designation | 1.0 s; new row not visible (on a later page) | Visible after 1.9 s |
+| Rename / remove a designation | 1.2 / 1.4 s; section vanished | 1.1 / 1.1 s; stays in place |
+| Add a product IBD | **Never saved (refused)** | Visible after 1.1 s |
+| Remove a product IBD | Not possible | 1.0 s |
+| Show the C.1.7 rule history | — | 0.1 s |
+| Map a designation / an outcome word (PR #122) | Row moved to page 2 / 1.3 s | 1.5 s / 1.0 s |
+
+### Test results
+
+- vitest 2,271 tests pass. Typecheck clean; lint 0 errors.
+- On the preview, the PSUR section of `e2e/run-all.sh` passed with 0 console errors. Isolation passed 45/45 on the preview and again on production after the merge.
+- In the database after the run: the test organisation has its own register record, and the main organisation's record is untouched.
+
+### Not tested
+
+Two actions were not tested. They follow the same save-and-confirm pattern as the others.
+- **Changing the password:** it would change the test account's password.
+- **Signing a new C.1.7 rule version:** every version stays in the permanent signed history.
