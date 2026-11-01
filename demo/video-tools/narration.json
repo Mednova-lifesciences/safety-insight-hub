@@ -1,0 +1,70 @@
+[
+  {
+    "id": "s01-title",
+    "text": "PV Assist, by MedNova Lifesciences. This is a walk through the live system, as NAFDAC's reviewers use it: cleaning and checking pharmacovigilance line lists, screening for signals and quality problems, and preparing E2B and PSUR reviews. All data shown is synthetic."
+  },
+  {
+    "id": "s02-sheet",
+    "text": "Line lists arrive from states and LGAs in many shapes. Here is a fictional Ondo State A E F I return with twenty-five cases, exactly as received. Reactions, seriousness and outcomes are written as numbers, explained only by a key under the table. A date has a letter O for a zero, seriousness is misspelt, a death is marked non-serious, and reporters are described by local titles."
+  },
+  {
+    "id": "s03-upload",
+    "text": "The review officer chooses the coded form, and uploads the workbook as it is. PV Assist reads the file and maps its columns to the E2B standard."
+  },
+  {
+    "id": "s04-codebook",
+    "text": "Validation runs on every row. PV Assist finds the file's own key: thirteen reactions, five serious criteria and four outcomes, and reads every code as the words it stands for."
+  },
+  {
+    "id": "s05-issues",
+    "text": "Every problem is listed by row and column: a case ID used twice, a misspelling, a phone number that lost its leading zero. Each one says what is wrong, whether it blocks VigiFlow, and whether a rule or the AI found it."
+  },
+  {
+    "id": "s06-meddra",
+    "text": "Reactions written in local words are not MedDRA terms. For each one, the AI suggests the most likely term. Persistent cries becomes Crying. The reviewer accepts it once, and it is remembered for every line list."
+  },
+  {
+    "id": "s07-fix",
+    "text": "Fix corrects the easy errors with rules, not guesses: the letter in the date, the misspelt seriousness, a stray asterisk, a death marked non-serious. Every change shows the original value beside the new one, and can be undone. Nothing is changed silently."
+  },
+  {
+    "id": "s08-decide",
+    "text": "People decide each case. An anaphylaxis with no seriousness or onset date is held for follow-up. A case entered twice is dropped as a duplicate, with the reason recorded."
+  },
+  {
+    "id": "s09-settings",
+    "text": "Local reporter titles, like Pharm Tech or Nursing Sister, are mapped once in Settings to an E2B qualification, and Still on admission to an E2B outcome. Every line list that uses them updates straight away."
+  },
+  {
+    "id": "s10-dups",
+    "text": "When the LGA's own return arrives for the same month, PV Assist compares it with every file already received. Four cases reported twice are shown side by side, and the reviewer drops the copy."
+  },
+  {
+    "id": "s11-flag",
+    "text": "On the evaluator's dashboard, one vaccine batch is flagged: serious cases at three facilities, one of them a vaccine failure. That points to a possible product quality concern, kept separate from pharmacological signals. One click records a referral to post-market surveillance, and downloads a note for the laboratory."
+  },
+  {
+    "id": "s12-ove",
+    "text": "For vaccines, observed versus expected compares the cases reported with the number expected from background rates and the doses given."
+  },
+  {
+    "id": "s13-signal",
+    "text": "Across every validated line list, the signal screen computes the proportional reporting ratio and the reporting odds ratio, with confidence intervals. Pentavalent with crying stands out. It stays a statistical screen, not a confirmed signal, until a qualified reviewer accepts it and records why."
+  },
+  {
+    "id": "s14-e2b",
+    "text": "Clean cases move to E2B R3 preparation. The agreed C 1 7 rule recommends which cases are expedited, and the reviewer accepts with a rationale. The VigiFlow preflight passes twenty-three cases, leaves out the held and dropped ones, and the validated XML file is downloaded."
+  },
+  {
+    "id": "s15-psur",
+    "text": "Periodic safety update reports are screened by AI against sixteen administrative checks. The checklist recommends; the review officer decides, and signs with their password. The evaluator's AI scientific review then lists possible gaps, and the evaluator decides which are real."
+  },
+  {
+    "id": "s16-log",
+    "text": "Every call to the AI is logged. Names, phone numbers and other identifiers are replaced before anything leaves the server, and every decision is recorded in the audit trail, with who made it and when."
+  },
+  {
+    "id": "s17-close",
+    "text": "PV Assist, by MedNova Lifesciences. AI assists, rules validate, and people decide. Advancing the quality of safety data, starting with Nigeria. All data in this demonstration is synthetic."
+  }
+]

@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      body {
+        font-family: "Segoe UI", Inter, Arial, sans-serif;
+        color: #fff;
+        background: radial-gradient(1200px 700px at 50% 40%, #2747c9 0%, #1a2f8f 45%, #0d1a52 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .wrap {
+        text-align: center;
+        width: 1400px;
+      }
+      .logo {
+        display: inline-flex;
+        align-items: center;
+        gap: 22px;
+      }
+      .badge {
+        width: 96px;
+        height: 96px;
+        border-radius: 22px;
+        background: linear-gradient(135deg, #38bdf8, #2563eb);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 40px;
+        letter-spacing: 1px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      }
+      .name {
+        text-align: left;
+      }
+      .name h1 {
+        margin: 0;
+        font-size: 64px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+      }
+      .name p {
+        margin: 2px 0 0;
+        font-size: 22px;
+        opacity: 0.8;
+      }
+      h2 {
+        margin: 54px 0 10px;
+        font-size: 40px;
+        font-weight: 600;
+        line-height: 1.25;
+      }
+      .sub {
+        font-size: 22px;
+        opacity: 0.78;
+        margin: 0 0 46px;
+      }
+      .pills {
+        display: flex;
+        gap: 18px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .pill {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 14px;
+        padding: 16px 24px;
+        min-width: 230px;
+      }
+      .pill b {
+        display: block;
+        font-size: 21px;
+        font-weight: 600;
+      }
+      .pill span {
+        display: block;
+        font-size: 15px;
+        opacity: 0.72;
+        margin-top: 4px;
+      }
+      .note {
+        margin-top: 40px;
+        display: inline-block;
+        font-size: 17px;
+        background: rgba(220, 38, 38, 0.28);
+        border: 1px solid rgba(248, 113, 113, 0.5);
+        border-radius: 10px;
+        padding: 10px 22px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap" id="title">
+      <div class="logo">
+        <div class="badge">PV</div>
+        <div class="name">
+          <h1>PV Assist</h1>
+          <p>by MedNova Lifesciences</p>
+        </div>
+      </div>
+      <h2>Line-list quality, signal screening and<br />regulatory review for pharmacovigilance</h2>
+      <p class="sub">A walk through the live system, as NAFDAC's reviewers use it</p>
+      <div class="pills">
+        <div class="pill"><b>Line lists</b><span>Codebooks · checks · Fix · MedDRA</span></div>
+        <div class="pill">
+          <b>Duplicates &amp; signals</b><span>Across files · PRR / ROR screen</span>
+        </div>
+        <div class="pill"><b>Quality flags</b><span>Batch patterns · PMS referral</span></div>
+        <div class="pill">
+          <b>E2B(R3) &amp; PSUR</b><span>C.1.7 · VigiFlow preflight · AI review</span>
+        </div>
+      </div>
+      <div class="note">All data in this demonstration is synthetic</div>
+    </div>
+    <div class="wrap" id="close" style="display: none">
+      <div class="logo">
+        <div class="badge">PV</div>
+        <div class="name">
+          <h1>PV Assist</h1>
+          <p>by MedNova Lifesciences</p>
+        </div>
+      </div>
+      <h2>Advancing the quality of safety data —<br />starting with Nigeria.</h2>
+      <p class="sub">pv-assist.mednovalife.com</p>
+      <div class="pills">
+        <div class="pill"><b>AI assists</b><span>Suggestions, clearly labelled</span></div>
+        <div class="pill"><b>Rules validate</b><span>Every row, every check</span></div>
+        <div class="pill"><b>People decide</b><span>Every action is audited</span></div>
+      </div>
+      <div class="note">All data in this demonstration is synthetic</div>
+    </div>
+    <script>
+      if (location.hash === "#close") {
+        document.getElementById("title").style.display = "none";
+        document.getElementById("close").style.display = "";
+      }
+    </script>
+  </body>
+</html>
