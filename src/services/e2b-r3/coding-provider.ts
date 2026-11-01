@@ -74,71 +74,88 @@ export const unavailableMedDraProvider: MedDraCodingProvider = {
   },
 };
 
-const meddraResolutionCache = new Map<string, CodedTerm>();
+/** Look-ups by wording, kept as promises: rows mapped together that share a
+ *  term wait on the one request already on its way instead of each sending
+ *  their own. */
+const meddraResolutionCache = new Map<string, Promise<CodedTerm>>();
+/** Look-ups by LLT code: dictionary content, so a code once read stays. */
+const meddraPreferredTermCache = new Map<
+  string,
+  Promise<{ preferredTerm: string; code: string } | null>
+>();
 
 /** MedDRA 29.1 provider backed by the authenticated server endpoint. The
  * browser never receives the distribution files; it receives only the term
  * needed for the current coding decision. */
 export const meddra29Provider: MedDraCodingProvider = {
   getVersion: () => "29.1",
-  async resolveReaction(verbatimText: string): Promise<CodedTerm> {
-    if (invalidValue(verbatimText)) return invalidTerm(verbatimText);
+  resolveReaction(verbatimText: string): Promise<CodedTerm> {
+    if (invalidValue(verbatimText)) return Promise.resolve(invalidTerm(verbatimText));
     const cached = meddraResolutionCache.get(verbatimText);
     if (cached) return cached;
-    let result: {
-      source_value: string;
-      status: "MAPPED" | "UNMAPPED" | "INVALID";
-      term?: { code: string; term: string; preferred_term: string };
-    };
-    try {
-      result = await apiRequest<typeof result>("/api/coding/meddra/resolve", {
-        method: "POST",
-        body: { text: verbatimText },
-      });
-    } catch {
-      const unavailable = providerUnavailable(verbatimText);
-      meddraResolutionCache.set(verbatimText, unavailable);
-      return unavailable;
-    }
-    if (result.status !== "MAPPED" || !result.term) {
-      const unresolved = {
-        sourceValue: verbatimText,
-        status: result.status,
-        mappingMethod: "NONE" as const,
-      };
-      meddraResolutionCache.set(verbatimText, unresolved);
-      return unresolved;
-    }
-    const resolved: CodedTerm = {
-      sourceValue: verbatimText,
-      status: "MAPPED",
-      mappingMethod: "LICENSED_DICTIONARY",
-      codedTerm: result.term.term,
-      code: result.term.code,
-      dictionaryVersion: "29.1",
-    };
-    meddraResolutionCache.set(verbatimText, resolved);
-    return resolved;
+    const lookup = resolveReactionOnServer(verbatimText);
+    meddraResolutionCache.set(verbatimText, lookup);
+    return lookup;
   },
-  async resolvePreferredTerm(lltCode: string) {
-    let result: {
-      status: string;
-      term?: { code: string; preferred_term: string };
-    };
-
-    try {
-      result = await apiRequest<typeof result>("/api/coding/meddra/resolve", {
-        method: "POST",
-        body: { text: lltCode },
-      });
-    } catch {
-      return null;
-    }
-    return result.status === "MAPPED" && result.term
-      ? { preferredTerm: result.term.preferred_term, code: result.term.code }
-      : null;
+  resolvePreferredTerm(lltCode: string) {
+    const cached = meddraPreferredTermCache.get(lltCode);
+    if (cached) return cached;
+    const lookup = resolvePreferredTermOnServer(lltCode);
+    meddraPreferredTermCache.set(lltCode, lookup);
+    // A failed request is not an answer: the next look-up asks again.
+    void lookup.then((r) => {
+      if (r === null) meddraPreferredTermCache.delete(lltCode);
+    });
+    return lookup;
   },
 };
+
+async function resolveReactionOnServer(verbatimText: string): Promise<CodedTerm> {
+  let result: {
+    source_value: string;
+    status: "MAPPED" | "UNMAPPED" | "INVALID";
+    term?: { code: string; term: string; preferred_term: string };
+  };
+  try {
+    result = await apiRequest<typeof result>("/api/coding/meddra/resolve", {
+      method: "POST",
+      body: { text: verbatimText },
+    });
+  } catch {
+    return providerUnavailable(verbatimText);
+  }
+  if (result.status !== "MAPPED" || !result.term) {
+    return { sourceValue: verbatimText, status: result.status, mappingMethod: "NONE" };
+  }
+  return {
+    sourceValue: verbatimText,
+    status: "MAPPED",
+    mappingMethod: "LICENSED_DICTIONARY",
+    codedTerm: result.term.term,
+    code: result.term.code,
+    dictionaryVersion: "29.1",
+  };
+}
+
+async function resolvePreferredTermOnServer(
+  lltCode: string,
+): Promise<{ preferredTerm: string; code: string } | null> {
+  let result: {
+    status: string;
+    term?: { code: string; preferred_term: string };
+  };
+  try {
+    result = await apiRequest<typeof result>("/api/coding/meddra/resolve", {
+      method: "POST",
+      body: { text: lltCode },
+    });
+  } catch {
+    return null;
+  }
+  return result.status === "MAPPED" && result.term
+    ? { preferredTerm: result.term.preferred_term, code: result.term.code }
+    : null;
+}
 
 /** Same honesty, same reasoning, for WHODrug Global — see
  *  unavailableMedDraProvider above. */

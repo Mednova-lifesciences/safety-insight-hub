@@ -3021,10 +3021,9 @@ function changeAudits(
  * another queued write on the same job, and a queued body must never await
  * a queued call on its own job (it would wait on itself forever).
  */
-async function recheckJob(jobId: string): Promise<LineListJob> {
-  const job = await readJob(jobId);
+async function recheckJob(jobId: string, read?: LineListJobRow): Promise<LineListJob> {
+  const [job, previous] = await Promise.all([read ?? readJob(jobId), linelist.issues(jobId)]);
   if (!job.parsedRows) return job;
-  const previous = await linelist.issues(jobId);
   const priorAi = previous.filter((i) => i.source === "ai" && !(i.sources ?? []).includes("rule"));
   const issues = mergeFindings(await computeDeterministicIssues(job), priorAi);
   return storeIssues(job, issues);
@@ -3086,6 +3085,17 @@ const TERM_CHOICE_FIX_IN: LineListFixLocation[] = [
   "OUTCOME_TERMS",
   "REPORTER_DESIGNATIONS",
 ];
+
+/** The ids of the line lists with an open blocker a decision at `fixIn`
+ *  can clear: one small query, not every job's listing. */
+async function jobsWithOpenFixIn(fixIn: LineListFixLocation): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("pv_linelist_jobs")
+    .select("id")
+    .filter("data->openFixIn", "cs", JSON.stringify([fixIn]));
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as { id: string }[]).map((r) => r.id);
+}
 
 /**
  * Whether a job was last checked before the organization's latest term,
@@ -3527,17 +3537,40 @@ export const linelist = {
     // this returns; every other affected one afterwards, in the background,
     // so a decision is not held up by every file that uses the word. One
     // left out (the page closed first) is rechecked when it is next opened
-    // — see isStaleForTermChoices.
-    if (firstJobId) await linelist.recheck(firstJobId);
-    const all = await linelist.jobs();
-    const others = all
-      .filter((j) => j.id !== firstJobId && (j.openFixIn ?? []).includes(fixIn))
-      .map((j) => j.id);
+    // — see isStaleForTermChoices. Which line lists are affected is a small
+    // query of its own, asked while the open one is rechecked rather than
+    // after it (reading every job's listing fields took over a second).
+    const [, affected] = await Promise.all([
+      firstJobId ? linelist.recheck(firstJobId) : undefined,
+      jobsWithOpenFixIn(fixIn),
+    ]);
+    const others = affected.filter((id) => id !== firstJobId);
     const done = (async () => {
-      for (const id of others) await linelist.recheck(id).catch(() => undefined);
+      // A few at a time: each is independent, and one after another a long
+      // list kept the last ones out of date for minutes.
+      const queue = [...others];
+      await Promise.all(
+        Array.from({ length: Math.min(3, queue.length) }, async () => {
+          for (let id = queue.shift(); id; id = queue.shift())
+            await linelist.recheck(id).catch(() => undefined);
+        }),
+      );
     })();
     return { others: others.length, done };
   },
+
+  /** Brings a line list up to date with the organization's term,
+   *  outcome and designation choices — unless, by its turn, it already is:
+   *  the background update after a choice in Settings is often still
+   *  running when the line list is opened, and the page's own recheck
+   *  waits behind it. Returns whether it rechecked. */
+  recheckIfStale: (jobId: string, lastChoiceAt: string | undefined): Promise<boolean> =>
+    inJobQueue(jobId, async () => {
+      const job = await readJob(jobId);
+      if (!isStaleForTermChoices(job, lastChoiceAt)) return false;
+      await recheckJob(jobId, job);
+      return true;
+    }),
 
   /** When a term, outcome word or reporter designation was last decided,
    *  changed or cleared for the organization. */
@@ -3724,10 +3757,13 @@ export const linelist = {
     jobId: string,
     term: string,
     llt: { code: string; term: string },
-  ): Promise<{ others: number; done: Promise<void> }> => {
-    const job = await readJob(jobId);
-    await termMappings.decideByTerm("REACTION", term, llt.code, llt.term, job.filename);
-    return linelist.recheckAffected("REACTION_TERMS", jobId);
+    filename?: string,
+  ): Promise<{ updated: Promise<{ others: number; done: Promise<void> }> }> => {
+    const file = filename ?? (await readJob(jobId)).filename;
+    await termMappings.decideByTerm("REACTION", term, llt.code, llt.term, file);
+    // The choice is saved and can be shown as made; the line lists catch up
+    // from here (this one first), which is most of the time it takes.
+    return { updated: linelist.recheckAffected("REACTION_TERMS", jobId) };
   },
 
   issues: async (jobId: string): Promise<LineListIssue[]> => {

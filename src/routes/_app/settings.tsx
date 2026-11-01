@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -693,9 +693,19 @@ function RegulatoryProfileSection() {
     "",
   );
 
-  const sortedDesignations = [...(config?.reporterQualificationMappings ?? [])].sort(
-    (x, y) => Number(!!x.code) - Number(!!y.code),
-  );
+  // Undecided first — but in the order they had when the page opened: a
+  // designation just decided stays where it is, now "Configured", instead
+  // of jumping to a later page and looking as if nothing happened.
+  const designationOrder = useRef<string[]>([]);
+  const allDesignations = config?.reporterQualificationMappings ?? [];
+  const designationById = new Map(allDesignations.map((m) => [m.id, m]));
+  const keptOrder = designationOrder.current.filter((id) => designationById.has(id));
+  const newDesignations = allDesignations
+    .filter((m) => !keptOrder.includes(m.id))
+    .sort((x, y) => Number(!!x.code) - Number(!!y.code))
+    .map((m) => m.id);
+  designationOrder.current = [...keptOrder, ...newDesignations];
+  const sortedDesignations = designationOrder.current.map((id) => designationById.get(id)!);
   // Deciding or removing one can empty the last page; never strand the
   // viewer on a page that no longer exists.
   const designationShownPage = Math.min(
@@ -833,6 +843,17 @@ function RegulatoryProfileSection() {
   ) {
     try {
       await regulatoryConfig.upsertReporterQualificationMapping(mapping.designation, code);
+      // Shown as configured at once, in its place, while the line lists update.
+      setConfig((c) =>
+        c
+          ? {
+              ...c,
+              reporterQualificationMappings: c.reporterQualificationMappings.map((m) =>
+                m.id === mapping.id ? { ...m, code } : m,
+              ),
+            }
+          : c,
+      );
       // Clears this designation's errors on every line list that uses it.
       const { others } = await linelistApi.recheckAffected("REPORTER_DESIGNATIONS");
       toast.success(
