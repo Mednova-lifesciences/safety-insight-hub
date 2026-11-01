@@ -779,6 +779,10 @@ export interface PsurDocument {
    *  recognised again whatever it is called. Absent on reports uploaded
    *  before fingerprinting existed. */
   fileSha256?: string | undefined;
+  /** Set when the officer uploaded this as the corrected version of a
+   *  report that was returned to the MAH: that report's id. The link is
+   *  then certain, not inferred from the product and Data Lock Point. */
+  resubmissionOf?: string | undefined;
   /** Marketing Authorisation Holder — Section 1 (Product & Regulatory
    *  Information) requires this, but it is only ever populated from what
    *  the AI could actually read off the submitted document's own text
@@ -1144,10 +1148,13 @@ export interface PsurScreeningOutcome {
    *  answer by is not actionable, and the MAH cannot be late for a deadline
    *  nobody set. Empty when the submission was simply accepted. */
   mahResponseDeadline: string;
-  /** When the next periodic report is due. A reporting-cycle date, NOT the
-   *  deadline for answering this directive — the two were conflated once
-   *  already in the evaluator's Section 12, which is why they are separate
-   *  fields here too. */
+  /** Asked for only when the report goes back to the MAH, labelled on the
+   *  form and printed on the directive as "PSUR/PBRER resubmission date":
+   *  the date the corrected report is due back. (The stored name is older
+   *  than that use and is kept so saved records still read.) It is not the
+   *  next periodic report's date, and the due-date forecast never treats it
+   *  as one for a returned report. Separate from mahResponseDeadline, the
+   *  date for answering the directive itself. */
   nextPsurDueDate: string;
   /** Section C's sign-off block. The signature is the officer's password
    *  confirmation, not a typed name — see ConfirmWithPassword. */

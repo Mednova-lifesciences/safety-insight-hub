@@ -275,6 +275,8 @@ const PSUR_LIST_FIELDS = [
     forecastDismissal: true,
     // Recognises the exact same file uploaded again.
     fileSha256: true,
+    // The returned report an upload corrects, when the officer said so.
+    resubmissionOf: true,
     mah: true,
     reportingPeriod: true,
     uploadedAt: true,
@@ -2447,8 +2449,15 @@ export const psur = {
     };
   },
 
-  upload: async (file: File, opts: { fileSha256?: string } = {}): Promise<PsurDocument> => {
+  upload: async (
+    file: File,
+    opts: { fileSha256?: string; resubmissionOf?: string } = {},
+  ): Promise<PsurDocument> => {
     const actor = currentActor();
+    const link = opts.resubmissionOf ? { resubmissionOf: opts.resubmissionOf } : {};
+    const linkNote = opts.resubmissionOf
+      ? ` — corrected version of returned report ${opts.resubmissionOf}`
+      : "";
     const fileSha256 = opts.fileSha256 ?? (await fileFingerprint(file).catch(() => undefined));
 
     if (isSpreadsheetFile(file)) {
@@ -2481,6 +2490,7 @@ export const psur = {
           uploadedAt: new Date().toISOString(),
           uploadedBy: actor.name,
           ...(fileSha256 ? { fileSha256 } : {}),
+          ...link,
           stage: "UPLOADED",
           workflowStage: "SCREENING",
           pages: parsedRows.length,
@@ -2526,7 +2536,7 @@ export const psur = {
         action: "PSUR_UPLOADED",
         entity: "PsurDocument",
         entityId: doc.id,
-        newValue: `${file.name} (${doc.pages} case rows parsed)`,
+        newValue: `${file.name} (${doc.pages} case rows parsed)${linkNote}`,
       });
       return doc;
     }
@@ -2540,6 +2550,7 @@ export const psur = {
       uploadedAt: new Date().toISOString(),
       uploadedBy: actor.name,
       ...(fileSha256 ? { fileSha256 } : {}),
+      ...link,
       stage: "UPLOADED",
       // Every new report starts on the Review Officer's desk — they decide
       // whether it goes on for scientific review or back to the MAH.
@@ -2560,7 +2571,7 @@ export const psur = {
       action: "PSUR_UPLOADED",
       entity: "PsurDocument",
       entityId: doc.id,
-      newValue: file.name,
+      newValue: `${file.name}${linkNote}`,
     });
 
     // The Review Officer's 16-item screening checklist.
