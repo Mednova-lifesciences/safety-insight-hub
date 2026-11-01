@@ -1885,6 +1885,30 @@ export function runValidation(
       }
     }
 
+    // A blank seriousness is always reported, not only when the AI pass
+    // happens to notice it: whether the case is serious decides expedited
+    // reporting, and nothing here may assume an answer for it.
+    if (mappedFields.has("seriousness") && !row.seriousness?.trim()) {
+      const code = row.serious_code?.trim();
+      const hasCode = !!code && !isNoSeriousnessCode(code);
+      issues.push({
+        row: rowNum,
+        column: col("seriousness"),
+        severity: "MEDIUM",
+        confidence: "HIGH",
+        code: "MISSING_SERIOUSNESS",
+        message: hasCode
+          ? `Seriousness is blank, though a serious-criteria code ("${code}") is recorded. A person confirms from the source whether the case is serious; nothing is assumed.`
+          : "Seriousness is blank for this case. A person confirms from the source whether it is serious; nothing is assumed.",
+        value: null,
+        source: "rule",
+        sources: ["rule"],
+        issueType: "FIELD_MISSING",
+        affectedFields: ["seriousness"],
+        fixable: false,
+      });
+    }
+
     if (row.seriousness && !SERIOUSNESS_VALUES.has(normalizeSeriousness(row.seriousness))) {
       issues.push({
         row: rowNum,

@@ -1351,3 +1351,61 @@ describe("runValidation — the outcome is read through the file's own code lege
     expect(issues[0]!.message).toContain("Hospitalized");
   });
 });
+
+describe("runValidation — a blank seriousness is always reported by a rule", () => {
+  const mapping = { Serious: "seriousness", Code: "serious_code", Outcome: "outcome" } as const;
+  const run = (row: Partial<ParsedRow>) =>
+    runValidation(["Serious", "Code", "Outcome"], mapping, [
+      { outcome: "1", ...row } as ParsedRow,
+    ]).filter((i) => i.code === "MISSING_SERIOUSNESS");
+
+  it("reports a blank seriousness, for a person to confirm, and never fills it in", () => {
+    const [found, ...rest] = run({ seriousness: "" });
+    expect(rest).toHaveLength(0);
+    expect(found).toMatchObject({
+      column: "Serious",
+      severity: "MEDIUM",
+      source: "rule",
+      issueType: "FIELD_MISSING",
+      fixable: false,
+    });
+    expect(found!.suggestion).toBeUndefined();
+  });
+
+  it("treats a cell of spaces as blank", () => {
+    expect(run({ seriousness: "   " })).toHaveLength(1);
+  });
+
+  it("says when a serious-criteria code is recorded beside the blank", () => {
+    expect(run({ seriousness: "", serious_code: "3" })[0]!.message).toMatch(
+      /criteria code \("3"\)/,
+    );
+  });
+
+  it("does not report a seriousness that is filled in", () => {
+    expect(run({ seriousness: "Non-serious" })).toHaveLength(0);
+    expect(run({ seriousness: "Serious", serious_code: "3" })).toHaveLength(0);
+  });
+
+  it("does not report a file with no seriousness column", () => {
+    const issues = runValidation(["Outcome"], { Outcome: "outcome" }, [
+      { outcome: "1" } as ParsedRow,
+    ]);
+    expect(issues.filter((i) => i.code === "MISSING_SERIOUSNESS")).toHaveLength(0);
+  });
+
+  it("merges with the AI pass's own blank-seriousness finding instead of listing it twice", () => {
+    const [rule] = run({ seriousness: "" });
+    const ai = issue({
+      row: rule!.row,
+      column: rule!.column,
+      source: "ai",
+      code: "AI_MISSING_SERIOUSNESS",
+      issueType: "FIELD_MISSING",
+      affectedFields: ["seriousness"],
+      message: "Seriousness is blank for this case and requires human review.",
+    });
+    const merged = mergeFindings([rule!], [ai]);
+    expect(merged.filter((i) => i.column === rule!.column && i.row === rule!.row)).toHaveLength(1);
+  });
+});
