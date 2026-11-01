@@ -45,6 +45,12 @@ async function main() {
         .getByText(/Overdue by \d+ day/)
         .first()
         .waitFor({ timeout: 90000 });
+      // Each reminder is a compact row; its MAH record shows when expanded.
+      await officer
+        .getByRole("button", { name: /Show details for TEST Amlodipine/ })
+        .first()
+        .click();
+      await officer.getByText("MAH record").first().waitFor();
       await L.shot(officer, "feat-officer-dashboard");
       const text = await officer.locator("main, body").first().innerText();
       for (const want of ["TEST Amlodipine", "Due now", "2 of 3 late"])
@@ -56,6 +62,10 @@ async function main() {
       await L.nav(officer, "Report screening", /^Report screening$/);
       await officer.getByRole("tab", { name: "PSURs due and overdue" }).click();
       await officer.getByText("TEST Ceftriaxone 1 g injection").first().waitFor({ timeout: 60000 });
+      await officer
+        .getByRole("button", { name: /Show details for TEST Ceftriaxone/ })
+        .first()
+        .click();
       await officer
         .getByText(/as recorded/)
         .first()
