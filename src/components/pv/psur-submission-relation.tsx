@@ -44,7 +44,9 @@ export function SubmissionRelationNote({
         <p className="font-medium">
           {same
             ? `The exact same file as ${rel.earlier.filename}, uploaded ${day(rel.earlier.uploadedAt)}.`
-            : `A resubmission of ${rel.earlier.filename} (uploaded ${day(rel.earlier.uploadedAt)}), for the same period${rel.earlier.dlp ? ` — DLP ${rel.earlier.dlp}` : ""}.`}
+            : rel.linked
+              ? `Uploaded as the corrected version of ${rel.earlier.filename} (uploaded ${day(rel.earlier.uploadedAt)}).`
+              : `A resubmission of ${rel.earlier.filename} (uploaded ${day(rel.earlier.uploadedAt)}), for the same period${rel.earlier.dlp ? ` — DLP ${rel.earlier.dlp}` : ""}.`}
         </p>
         {rel.screened ? (
           <p className="text-muted-foreground">

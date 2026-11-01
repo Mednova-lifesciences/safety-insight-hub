@@ -41,6 +41,33 @@ function statusText(f: PsurForecast): string {
 
 const COLUMNS = ["", "Status", "Product", "Next DLP", "Deadline", ""];
 
+/** For a report returned to the MAH: where the corrected version stands. */
+function resubmissionLine(
+  f: PsurForecast,
+): { key: string; text: string; className: string } | undefined {
+  const r = f.resubmission;
+  if (!r) return undefined;
+  if (r.received)
+    return { key: "received", text: "Corrected resubmission received", className: "text-info" };
+  if (r.due && (r.daysToDue ?? 0) < 0)
+    return {
+      key: "overdue",
+      text: `Resubmission overdue by ${-(r.daysToDue ?? 0)} day(s)`,
+      className: "font-medium text-destructive",
+    };
+  if (r.due)
+    return {
+      key: "due",
+      text: `Resubmission due ${showDate(r.due)}`,
+      className: "text-warning",
+    };
+  return {
+    key: "awaited",
+    text: "Returned to MAH — resubmission awaited",
+    className: "text-muted-foreground",
+  };
+}
+
 /** The latest report waiting that is NOT the next one (that one already
  *  shows as "Next report received"), to note under the status. */
 const waiting = (f: PsurForecast) =>
@@ -179,7 +206,15 @@ export function PsurForecastCard({ limit }: { limit?: number }) {
                     >
                       {statusText(f)}
                     </StatusPill>
-                    {waiting(f) ? (
+                    {resubmissionLine(f) ? (
+                      <p
+                        className={cn("mt-1 text-xs", resubmissionLine(f)!.className)}
+                        data-e2e-resubmission={resubmissionLine(f)!.key}
+                      >
+                        {resubmissionLine(f)!.text}
+                      </p>
+                    ) : null}
+                    {waiting(f) && !f.resubmission?.received ? (
                       <p className="mt-1 text-xs text-info" data-e2e-arrival={waiting(f)!.kind}>
                         {ARRIVAL_LABELS[waiting(f)!.kind]}
                       </p>
@@ -251,6 +286,20 @@ export function PsurForecastCard({ limit }: { limit?: number }) {
                     <td colSpan={COLUMNS.length - 1} className="px-3 py-3">
                       <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
                         <Detail label="Why">{f.note}</Detail>
+                        {f.resubmission ? (
+                          <Detail label="Returned to the MAH" wide>
+                            {f.resubmission.decision} on{" "}
+                            {showDate(f.resubmission.returnedAt.slice(0, 10))}.{" "}
+                            {f.resubmission.received
+                              ? "The corrected version has been received and is waiting to be screened."
+                              : f.resubmission.due
+                                ? `The corrected version is due back by ${showDate(f.resubmission.due)}.`
+                                : "No resubmission date was set."}{" "}
+                            <span className="text-muted-foreground">
+                              Separate from the next periodic report, which is still due as shown.
+                            </span>
+                          </Detail>
+                        ) : null}
                         {f.arrivals.length ? (
                           <Detail label="Waiting to be screened" wide>
                             <ul className="space-y-0.5">

@@ -323,3 +323,65 @@ describe("submissionRelation — the link shown on a report's page", () => {
     expect(submissionRelation(first, [first, fixed])).toBeNull();
   });
 });
+
+describe("a report returned to the MAH", () => {
+  const returnedDoc = (over: { resubmitBy?: string } = {}) => {
+    const d = doc({
+      dlp: "30 Jun 2026",
+      interval: "01 Jan 2026 – 30 Jun 2026",
+      nextDue: over.resubmitBy ?? "",
+    });
+    d.administrativeScreening!.outcome!.decision = "NOT_ACCEPTED_RESUBMIT";
+    return { ...d, fileSha256: "aaa" };
+  };
+
+  it("never uses the resubmission date as the next periodic report's date", () => {
+    const [f] = forecastPsurs([returnedDoc({ resubmitBy: "2026-11-15" })], TODAY);
+    // Next DLP from the DLP plus the same six-month interval, not 15 Nov.
+    expect(f).toMatchObject({ nextDlp: "2026-12-31", nextDlpSource: "SAME_INTERVAL" });
+  });
+
+  it("shows the resubmission as due, then overdue", () => {
+    expect(
+      forecastPsurs([returnedDoc({ resubmitBy: "2026-11-15" })], TODAY)[0]!.resubmission,
+    ).toMatchObject({ due: "2026-11-15", daysToDue: 17, received: false });
+    expect(
+      forecastPsurs([returnedDoc({ resubmitBy: "2026-10-20" })], TODAY)[0]!.resubmission!.daysToDue,
+    ).toBe(-9);
+  });
+
+  it("an accepted report has no resubmission", () => {
+    expect(forecastPsurs([doc({})], TODAY)[0]!.resubmission).toBeUndefined();
+  });
+
+  it("is received once a corrected version arrives", () => {
+    const first = returnedDoc({ resubmitBy: "2026-10-20" });
+    const fixed = pending({ dlp: "30 Jun 2026", uploadedAt: "2026-02-01T00:00:00Z", sha: "bbb" });
+    const [f] = forecastPsurs([first, fixed], TODAY);
+    expect(f!.resubmission!.received).toBe(true);
+    expect(f!.status).not.toBe("RECEIVED");
+  });
+
+  it("a version uploaded with 'Upload corrected version' counts even when the original was never read", () => {
+    // The original's screening could not read the product or DLP; the
+    // corrected version was read properly. Only the officer's link ties them.
+    const first = returnedDoc({ resubmitBy: "2026-11-15" });
+    first.administrativeScreening!.submissionDetails.dlp = "";
+    const fixed = {
+      ...pending({
+        product: "Amoxicillin/Clavulanate 500/125",
+        dlp: "31 Aug 2026",
+        uploadedAt: "2026-02-01T00:00:00Z",
+        sha: "bbb",
+      }),
+      resubmissionOf: first.id,
+    };
+    const [f] = forecastPsurs([first, fixed], TODAY).filter(
+      (x) => x.basedOn.documentId === first.id,
+    );
+    expect(f!.arrivals.map((a) => a.kind)).toEqual(["RESUBMISSION"]);
+    expect(f!.resubmission!.received).toBe(true);
+    const rel = submissionRelation(fixed, [first, fixed]);
+    expect(rel).toMatchObject({ kind: "RESUBMISSION", linked: true, earlier: { id: first.id } });
+  });
+});
