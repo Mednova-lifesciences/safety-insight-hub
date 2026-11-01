@@ -103,6 +103,61 @@ export function extractRawMappings(text: string): RawMapping[] {
   return results;
 }
 
+/** A line that is one code and its meaning and nothing else: "1 = Fever",
+ *  "2. Rash", "3 - Swelling", or a two-cell row "4 | Abscess". Read as a
+ *  code whatever words its meaning contains. */
+const CODE_LINE = /^\s*(\d{1,3})\s*(?:[=:|-]|\.(?=\s))\s*(\S.*)$/;
+
+function codeLine(text: string): RawMapping | null {
+  const m = CODE_LINE.exec(text);
+  if (!m) return null;
+  const meaning = m[2]!
+    .replace(FORM_INSTRUCTION, "")
+    .replace(/[,;]+\s*$/, "")
+    .trim();
+  return meaning ? { code: m[1]!, meaning } : null;
+}
+
+/**
+ * Forms also print the key one code per row: a heading ("REACTION TYPE",
+ * "OUTCOME"), then "1 = Recovered", "2 = Recovering", … each on its own
+ * line or row. Each such section is joined into the one-line form the
+ * reader takes ("OUTCOME : 1=Recovered, 2=Recovering"), keeping the
+ * heading's row. A heading needs at least two codes under it; the section
+ * ends at the first line that is not a code. Lines that already carry
+ * their codes on one line are passed through unchanged.
+ */
+export function joinCodePerRowSections(lines: LegendLine[]): LegendLine[] {
+  const out: LegendLine[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const heading = !codeLine(line.text) && detectFieldHint(line.text);
+    if (!heading || extractRawMappings(line.text).length >= 2) {
+      out.push(line);
+      continue;
+    }
+    const own = extractRawMappings(line.text);
+    const codes: RawMapping[] = [...own];
+    let j = i + 1;
+    for (; j < lines.length; j++) {
+      const c = codeLine(lines[j]!.text);
+      if (!c) break;
+      codes.push(c);
+    }
+    if (codes.length - own.length >= 2) {
+      const title = own.length ? line.text.slice(0, line.text.search(/\d/)) : line.text;
+      out.push({
+        row: line.row,
+        text: `${title.replace(/[\s:|-]+$/, "")} : ${codes.map((c) => `${c.code}=${c.meaning}`).join(", ")}`,
+      });
+      i = j - 1;
+    } else {
+      out.push(line);
+    }
+  }
+  return out;
+}
+
 export interface LegendLine {
   text: string;
   row?: number | undefined;
@@ -124,6 +179,7 @@ export interface ParseDiscoveredLegendInput {
  * title/instruction line as a 1-entry "codebook").
  */
 export function parseDiscoveredLegend(input: ParseDiscoveredLegendInput): DiscoveredSourceCodebook {
+  input = { ...input, lines: joinCodePerRowSections(input.lines) };
   const entries: SourceCodebookEntry[] = [];
   let firstRow: number | undefined;
   let lastRow: number | undefined;
