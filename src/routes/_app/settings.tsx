@@ -704,7 +704,9 @@ function RegulatoryProfileSection() {
     .filter((m) => !keptOrder.includes(m.id))
     .sort((x, y) => Number(!!x.code) - Number(!!y.code))
     .map((m) => m.id);
-  designationOrder.current = [...keptOrder, ...newDesignations];
+  // One added since the page opened goes first, where the person adding it
+  // can see it; at page open, undecided ones come first.
+  designationOrder.current = [...newDesignations, ...keptOrder];
   const sortedDesignations = designationOrder.current.map((id) => designationById.get(id)!);
   // Deciding or removing one can empty the last page; never strand the
   // viewer on a page that no longer exists.
@@ -760,7 +762,9 @@ function RegulatoryProfileSection() {
     load();
   }, []);
 
-  if (loading) return null;
+  // Only before the first load: reloading after a save keeps the section on
+  // screen, so the page does not jump while it refreshes.
+  if (loading && !config) return null;
   if (loadError || !config) {
     return (
       <Section
@@ -830,8 +834,9 @@ function RegulatoryProfileSection() {
       );
       setNewDesignation("");
       setNewDesignationCode("");
-      toast.success("Reporter qualification mapping saved.");
+      toast.success(`"${newDesignation.trim()}" added.`);
       await load();
+      setDesignationPage(1);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save the mapping.");
     }
