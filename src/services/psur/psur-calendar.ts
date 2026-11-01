@@ -1,4 +1,8 @@
-import type { PsurDocumentSummary, PsurForecastDismissal } from "@/types/pv";
+import type {
+  PsurDocumentSummary,
+  PsurForecastDismissal,
+  PsurScreeningOutcomeDecision,
+} from "@/types/pv";
 import {
   assessTimeliness,
   intervalBounds,
@@ -26,6 +30,36 @@ import {
 
 export type ForecastStatus = "OVERDUE" | "DUE_NOW" | "DUE_IN" | "RECEIVED" | "CANNOT_FORECAST";
 
+/**
+ * How a report uploaded after the last screened one relates to it.
+ *
+ *   NEXT                its Data Lock Point is later: the next PSUR.
+ *   RESUBMISSION        same Data Lock Point: a corrected or repeated copy of
+ *                       the report already screened, not the next one.
+ *   SAME_FILE           byte-for-byte the same file, whatever it is called.
+ *   EARLIER_PERIOD      an older Data Lock Point than the one screened.
+ *   PERIOD_UNCONFIRMED  its Data Lock Point could not be read, so it is not
+ *                       assumed to be the next report.
+ */
+export type ArrivalKind =
+  "NEXT" | "RESUBMISSION" | "SAME_FILE" | "EARLIER_PERIOD" | "PERIOD_UNCONFIRMED";
+
+export interface Arrival {
+  kind: ArrivalKind;
+  documentId: string;
+  filename: string;
+  /** Its Data Lock Point as read at upload, when it could be read. */
+  dlp?: string | undefined;
+}
+
+export const ARRIVAL_LABELS: Record<ArrivalKind, string> = {
+  NEXT: "Next report received",
+  RESUBMISSION: "Corrected resubmission received",
+  SAME_FILE: "Same file uploaded again",
+  EARLIER_PERIOD: "Report for an earlier period received",
+  PERIOD_UNCONFIRMED: "New report — period not confirmed",
+};
+
 export interface MahTimeliness {
   late: number;
   assessed: number;
@@ -52,6 +86,10 @@ export interface PsurForecast {
   mahHistory: MahTimeliness;
   /** Items the officer cited at the last screening — what to watch for. */
   watchFor: { number: number; label: string }[];
+  /** Reports uploaded since the last screening and not yet screened, each
+   *  with how it relates to the screened one. Only a NEXT one stops the
+   *  reminder; the others are shown beside it. */
+  arrivals: Arrival[];
   /** Set when a person dismissed this reminder for this same deadline. */
   dismissal?: PsurForecastDismissal | undefined;
 }
@@ -141,6 +179,7 @@ export function forecastPsurs(
         intervalCovered: details.intervalCovered,
       },
       mahHistory: history.get(norm(mahOf(latest.d))) ?? { late: 0, assessed: 0 },
+      arrivals: [],
       watchFor: (s.outcome!.citedItems ?? [])
         .map((n) => {
           const def = SCREENING_CHECKS.find((c) => c.number === n);
@@ -149,13 +188,28 @@ export function forecastPsurs(
         .filter((x): x is { number: number; label: string } => x !== null),
     };
 
-    // A later report for the same product already in the queue.
-    const newer = list.find(
-      (d) =>
-        d.id !== latest.d.id &&
-        !d.administrativeScreening?.outcome &&
-        d.uploadedAt > (s.outcome!.at ?? ""),
-    );
+    // Reports for the same product uploaded since the last screening and
+    // not screened yet. Only one with a later Data Lock Point is the next
+    // report; a corrected copy of the same period is not.
+    const arrivals: Arrival[] = list
+      .filter(
+        (d) =>
+          d.id !== latest.d.id &&
+          !d.administrativeScreening?.outcome &&
+          d.uploadedAt > (s.outcome!.at ?? ""),
+      )
+      .sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt))
+      .map((d) => {
+        const dlp = d.administrativeScreening?.submissionDetails.dlp?.trim();
+        return {
+          kind: arrivalKind(d, list, latest.dlp),
+          documentId: d.id,
+          filename: d.filename,
+          ...(dlp ? { dlp } : {}),
+        };
+      });
+    const newer = arrivals.find((a) => a.kind === "NEXT");
+    base.arrivals = arrivals;
 
     const windowDays = submissionWindowDays(details.intervalCovered);
     const recorded =
@@ -198,7 +252,7 @@ export function forecastPsurs(
       out.push({
         ...common,
         status: "RECEIVED",
-        note: `A newer report (${newer.filename}) has been received and is awaiting screening.`,
+        note: `The next report (${newer.filename}${newer.dlp ? `, DLP ${newer.dlp}` : ""}) has been received and is awaiting screening.`,
       });
     } else if (daysToDeadline < 0) {
       out.push({
@@ -277,4 +331,91 @@ export const FORECAST_STATUS_LABELS: Record<ForecastStatus, string> = {
 /** "2 of 3 late", or "" when nothing could be assessed. */
 export function describeMahHistory(h: MahTimeliness): string {
   return h.assessed ? `${h.late} of ${h.assessed} late` : "";
+}
+
+const sameDay = (a: Date, b: Date) => Math.round((a.getTime() - b.getTime()) / DAY) === 0;
+const groupKey = (d: PsurDocumentSummary) => `${norm(productOf(d))}|${norm(mahOf(d))}`;
+
+/** How an unscreened report relates to the last screened one (see Arrival). */
+function arrivalKind(
+  d: PsurDocumentSummary,
+  sameProduct: PsurDocumentSummary[],
+  screenedDlp: Date | null,
+): ArrivalKind {
+  if (
+    d.fileSha256 &&
+    sameProduct.some(
+      (o) => o.id !== d.id && o.fileSha256 === d.fileSha256 && o.uploadedAt < d.uploadedAt,
+    )
+  )
+    return "SAME_FILE";
+  const dlp = screeningDate(d.administrativeScreening?.submissionDetails.dlp);
+  if (!dlp || !screenedDlp) return "PERIOD_UNCONFIRMED";
+  if (sameDay(dlp, screenedDlp)) return "RESUBMISSION";
+  return dlp > screenedDlp ? "NEXT" : "EARLIER_PERIOD";
+}
+
+/** An earlier report this one repeats or corrects, for the report's page. */
+export interface SubmissionRelation {
+  kind: "SAME_FILE" | "RESUBMISSION";
+  earlier: { id: string; filename: string; uploadedAt: string; dlp: string };
+  /** The earlier report's screening decision, when it had one. */
+  screened?: {
+    decision: PsurScreeningOutcomeDecision;
+    at: string;
+    citedItems: { number: number; label: string }[];
+  };
+}
+
+/**
+ * Whether this report is the same file as an earlier one (by fingerprint,
+ * whatever either is called), or a resubmission of an earlier screened
+ * report for the same product, MAH and Data Lock Point. Null when neither.
+ */
+export function submissionRelation(
+  doc: PsurDocumentSummary,
+  docs: PsurDocumentSummary[],
+): SubmissionRelation | null {
+  const earlier = docs
+    .filter((d) => d.id !== doc.id && d.uploadedAt < doc.uploadedAt)
+    .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+  const describe = (d: PsurDocumentSummary): SubmissionRelation["earlier"] => ({
+    id: d.id,
+    filename: d.filename,
+    uploadedAt: d.uploadedAt,
+    dlp: d.administrativeScreening?.submissionDetails.dlp ?? "",
+  });
+  const screenedOf = (d: PsurDocumentSummary): SubmissionRelation["screened"] => {
+    const o = d.administrativeScreening?.outcome;
+    if (!o) return undefined;
+    return {
+      decision: o.decision,
+      at: o.at,
+      citedItems: (o.citedItems ?? [])
+        .map((n) => {
+          const def = SCREENING_CHECKS.find((c) => c.number === n);
+          return def ? { number: n, label: def.label } : null;
+        })
+        .filter((x): x is { number: number; label: string } => x !== null),
+    };
+  };
+  if (doc.fileSha256) {
+    const same = earlier.find((d) => d.fileSha256 === doc.fileSha256);
+    if (same) {
+      const screened = screenedOf(same);
+      return { kind: "SAME_FILE", earlier: describe(same), ...(screened ? { screened } : {}) };
+    }
+  }
+  if (!productOf(doc)) return null;
+  const dlp = screeningDate(doc.administrativeScreening?.submissionDetails.dlp);
+  if (!dlp) return null;
+  const key = groupKey(doc);
+  const prev = earlier.find((d) => {
+    if (groupKey(d) !== key || !d.administrativeScreening?.outcome) return false;
+    const other = screeningDate(d.administrativeScreening.submissionDetails.dlp);
+    return !!other && sameDay(other, dlp);
+  });
+  if (!prev) return null;
+  const screened = screenedOf(prev);
+  return { kind: "RESUBMISSION", earlier: describe(prev), ...(screened ? { screened } : {}) };
 }

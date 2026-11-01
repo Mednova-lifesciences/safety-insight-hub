@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { SubmissionRelationNote, useSameFileGuard } from "@/components/pv/psur-submission-relation";
 import { usePermission } from "@/lib/auth";
 import { ConfirmWithPassword } from "@/components/pv/confirm-with-password";
 import {
@@ -241,12 +242,14 @@ function PsurPage() {
     void findings.refetch();
   };
   const [uploading, setUploading] = useState(false);
+  const sameFile = useSameFileGuard();
   const [runningScientificReview, setRunningScientificReview] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [docsPage, setDocsPage] = useState(1);
 
   return (
     <>
+      {sameFile.dialog}
       <PageHeader
         title="PSUR / PBRER review"
         description="Review assistance for periodic safety reports, primarily powered by OpenAI with deterministic checks as a fallback. Findings support a reviewer — they are not a regulatory assessment."
@@ -303,7 +306,9 @@ function PsurPage() {
                   if (!f) return;
                   setUploading(true);
                   try {
-                    const doc = await psurApi.upload(f);
+                    const { proceed, fileSha256 } = await sameFile.check(f);
+                    if (!proceed) return;
+                    const doc = await psurApi.upload(f, fileSha256 ? { fileSha256 } : {});
                     toast.success(
                       doc.stage === "REVIEWED"
                         ? "Document uploaded and reviewed."
@@ -467,6 +472,9 @@ function PsurPage() {
         ) : activeDoc ? (
           <>
             <Section title="Document metadata">
+              <div className="mb-4 empty:hidden">
+                <SubmissionRelationNote doc={activeDoc} docs={allDocs.data?.data ?? []} />
+              </div>
               <div className="grid gap-4 sm:grid-cols-4">
                 <Field label="File" value={activeDoc.filename} />
                 <Field label="Product" value={activeDoc.product} />
