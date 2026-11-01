@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Section, StatusPill } from "@/components/pv/primitives";
 import { linelist as linelistApi } from "@/services/api/linelist";
 import {
+  codeListAsText,
   codeListFieldsFor,
   codeListFileToText,
   fileOwnCodes,
@@ -36,7 +37,28 @@ export function CodeListPanel({
   const label = (key: string) => fields.find((f) => f.name === key)?.label ?? key;
   const inFile = useMemo(() => fileOwnCodes(job.discardedRows), [job.discardedRows]);
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(job.codeList?.origin === "PERSON" ? job.codeList.text : "");
+  const [showCodes, setShowCodes] = useState(false);
+  // The codes in force, for viewing: a code list added for this file or
+  // saved for its form, otherwise the file's own key.
+  const inForce = useMemo(() => {
+    const list = job.codeList;
+    if (!list?.entries.length) return inFile;
+    if (list.origin === "PERSON") return list.entries;
+    // A list saved for the form fills only the fields the file's own key
+    // does not define; the file's own codes are used for the rest.
+    const own = new Set(inFile.map((e) => e.field));
+    return [...inFile, ...list.entries.filter((e) => !own.has(e.field))];
+  }, [job.codeList, inFile]);
+  // The box opens with the codes already in force written out, so a person
+  // sees what was read and corrects or adds to it instead of retyping it.
+  const [text, setText] = useState(() =>
+    job.codeList?.origin === "PERSON"
+      ? job.codeList.text
+      : inForce.length
+        ? codeListAsText(inForce, fields)
+        : "",
+  );
+  const prefilledFromFile = !job.codeList && inFile.length > 0;
   const [preview, setPreview] = useState<CodeListPreview | null>(null);
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -170,6 +192,41 @@ export function CodeListPanel({
           </div>
         )}
 
+        {inForce.length > 0 ? (
+          <div>
+            <button
+              type="button"
+              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              aria-expanded={showCodes}
+              onClick={() => setShowCodes((v) => !v)}
+            >
+              {showCodes ? "Hide the codes" : `View the codes (${inForce.length})`}
+            </button>
+            {showCodes ? (
+              <div className="mt-2 max-h-72 overflow-y-auto rounded-md border border-border">
+                <table className="w-full text-xs" aria-label="Codes in use">
+                  <thead className="sticky top-0 bg-muted">
+                    <tr className="text-left text-muted-foreground">
+                      <th className="px-2 py-1">Field</th>
+                      <th className="px-2">Code</th>
+                      <th className="px-2">Meaning</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inForce.map((e, i) => (
+                      <tr key={i} className="border-t border-border">
+                        <td className="px-2 py-1">{label(e.field)}</td>
+                        <td className="mono-num px-2">{e.sourceCode}</td>
+                        <td className="px-2">{e.meaning}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {!editing ? (
           <Button size="sm" onClick={() => setEditing(true)}>
             {job.codeList || inFile.length > 0
@@ -178,8 +235,15 @@ export function CodeListPanel({
           </Button>
         ) : (
           <div className="space-y-2">
+            {prefilledFromFile ? (
+              <p className="text-xs text-muted-foreground">
+                These are the codes read from the file&rsquo;s own key. Correct a meaning or add a
+                missing column (for example &ldquo;Sex: 1 = Male, 2 = Female&rdquo;), then read it
+                again. Nothing changes until you confirm.
+              </p>
+            ) : null}
             <Textarea
-              rows={8}
+              rows={12}
               aria-label="Code list"
               value={text}
               onChange={(e) => {

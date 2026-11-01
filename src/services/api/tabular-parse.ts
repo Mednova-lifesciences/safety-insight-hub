@@ -372,14 +372,37 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
   const minPopulatedCells = headers.length >= 3 ? 2 : 1;
   let structuralRowsDropped = 0;
   const discardedRows: { row: number; text: string }[] = [];
+  // The rows above the header — letterhead, title, and on some forms the
+  // key to the codes — are not cases, but their text is kept like the
+  // rows under the table: a key printed at the top explains the file's
+  // codes exactly as one printed at the bottom does.
+  for (let i = 0; i < header.index; i++) {
+    const text = (matrix[i] ?? [])
+      .map((cell) => normalizeCell(cellText(cell)))
+      .filter((cell) => cell.length > 0)
+      .join(" | ");
+    if (text) discardedRows.push({ row: i + 1, text });
+  }
   const rows: string[][] = [];
   const sourceRowNumbers: number[] = [];
+  // Once a key's heading has been passed under the cases ("KEY TO SUMMARY
+  // FINDINGS", "OUTCOME", …), a row that is only a code and its meaning
+  // ("1 | Recovered") is part of that key, not a case — a key laid out as
+  // a two-column table would otherwise be read as one case per code.
+  let inKey = false;
   for (let i = dataStartIndex; i < matrix.length; i++) {
     const cells = headers.map((_, c) => cellText(matrix[i]![c]));
     const r = cells.map(normalizeCell);
     const populated = r.filter((cell) => cell.length > 0).length;
     if (populated === 0) continue; // fully blank
     if (r.join("") === headerKey) continue; // exact repeat of the header row
+    const filled = r.filter((cell) => cell.length > 0);
+    if (inKey && populated <= 2 && /^\d{1,3}$/.test(filled[0]!)) {
+      structuralRowsDropped++;
+      discardedRows.push({ row: i + 1, text: filled.join(" | ") });
+      continue;
+    }
+    if (populated >= 3) inKey = false;
     if (populated < minPopulatedCells) {
       structuralRowsDropped++;
       // Preserve the actual text (and its real row number) — this row is
@@ -390,6 +413,7 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
       // discard it — only stop treating it as a case row.
       const text = r.filter((cell) => cell.length > 0).join(" | ");
       if (text) discardedRows.push({ row: i + 1, text });
+      if (rows.length > 0 && KEY_HEADING.test(text)) inKey = true;
       continue;
     }
     rows.push(cells);
@@ -419,6 +443,11 @@ export async function parseTabularFile(file: File): Promise<ParsedTable> {
     sourceRowNumbers,
   };
 }
+
+/** The heading of a key printed under the cases: a title for the whole key
+ *  or one of the coded fields it explains. */
+const KEY_HEADING =
+  /\b(key|legend|code\s*list|codebook|codes)\b|react|outcome|seri|\bsex\b|gender|adverse event/i;
 
 /** A keyword entry is either a single substring (matches if present) or
  *  an array of substrings (matches only if ALL are present, in any order,

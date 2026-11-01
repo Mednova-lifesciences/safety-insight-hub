@@ -290,6 +290,28 @@ export async function codeListFileToText(file: File): Promise<string> {
 
 /** The code list the file itself carries (its legend, or a fixed file's
  *  CODE LIST block), for showing beside anything a person adds. */
+/**
+ * A code list written out as text, the way a form prints it — one field
+ * heading, then one code per line — so a person can see the codes read
+ * from the file, correct one or add a column, and read it back. Reads back
+ * to the same entries (see readCodeListText).
+ */
+export function codeListAsText(
+  entries: LineListCodeListEntry[],
+  fields: { name: string; label: string }[] = CODE_LIST_FIELDS,
+): string {
+  const order = [...new Set(entries.map((e) => e.field))];
+  return order
+    .map((field) => {
+      const label = fields.find((f) => f.name === field)?.label ?? field.replace(/_/g, " ");
+      const lines = entries
+        .filter((e) => e.field === field)
+        .map((e) => `${e.sourceCode} = ${e.meaning}`);
+      return [`${label}:`, ...lines].join("\n");
+    })
+    .join("\n\n");
+}
+
 export function fileOwnCodes(
   discardedRows: { row: number; text: string }[] | undefined,
 ): LineListCodeListEntry[] {
