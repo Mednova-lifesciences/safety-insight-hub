@@ -56,7 +56,7 @@ async function main() {
         await L.expectNewToast(
           officer,
           /Received\. The screening checklist|Could not receive/,
-          () => officer.locator('input[type="file"]').setInputFiles(PDF),
+          () => officer.getByLabel("Choose a PSUR/PBRER file").setInputFiles(PDF),
           420000,
         );
         await officer.getByText("B. Screening checks").first().waitFor({ timeout: 60000 });
