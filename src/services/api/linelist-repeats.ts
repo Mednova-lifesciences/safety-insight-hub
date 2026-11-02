@@ -26,9 +26,20 @@ export async function sha256Hex(data: ArrayBuffer | string): Promise<string> {
     .join("");
 }
 
-/** The fingerprint of a table's content: its rows as read, in order. */
+/** The fingerprint of a table's content: its rows as read, in order, each
+ *  row's columns in a fixed (sorted) order — the database stores a row's
+ *  keys in its own order, so the key worked out from a stored job must be
+ *  the same as the one computed at upload. */
 export function contentKeyOf(rawRows: Record<string, string>[]): Promise<string> {
-  return sha256Hex(JSON.stringify(rawRows));
+  return sha256Hex(
+    JSON.stringify(
+      rawRows.map((r) =>
+        Object.keys(r)
+          .sort()
+          .map((k) => [k, r[k] ?? ""]),
+      ),
+    ),
+  );
 }
 
 export interface UploadRef {
@@ -55,11 +66,9 @@ export function repeatsOf(uploads: UploadRef[]): Map<string, UploadRef> {
   return out;
 }
 
-/** Content keys worked out for jobs stored before the fingerprint, per page
- *  load: their rows do not change. */
-const derived = new Map<string, string>();
-
-/** Every line-list upload in the organisation with its content key. */
+/** Every line-list upload in the organisation with the fingerprint stored
+ *  at upload (absent on jobs uploaded before it existed — those are still
+ *  counted once by the case loader, which compares their rows). */
 export async function uploadsWithContentKeys(): Promise<UploadRef[]> {
   const { data, error } = await supabase
     .from("pv_linelist_jobs")
@@ -67,26 +76,42 @@ export async function uploadsWithContentKeys(): Promise<UploadRef[]> {
       "id, filename:data->>filename, uploadedAt:data->>uploadedAt, stage:data->>stage, contentKey:data->>contentKey, kind:data->>kind",
     );
   if (error) throw new Error(error.message);
-  const uploads = ((data ?? []) as unknown as (UploadRef & { kind?: string | null })[])
+  return ((data ?? []) as unknown as (UploadRef & { kind?: string | null })[])
     .filter((u) => !u.kind && u.filename && u.uploadedAt)
-    .map(({ kind: _kind, ...u }) => ({ ...u, contentKey: u.contentKey ?? derived.get(u.id) }));
-  const missing = uploads.filter((u) => !u.contentKey).map((u) => u.id);
-  if (missing.length) {
-    const { data: rows, error: rowsError } = await supabase
-      .from("pv_linelist_jobs")
-      .select("id, rawRows:data->rawRows")
-      .in("id", missing);
-    if (rowsError) throw new Error(rowsError.message);
-    for (const r of (rows ?? []) as unknown as {
-      id: string;
-      rawRows?: Record<string, string>[];
-    }[]) {
-      if (!Array.isArray(r.rawRows) || r.rawRows.length === 0) continue;
-      derived.set(r.id, await contentKeyOf(r.rawRows));
-    }
-    for (const u of uploads) u.contentKey ??= derived.get(u.id);
+    .map(({ kind: _k, ...u }) => ({ ...u, contentKey: u.contentKey ?? undefined }));
+}
+
+/** The same rows, in the same order: a fingerprint of a job's case rows as
+ *  stored (each row's fields sorted). Two jobs with identical rows hold the
+ *  same cases, whatever the files were called. */
+export function rowsKeyOf(rows: Record<string, unknown>[]): Promise<string> {
+  return sha256Hex(
+    JSON.stringify(
+      rows.map((r) =>
+        Object.keys(r)
+          .sort()
+          .map((k) => [k, r[k] ?? ""]),
+      ),
+    ),
+  );
+}
+
+/** For each job, the earlier job it repeats: same upload fingerprint, or —
+ *  for jobs stored before the fingerprint — the same case rows. Pure. */
+export function repeatsByKeys(
+  jobs: { id: string; uploadedAt: string; keys: (string | undefined)[] }[],
+): Map<string, string> {
+  const first = new Map<string, string>();
+  const out = new Map<string, string>();
+  for (const j of [...jobs].sort(
+    (a, b) => a.uploadedAt.localeCompare(b.uploadedAt) || a.id.localeCompare(b.id),
+  )) {
+    const keys = j.keys.filter((k): k is string => !!k);
+    const original = keys.map((k) => first.get(k)).find(Boolean);
+    if (original) out.set(j.id, original);
+    else for (const k of keys) first.set(k, j.id);
   }
-  return uploads;
+  return out;
 }
 
 /** Each repeat upload in the organisation, with the upload it repeats. */
