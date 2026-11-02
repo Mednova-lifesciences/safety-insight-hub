@@ -91,7 +91,7 @@ function whyNot(p: ScreenPair): string {
   return reasons.length ? reasons.join(" · ") : "no comparison group";
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string | undefined }) {
   return (
     <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
       <p className="label-caps">{label}</p>
@@ -101,12 +101,28 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
-function PoolBanner({ result }: { result: ScreenResult }) {
+/** The earlier versions each counted line list replaces, by its job id. */
+type OlderVersions = Map<string, { id: string; filename: string; uploadedAt: string }[]>;
+
+const shortDay = (iso: string) =>
+  iso
+    ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+    : "";
+
+function PoolBanner({ result, olderCount }: { result: ScreenResult; olderCount: number }) {
   return (
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-4">
         <Stat label="Reports in the pool" value={String(result.totalReports)} />
-        <Stat label="Validated line lists" value={String(result.files)} />
+        <Stat
+          label="Validated line lists"
+          value={String(result.files)}
+          sub={
+            olderCount
+              ? `${olderCount} older version${olderCount === 1 ? "" : "s"} of these not counted`
+              : undefined
+          }
+        />
         <Stat label="Candidates" value={String(result.candidates.length)} />
         <Stat label="Pairs screened" value={String(result.pairs.length)} />
       </div>
@@ -148,11 +164,13 @@ function CandidateCard({
   pair,
   result,
   decision,
+  olderVersions,
   onDecided,
 }: {
   pair: ScreenPair;
   result: ScreenResult;
   decision?: Signal | undefined;
+  olderVersions: OlderVersions;
   onDecided: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -269,6 +287,15 @@ function CandidateCard({
                   <p className="mono-num mt-1 text-xs text-muted-foreground">
                     {g.cases.map((c) => `${c.caseId ?? "no case ID"} (row ${c.row})`).join(" · ")}
                   </p>
+                  {olderVersions.get(g.jobId)?.length ? (
+                    <p className="mt-1 text-xs text-muted-foreground" data-e2e-older-versions>
+                      The newest version of this line list — it replaces{" "}
+                      {olderVersions.get(g.jobId)!.length} earlier version
+                      {olderVersions.get(g.jobId)!.length === 1 ? "" : "s"} holding the same cases
+                      (last {shortDay(olderVersions.get(g.jobId)![0]!.uploadedAt)}), which are not
+                      counted again.
+                    </p>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -384,6 +411,13 @@ function SignalScreenPage() {
     );
     return screenLineLists(pool, codings.data);
   }, [cases.data, codings.data]);
+  const olderVersions = useMemo((): OlderVersions => {
+    const m: OlderVersions = new Map();
+    for (const j of cases.data?.data ?? [])
+      if (j.olderVersions?.length) m.set(j.id, j.olderVersions);
+    return m;
+  }, [cases.data]);
+  const olderCount = [...olderVersions.values()].reduce((n, v) => n + v.length, 0);
 
   const query = {
     // Decisions too: drawn before they load, a decided candidate would
@@ -420,7 +454,7 @@ function SignalScreenPage() {
               </details>
 
               <Section title="The pool">
-                <PoolBanner result={result} />
+                <PoolBanner result={result} olderCount={olderCount} />
               </Section>
 
               <Section
@@ -440,6 +474,7 @@ function SignalScreenPage() {
                         pair={p}
                         result={result}
                         decision={decisions.data?.get(p.key)}
+                        olderVersions={olderVersions}
                         onDecided={() =>
                           queryClient.invalidateQueries({
                             queryKey: ["signal-screen", "decisions"],
