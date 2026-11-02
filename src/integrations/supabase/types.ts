@@ -637,6 +637,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      pv_cluster_flag_dismissals: {
+        Row: {
+          created_at: string;
+          data: Json;
+          id: string;
+        };
+        Insert: {
+          created_at?: string;
+          data: Json;
+          id: string;
+        };
+        Update: {
+          created_at?: string;
+          data?: Json;
+          id?: string;
+        };
+        Relationships: [];
+      };
       pv_pms_referrals: {
         Row: {
           created_at: string;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Flag } from "lucide-react";
+import { ChevronRight, Copy, Flag, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { linelist as linelistApi } from "@/services/api/linelist";
 import { loadValidatedCases } from "@/services/api/linelist-cross-file";
@@ -14,13 +14,22 @@ import {
 } from "@/services/api/linelist-cross-duplicates";
 import {
   CLUSTER_WINDOW_DAYS,
-  PATTERN_NOTES,
+  FLAGS_HOW_THEY_WORK,
+  explainFlag,
   QUALITY_SIGN_LABELS,
   findClusterFlags,
   type ClusterFlag,
   type ClusterPattern,
 } from "@/services/api/linelist-clusters";
 import { pmsReferrals, type PmsReferral } from "@/services/api/pms-referrals";
+import {
+  casesSinceDismissal,
+  flagDismissals,
+  isDismissed,
+  type FlagDismissal,
+} from "@/services/api/flag-dismissals";
+import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import { usePermission } from "@/lib/auth";
 import { Textarea } from "@/components/ui/textarea";
 import { StaleJobError } from "@/services/api/linelist-job-store";
@@ -295,15 +304,26 @@ function ClusterFlagItem({
   referral,
   canRefer,
   onReferred,
+  dismissal,
+  onDismissed,
 }: {
   flag: ClusterFlag;
   referral?: PmsReferral | undefined;
   canRefer: boolean;
   onReferred: () => void;
+  dismissal?: FlagDismissal | undefined;
+  onDismissed: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const dismissed = isDismissed(f, dismissal);
+  const sinceDismissed = dismissal?.active ? casesSinceDismissal(f, dismissal) : 0;
+  const title = f.kind === "BATCH" ? `Batch ${f.label}` : f.label;
+  const explained = explainFlag(f);
 
   async function refer() {
     setBusy(true);
@@ -321,104 +341,249 @@ function ClusterFlagItem({
     }
   }
 
+  async function dismiss() {
+    setBusy(true);
+    try {
+      await flagDismissals.dismiss(f, reason);
+      toast.success(`${title} dismissed.`);
+      setConfirming(false);
+      setReason("");
+      onDismissed();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "The flag could not be dismissed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restore() {
+    setBusy(true);
+    try {
+      await flagDismissals.restore(f);
+      toast.success(`${title} restored.`);
+      onDismissed();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "The flag could not be restored.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <li className="rounded-md border border-border p-3" data-e2e-flag={f.key}>
-      <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+    <li
+      className={cn("rounded-md border border-border", dismissed && "bg-muted/30 opacity-80")}
+      data-e2e-flag={f.key}
+    >
+      {/* The flag in one line; the rest opens below it. */}
+      <div
+        className="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2 text-sm hover:bg-muted/40"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Hide" : "Show"} details for ${title}`}
+          className="flex size-6 items-center justify-center rounded hover:bg-muted"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+        >
+          <ChevronRight className={cn("size-4 transition-transform", expanded && "rotate-90")} />
+        </button>
         <Flag className="size-3.5 text-warning" />
-        <StatusPill tone="warning">Flag for review</StatusPill>
-        <span className="font-medium">{f.kind === "BATCH" ? `Batch ${f.label}` : f.label}</span>
+        <span className="font-medium">{title}</span>
+        <StatusPill tone={dismissed ? "neutral" : PATTERN_TONE[f.pattern]}>
+          {PATTERN_TITLE[f.pattern]}
+        </StatusPill>
         <span className="text-xs text-muted-foreground">
           {f.cases.length} serious case(s), {f.from} to {f.to}
         </span>
         {referral ? (
-          <span className="ml-auto">
-            <StatusPill tone="info">
-              Referred to PMS · {referral.reference} · {referral.referredAt.slice(0, 10)}
-            </StatusPill>
+          <StatusPill tone="info">
+            Referred to PMS · {referral.reference} · {referral.referredAt.slice(0, 10)}
+          </StatusPill>
+        ) : null}
+        {sinceDismissed > 0 ? (
+          <StatusPill tone="warning">
+            {plural(sinceDismissed, "new case", "new cases")} since it was dismissed
+          </StatusPill>
+        ) : null}
+        {canRefer ? (
+          <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
+            {dismissed ? (
+              <Button size="sm" variant="ghost" disabled={busy} onClick={restore}>
+                <RotateCcw className="size-3.5" /> Restore
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={`Dismiss ${title}`}
+                disabled={busy}
+                onClick={() => {
+                  setConfirming(true);
+                  setReason("");
+                }}
+              >
+                <X className="size-3.5" /> Dismiss
+              </Button>
+            )}
           </span>
         ) : null}
       </div>
 
-      <div className="mb-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
-        <p className="flex flex-wrap items-center gap-2">
-          <StatusPill tone={PATTERN_TONE[f.pattern]}>{PATTERN_TITLE[f.pattern]}</StatusPill>
-          <span className="text-muted-foreground">
-            {plural(f.facilities.length, "facility", "facilities")} ·{" "}
-            {plural(f.batches.length, "batch", "batches")}
-          </span>
-        </p>
-        <p className="mt-1.5 text-foreground">{PATTERN_NOTES[f.pattern]}</p>
-        {f.warningSigns.length ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {f.warningSigns.map((w) => (
-              <StatusPill key={w.sign} tone="critical">
-                {QUALITY_SIGN_LABELS[w.sign]} · {w.cases.length}
-              </StatusPill>
-            ))}
+      {confirming ? (
+        <div className="space-y-2 border-t border-border bg-warning-soft/40 px-3 py-3 text-sm">
+          <p>
+            Dismiss <span className="font-medium">{title}</span> for everyone in your organisation?
+            It comes back if another case joins it, and the dismissal is recorded in the audit
+            trail.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              className="max-w-md"
+              placeholder="Reason (optional), e.g. batch already tested — within specification"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void dismiss();
+                if (e.key === "Escape") setConfirming(false);
+              }}
+            />
+            <Button size="sm" disabled={busy} onClick={dismiss}>
+              {busy ? "Dismissing…" : "Dismiss flag"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
           </div>
-        ) : (
-          <p className="mt-1 text-muted-foreground">No quality warning signs in these cases.</p>
-        )}
-      </div>
+        </div>
+      ) : null}
 
-      <ul className="space-y-1 text-xs">
-        {f.cases.map((c) => (
-          <li key={`${c.jobId}#${c.row}`} className="flex flex-wrap gap-x-2">
-            <Link
-              to="/line-list"
-              search={{ job: c.jobId }}
-              className="font-medium text-primary underline-offset-2 hover:underline"
-            >
-              {c.filename} · row {c.row}
-            </Link>
-            <span>{c.caseId ?? ""}</span>
-            <span className="text-muted-foreground">
-              {[c.product, c.batch, c.facility, c.vaccinationDate].filter(Boolean).join(" · ")}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {expanded ? (
+        <div className="border-t border-border px-3 py-3">
+          {dismissal?.active && dismissed ? (
+            <p className="mb-2 text-xs text-muted-foreground">
+              Dismissed by {dismissal.by} on {dismissal.at.slice(0, 10)}
+              {dismissal.reason ? ` — ${dismissal.reason}` : ""}
+              {/[.!?]$/.test(dismissal.reason ?? "") ? "" : "."}
+            </p>
+          ) : null}
+          <dl className="mb-3 space-y-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+            <div>
+              <dt className="font-medium">Why it was flagged</dt>
+              <dd className="text-foreground">{explained.why}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">What it could mean</dt>
+              <dd className="text-foreground">{explained.meaning}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">Quality warning signs</dt>
+              <dd className="text-foreground">
+                {f.warningSigns.length ? (
+                  <span className="mb-1 flex flex-wrap gap-1.5">
+                    {f.warningSigns.map((w) => (
+                      <StatusPill key={w.sign} tone="critical">
+                        {QUALITY_SIGN_LABELS[w.sign]} · {w.cases.length}
+                      </StatusPill>
+                    ))}
+                  </span>
+                ) : null}
+                {explained.signs}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">What you can do</dt>
+              <dd className="text-foreground">{explained.next}</dd>
+            </div>
+          </dl>
 
-      {canRefer ? (
-        <div className="mt-3 space-y-2">
-          {referral ? (
-            <Button size="sm" variant="outline" onClick={() => pmsReferrals.downloadNote(referral)}>
-              Download referral note
-            </Button>
-          ) : (
-            <Button size="sm" variant={open ? "default" : "outline"} onClick={() => setOpen(!open)}>
-              Refer to post-market surveillance
-            </Button>
-          )}
-          {open && !referral ? (
-            <div className="space-y-2">
-              <label className="label-caps" htmlFor={`pms-${f.key}`}>
-                Note for NAFDAC post-market surveillance (recorded in the audit trail)
-              </label>
-              <Textarea
-                id={`pms-${f.key}`}
-                rows={3}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Why this should be tested: what you saw in the cases, and what you are asking PMS to check."
-              />
-              <p className="text-xs text-muted-foreground">
-                The referral asks for laboratory testing of a possible quality concern. It does not
-                say the product is substandard or falsified.
-              </p>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={refer} disabled={busy}>
-                  Record referral and download note
+          <p className="label-caps mb-1 text-[11px]">The cases</p>
+          <ul className="space-y-1 text-xs">
+            {f.cases.map((c) => (
+              <li key={`${c.jobId}#${c.row}`} className="flex flex-wrap gap-x-2">
+                <Link
+                  to="/line-list"
+                  search={{ job: c.jobId }}
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  {c.filename} · row {c.row}
+                </Link>
+                <span>{c.caseId ?? ""}</span>
+                <span className="text-muted-foreground">
+                  {[c.product, c.batch, c.facility, c.vaccinationDate].filter(Boolean).join(" · ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          {canRefer ? (
+            <div className="mt-3 space-y-2">
+              {referral ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => pmsReferrals.downloadNote(referral)}
+                >
+                  Download referral note
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
-                  Cancel
+              ) : (
+                <Button
+                  size="sm"
+                  variant={open ? "default" : "outline"}
+                  onClick={() => setOpen(!open)}
+                >
+                  Refer to post-market surveillance
                 </Button>
-              </div>
+              )}
+              {open && !referral ? (
+                <div className="space-y-2">
+                  <label className="label-caps" htmlFor={`pms-${f.key}`}>
+                    Note for NAFDAC post-market surveillance (recorded in the audit trail)
+                  </label>
+                  <Textarea
+                    id={`pms-${f.key}`}
+                    rows={3}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Why this should be tested: what you saw in the cases, and what you are asking PMS to check."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The referral asks for laboratory testing of a possible quality concern. It does
+                    not say the product is substandard or falsified.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={refer} disabled={busy}>
+                      Record referral and download note
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
       ) : null}
     </li>
+  );
+}
+
+/** Flags shown at a time; the next set loads as the list is scrolled. */
+const FLAGS_PER_SET = 10;
+
+/** Newest first: the flag whose latest case is most recent, then the more
+ *  concerning pattern, then those with quality warning signs. */
+export function sortFlagsNewestFirst(flags: ClusterFlag[]): ClusterFlag[] {
+  return [...flags].sort(
+    (a, b) =>
+      b.to.localeCompare(a.to) ||
+      PATTERN_ORDER[a.pattern] - PATTERN_ORDER[b.pattern] ||
+      b.warningSigns.length - a.warningSigns.length ||
+      b.cases.length - a.cases.length,
   );
 }
 
@@ -432,35 +597,77 @@ export function ClusterFlagsCard({ refreshKey }: { refreshKey?: string }) {
     queryFn: pmsReferrals.byFlag,
     enabled: seen && canRefer,
   });
+  const dismissals = useQuery({
+    queryKey: ["flag-dismissals"],
+    queryFn: flagDismissals.byFlag,
+    enabled: seen && canRefer,
+  });
+  const [shown, setShown] = useState(FLAGS_PER_SET);
+  const [showDismissed, setShowDismissed] = useState(false);
+  const more = useRef<HTMLDivElement | null>(null);
+  const total = useRef(0);
+
+  // The next set of ten loads when the person scrolls to the end of the
+  // list — on a scroll, not merely because the end is on screen, so a
+  // short dashboard still opens with ten.
+  useEffect(() => {
+    const onScroll = () => {
+      const el = more.current;
+      if (!el) return;
+      if (el.getBoundingClientRect().top < window.innerHeight + 80)
+        setShown((n) => (n < total.current ? n + FLAGS_PER_SET : n));
+    };
+    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    return () => document.removeEventListener("scroll", onScroll, { capture: true });
+  }, []);
+
   return (
     <div ref={ref}>
       <Section
         title="Batch and facility flags for review"
-        description={`Two or more serious cases sharing a vaccine batch, or the same vaccine at the same reporting facility, within ${CLUSTER_WINDOW_DAYS} days, across your validated line lists. Dropped and held cases (including confirmed duplicates) are left out. A flag for review — not a signal, and not a conclusion about the vaccine.`}
+        description={`Two or more serious cases sharing a vaccine batch, or the same vaccine at the same reporting facility, within ${CLUSTER_WINDOW_DAYS} days, across your validated line lists. Dropped and held cases (including confirmed duplicates) are left out. A flag for review — not a signal, and not a conclusion about the vaccine. Newest first.`}
       >
         <QueryBoundary query={query} loadingLabel="Looking across your line lists">
           {(jobs) => {
-            // The flags worth showing first come first: a possible product
-            // quality concern, then a possible site problem, then the rest;
-            // within each, those with quality warning signs.
-            const flags = findClusterFlags(jobs.flatMap((j) => j.cases)).sort(
-              (a, b) =>
-                PATTERN_ORDER[a.pattern] - PATTERN_ORDER[b.pattern] ||
-                b.warningSigns.length - a.warningSigns.length ||
-                b.cases.length - a.cases.length,
-            );
-            if (flags.length === 0)
+            const all = sortFlagsNewestFirst(findClusterFlags(jobs.flatMap((j) => j.cases)));
+            const dismissalOf = (f: ClusterFlag) => dismissals.data?.get(f.key);
+            const active = all.filter((f) => !isDismissed(f, dismissalOf(f)));
+            const hidden = all.filter((f) => isDismissed(f, dismissalOf(f)));
+            total.current = active.length;
+            if (all.length === 0)
               return (
                 <EmptyState
                   title="Nothing to flag"
                   description="No two serious cases share a batch, or a vaccine and facility, within 30 days."
                 />
               );
-            const count = (p: ClusterPattern) => flags.filter((f) => f.pattern === p).length;
+            const count = (p: ClusterPattern) => active.filter((f) => f.pattern === p).length;
+            const refresh = () => {
+              void queryClient.invalidateQueries({ queryKey: ["flag-dismissals"] });
+            };
+            const item = (f: ClusterFlag) => (
+              <ClusterFlagItem
+                key={f.key}
+                flag={f}
+                referral={referrals.data?.get(f.key)}
+                canRefer={canRefer}
+                onReferred={() => queryClient.invalidateQueries({ queryKey: ["pms-referrals"] })}
+                dismissal={dismissalOf(f)}
+                onDismissed={refresh}
+              />
+            );
             return (
               <>
+                <details className="mb-3 rounded-md border border-border px-3 py-2 text-xs">
+                  <summary className="cursor-pointer font-medium">How flags work</summary>
+                  <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
+                    {FLAGS_HOW_THEY_WORK.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </details>
                 <p className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-                  <span className="font-medium">{plural(flags.length, "flag", "flags")}:</span>
+                  <span className="font-medium">{plural(active.length, "flag", "flags")}:</span>
                   {(Object.keys(PATTERN_ORDER) as ClusterPattern[])
                     .filter((p) => count(p) > 0)
                     .map((p) => (
@@ -469,19 +676,38 @@ export function ClusterFlagsCard({ refreshKey }: { refreshKey?: string }) {
                       </StatusPill>
                     ))}
                 </p>
-                <ul className="space-y-3">
-                  {flags.map((f) => (
-                    <ClusterFlagItem
-                      key={f.key}
-                      flag={f}
-                      referral={referrals.data?.get(f.key)}
-                      canRefer={canRefer}
-                      onReferred={() =>
-                        queryClient.invalidateQueries({ queryKey: ["pms-referrals"] })
-                      }
-                    />
-                  ))}
-                </ul>
+                {active.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Every flag has been dismissed.</p>
+                ) : null}
+                <ul className="space-y-2">{active.slice(0, shown).map(item)}</ul>
+                <div ref={more} className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                  {active.length > shown ? (
+                    <>
+                      <span className="text-muted-foreground">
+                        Showing {shown} of {active.length}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShown((n) => n + FLAGS_PER_SET)}
+                      >
+                        Show {Math.min(FLAGS_PER_SET, active.length - shown)} more
+                      </Button>
+                    </>
+                  ) : null}
+                  {hidden.length ? (
+                    <button
+                      type="button"
+                      className="text-muted-foreground underline-offset-2 hover:underline"
+                      onClick={() => setShowDismissed((v) => !v)}
+                    >
+                      {showDismissed ? "Hide" : "Show"} dismissed ({hidden.length})
+                    </button>
+                  ) : null}
+                </div>
+                {showDismissed && hidden.length ? (
+                  <ul className="mt-2 space-y-2">{hidden.map(item)}</ul>
+                ) : null}
               </>
             );
           }}

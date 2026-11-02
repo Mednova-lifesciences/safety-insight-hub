@@ -251,3 +251,68 @@ export function findClusterFlags(cases: ClusterCase[]): ClusterFlag[] {
     .filter((f) => f.kind === "BATCH" || !batchSets.has(f.cases.map(caseKey).sort().join(",")))
     .sort((a, b) => b.cases.length - a.cases.length || b.to.localeCompare(a.to));
 }
+
+/** A flag explained in plain words, from its own facts: why its cases were
+ *  grouped, what the pattern could mean, what the quality warning signs
+ *  are (and what it means when there are none), and what a person can do. */
+export interface FlagExplanation {
+  why: string;
+  meaning: string;
+  signs: string;
+  next: string;
+}
+
+const dayOf = (iso: string) => Date.parse(`${iso}T00:00:00Z`) / 86_400_000;
+const n = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+const list = (values: string[]) =>
+  values.length <= 2
+    ? values.join(" and ")
+    : `${values.slice(0, -1).join(", ")} and ${values[values.length - 1]}`;
+
+export function explainFlag(f: ClusterFlag): FlagExplanation {
+  const span = Math.round(dayOf(f.to) - dayOf(f.from)) + 1;
+  const within = span <= 1 ? "on the same day" : `within ${span} days`;
+  const product = f.products.length ? list(f.products) : "the same vaccine";
+  const why =
+    f.kind === "BATCH"
+      ? `${n(f.cases.length, "serious case was", "serious cases were")} reported after ${product} from the same batch (${f.label}), ${within} (${f.from} to ${f.to}), at ${n(f.facilities.length, "facility", "different facilities")}${f.facilities.length <= 3 ? ` — ${list(f.facilities)}` : ""}. One serious case now and then is expected; two or more close together that share a batch are worth a second look.`
+      : `${n(f.cases.length, "serious case was", "serious cases were")} reported after ${product} given at ${f.facilities[0] ?? f.label}, ${within} (${f.from} to ${f.to}), from ${n(f.batches.length, "batch", "different batches")}. One serious case now and then is expected; two or more close together at the same place are worth a second look.`;
+
+  const meaning: Record<ClusterPattern, string> = {
+    PRODUCT_QUALITY:
+      "The same batch is linked to serious cases at more than one facility. A problem that follows a batch from place to place points at the product itself — for example the wrong strength, contamination, or a substandard or falsified batch. This is a possible quality concern to check, not a finding.",
+    STORAGE_OR_ADMINISTRATION:
+      "Serious cases happened at the same facility with more than one batch. A problem that stays in one place while the batch changes points at that site rather than the product — how vaccines are kept cold, prepared or given there.",
+    ONE_BATCH_ONE_FACILITY:
+      "All of these cases come from one batch used at one facility, so the two possible causes cannot be told apart yet: it could be the batch, or how it was stored or given at this site. It can also be chance. If the same batch causes serious cases at another facility, that points at the batch; if other batches cause cases here, that points at the site — the flag will then say so.",
+  };
+
+  const signs = f.warningSigns.length
+    ? `Warning signs are words in the cases that point specifically to a defective product. Found here: ${list(
+        f.warningSigns.map(
+          (w) =>
+            `${QUALITY_SIGN_LABELS[w.sign].toLowerCase()} (${n(w.cases.length, "case", "cases")})`,
+        ),
+      )}.`
+    : "Warning signs are words in the cases that point specifically to a defective product: lack of effect or vaccine failure, an injection-site abscess, an unusual reaction or product appearance, or a missing or odd batch number. None of these cases mention any of them, so the flag rests only on the cases being close together and sharing a batch or place — it is not, on its own, evidence of a bad product.";
+
+  const next: Record<ClusterPattern, string> = {
+    PRODUCT_QUALITY:
+      "Look through the cases below. If the concern stands, refer the batch to post-market surveillance for laboratory testing. If it is already explained (for example the batch was tested), dismiss the flag with the reason.",
+    STORAGE_OR_ADMINISTRATION:
+      "Look through the cases below and follow up with the facility on its cold chain and on how the vaccines are prepared and given. Dismiss the flag with the reason once it is explained.",
+    ONE_BATCH_ONE_FACILITY:
+      "Look through the cases below for anything else they share, and ask whether the batch was used elsewhere without problems. Refer it to post-market surveillance if warning signs appear, or dismiss it with the reason if it is explained. It comes back if another case joins it.",
+  };
+
+  return { why, meaning: meaning[f.pattern], signs, next: next[f.pattern] };
+}
+
+/** "How flags work", for the card. */
+export const FLAGS_HOW_THEY_WORK = [
+  "A flag groups two or more serious cases that were reported within 30 days and share either a vaccine batch or the same vaccine at the same facility. Dropped and held cases are left out.",
+  "Possible product quality concern — the same batch at more than one facility: points at the product.",
+  "Possible storage or administration error — one facility with more than one batch: points at the site.",
+  "Batch or site — not yet clear — one batch at one facility: either is possible, and more cases will tell.",
+  "A flag is a prompt to look, not a signal and not a conclusion. Refer it to post-market surveillance, follow it up, or dismiss it with a reason.",
+];
