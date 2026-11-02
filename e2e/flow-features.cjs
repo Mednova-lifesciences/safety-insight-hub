@@ -246,7 +246,7 @@ async function main() {
           await page
             .locator("tr[data-e2e-other-pair]")
             .filter({ hasText: "Thrombocytopenia" })
-            .getByText(/N 2 < 3/)
+            .getByText(/Only 2 reports/)
             .waitFor();
           if (who === "officer") await L.shot(page, "feat-signal-screen");
           if (ms > 3000) throw new Error(`signal screen took ${ms} ms (limit 3000)`);
