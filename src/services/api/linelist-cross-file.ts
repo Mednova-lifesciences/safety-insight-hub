@@ -3,6 +3,7 @@ import { fromDataFields, selectDataFields } from "./db";
 import { isExcluded } from "./linelist-decisions";
 import { readRowsWithSeriousness, ROW_READING_FIELDS, type ParsedRow } from "./linelist";
 import { regulatoryConfig } from "./regulatory-config";
+import { repeatsOf, uploadsWithContentKeys } from "./linelist-repeats";
 import type { CrossFileCase } from "./linelist-cross-duplicates";
 import type { ClusterCase } from "./linelist-clusters";
 import type { LineListDecision, LineListJob } from "@/types/pv";
@@ -103,6 +104,10 @@ async function readValidatedCases(): Promise<LoadedJob[]> {
     regulatoryConfig.get(),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), LOAD_TIMEOUT_MS / 2)),
   ]).catch(() => null);
+  // Repeats of an earlier identical upload are read at the same time and
+  // left out below, so a file uploaded twice is counted once. A repeat check
+  // that fails leaves every file in, as before.
+  const uploadsRead = uploadsWithContentKeys().catch(() => null);
   const { data, error } = await supabase
     .from("pv_linelist_jobs")
     .select(selectDataFields(FIELDS))
@@ -112,7 +117,17 @@ async function readValidatedCases(): Promise<LoadedJob[]> {
     .abortSignal(AbortSignal.timeout(LOAD_TIMEOUT_MS));
   if (error) throw new Error(error.message);
   const orgConfig = await configRead;
-  return ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
+  const uploads = await uploadsRead;
+  const validated = new Set(
+    ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => String(r["id"])),
+  );
+  // Among the validated files only: if the first upload of a file is not
+  // validated, a validated later copy is the one counted.
+  const repeats = uploads ? repeatsOf(uploads.filter((u) => validated.has(u.id))) : new Map();
+  const rowsRead = ((data ?? []) as unknown as Record<string, unknown>[]).filter(
+    (r) => !repeats.has(String(r["id"])),
+  );
+  return rowsRead.map((r) => {
     const job = fromDataFields<
       Parameters<typeof readRowsWithSeriousness>[0] & {
         id: string;

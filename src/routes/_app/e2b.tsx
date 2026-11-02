@@ -36,6 +36,7 @@ import { describeRow, linelist as linelistApi, rowLabel } from "@/services/api/l
 import { describeExcluded } from "@/services/api/linelist-decisions";
 import { demoLineListJobs } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
+import { RepeatUploadNotice, useRepeatUploads } from "@/components/pv/linelist-repeat-notice";
 import { isNotConfigured } from "@/services/api/client";
 import {
   EmptyState,
@@ -106,6 +107,7 @@ function E2bPage() {
     () => linelistApi.jobs(),
     () => demoLineListJobs,
   );
+  const repeats = useRepeatUploads((jobs.data?.data ?? []).map((j) => j.id).join(","));
   const [preflightBusy, setPreflightBusy] = useState<string | null>(null);
   const [preflightResults, setPreflightResults] = useState<Record<string, ValidatedExportResult>>(
     {},
@@ -410,6 +412,9 @@ function E2bPage() {
                   {ready.map((j) => {
                     const overridden = j.invalidCases > 0 && !!j.e2bOverride;
                     const exportable = j.invalidCases === 0 || overridden;
+                    // A repeat of an earlier identical upload is not exported:
+                    // its cases are already in that upload.
+                    const repeatOf = repeats.data?.get(j.id);
                     return (
                       <li key={j.id} className="rounded-md border border-border p-3">
                         <div className="flex flex-wrap items-center gap-2">
@@ -473,6 +478,11 @@ function E2bPage() {
                           </p>
                         ) : null}
 
+                        {repeatOf ? (
+                          <div className="mt-3">
+                            <RepeatUploadNotice of={repeatOf} context="e2b" />
+                          </div>
+                        ) : null}
                         <div className="mt-4 rounded-md border border-border bg-muted/30 p-3">
                           <p className="text-xs font-medium text-foreground">
                             Validated E2B(R3) export (real HL7 v3 XML — VigiFlow/NAFDAC pipeline)
@@ -515,7 +525,7 @@ function E2bPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={preflightBusy === j.id}
+                              disabled={preflightBusy === j.id || !!repeatOf}
                               onClick={() => checkValidatedPreflight(j.id)}
                             >
                               <ShieldCheck className="size-4" /> Run VigiFlow preflight

@@ -19,7 +19,7 @@ Narration uses Microsoft's `en-US-SteffanNeural` voice through `edge-tts`. Recor
 
 Upload both with the source form **"Coded line list — reactions are local codes with a codebook"**:
 
-- `linelists/DEMO-ondo-aefi-line-list-25-cases.xlsx`: the main demo. It has a codebook under the table, MedDRA terms to choose, reporter titles to map in Settings, errors for Fix to correct, a case to hold and a case to drop. It also contains a signal (Pentavalent × persistent crying) and a quality flag (batch MR-7712).
+- `linelists/DEMO-ondo-aefi-line-list-25-cases.xlsx`: the main demo. It has a codebook under the table, MedDRA terms to choose, reporter titles to map in Settings, one of each error Fix corrects by itself (including a row whose sex/age and reporter name/phone columns are mixed up), a case to hold and a case to drop. It also contains a signal (Pentavalent × persistent crying) and a quality flag (batch MR-7712).
 - `linelists/DEMO-ondo-aefi-lga-return-8-cases.xlsx`: an LGA return for the same month. Upload it after the 25-case file: 4 of its cases are duplicates found across the two files.
 
 The same files are produced by `node scripts/seed/generate-demo-25.mjs` (into `scripts/seed/out/`).
