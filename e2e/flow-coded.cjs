@@ -377,6 +377,8 @@ async function main() {
         .filter({ hasText: CRYING })
         .first();
       await penta.waitFor({ timeout: 60000 });
+      // A candidate is one line until expanded; where its reports come from opens below.
+      await penta.getByRole("button", { name: /Show details for/ }).click();
       await penta
         .getByText(/DEMO-ondo-aefi-line-list-25-cases\.xlsx/)
         .first()
