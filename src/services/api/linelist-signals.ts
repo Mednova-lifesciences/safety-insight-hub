@@ -300,3 +300,22 @@ export const SIGNAL_SCREEN_HOW_IT_WORKS = [
   `A pair becomes a candidate when there are at least ${MIN_CASES} reports and the reaction is reported clearly more often with that product (at least ${MIN_PRR} times as often, and unlikely to be chance).`,
   "A candidate is a prompt to read the cases, not a confirmed signal. Accept it as a signal, decline it, or keep monitoring — with a reason, which is recorded.",
 ];
+
+/** Why a pair is not a candidate, in plain words — one sentence per
+ *  reason, in the order a reader would ask. */
+export function whyNot(p: ScreenPair): string {
+  const reasons: string[] = [];
+  if (p.a < MIN_CASES)
+    reasons.push(
+      `Only ${p.a} report${p.a === 1 ? "" : "s"} — the screen waits for at least ${MIN_CASES}.`,
+    );
+  if (p.prr.value < 1) reasons.push("Reported less often with this product than with the others.");
+  else if (p.prr.value < MIN_PRR)
+    reasons.push(
+      `Reported only ${timesAsOften(p.prr.value)} as often as with the others — it needs at least ${MIN_PRR} times.`,
+    );
+  if (p.chiSquare < MIN_CHI_SQUARE) reasons.push("The difference could easily be chance.");
+  return reasons.length
+    ? reasons.join(" ")
+    : "Nothing to compare it with yet: every report is for this product, or names this reaction.";
+}
