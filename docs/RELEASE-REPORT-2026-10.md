@@ -446,12 +446,18 @@ PRs #126–#135. Admin side only; measured and tested on the synthetic test orga
 | Code lists (#132) | **The file's key is read wherever it is printed:** above or below the table, one line per field, one code per row, or as a two-column table. Six layouts are tested; each gives 22 codes and 25 cases. **"View the codes"** shows them, and the edit box opens pre-filled. |
 | Batch and facility flags (#133) | **Collapsed and expandable.** **Explained from the flag's own facts:** why it was flagged, what it could mean, the quality warning signs, and what to do. **Dismissible**, with a reason (new table `pv_cluster_flag_dismissals`, RLS like PMS referrals); a flag comes back if a new case joins it. **Newest first**, 10 at a time with the rest loading on scroll. |
 | AI data log (#134) | The model column is removed. |
-| Repeat uploads (#135) | **The same line list uploaded twice was counted twice.** It doubled signals: on production, a 50-case file uploaded 14 times was counted 14 times. Identical uploads are now fingerprinted, including those already stored, and counted once in signals, flags and observed vs expected. A repeat is labelled, blocked from E2B export, and the upload asks first. Form code lists had the IBD register's shared-id bug, now fixed the same way. |
+| Repeat uploads (#135) | **The same line list uploaded twice was counted twice.** It doubled signals: on production, a 50-case file uploaded 14 times was counted 14 times. Identical uploads are now fingerprinted (older ones are matched by their case rows, with nothing extra downloaded) and counted once in signals, flags and observed vs expected. A repeat is labelled, blocked from E2B export, and the upload asks first. Form code lists had the IBD register's shared-id bug, now fixed the same way. |
 | Signal screen (#135) | **One line per candidate** ("4 reports from 1 line list · reported 34 times as often as with other products"). **Opens to plain-language sections:** why it is a candidate, what it does not mean, where the reports come from, and the numbers folded away for experts. A **"How the signal screen works"** explainer sits at the top. |
 | Demo file (#135) | The 25-case demo now holds **one of each correction Fix makes by itself**, plus a row whose sex/age and reporter name/phone columns are swapped. **Fix corrects 17 issues → 0.** The signal, the MR-7712 flag, the 4 duplicates with the 8-case file and both near-misses are unchanged. |
 
 ## Test results
 
-- **Unit:** vitest 2,327 pass (118 files). Typecheck clean.
-- **Production (test organisation):** every e2e section passes with 0 console errors. That covers line lists and E2B, the new features, PSUR, the coded files, isolation (45/45), the reminders, corrected versions, key layouts, flags, the two-file demo (30/30) and repeat uploads.
-- **Production main organisation (with the owner's approval):** the demo files and the 14 copies of the 50-case file were deleted for a fresh presentation.
+- **Unit:** vitest 2,329 pass (118 files). Typecheck and lint clean.
+- **Preview (test organisation):** line lists and E2B, the new features and the coded files pass with 0 console errors. The two-file demo passes 30/30: Fix 15 → 0; signal N 4, rising to 5 with the 8-case file and back to 4 once its 4 duplicates are dropped; MR-7712 3 → 4 → 3. Repeat uploads pass 5/5 (N stays 4; E2B blocks the repeat).
+- **Production (test organisation, 2 Nov, after #135):** every section passed with 0 console errors:
+  - line lists and E2B, the features flow (including recording a signal decision), PSUR, the coded files, and isolation (45/45);
+  - PSUR reminders and dismiss/restore, corrected versions (4/4, after one page wait timed out and passed on rerun), the six code-list layouts (12/12) and batch flags (7/7);
+  - the two-file demo (30/30: Fix 16 → 0, signal N 4 → 5 → 4, MR-7712 3 → 4 → 3) and repeat uploads (5/5).
+  The test organisation was then reset: no line lists, signal decisions or flag dismissals are left.
+- **Known limit:** a *different* version of the same file (a few cells edited) is not a repeat, so its cases are counted again until they are dropped as duplicates. The main organisation holds 9 such versions of "2026, ONDO STATE AEFI.xlsx" (231 cases each, 7–19 rows edited), left in place pending the owner's decision.
+- **Main organisation (with the owner's approval):** the demo files and the 14 copies of the 50-case file were deleted for a fresh presentation, with their 373 issues.
