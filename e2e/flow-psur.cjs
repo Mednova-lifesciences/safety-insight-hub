@@ -12,7 +12,8 @@ const path = require("node:path");
 const L = require("./lib.cjs");
 
 const PDF = path.join(__dirname, "..", "sample-psur-complete.pdf");
-const PASSWORD = process.env.TEST_PASSWORD;
+// Officer, evaluator and peer reviewer sign with the public demo password.
+const PASSWORD = L.TEST_ORG_DEMO_PASSWORD;
 
 const steps = [];
 async function step(name, fn, { critical = true } = {}) {

@@ -19,6 +19,12 @@ const PASSWORD = process.env.TEST_PASSWORD;
 if (!KEY) throw new Error("Set SUPABASE_PUBLISHABLE_KEY.");
 if (!PASSWORD) throw new Error("Set TEST_PASSWORD (the synthetic test accounts' password).");
 
+const TEST_ORG_DEMO_PASSWORD = "PVAssistDemo2026";
+const DEMO_ACCOUNTS = new Set([
+  "test.officer@test.mednovalife.com",
+  "test.evaluator@test.mednovalife.com",
+  "test.peer@test.mednovalife.com",
+]);
 const A = "test.evaluator@test.mednovalife.com";
 const B = "test.b.evaluator@test.mednovalife.com";
 
@@ -26,7 +32,9 @@ async function signIn(email) {
   const r = await fetch(`${URL_}/auth/v1/token?grant_type=password`, {
     method: "POST",
     headers: { apikey: KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password: PASSWORD }),
+    // The three administrator demo accounts carry the public demo password
+    // the sign-in page prefills; the other test accounts keep TEST_PASSWORD.
+    body: JSON.stringify({ email, password: DEMO_ACCOUNTS.has(email) ? TEST_ORG_DEMO_PASSWORD : PASSWORD }),
   });
   if (!r.ok) throw new Error(`sign-in ${email}: ${r.status}`);
   return (await r.json()).access_token;
