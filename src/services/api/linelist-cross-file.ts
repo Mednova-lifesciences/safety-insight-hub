@@ -3,7 +3,7 @@ import { fromDataFields, selectDataFields } from "./db";
 import { isExcluded } from "./linelist-decisions";
 import { readRowsWithSeriousness, ROW_READING_FIELDS, type ParsedRow } from "./linelist";
 import { regulatoryConfig } from "./regulatory-config";
-import { repeatsByKeys, rowsKeyOf } from "./linelist-repeats";
+import { olderVersionsOf, repeatsByKeys, rowsKeyOf } from "./linelist-repeats";
 import type { CrossFileCase } from "./linelist-cross-duplicates";
 import type { ClusterCase } from "./linelist-clusters";
 import type { LineListDecision, LineListJob } from "@/types/pv";
@@ -30,9 +30,13 @@ export interface LoadedCase extends CrossFileCase, ClusterCase {
 export interface LoadedJob {
   id: string;
   filename: string;
+  uploadedAt?: string;
   stage: LineListJob["stage"];
   cases: LoadedCase[];
   notDuplicatePairs: string[];
+  /** Earlier versions of this line list (the same cases, corrected or
+   *  re-issued). They are not counted: this, the newest, is. */
+  olderVersions?: { id: string; filename: string; uploadedAt: string }[];
 }
 
 const FIELDS = [
@@ -77,13 +81,6 @@ function toCase(
 
 const LOAD_TIMEOUT_MS = 20_000;
 
-/**
- * The whole read, bounded. The request's own abort signal covers the
- * network, but not what supabase-js does before it (reading the session
- * under a browser lock); a hang there left the panels loading for good in
- * about one production run in six. This limit covers every step, so a
- * stuck read fails and is retried (useValidatedCases) instead.
- */
 /** A job's case rows as a key, or nothing if there are none or it fails —
  *  never a shared empty key that would make different jobs look alike. */
 async function rowKey(rows: unknown): Promise<string | undefined> {
@@ -92,6 +89,13 @@ async function rowKey(rows: unknown): Promise<string | undefined> {
   return k ? `r:${k}` : undefined;
 }
 
+/**
+ * The whole read, bounded. The request's own abort signal covers the
+ * network, but not what supabase-js does before it (reading the session
+ * under a browser lock); a hang there left the panels loading for good in
+ * about one production run in six. This limit covers every step, so a
+ * stuck read fails and is retried (useValidatedCases) instead.
+ */
 export function loadValidatedCases(): Promise<LoadedJob[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
@@ -141,7 +145,7 @@ async function readValidatedCases(): Promise<LoadedJob[]> {
     ),
   );
   const rowsRead = read.filter((r) => !repeats.has(String(r["id"])));
-  return rowsRead.map((r) => {
+  const loaded = rowsRead.map((r) => {
     const job = fromDataFields<
       Parameters<typeof readRowsWithSeriousness>[0] & {
         id: string;
@@ -151,16 +155,38 @@ async function readValidatedCases(): Promise<LoadedJob[]> {
       }
     >(r);
     const rows = readRowsWithSeriousness(job, orgConfig);
+    const all = rows.map(({ row, serious, reactions }, i) =>
+      toCase(job.id, job.filename, i, row, serious, reactions),
+    );
     return {
-      id: job.id,
-      filename: job.filename,
-      stage: job.stage,
-      cases: rows
-        .map(({ row, serious, reactions }, i) =>
-          toCase(job.id, job.filename, i, row, serious, reactions),
-        )
-        .filter((c) => !isExcluded(job.decisions, c.row)),
-      notDuplicatePairs: (job.notDuplicatePairs ?? []).map((p) => p.key),
+      all,
+      job: {
+        id: job.id,
+        filename: job.filename,
+        uploadedAt: typeof r["uploadedAt"] === "string" ? r["uploadedAt"] : undefined,
+        stage: job.stage,
+        cases: all.filter((c) => !isExcluded(job.decisions, c.row)),
+        notDuplicatePairs: (job.notDuplicatePairs ?? []).map((p) => p.key),
+      } as LoadedJob,
     };
   });
+  // A corrected or re-issued version of a line list holds the same cases
+  // again: only the newest version is counted, and it names the versions
+  // it replaces. Every case of a file is compared, dropped ones included.
+  const older = olderVersionsOf(
+    loaded.map(({ all, job }) => ({ id: job.id, uploadedAt: job.uploadedAt ?? "", cases: all })),
+  );
+  const byId = new Map(loaded.map(({ job }) => [job.id, job]));
+  for (const [oldId, newId] of older) {
+    const o = byId.get(oldId)!;
+    const n = byId.get(newId)!;
+    (n.olderVersions ??= []).push({
+      id: o.id,
+      filename: o.filename,
+      uploadedAt: o.uploadedAt ?? "",
+    });
+  }
+  for (const j of byId.values())
+    j.olderVersions?.sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+  return loaded.map(({ job }) => job).filter((j) => !older.has(j.id));
 }
