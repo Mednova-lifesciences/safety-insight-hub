@@ -3,7 +3,7 @@ import { fromDataFields, selectDataFields } from "./db";
 import { isExcluded } from "./linelist-decisions";
 import { readRowsWithSeriousness, ROW_READING_FIELDS, type ParsedRow } from "./linelist";
 import { regulatoryConfig } from "./regulatory-config";
-import { repeatsOf, uploadsWithContentKeys } from "./linelist-repeats";
+import { repeatsByKeys, rowsKeyOf } from "./linelist-repeats";
 import type { CrossFileCase } from "./linelist-cross-duplicates";
 import type { ClusterCase } from "./linelist-clusters";
 import type { LineListDecision, LineListJob } from "@/types/pv";
@@ -41,6 +41,8 @@ const FIELDS = [
   "parsedRows",
   "decisions",
   "notDuplicatePairs",
+  "uploadedAt",
+  "contentKey",
   ...ROW_READING_FIELDS,
 ] as const;
 
@@ -82,6 +84,14 @@ const LOAD_TIMEOUT_MS = 20_000;
  * about one production run in six. This limit covers every step, so a
  * stuck read fails and is retried (useValidatedCases) instead.
  */
+/** A job's case rows as a key, or nothing if there are none or it fails —
+ *  never a shared empty key that would make different jobs look alike. */
+async function rowKey(rows: unknown): Promise<string | undefined> {
+  if (!Array.isArray(rows) || rows.length === 0) return undefined;
+  const k = await rowsKeyOf(rows as Record<string, unknown>[]).catch(() => undefined);
+  return k ? `r:${k}` : undefined;
+}
+
 export function loadValidatedCases(): Promise<LoadedJob[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
@@ -104,10 +114,6 @@ async function readValidatedCases(): Promise<LoadedJob[]> {
     regulatoryConfig.get(),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), LOAD_TIMEOUT_MS / 2)),
   ]).catch(() => null);
-  // Repeats of an earlier identical upload are read at the same time and
-  // left out below, so a file uploaded twice is counted once. A repeat check
-  // that fails leaves every file in, as before.
-  const uploadsRead = uploadsWithContentKeys().catch(() => null);
   const { data, error } = await supabase
     .from("pv_linelist_jobs")
     .select(selectDataFields(FIELDS))
@@ -117,16 +123,24 @@ async function readValidatedCases(): Promise<LoadedJob[]> {
     .abortSignal(AbortSignal.timeout(LOAD_TIMEOUT_MS));
   if (error) throw new Error(error.message);
   const orgConfig = await configRead;
-  const uploads = await uploadsRead;
-  const validated = new Set(
-    ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => String(r["id"])),
+  // A file uploaded more than once is counted once: the first validated
+  // upload is kept, and any later one with the same upload fingerprint or
+  // the same case rows (jobs stored before the fingerprint) is left out —
+  // identical rows are the same cases, whatever the file was called.
+  const read = (data ?? []) as unknown as Record<string, unknown>[];
+  const repeats = repeatsByKeys(
+    await Promise.all(
+      read.map(async (r) => ({
+        id: String(r["id"]),
+        uploadedAt: String(r["uploadedAt"] ?? ""),
+        keys: [
+          typeof r["contentKey"] === "string" ? `c:${r["contentKey"]}` : undefined,
+          await rowKey(r["parsedRows"]),
+        ],
+      })),
+    ),
   );
-  // Among the validated files only: if the first upload of a file is not
-  // validated, a validated later copy is the one counted.
-  const repeats = uploads ? repeatsOf(uploads.filter((u) => validated.has(u.id))) : new Map();
-  const rowsRead = ((data ?? []) as unknown as Record<string, unknown>[]).filter(
-    (r) => !repeats.has(String(r["id"])),
-  );
+  const rowsRead = read.filter((r) => !repeats.has(String(r["id"])));
   return rowsRead.map((r) => {
     const job = fromDataFields<
       Parameters<typeof readRowsWithSeriousness>[0] & {
