@@ -142,8 +142,10 @@ function PoolBanner({ result, olderCount }: { result: ScreenResult; olderCount: 
         </div>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Rule: N ≥ {MIN_CASES}, PRR ≥ {MIN_PRR} and χ² ≥ {MIN_CHI_SQUARE} (Evans et al.). Counted per
-        report from kept cases only — dropped, held and confirmed-duplicate cases are left out.
+        A pair becomes a candidate when it has at least {MIN_CASES} reports, the reaction is
+        reported at least {MIN_PRR} times as often with that product as with the others, and the gap
+        is unlikely to be chance (a chance score of {MIN_CHI_SQUARE} or more) — the Evans rule. Each
+        kept case counts once; dropped, held and confirmed-duplicate cases are left out.
         {result.unusable
           ? ` ${result.unusable} case(s) name no product or reaction and are not counted.`
           : ""}
