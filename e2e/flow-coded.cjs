@@ -316,6 +316,10 @@ async function main() {
       await L.nav(evaluator, "Dashboard", /Scientific review queue/);
       await mr().waitFor({ timeout: 60000 });
       await mr().getByText("Possible product quality concern", { exact: true }).waitFor();
+      // A flag is one line until expanded; its warning signs and cases open below.
+      await mr()
+        .getByRole("button", { name: /Show details for Batch MR-7712/ })
+        .click();
       await mr()
         .getByText(/Lack of effect \/ vaccine failure/)
         .waitFor();

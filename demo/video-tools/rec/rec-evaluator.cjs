@@ -27,6 +27,9 @@ async function main() {
     await r.point(mr.getByText("Possible product quality concern", { exact: true }));
     r.mark("quality flag");
     await r.pause(4000);
+    // A flag is one line until expanded.
+    await r.click(mr.getByRole("button", { name: /Show details for Batch MR-7712/ }));
+    await r.pause(1200);
     const warn = mr.getByText(/Lack of effect \/ vaccine failure/).first();
     if (await warn.count()) {
       await r.point(warn);
