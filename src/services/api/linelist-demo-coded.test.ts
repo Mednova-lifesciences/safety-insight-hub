@@ -9,7 +9,7 @@ import {
   NEAR_MISS_LGA_ROWS,
 } from "../../../scripts/seed/demo-coded-data.mjs";
 import { readRowsWithSeriousness, type ParsedRow } from "./linelist";
-import { explainCandidate, screenLineLists } from "./linelist-signals";
+import { explainCandidate, screenLineLists, whyNot, type ScreenPair } from "./linelist-signals";
 import { findCrossFileDuplicates, type CrossFileCase } from "./linelist-cross-duplicates";
 import { findClusterFlags, type ClusterCase } from "./linelist-clusters";
 import { normalise } from "./linelist-normalise";
@@ -194,5 +194,31 @@ describe("the signal screen explains its candidate in plain words", () => {
     // loadValidatedCases leaves the repeat out (linelist-repeats), so the
     // screen is given one copy:
     expect(screenLineLists(DEMO).candidates.find((p) => p.product === "Pentavalent")!.a).toBe(4);
+  });
+});
+
+describe("why a pair is not a candidate — in plain words, no formulas", () => {
+  const pair = (a: number, prr: number, chi: number, extra: Partial<ScreenPair> = {}) =>
+    ({
+      a,
+      prr: { value: prr, lower: 0, upper: 0 },
+      chiSquare: chi,
+      ...extra,
+    }) as unknown as ScreenPair;
+  it("too few reports, and could be chance", () => {
+    expect(whyNot(pair(2, 31.25, 8.93))).toBe("Only 2 reports — the screen waits for at least 3.");
+    expect(whyNot(pair(1, 18.75, 1.59))).toBe(
+      "Only 1 report — the screen waits for at least 3. The difference could easily be chance.",
+    );
+  });
+  it("not reported much more often, or less often", () => {
+    expect(whyNot(pair(4, 1.5, 0.5))).toBe(
+      "Reported only 1.5 times as often as with the others — it needs at least 2 times. The difference could easily be chance.",
+    );
+    expect(whyNot(pair(5, 0.4, 1))).toMatch(/^Reported less often with this product/);
+  });
+  it("never shows a formula", () => {
+    for (const p of [pair(2, 31, 8), pair(1, 1.2, 0.1), pair(9, 0.3, 0.2)])
+      expect(whyNot(p)).not.toMatch(/[<>χ²]|PRR|\bN\b/);
   });
 });

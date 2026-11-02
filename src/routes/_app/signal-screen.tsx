@@ -24,6 +24,7 @@ import {
   SIGNAL_SCREEN_HOW_IT_WORKS,
   explainCandidate,
   screenLineLists,
+  whyNot,
   type ScreenPair,
   type ScreenResult,
 } from "@/services/api/linelist-signals";
@@ -81,15 +82,6 @@ const DECISION_TONE: Record<ScreenDecision, Tone> = {
 
 const num = (n: number) => (n >= 100 ? n.toFixed(0) : n.toFixed(2));
 const ci = (e: { lower: number; upper: number }) => `${num(e.lower)}–${num(e.upper)}`;
-
-function whyNot(p: ScreenPair): string {
-  const reasons: string[] = [];
-  if (p.a < MIN_CASES) reasons.push(`N ${p.a} < ${MIN_CASES}`);
-  if (p.prr.value < MIN_PRR) reasons.push(`PRR ${num(p.prr.value)} < ${MIN_PRR}`);
-  if (p.chiSquare < MIN_CHI_SQUARE)
-    reasons.push(`χ² ${p.chiSquare.toFixed(2)} < ${MIN_CHI_SQUARE}`);
-  return reasons.length ? reasons.join(" · ") : "no comparison group";
-}
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string | undefined }) {
   return (
@@ -150,8 +142,10 @@ function PoolBanner({ result, olderCount }: { result: ScreenResult; olderCount: 
         </div>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Rule: N ≥ {MIN_CASES}, PRR ≥ {MIN_PRR} and χ² ≥ {MIN_CHI_SQUARE} (Evans et al.). Counted per
-        report from kept cases only — dropped, held and confirmed-duplicate cases are left out.
+        A pair becomes a candidate when it has at least {MIN_CASES} reports, the reaction is
+        reported at least {MIN_PRR} times as often with that product as with the others, and the gap
+        is unlikely to be chance (a chance score of {MIN_CHI_SQUARE} or more) — the Evans rule. Each
+        kept case counts once; dropped, held and confirmed-duplicate cases are left out.
         {result.unusable
           ? ` ${result.unusable} case(s) name no product or reaction and are not counted.`
           : ""}
@@ -488,7 +482,7 @@ function SignalScreenPage() {
 
               <Section
                 title="Other pairs"
-                description="The most disproportionate pairs that did not meet the rule, and why."
+                description="Pairs reported together more often than usual, but not enough to be a candidate — and why, in plain words. “Times as often” compares this product with every other product; the range shows how sure that figure is (wide = few reports). The chance score is below 4 when the gap could easily be chance."
               >
                 {result.pairs.filter((p) => !p.candidate).length === 0 ? (
                   <EmptyState title="No other pairs" />
@@ -498,10 +492,10 @@ function SignalScreenPage() {
                       <thead>
                         <tr className="text-left text-xs text-muted-foreground">
                           <th className="py-1.5 pr-3 font-medium">Product × reaction</th>
-                          <th className="py-1.5 pr-3 font-medium">N</th>
-                          <th className="py-1.5 pr-3 font-medium">PRR (95% CI)</th>
-                          <th className="py-1.5 pr-3 font-medium">χ²</th>
-                          <th className="py-1.5 font-medium">Not a candidate because</th>
+                          <th className="py-1.5 pr-3 font-medium">Reports</th>
+                          <th className="py-1.5 pr-3 font-medium">Times as often (range)</th>
+                          <th className="py-1.5 pr-3 font-medium">Chance score</th>
+                          <th className="py-1.5 font-medium">Why it is not a candidate</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -515,7 +509,7 @@ function SignalScreenPage() {
                               </td>
                               <td className="mono-num py-1.5 pr-3">{p.a}</td>
                               <td className="mono-num py-1.5 pr-3">
-                                {num(p.prr.value)} ({ci(p.prr)})
+                                {num(p.prr.value)}× ({ci(p.prr)})
                               </td>
                               <td className="mono-num py-1.5 pr-3">{p.chiSquare.toFixed(2)}</td>
                               <td className="py-1.5 text-muted-foreground">{whyNot(p)}</td>
