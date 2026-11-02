@@ -430,3 +430,28 @@ Every other Settings action an assessor uses was timed with `probe-settings-all.
 Two actions were not tested. They follow the same save-and-confirm pattern as the others.
 - **Changing the password:** it would change the test account's password.
 - **Signing a new C.1.7 rule version:** every version stays in the permanent signed history.
+
+# Release 4 (1–2 Nov 2026): presentation readiness
+
+PRs #126–#135. Admin side only; measured and tested on the synthetic test organisation.
+
+## Built and fixed
+
+| Area | What changed |
+|---|---|
+| PSUR due and overdue (#127) | **Compact rows** that expand for details. **Dismiss** a reminder for the organisation, with a reason (audited). A dismissal holds for its deadline, so a changed deadline or a newer report brings the reminder back. |
+| PSUR resubmissions (#129, #130) | **Telling a resubmission from the next report.** A report uploaded after the screened one is compared by its Data Lock Point: a later DLP is "next report received"; the same DLP is "corrected resubmission received", and the next PSUR stays due. **Identical files** are fingerprinted, so the exact same file asks before it is uploaded again. **"Upload corrected version"** on a returned report links the upload for certain. **The resubmission date** set when a report is returned is no longer read as the next PSUR's date. |
+| Blank seriousness (#128) | Now always reported by a rule, not only when the AI notices it. |
+| Settings (#124) | The IBD register was one row shared by every organisation, so only one organisation could save IBDs. Each organisation now has its own. The NAFDAC section no longer disappears while it reloads, and a newly added designation shows at the top. |
+| Code lists (#132) | **The file's key is read wherever it is printed:** above or below the table, one line per field, one code per row, or as a two-column table. Six layouts are tested; each gives 22 codes and 25 cases. **"View the codes"** shows them, and the edit box opens pre-filled. |
+| Batch and facility flags (#133) | **Collapsed and expandable.** **Explained from the flag's own facts:** why it was flagged, what it could mean, the quality warning signs, and what to do. **Dismissible**, with a reason (new table `pv_cluster_flag_dismissals`, RLS like PMS referrals); a flag comes back if a new case joins it. **Newest first**, 10 at a time with the rest loading on scroll. |
+| AI data log (#134) | The model column is removed. |
+| Repeat uploads (#135) | **The same line list uploaded twice was counted twice.** It doubled signals: on production, a 50-case file uploaded 14 times was counted 14 times. Identical uploads are now fingerprinted, including those already stored, and counted once in signals, flags and observed vs expected. A repeat is labelled, blocked from E2B export, and the upload asks first. Form code lists had the IBD register's shared-id bug, now fixed the same way. |
+| Signal screen (#135) | **One line per candidate** ("4 reports from 1 line list · reported 34 times as often as with other products"). **Opens to plain-language sections:** why it is a candidate, what it does not mean, where the reports come from, and the numbers folded away for experts. A **"How the signal screen works"** explainer sits at the top. |
+| Demo file (#135) | The 25-case demo now holds **one of each correction Fix makes by itself**, plus a row whose sex/age and reporter name/phone columns are swapped. **Fix corrects 17 issues → 0.** The signal, the MR-7712 flag, the 4 duplicates with the 8-case file and both near-misses are unchanged. |
+
+## Test results
+
+- **Unit:** vitest 2,327 pass (118 files). Typecheck clean.
+- **Production (test organisation):** every e2e section passes with 0 console errors. That covers line lists and E2B, the new features, PSUR, the coded files, isolation (45/45), the reminders, corrected versions, key layouts, flags, the two-file demo (30/30) and repeat uploads.
+- **Production main organisation (with the owner's approval):** the demo files and the 14 copies of the 50-case file were deleted for a fresh presentation.
