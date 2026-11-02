@@ -103,6 +103,7 @@ import {
   saveFormCodeList,
   type CodeListPreview,
 } from "./linelist-code-list";
+import { contentKeyOf, sha256Hex } from "./linelist-repeats";
 
 /**
  * The line-list quality-check pass (runValidation, below) used to be
@@ -433,6 +434,13 @@ interface LineListJobRow extends LineListJob {
    *  (createFromCases) — those are already fully canonical with no
    *  original file to preserve. */
   rawRows?: Record<string, string>[];
+  /** SHA-256 of the uploaded file's bytes: the exact same file uploaded
+   *  again is recognised before it is uploaded. */
+  fileSha256?: string;
+  /** Fingerprint of the table's content (rawRows): an identical upload,
+   *  renamed or re-saved, is a repeat and its cases are counted once (see
+   *  linelist-repeats.ts). */
+  contentKey?: string;
   /** Parser notes from ingestion (e.g. "skipped 9 title/letterhead rows
    *  above the detected header on row 10", "combined a two-row header") —
    *  kept for traceability back to how the raw file was actually read, not
@@ -3215,9 +3223,19 @@ export const linelist = {
    *  importantly whether its reaction column holds local codes or plain
    *  words. Defaults to the historical profile so an existing caller that
    *  passes nothing behaves exactly as before. */
-  upload: async (file: File, sourceProfileId?: string): Promise<LineListJob> => {
+  upload: async (
+    file: File,
+    sourceProfileId?: string,
+    opts: { fileSha256?: string } = {},
+  ): Promise<LineListJob> => {
     const actor = currentActor();
     let job: LineListJobRow;
+    const fileSha256 =
+      opts.fileSha256 ??
+      (await file
+        .arrayBuffer()
+        .then(sha256Hex)
+        .catch(() => undefined));
 
     try {
       const {
@@ -3232,6 +3250,7 @@ export const linelist = {
         sourceRowNumbers,
       } = await parseTabularFile(file);
       const rawRows = toRawRows(headers, rows);
+      const contentKey = await contentKeyOf(rawRows).catch(() => undefined);
       // A re-uploaded fixed file carries this tool's own annotation columns
       // (Changes made, Decision, ...). They are notes about the data, never
       // data: neither mapper sees them, so they stay unmapped. They remain in
@@ -3301,6 +3320,8 @@ export const linelist = {
         mappingAiUsed: decision.aiUsed,
         parsedRows,
         rawRows,
+        ...(fileSha256 ? { fileSha256 } : {}),
+        ...(contentKey ? { contentKey } : {}),
         parseWarnings,
         discardedRowsText,
         discardedRows,

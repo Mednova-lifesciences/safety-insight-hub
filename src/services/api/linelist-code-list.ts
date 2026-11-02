@@ -1,7 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { LineListCodeList, LineListCodeListEntry } from "@/types/pv";
 import { isFixedFileAnnotationColumn } from "./linelist-fixed-csv";
-import { toJson } from "./db";
+import { newId, toJson } from "./db";
 import { ai } from "./ai";
 import {
   codebookKeyForField,
@@ -339,22 +339,38 @@ export function fileOwnCodes(
   });
 }
 
-export async function readFormCodeList(formKey: string): Promise<FormCodeListRow | null> {
+/**
+ * The organisation's saved code list for a form. Found by its kind and form
+ * key — row-level security limits the read to the caller's organisation —
+ * not by a fixed id: an id made from the form key alone was the same in
+ * every organisation, so the first to save a form's list owned that row and
+ * every other organisation's save was refused (as the IBD register was).
+ */
+async function findFormCodeListRow(formKey: string): Promise<{ id: string; data: unknown } | null> {
   const { data, error } = await supabase
     .from("pv_linelist_jobs")
-    .select("data")
-    .eq("id", formCodeListId(formKey))
-    .maybeSingle();
+    .select("id, data")
+    .eq("data->>kind", FORM_CODE_LIST_KIND)
+    .eq("data->>formKey", formKey)
+    .limit(1);
   if (error) throw new Error(error.message);
-  return data && isFormCodeListRow(data.data) ? (data.data as unknown as FormCodeListRow) : null;
+  return data?.[0] ?? null;
+}
+
+export async function readFormCodeList(formKey: string): Promise<FormCodeListRow | null> {
+  const row = await findFormCodeListRow(formKey);
+  return row && isFormCodeListRow(row.data) ? (row.data as unknown as FormCodeListRow) : null;
 }
 
 export async function saveFormCodeList(
   row: Omit<FormCodeListRow, "kind" | "id" | "uploadedAt">,
 ): Promise<FormCodeListRow> {
+  // The organisation's own row if it has one (including one saved under the
+  // old form-key id); otherwise a new row with its own id.
+  const existing = await findFormCodeListRow(row.formKey);
   const full: FormCodeListRow = {
     kind: FORM_CODE_LIST_KIND,
-    id: formCodeListId(row.formKey),
+    id: existing?.id ?? newId("codelist"),
     uploadedAt: row.at,
     ...row,
   };
@@ -369,6 +385,7 @@ export async function deleteFormCodeList(formKey: string): Promise<void> {
   const { error } = await supabase
     .from("pv_linelist_jobs")
     .delete()
-    .eq("id", formCodeListId(formKey));
+    .eq("data->>kind", FORM_CODE_LIST_KIND)
+    .eq("data->>formKey", formKey);
   if (error) throw new Error(error.message);
 }

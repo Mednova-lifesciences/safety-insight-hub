@@ -171,6 +171,7 @@ export const DEMO_CASES = [
     "+2348000000204",
     "12/10/2026",
   ],
+  // Fix: a stray comma at the end of the report date
   [
     "ON/IDA/26/007",
     "Emmanuel Ogunleye",
@@ -190,7 +191,7 @@ export const DEMO_CASES = [
     "Grace Omotoso",
     "CHEW",
     "+2348000000203",
-    "14/10/2026",
+    "14/10/2026,",
   ],
   [
     "ON/OND/26/008",
@@ -278,11 +279,12 @@ export const DEMO_CASES = [
     "16/10/2026",
   ],
   // HPV: fainting x2, rash
+  // Fix: "Femal" → F (sex spelling); "11 years" → 11 (the unit is in its own column)
   [
     "ON/AKS/26/012",
     "Temitope Arowolo",
-    "F",
-    "11",
+    "Femal",
+    "11 years",
     "Years",
     "Akure South",
     "St. Louis Girls' Grammar School (outreach)",
@@ -299,6 +301,7 @@ export const DEMO_CASES = [
     "+2348000000206",
     "07/10/2026",
   ],
+  // Fix: a trailing separator after the reaction codes
   [
     "ON/AKS/26/013",
     "Oluwaseun Akintola",
@@ -311,7 +314,7 @@ export const DEMO_CASES = [
     "HPV-3390",
     "06/10/2026",
     "06/10/2026",
-    "2, 13",
+    "2, 13,",
     "Non-serious",
     "",
     "1",
@@ -427,6 +430,7 @@ export const DEMO_CASES = [
     "20/10/2026",
   ],
   // PCV and Rotavirus
+  // Fix: a doubled separator in the vaccination date
   [
     "ON/AKN/26/019",
     "Oreoluwa Babatunde",
@@ -437,7 +441,7 @@ export const DEMO_CASES = [
     "PHC Iju",
     "PCV",
     "PCV-8841",
-    "19/10/2026",
+    "19//10/2026",
     "20/10/2026",
     "6",
     "Non-serious",
@@ -512,11 +516,12 @@ export const DEMO_CASES = [
     "+2348000000208",
     "24/10/2026",
   ],
+  // Columns mixed up: sex and age swapped, reporter name and phone swapped — Fix puts each back
   [
     "ON/AKS/26/023",
     "Comfort Olaniyan",
-    "F",
     "27",
+    "F",
     "Years",
     "Akure South",
     "PHC Oke-Aro",
@@ -528,9 +533,9 @@ export const DEMO_CASES = [
     "Non-serious",
     "",
     "1",
-    "Funmilayo Adebayo",
-    "Nurse",
     "+2348000000201",
+    "Nurse",
+    "Funmilayo Adebayo",
     "25/10/2026",
   ],
   // Held: anaphylaxis with no seriousness and no onset date
