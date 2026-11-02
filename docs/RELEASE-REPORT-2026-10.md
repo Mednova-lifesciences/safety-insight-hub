@@ -454,5 +454,10 @@ PRs #126–#135. Admin side only; measured and tested on the synthetic test orga
 
 - **Unit:** vitest 2,329 pass (118 files). Typecheck and lint clean.
 - **Preview (test organisation):** line lists and E2B, the new features and the coded files pass with 0 console errors. The two-file demo passes 30/30: Fix 15 → 0; signal N 4, rising to 5 with the 8-case file and back to 4 once its 4 duplicates are dropped; MR-7712 3 → 4 → 3. Repeat uploads pass 5/5 (N stays 4; E2B blocks the repeat).
-- **Production:** results are added after the release run.
+- **Production (test organisation, 2 Nov, after #135):** every section passed with 0 console errors:
+  - line lists and E2B, the features flow (including recording a signal decision), PSUR, the coded files, and isolation (45/45);
+  - PSUR reminders and dismiss/restore, corrected versions (4/4, after one page wait timed out and passed on rerun), the six code-list layouts (12/12) and batch flags (7/7);
+  - the two-file demo (30/30: Fix 16 → 0, signal N 4 → 5 → 4, MR-7712 3 → 4 → 3) and repeat uploads (5/5).
+  The test organisation was then reset: no line lists, signal decisions or flag dismissals are left.
+- **Known limit:** a *different* version of the same file (a few cells edited) is not a repeat, so its cases are counted again until they are dropped as duplicates. The main organisation holds 9 such versions of "2026, ONDO STATE AEFI.xlsx" (231 cases each, 7–19 rows edited), left in place pending the owner's decision.
 - **Main organisation (with the owner's approval):** the demo files and the 14 copies of the 50-case file were deleted for a fresh presentation, with their 373 issues.
