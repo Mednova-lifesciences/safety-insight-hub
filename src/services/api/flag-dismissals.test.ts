@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ClusterCase, ClusterFlag } from "./linelist-clusters";
+import { explainFlag, type ClusterCase, type ClusterFlag } from "./linelist-clusters";
 import { caseKeyOf, casesSinceDismissal, isDismissed, type FlagDismissal } from "./flag-dismissals";
 import { sortFlagsNewestFirst } from "@/components/pv/linelist-cross-file-panels";
 
@@ -72,5 +72,50 @@ describe("flags are listed newest first", () => {
       "b",
       "a",
     ]);
+  });
+});
+
+describe("a flag explained in plain words", () => {
+  it("a batch at several facilities: why, what it could mean, signs, what to do", () => {
+    const e = explainFlag(
+      flag({
+        warningSigns: [{ sign: "LACK_OF_EFFECT", cases: ["ll-1#17"] }],
+      }),
+    );
+    expect(e.why).toMatch(
+      /^3 serious cases were reported after Measles-Rubella from the same batch \(MR-7712\), within 3 days \(2026-10-14 to 2026-10-16\), at 3 different facilities — A, B and C\./,
+    );
+    expect(e.meaning).toMatch(/points at the product itself/);
+    expect(e.signs).toMatch(/Found here: lack of effect \/ vaccine failure \(1 case\)/);
+    expect(e.next).toMatch(/refer the batch to post-market surveillance/);
+  });
+
+  it("one batch at one facility, no warning signs: says what is unknown and what the absence means", () => {
+    const e = explainFlag(
+      flag({
+        kind: "FACILITY",
+        label: "Measles-Rubella at State Specialist Hospital Ondo",
+        cases: [c(15), c(3)],
+        from: "2026-10-14",
+        to: "2026-10-14",
+        facilities: ["State Specialist Hospital Ondo"],
+        pattern: "ONE_BATCH_ONE_FACILITY",
+      }),
+    );
+    expect(e.why).toMatch(
+      /^2 serious cases were reported after Measles-Rubella given at State Specialist Hospital Ondo, on the same day/,
+    );
+    expect(e.meaning).toMatch(/cannot be told apart yet/);
+    expect(e.signs).toMatch(/None of these cases mention any of them/);
+    expect(e.signs).toMatch(/not, on its own, evidence of a bad product/);
+  });
+
+  it("one facility across batches points at the site", () => {
+    const e = explainFlag(
+      flag({ kind: "FACILITY", pattern: "STORAGE_OR_ADMINISTRATION", batches: ["X", "Y"] }),
+    );
+    expect(e.why).toMatch(/from 2 different batches/);
+    expect(e.meaning).toMatch(/points at that site/);
+    expect(e.next).toMatch(/cold chain/);
   });
 });
