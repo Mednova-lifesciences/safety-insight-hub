@@ -83,16 +83,14 @@ function AiLogPage() {
                 />
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[860px] text-sm">
+                  <table className="w-full min-w-[720px] text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/50 text-left">
-                        {["When", "Where", "Model", "Replaced before sending", "Fields"].map(
-                          (h) => (
-                            <th key={h} className="label-caps px-3 py-2">
-                              {h}
-                            </th>
-                          ),
-                        )}
+                        {["When", "Where", "Replaced before sending", "Fields"].map((h) => (
+                          <th key={h} className="label-caps px-3 py-2">
+                            {h}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
@@ -102,17 +100,16 @@ function AiLogPage() {
                             {e.at.replace("T", " ").slice(0, 19)}
                           </td>
                           <td className="px-3 py-2">
-                            <p className="font-mono text-xs">{e.endpoint ?? "—"}</p>
+                            <p className="font-mono text-xs">
+                              {e.endpoint ?? "—"}
+                              {e.kind === "image" ? (
+                                <StatusPill tone="warning" className="ml-1">
+                                  image
+                                </StatusPill>
+                              ) : null}
+                            </p>
                             {e.role ? (
                               <p className="text-xs text-muted-foreground">{e.role}</p>
-                            ) : null}
-                          </td>
-                          <td className="px-3 py-2 text-xs">
-                            {e.model}
-                            {e.kind === "image" ? (
-                              <StatusPill tone="warning" className="ml-1">
-                                image
-                              </StatusPill>
                             ) : null}
                           </td>
                           <td className="px-3 py-2">
