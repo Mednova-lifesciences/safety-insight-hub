@@ -9,7 +9,7 @@ import {
   NEAR_MISS_LGA_ROWS,
 } from "../../../scripts/seed/demo-coded-data.mjs";
 import { readRowsWithSeriousness, type ParsedRow } from "./linelist";
-import { screenLineLists } from "./linelist-signals";
+import { explainCandidate, screenLineLists } from "./linelist-signals";
 import { findCrossFileDuplicates, type CrossFileCase } from "./linelist-cross-duplicates";
 import { findClusterFlags, type ClusterCase } from "./linelist-clusters";
 import { normalise } from "./linelist-normalise";
@@ -163,5 +163,30 @@ describe("every error planted in the 25-case demo for Fix has a correction", () 
     // Nothing else in the row moves.
     for (const h of ["Case ID (EPID No.)", "Vaccine", "Batch No.", "Reaction", "Outcome"])
       expect(fixed[h]).toBe(row[h]);
+  });
+});
+
+describe("the signal screen explains its candidate in plain words", () => {
+  it("Pentavalent × persistent crying: how many, from where, how much more often, and what it is not", () => {
+    const screen = screenLineLists(DEMO);
+    const penta = screen.candidates.find((p) => p.product === "Pentavalent")!;
+    const e = explainCandidate(penta, screen);
+    expect(e.summary).toMatch(
+      /^4 reports from 1 line list · reported \d+ times as often as with other products$/,
+    );
+    expect(e.why).toMatch(
+      /^4 reports in your line lists name Persistent cries \(more than 3 hours\) after Pentavalent\./,
+    );
+    expect(e.why).toMatch(/Of the \d+ reports for Pentavalent, 4 name/);
+    expect(e.notMeaning).toMatch(/not proof that Pentavalent causes/);
+    expect(e.notMeaning).toMatch(/below the 500 recommended/);
+  });
+
+  it("the same file counted twice would have doubled it — now the screen sees each case once", () => {
+    const twice = screenLineLists([...DEMO, ...DEMO.map((c) => ({ ...c, jobId: "D2" }))]);
+    expect(twice.candidates.find((p) => p.product === "Pentavalent")!.a).toBe(8);
+    // loadValidatedCases leaves the repeat out (linelist-repeats), so the
+    // screen is given one copy:
+    expect(screenLineLists(DEMO).candidates.find((p) => p.product === "Pentavalent")!.a).toBe(4);
   });
 });

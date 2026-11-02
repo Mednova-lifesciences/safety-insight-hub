@@ -256,3 +256,45 @@ export function screenLineLists(cases: ScreenCase[], codings: ReactionCoding[] =
     pairs,
   };
 }
+
+/** A candidate explained in plain words, from its own numbers. */
+export interface CandidateExplanation {
+  /** One line for the collapsed row. */
+  summary: string;
+  why: string;
+  notMeaning: string;
+}
+
+/** "34 times", "2.5 times" — how many times as often, readable. */
+export function timesAsOften(prr: number): string {
+  return prr >= 10 ? `${Math.round(prr)} times` : `${prr.toFixed(1)} times`;
+}
+
+export function explainCandidate(p: ScreenPair, result: ScreenResult): CandidateExplanation {
+  const files = new Set(p.cases.map((c) => c.jobId)).size;
+  const times = timesAsOften(p.prr.value);
+  const reports = `${p.a} report${p.a === 1 ? "" : "s"}`;
+  const others = p.b + p.d;
+  return {
+    summary: `${reports} from ${files} line list${files === 1 ? "" : "s"} · reported ${times} as often as with other products`,
+    why:
+      `${reports} in your line lists name ${p.reaction} after ${p.product}. ` +
+      `Of the ${p.a + p.b} reports for ${p.product}, ${p.a} name ${p.reaction}; of the ${others} reports for every other product, ${p.c} do. ` +
+      `So ${p.reaction} is reported about ${times} as often with ${p.product} as with the others. ` +
+      `The screen lists a pair once there are at least ${MIN_CASES} reports and a gap this large is unlikely to be chance alone — it is a prompt to read these cases.`,
+    notMeaning:
+      `It is not proof that ${p.product} causes ${p.reaction}. ` +
+      (result.smallPool
+        ? `Your line lists hold ${result.totalReports} reports in all — well below the ${UMC_MIN_REPORTS} recommended for this kind of screen — so chance, a known reaction, or a cluster from one place can all produce a pair like this. `
+        : "A known reaction, a cluster from one place, duplicates or coding can all produce a pair like this. ") +
+      "A qualified reviewer reads the cases and decides; the decision and its reason are recorded.",
+  };
+}
+
+/** "How the signal screen works", for the page. */
+export const SIGNAL_SCREEN_HOW_IT_WORKS = [
+  "Every case in your validated line lists counts once. Dropped and held cases, cases confirmed as duplicates, and repeat uploads of the same file are left out.",
+  "For each product and reaction reported together, the screen compares how often that reaction is reported with the product against how often it is reported with every other product.",
+  `A pair becomes a candidate when there are at least ${MIN_CASES} reports and the reaction is reported clearly more often with that product (at least ${MIN_PRR} times as often, and unlikely to be chance).`,
+  "A candidate is a prompt to read the cases, not a confirmed signal. Accept it as a signal, decline it, or keep monitoring — with a reason, which is recorded.",
+];

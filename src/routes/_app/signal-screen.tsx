@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ExternalLink, Radar } from "lucide-react";
+import { AlertTriangle, ChevronRight, ExternalLink, Radar } from "lucide-react";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { useValidatedCases } from "@/components/pv/linelist-cross-file-panels";
@@ -21,6 +21,8 @@ import {
   MIN_PRR,
   UMC_MIN_REPORTS,
   UMC_SOURCE,
+  SIGNAL_SCREEN_HOW_IT_WORKS,
+  explainCandidate,
   screenLineLists,
   type ScreenPair,
   type ScreenResult,
@@ -32,6 +34,7 @@ import {
   type ScreenDecision,
 } from "@/services/api/signal-screen";
 import type { Signal } from "@/types/pv";
+import { cn } from "@/lib/utils";
 
 /**
  * The administrator-side signal screen: disproportionality over every
@@ -152,10 +155,13 @@ function CandidateCard({
   decision?: Signal | undefined;
   onDecided: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const [mode, setMode] = useState<ScreenDecision | null>(null);
   const [rationale, setRationale] = useState("");
   const [busy, setBusy] = useState(false);
   const decided = decision?.status as ScreenDecision | undefined;
+  const explained = explainCandidate(pair, result);
+  const title = `${pair.product} × ${pair.reaction}`;
 
   async function record() {
     if (!mode) return;
@@ -194,14 +200,31 @@ function CandidateCard({
   const times = pair.prr.value >= 10 ? Math.round(pair.prr.value) : pair.prr.value.toFixed(1);
 
   return (
-    <li className="rounded-md border border-border p-4" data-e2e-candidate={pair.key}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-base font-semibold text-foreground">{pair.product}</span>
+    <li className="rounded-md border border-border" data-e2e-candidate={pair.key}>
+      {/* The candidate in one line; the rest opens below it. */}
+      <div
+        className="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2.5 hover:bg-muted/40"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Hide" : "Show"} details for ${title}`}
+          className="flex size-6 items-center justify-center rounded hover:bg-muted"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+        >
+          <ChevronRight className={cn("size-4 transition-transform", expanded && "rotate-90")} />
+        </button>
+        <span className="font-semibold text-foreground">{pair.product}</span>
         <span className="text-muted-foreground">×</span>
-        <span className="text-base font-semibold text-foreground">{pair.reaction}</span>
+        <span className="font-semibold text-foreground">{pair.reaction}</span>
         <StatusPill tone={pair.reactionSource === "MEDDRA" ? "success" : "neutral"}>
           {pair.reactionSource === "MEDDRA" ? `MedDRA ${pair.meddraCode}` : "verbatim term"}
         </StatusPill>
+        <span className="text-xs text-muted-foreground">{explained.summary}</span>
         <span className="ml-auto">
           {decided ? (
             <StatusPill tone={DECISION_TONE[decided]}>{SCREEN_DECISION_LABELS[decided]}</StatusPill>
@@ -211,109 +234,125 @@ function CandidateCard({
         </span>
       </div>
 
-      <div className="mt-3 rounded-md border border-assist/30 bg-assist-soft px-3 py-2">
-        <p className="label-caps">What this is about</p>
-        <p className="mt-1 text-sm text-foreground">
-          <span className="font-semibold">{pair.a}</span> report{pair.a === 1 ? "" : "s"} of{" "}
-          <span className="font-semibold">{pair.reaction}</span> after{" "}
-          <span className="font-semibold">{pair.product}</span>. In this pool, {pair.reaction} is
-          reported <span className="font-semibold">{times} times</span> as often with {pair.product}{" "}
-          as with the other products. That is a reason to look at these cases, not evidence that{" "}
-          {pair.product} causes it.
-        </p>
-      </div>
+      {expanded ? (
+        <div className="border-t border-border px-4 pb-4 pt-3">
+          <dl className="space-y-2 rounded-md border border-assist/30 bg-assist-soft px-3 py-2 text-sm">
+            <div>
+              <dt className="font-medium">Why it is a candidate</dt>
+              <dd className="text-foreground">{explained.why}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">What it does not mean</dt>
+              <dd className="text-foreground">{explained.notMeaning}</dd>
+            </div>
+          </dl>
 
-      <div className="mt-3">
-        <p className="label-caps">
-          Where it comes from — {byFile.length} line list{byFile.length === 1 ? "" : "s"}
-        </p>
-        <ul className="mt-1 space-y-2">
-          {byFile.map((g) => (
-            <li key={g.jobId} className="rounded-md border border-border px-3 py-2 text-sm">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{g.filename}</span>
-                <span className="text-xs text-muted-foreground">
-                  {g.cases.length} case{g.cases.length === 1 ? "" : "s"}
-                </span>
-                <Button asChild size="sm" variant="outline" className="ml-auto h-7">
-                  <Link to="/line-list" search={{ job: g.jobId }}>
-                    Open this line list
-                  </Link>
-                </Button>
-              </div>
-              <p className="mono-num mt-1 text-xs text-muted-foreground">
-                {g.cases.map((c) => `${c.caseId ?? "no case ID"} (row ${c.row})`).join(" · ")}
+          <div className="mt-3">
+            <p className="label-caps">
+              Where the reports come from — {byFile.length} line list
+              {byFile.length === 1 ? "" : "s"}
+            </p>
+            <ul className="mt-1 space-y-2">
+              {byFile.map((g) => (
+                <li key={g.jobId} className="rounded-md border border-border px-3 py-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{g.filename}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {g.cases.length} case{g.cases.length === 1 ? "" : "s"}
+                    </span>
+                    <Button asChild size="sm" variant="outline" className="ml-auto h-7">
+                      <Link to="/line-list" search={{ job: g.jobId }}>
+                        Open this line list
+                      </Link>
+                    </Button>
+                  </div>
+                  <p className="mono-num mt-1 text-xs text-muted-foreground">
+                    {g.cases.map((c) => `${c.caseId ?? "no case ID"} (row ${c.row})`).join(" · ")}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <details className="mt-3 rounded-md border border-border px-3 py-2">
+            <summary className="cursor-pointer text-sm font-medium">
+              The numbers (for reviewers who want them)
+            </summary>
+            <div className="mt-2 grid gap-2 sm:grid-cols-4">
+              <Stat label="Reports (N)" value={String(pair.a)} />
+              <Stat label="PRR" value={num(pair.prr.value)} sub={`95% CI ${ci(pair.prr)}`} />
+              <Stat label="ROR" value={num(pair.ror.value)} sub={`95% CI ${ci(pair.ror)}`} />
+              <Stat label="χ² (Yates)" value={pair.chiSquare.toFixed(2)} />
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              2×2: a {pair.a} · b {pair.b} · c {pair.c} · d {pair.d}
+              {pair.corrected
+                ? " — a cell was zero, so 0.5 was added to every cell for the ratios"
+                : ""}
+              . PRR — how many times as often the reaction is reported with this product as with the
+              others. ROR — the same comparison as odds. χ² — how unlikely the gap is to be chance
+              alone.
+            </p>
+          </details>
+
+          {decision?.rationale ? (
+            <div className="mt-3 rounded-md border border-border bg-muted/50 px-3 py-2">
+              <p className="label-caps">Decision recorded</p>
+              <p className="mt-1 text-sm">{decision.rationale}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {decision.reviewer ?? "Reviewer"} · {decision.decidedAt?.slice(0, 10)} · pool of{" "}
+                {decision.poolSize ?? "?"} reports
               </p>
-            </li>
-          ))}
-        </ul>
-      </div>
+            </div>
+          ) : null}
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-4">
-        <Stat label="Reports (N)" value={String(pair.a)} />
-        <Stat label="PRR" value={num(pair.prr.value)} sub={`95% CI ${ci(pair.prr)}`} />
-        <Stat label="ROR" value={num(pair.ror.value)} sub={`95% CI ${ci(pair.ror)}`} />
-        <Stat label="χ² (Yates)" value={pair.chiSquare.toFixed(2)} />
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        2×2: a {pair.a} · b {pair.b} · c {pair.c} · d {pair.d}
-        {pair.corrected ? " — a cell was zero, so 0.5 was added to every cell for the ratios" : ""}
-      </p>
-
-      {decision?.rationale ? (
-        <div className="mt-3 rounded-md border border-border bg-muted/50 px-3 py-2">
-          <p className="label-caps">Decision recorded</p>
-          <p className="mt-1 text-sm">{decision.rationale}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {decision.reviewer ?? "Reviewer"} · {decision.decidedAt?.slice(0, 10)} · pool of{" "}
-            {decision.poolSize ?? "?"} reports
-          </p>
+          <div className="mt-3 rounded-md border border-border px-3 py-3">
+            <p className="label-caps">{decided ? "Change the decision" : "Your decision"}</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              {(Object.keys(ACTION_LABELS) as ScreenDecision[]).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setMode(mode === d ? null : d)}
+                  aria-pressed={mode === d}
+                  className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                    mode === d
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/50 hover:bg-muted/40"
+                  }`}
+                >
+                  <span className="block font-medium text-foreground">{ACTION_LABELS[d]}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {ACTION_HELP[d]}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {mode ? (
+              <div className="mt-3 space-y-2">
+                <label className="label-caps" htmlFor={`rationale-${pair.key}`}>
+                  Your reason (required, recorded in the audit trail)
+                </label>
+                <Textarea
+                  id={`rationale-${pair.key}`}
+                  rows={3}
+                  value={rationale}
+                  onChange={(e) => setRationale(e.target.value)}
+                  placeholder="What you found in the cases: plausibility, timing, known reactions, duplicates, coding, confounders."
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={record} disabled={busy}>
+                    Record: {ACTION_LABELS[mode]}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setMode(null)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
-
-      <div className="mt-3 rounded-md border border-border px-3 py-3">
-        <p className="label-caps">{decided ? "Change the decision" : "Your decision"}</p>
-        <div className="mt-2 grid gap-2 sm:grid-cols-3">
-          {(Object.keys(ACTION_LABELS) as ScreenDecision[]).map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setMode(mode === d ? null : d)}
-              aria-pressed={mode === d}
-              className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
-                mode === d
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:border-primary/50 hover:bg-muted/40"
-              }`}
-            >
-              <span className="block font-medium text-foreground">{ACTION_LABELS[d]}</span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">{ACTION_HELP[d]}</span>
-            </button>
-          ))}
-        </div>
-        {mode ? (
-          <div className="mt-3 space-y-2">
-            <label className="label-caps" htmlFor={`rationale-${pair.key}`}>
-              Your reason (required, recorded in the audit trail)
-            </label>
-            <Textarea
-              id={`rationale-${pair.key}`}
-              rows={3}
-              value={rationale}
-              onChange={(e) => setRationale(e.target.value)}
-              placeholder="What you found in the cases: plausibility, timing, known reactions, duplicates, coding, confounders."
-            />
-            <div className="flex gap-2">
-              <Button size="sm" onClick={record} disabled={busy}>
-                Record: {ACTION_LABELS[mode]}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setMode(null)}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : null}
-      </div>
     </li>
   );
 }
@@ -369,13 +408,24 @@ function SignalScreenPage() {
         <QueryBoundary query={query} loadingLabel="Screening your validated line lists">
           {(result) => (
             <>
+              <details className="rounded-md border border-border bg-card px-4 py-3 text-sm">
+                <summary className="cursor-pointer font-medium">
+                  How the signal screen works
+                </summary>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+                  {SIGNAL_SCREEN_HOW_IT_WORKS.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </details>
+
               <Section title="The pool">
                 <PoolBanner result={result} />
               </Section>
 
               <Section
                 title={`Candidates (${result.candidates.length})`}
-                description="Pairs meeting N ≥ 3, PRR ≥ 2 and χ² ≥ 4. Review the cases, then record a decision."
+                description="Product and reaction pairs reported together more often than the rest of your line lists predicts. Open one to see why, where its reports come from, and to record a decision."
               >
                 {result.candidates.length === 0 ? (
                   <EmptyState
@@ -383,7 +433,7 @@ function SignalScreenPage() {
                     description="Nothing in the validated line lists is reported disproportionately often. This says nothing about signals the pool is too small to show."
                   />
                 ) : (
-                  <ul className="space-y-4">
+                  <ul className="space-y-2">
                     {result.candidates.map((p) => (
                       <CandidateCard
                         key={p.key}
