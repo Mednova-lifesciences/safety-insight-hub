@@ -14,7 +14,8 @@ import {
 } from "@/services/api/linelist-cross-duplicates";
 import {
   CLUSTER_WINDOW_DAYS,
-  PATTERN_NOTES,
+  FLAGS_HOW_THEY_WORK,
+  explainFlag,
   QUALITY_SIGN_LABELS,
   findClusterFlags,
   type ClusterFlag,
@@ -322,6 +323,7 @@ function ClusterFlagItem({
   const dismissed = isDismissed(f, dismissal);
   const sinceDismissed = dismissal?.active ? casesSinceDismissal(f, dismissal) : 0;
   const title = f.kind === "BATCH" ? `Batch ${f.label}` : f.label;
+  const explained = explainFlag(f);
 
   async function refer() {
     setBusy(true);
@@ -467,28 +469,37 @@ function ClusterFlagItem({
               {dismissal.reason ? ` — ${dismissal.reason}` : ""}.
             </p>
           ) : null}
-          <div className="mb-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
-            <p className="flex flex-wrap items-center gap-2">
-              <StatusPill tone={PATTERN_TONE[f.pattern]}>{PATTERN_TITLE[f.pattern]}</StatusPill>
-              <span className="text-muted-foreground">
-                {plural(f.facilities.length, "facility", "facilities")} ·{" "}
-                {plural(f.batches.length, "batch", "batches")}
-              </span>
-            </p>
-            <p className="mt-1.5 text-foreground">{PATTERN_NOTES[f.pattern]}</p>
-            {f.warningSigns.length ? (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {f.warningSigns.map((w) => (
-                  <StatusPill key={w.sign} tone="critical">
-                    {QUALITY_SIGN_LABELS[w.sign]} · {w.cases.length}
-                  </StatusPill>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-1 text-muted-foreground">No quality warning signs in these cases.</p>
-            )}
-          </div>
+          <dl className="mb-3 space-y-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+            <div>
+              <dt className="font-medium">Why it was flagged</dt>
+              <dd className="text-foreground">{explained.why}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">What it could mean</dt>
+              <dd className="text-foreground">{explained.meaning}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">Quality warning signs</dt>
+              <dd className="text-foreground">
+                {f.warningSigns.length ? (
+                  <span className="mb-1 flex flex-wrap gap-1.5">
+                    {f.warningSigns.map((w) => (
+                      <StatusPill key={w.sign} tone="critical">
+                        {QUALITY_SIGN_LABELS[w.sign]} · {w.cases.length}
+                      </StatusPill>
+                    ))}
+                  </span>
+                ) : null}
+                {explained.signs}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">What you can do</dt>
+              <dd className="text-foreground">{explained.next}</dd>
+            </div>
+          </dl>
 
+          <p className="label-caps mb-1 text-[11px]">The cases</p>
           <ul className="space-y-1 text-xs">
             {f.cases.map((c) => (
               <li key={`${c.jobId}#${c.row}`} className="flex flex-wrap gap-x-2">
@@ -646,6 +657,14 @@ export function ClusterFlagsCard({ refreshKey }: { refreshKey?: string }) {
             );
             return (
               <>
+                <details className="mb-3 rounded-md border border-border px-3 py-2 text-xs">
+                  <summary className="cursor-pointer font-medium">How flags work</summary>
+                  <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
+                    {FLAGS_HOW_THEY_WORK.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </details>
                 <p className="mb-3 flex flex-wrap items-center gap-2 text-sm">
                   <span className="font-medium">{plural(active.length, "flag", "flags")}:</span>
                   {(Object.keys(PATTERN_ORDER) as ClusterPattern[])
