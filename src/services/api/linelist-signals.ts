@@ -274,7 +274,8 @@ export function explainCandidate(p: ScreenPair, result: ScreenResult): Candidate
   const files = new Set(p.cases.map((c) => c.jobId)).size;
   const times = timesAsOften(p.prr.value);
   const reports = `${p.a} report${p.a === 1 ? "" : "s"}`;
-  const others = p.b + p.d;
+  // Reports for every other product: those naming this reaction (c) and those not (d).
+  const others = p.c + p.d;
   return {
     summary: `${reports} from ${files} line list${files === 1 ? "" : "s"} · reported ${times} as often as with other products`,
     why:

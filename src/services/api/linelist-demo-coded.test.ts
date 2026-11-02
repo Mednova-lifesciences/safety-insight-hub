@@ -178,6 +178,12 @@ describe("the signal screen explains its candidate in plain words", () => {
       /^4 reports in your line lists name Persistent cries \(more than 3 hours\) after Pentavalent\./,
     );
     expect(e.why).toMatch(/Of the \d+ reports for Pentavalent, 4 name/);
+    // The comparison group is every other product: c + d, never b + d.
+    expect(e.why).toContain(`Of the ${penta.a + penta.b} reports for Pentavalent, 4 name`);
+    expect(e.why).toContain(
+      `of the ${penta.c + penta.d} reports for every other product, ${penta.c} do`,
+    );
+    expect(penta.a + penta.b + penta.c + penta.d).toBe(screen.totalReports);
     expect(e.notMeaning).toMatch(/not proof that Pentavalent causes/);
     expect(e.notMeaning).toMatch(/below the 500 recommended/);
   });
