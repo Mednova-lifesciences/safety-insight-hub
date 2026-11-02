@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { contentKeyOf, repeatsByKeys, repeatsOf, type UploadRef } from "./linelist-repeats";
+import {
+  contentKeyOf,
+  olderVersionsOf,
+  repeatsByKeys,
+  repeatsOf,
+  type UploadRef,
+  type VersionCase,
+} from "./linelist-repeats";
 
 const up = (id: string, uploadedAt: string, contentKey?: string): UploadRef => ({
   id,
@@ -60,5 +67,76 @@ describe("repeatsByKeys — what the signal screen and flags count once", () => 
       { id: "e", uploadedAt: "2026-09-05T00:00:00Z", keys: [undefined, undefined] },
     ]);
     expect(Object.fromEntries(r)).toEqual({ b: "a", c: "a" });
+  });
+});
+
+describe("olderVersionsOf — a corrected or re-issued line list replaces the earlier one", () => {
+  const cases = (prefix: string, n: number, from = 1) =>
+    Array.from({ length: n }, (_, i) => ({
+      caseId: `${prefix} ${String(from + i).padStart(3, "0")}`,
+      product: "MR/MV",
+      vaccinationDate: `${(i % 28) + 1}/2/26`,
+      sex: i % 2 ? "MALE" : "FEMALE",
+      age: String(i % 9),
+    }));
+  const job = (id: string, day: number, c: VersionCase[]) => ({
+    id,
+    uploadedAt: `2026-10-${String(day).padStart(2, "0")}T00:00:00Z`,
+    cases: c,
+  });
+
+  it("nine edited versions of the same 231 cases: only the newest is counted", () => {
+    const jobs = Array.from({ length: 9 }, (_, i) => {
+      const c = cases("NIE ODS KAK 26", 231);
+      c[i * 3]!.vaccinationDate = "edited"; // a few cells differ per version
+      return job(`v${i}`, i + 1, c);
+    });
+    const r = olderVersionsOf(jobs);
+    expect(r.size).toBe(8);
+    expect([...new Set(r.values())]).toEqual(["v8"]);
+  });
+
+  it("a version with no case IDs is matched by product, vaccination date, sex and age", () => {
+    const noIds = cases("X", 231).map(({ caseId: _c, ...rest }) => rest);
+    const r = olderVersionsOf([job("old", 1, noIds), job("new", 2, cases("NIE", 231))]);
+    expect(Object.fromEntries(r)).toEqual({ old: "new" });
+  });
+
+  it("a cumulative list (the old cases plus new ones) replaces the earlier list", () => {
+    const r = olderVersionsOf([
+      job("oct", 1, cases("ON", 200)),
+      job("nov", 2, [...cases("ON", 200), ...cases("ON", 30, 201)]),
+    ]);
+    expect(Object.fromEntries(r)).toEqual({ oct: "nov" });
+  });
+
+  it("an LGA return sharing 4 cases with the state list stays a separate list", () => {
+    const state = cases("ON", 25);
+    const lga = [...state.slice(2, 6), ...cases("LGA", 4)];
+    expect(olderVersionsOf([job("state", 1, state), job("lga", 2, lga)]).size).toBe(0);
+  });
+
+  it("the same details under different case IDs are different cases (left to the duplicates check)", () => {
+    const a = cases("OG-4", 6);
+    const b = cases("OG-8", 6);
+    expect(olderVersionsOf([job("a", 1, a), job("b", 2, b)]).size).toBe(0);
+  });
+
+  it("different lists that both number their cases 1, 2, 3 … are not versions", () => {
+    const a = cases("A", 10).map((c, i) => ({
+      caseId: String(i + 1),
+      product: "Penta",
+      vaccinationDate: `${i + 1}/9/26`,
+      sex: "F",
+      age: "2",
+    }));
+    const b = cases("B", 10).map((c, i) => ({
+      caseId: String(i + 1),
+      product: "BCG",
+      vaccinationDate: `${i + 1}/10/26`,
+      sex: "M",
+      age: "1",
+    }));
+    expect(olderVersionsOf([job("a", 1, a), job("b", 2, b)]).size).toBe(0);
   });
 });

@@ -294,6 +294,7 @@ export function explainCandidate(p: ScreenPair, result: ScreenResult): Candidate
 /** "How the signal screen works", for the page. */
 export const SIGNAL_SCREEN_HOW_IT_WORKS = [
   "Every case in your validated line lists counts once. Dropped and held cases, cases confirmed as duplicates, and repeat uploads of the same file are left out.",
+  "When a line list is uploaded again with corrections — or re-issued with more cases — only the newest version is counted. Two line lists are versions of each other when at least 80% of the cases in each are the same cases (same case ID, or same product, vaccination date, sex and age).",
   "For each product and reaction reported together, the screen compares how often that reaction is reported with the product against how often it is reported with every other product.",
   `A pair becomes a candidate when there are at least ${MIN_CASES} reports and the reaction is reported clearly more often with that product (at least ${MIN_PRR} times as often, and unlikely to be chance).`,
   "A candidate is a prompt to read the cases, not a confirmed signal. Accept it as a signal, decline it, or keep monitoring — with a reason, which is recorded.",

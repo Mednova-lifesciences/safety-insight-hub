@@ -135,3 +135,117 @@ export async function findSameLineListFile(file: File): Promise<{
     { id: string; filename: string; uploadedAt: string } | undefined;
   return { fileSha256, match: row ?? null };
 }
+
+/* ------------------------------------------------------------------ *
+ * Versions of the same line list
+ * ------------------------------------------------------------------ */
+
+/** What identifies a case for telling versions apart: its case ID, or — when
+ *  a file has none (or only a serial number) — its product, vaccination
+ *  date, sex and age together. */
+export interface VersionCase {
+  caseId?: string | undefined;
+  product?: string | undefined;
+  vaccinationDate?: string | undefined;
+  sex?: string | undefined;
+  age?: string | undefined;
+}
+
+const norm = (v: string | undefined) => (v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+
+/** A case's identity: its case ID (not a bare serial number), and its
+ *  product + vaccination date + sex + age, when it carries them. */
+export function caseIdentity(c: VersionCase): { id?: string; details?: string } {
+  const out: { id?: string; details?: string } = {};
+  const id = norm(c.caseId);
+  // A bare serial number (1, 2, 3 …) is not an identity: two different
+  // files both number their rows.
+  if (id && !/^\d{1,4}$/.test(id)) out.id = id;
+  const product = norm(c.product);
+  const date = norm(c.vaccinationDate);
+  const sex = norm(c.sex);
+  const age = norm(c.age);
+  if (product && date && (sex || age)) out.details = `${product}|${date}|${sex}|${age}`;
+  return out;
+}
+
+/** Share of the line lists' cases that must be the same cases, in both, for
+ *  one to be a version of the other. */
+export const VERSION_OVERLAP = 0.8;
+/** Smaller files are never treated as versions of each other. */
+const VERSION_MIN_CASES = 3;
+
+/**
+ * For each line list that is an older version of another, the newest
+ * version, which is the one counted. Two line lists are versions of each
+ * other when at least 80% of the cases in each are the same cases (the same
+ * case ID; product + vaccination date + sex + age only where a case has no
+ * ID) — a corrected or extended
+ * re-issue of the same list. A different list that shares a few cases (an
+ * LGA return repeating some state cases) stays separate; its shared cases
+ * are left to the duplicates check. Pure.
+ */
+export function olderVersionsOf(
+  jobs: { id: string; uploadedAt: string; cases: VersionCase[] }[],
+): Map<string, string> {
+  const prepared = jobs.map((j) => {
+    const perCase = j.cases.map(caseIdentity);
+    return {
+      ...j,
+      perCase,
+      ids: new Set(perCase.flatMap((c) => (c.id ? [c.id] : []))),
+      details: new Set(perCase.flatMap((c) => (c.details ? [c.details] : []))),
+      detailsWithoutId: new Set(perCase.flatMap((c) => (!c.id && c.details ? [c.details] : []))),
+      identifiable: perCase.some((c) => c.id || c.details),
+    };
+  });
+  // Is a case of one list also in the other? Two case IDs decide on their
+  // own — different IDs are different cases (the duplicates check, and a
+  // person, judge look-alikes). The details are used only where one side
+  // has no case ID.
+  const matched = (a: (typeof prepared)[number], b: (typeof prepared)[number]) =>
+    a.perCase.filter((c) =>
+      c.id
+        ? b.ids.has(c.id) || (!!c.details && b.detailsWithoutId.has(c.details))
+        : !!c.details && b.details.has(c.details),
+    ).length / a.perCase.length;
+  // Group the versions (a chain of corrections is one group).
+  const parent = new Map(prepared.map((j) => [j.id, j.id]));
+  const find = (id: string): string => {
+    let r = id;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    return r;
+  };
+  for (let i = 0; i < prepared.length; i++) {
+    const a = prepared[i]!;
+    if (a.perCase.length < VERSION_MIN_CASES || !a.identifiable) continue;
+    for (let j = i + 1; j < prepared.length; j++) {
+      const b = prepared[j]!;
+      if (b.perCase.length < VERSION_MIN_CASES || !b.identifiable) continue;
+      const small = Math.min(a.perCase.length, b.perCase.length);
+      const large = Math.max(a.perCase.length, b.perCase.length);
+      if (small / large < VERSION_OVERLAP) continue;
+      if (matched(a, b) >= VERSION_OVERLAP && matched(b, a) >= VERSION_OVERLAP) {
+        parent.set(find(a.id), find(b.id));
+      }
+    }
+  }
+  const newest = new Map<string, (typeof prepared)[number]>();
+  for (const j of prepared) {
+    const g = find(j.id);
+    const cur = newest.get(g);
+    if (
+      !cur ||
+      j.uploadedAt.localeCompare(cur.uploadedAt) > 0 ||
+      (j.uploadedAt === cur.uploadedAt && j.id > cur.id)
+    ) {
+      newest.set(g, j);
+    }
+  }
+  const out = new Map<string, string>();
+  for (const j of prepared) {
+    const n = newest.get(find(j.id))!;
+    if (n.id !== j.id) out.set(j.id, n.id);
+  }
+  return out;
+}

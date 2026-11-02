@@ -160,6 +160,11 @@ export function CrossFileDuplicatesPanel({
     const others = jobs.filter((j) => j.id !== jobId).flatMap((j) => j.cases);
     return findCrossFileDuplicates(open.cases, others, dismissed);
   }, [query.data, jobId]);
+  // This line list may be an earlier version of one uploaded since: then
+  // the newer one is counted and compared, not this.
+  const replacedBy = (query.data?.data ?? []).find((j) =>
+    j.olderVersions?.some((o) => o.id === jobId),
+  );
 
   const act = async (pair: DuplicatePair, kind: "drop" | "keep") => {
     setBusy(pair.key);
@@ -209,7 +214,18 @@ export function CrossFileDuplicatesPanel({
         ) : (
           <QueryBoundary query={query} loadingLabel="Comparing with your other line lists">
             {() =>
-              pairs.length === 0 ? (
+              replacedBy ? (
+                <div data-e2e-replaced-by={replacedBy.id}>
+                  <EmptyState
+                    title="An earlier version of a newer line list"
+                    description={`"${replacedBy.filename}"${
+                      replacedBy.uploadedAt
+                        ? `, uploaded ${new Date(replacedBy.uploadedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })},`
+                        : ""
+                    } holds the same cases and is the version counted — in signals, batch flags and observed vs expected — and compared for duplicates. This version is not counted again.`}
+                  />
+                </div>
+              ) : pairs.length === 0 ? (
                 <EmptyState
                   title="No possible duplicates found"
                   description="No row here closely matches a row in another validated line list."
