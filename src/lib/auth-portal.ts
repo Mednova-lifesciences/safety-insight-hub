@@ -71,15 +71,17 @@ export const ADMIN_PORTAL_ROLE_SUMMARY = "Review Officers, Evaluators and Peer R
  */
 export const DEMO_PASSWORD = "demo123";
 
+/** The administrator demo accounts are in the synthetic test organisation
+ *  ("MedNova TEST A"), which starts empty after a reset, so a demonstration
+ *  shows the demo files' signal, batch flag and duplicates exactly as
+ *  scripted. A public demo password, set on these three accounts only. */
+export const TEST_ORG_DEMO_PASSWORD = "PVAssistDemo2026";
+
 export const DEMO_CREDENTIALS: Record<Role, { email: string; password: string }> = {
   FIELD_ASSOCIATE: { email: "field@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
   PV_COORDINATOR: { email: "coordinator@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
   PV_MANAGER: { email: "manager@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
-  // Deliberately admin@ rather than officer@: this is the original seeded
-  // administrator account, migrated to REVIEW_OFFICER by migration 022. A
-  // second officer@ account would mean two Review Officers and a stale one
-  // left behind, so the name stays historical and the account stays single.
-  REVIEW_OFFICER: { email: "admin@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
-  EVALUATOR: { email: "evaluator@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
-  PEER_REVIEWER: { email: "peer@demo.safetyinsighthub.com", password: DEMO_PASSWORD },
+  REVIEW_OFFICER: { email: "test.officer@test.mednovalife.com", password: TEST_ORG_DEMO_PASSWORD },
+  EVALUATOR: { email: "test.evaluator@test.mednovalife.com", password: TEST_ORG_DEMO_PASSWORD },
+  PEER_REVIEWER: { email: "test.peer@test.mednovalife.com", password: TEST_ORG_DEMO_PASSWORD },
 };

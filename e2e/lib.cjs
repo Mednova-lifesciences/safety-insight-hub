@@ -32,6 +32,12 @@ const ACCOUNTS = {
   orgB: "test.b.evaluator@test.mednovalife.com",
 };
 const ADMIN_ROLES = new Set(["officer", "evaluator", "peer", "orgB"]);
+// The three administrator demo accounts carry the public demo password the
+// sign-in page prefills (src/lib/auth-portal.ts); every other test account
+// keeps TEST_PASSWORD.
+const DEMO_ACCOUNTS = new Set(["officer", "evaluator", "peer"]);
+const TEST_ORG_DEMO_PASSWORD = "PVAssistDemo2026";
+const passwordFor = (who) => (DEMO_ACCOUNTS.has(who) ? TEST_ORG_DEMO_PASSWORD : TEST_PASSWORD);
 
 const timings = [];
 const consoleErrors = [];
@@ -181,7 +187,7 @@ async function signInOnce(page, who, email, admin) {
       ? page.locator("#admin-password")
       : page.locator('input[type="password"]').first();
     await emailBox.fill(email);
-    await pwBox.fill(TEST_PASSWORD);
+    await pwBox.fill(passwordFor(who));
     await page
       .getByRole("button", { name: /sign in/i })
       .first()
@@ -281,4 +287,6 @@ module.exports = {
   report,
   timings,
   consoleErrors,
+  passwordFor,
+  TEST_ORG_DEMO_PASSWORD,
 };
