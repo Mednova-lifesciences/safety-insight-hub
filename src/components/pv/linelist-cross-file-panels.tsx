@@ -466,7 +466,8 @@ function ClusterFlagItem({
           {dismissal?.active && dismissed ? (
             <p className="mb-2 text-xs text-muted-foreground">
               Dismissed by {dismissal.by} on {dismissal.at.slice(0, 10)}
-              {dismissal.reason ? ` — ${dismissal.reason}` : ""}.
+              {dismissal.reason ? ` — ${dismissal.reason}` : ""}
+              {/[.!?]$/.test(dismissal.reason ?? "") ? "" : "."}
             </p>
           ) : null}
           <dl className="mb-3 space-y-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
