@@ -20,7 +20,7 @@ import {
 import { listSourceProfiles } from "@/services/e2b-r3/source-profiles";
 import { inferPatientRecordNumberSource } from "@/services/api/linelist";
 import { termMappings } from "@/services/api/term-mappings";
-import { coding } from "@/services/api/coding";
+import { searchMedDra, startingQuery } from "@/services/api/reaction-term-search";
 import { reactionTermKey, type OrgTermMapping } from "@/services/e2b-r3/term-mappings";
 import { e2bCheckIncomplete } from "@/services/api/linelist-e2b-checks";
 import type {
@@ -422,6 +422,15 @@ export function ReactionTermsPanel({
   const [searchFor, setSearchFor] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Llt[]>([]);
+  // What the last search did, said on the page: searching, found by its
+  // words, nothing found, or failed — never silence.
+  const [searchState, setSearchState] = useState<
+    | { kind: "idle" }
+    | { kind: "searching" }
+    | { kind: "found"; query: string; byWords: string[] }
+    | { kind: "none"; query: string }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
 
   useEffect(() => {
     if (terms.length === 0) return;
@@ -483,19 +492,24 @@ export function ReactionTermsPanel({
   }
 
   async function search() {
-    if (!query.trim()) return;
-    const wanted = query.trim().toLowerCase();
-    const matches = await coding.searchDictionary("MedDRA", query.trim());
-    // Exact term first, then the closest (shortest): a search for "Rash"
-    // otherwise lists "Allergic rash" above "Rash" itself.
-    const rank = (term: string) => (term.trim().toLowerCase() === wanted ? 0 : 1);
-    setResults(
-      matches
-        .filter((m) => m.source === "dictionary")
-        .sort((x, y) => rank(x.term) - rank(y.term) || x.term.length - y.term.length)
-        .slice(0, 8)
-        .map((m) => ({ code: m.code, term: m.term })),
-    );
+    const q = query.trim();
+    if (!q) return;
+    setSearchState({ kind: "searching" });
+    setResults([]);
+    try {
+      // Exact term first, then the closest; local wording that matches
+      // nothing is searched word by word (reaction-term-search).
+      const { hits, byWords } = await searchMedDra(q);
+      setResults(hits);
+      setSearchState(
+        hits.length ? { kind: "found", query: q, byWords } : { kind: "none", query: q },
+      );
+    } catch (err) {
+      setSearchState({
+        kind: "error",
+        message: err instanceof Error ? err.message : "The MedDRA search could not be run.",
+      });
+    }
   }
 
   return (
@@ -559,8 +573,11 @@ export function ReactionTermsPanel({
                       variant="ghost"
                       onClick={() => {
                         setSearchFor(searchFor === term ? null : term);
-                        setQuery(term);
+                        // Start from a word MedDRA knows: the AI's term, or
+                        // the wording without its bracketed explanation.
+                        setQuery(startingQuery(term, suggestion));
                         setResults([]);
+                        setSearchState({ kind: "idle" });
                       }}
                     >
                       <Search className="size-3.5" /> Search MedDRA
@@ -579,10 +596,28 @@ export function ReactionTermsPanel({
                       }}
                       placeholder="e.g. Pyrexia"
                     />
-                    <Button size="sm" variant="outline" onClick={search}>
-                      Search
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={search}
+                      disabled={searchState.kind === "searching"}
+                    >
+                      {searchState.kind === "searching" ? "Searching…" : "Search"}
                     </Button>
                   </div>
+                  <p className="text-xs text-muted-foreground" data-e2e-meddra-search-state>
+                    {searchState.kind === "idle"
+                      ? "Type a medical word — e.g. fever, crying, rash — and press Search."
+                      : searchState.kind === "searching"
+                        ? "Searching MedDRA…"
+                        : searchState.kind === "found"
+                          ? searchState.byWords.length
+                            ? `Nothing matched "${searchState.query}" as a whole, so these were found by its words (${searchState.byWords.join(", ")}). Choose one, or search again.`
+                            : `${results.length} MedDRA term${results.length === 1 ? "" : "s"} for "${searchState.query}". Choose the one that fits.`
+                          : searchState.kind === "none"
+                            ? `No MedDRA term matches "${searchState.query}". Try one medical word — e.g. fever, crying, rash — or ask the AI.`
+                            : `The search could not be run: ${searchState.message}`}
+                  </p>
                   {results.length > 0 ? (
                     <ul className="space-y-1">
                       {results.map((r) => (
