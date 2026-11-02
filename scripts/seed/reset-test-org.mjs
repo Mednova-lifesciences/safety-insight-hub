@@ -45,6 +45,7 @@ for (const table of [
 for (const [table, filter] of [
   ["pv_signals", "&data->>source=eq.LINE_LIST"],
   ["pv_pms_referrals", ""],
+  ["pv_cluster_flag_dismissals", ""],
 ]) {
   const r = await fetch(`${url}/rest/v1/${table}?organization_id=eq.${org.id}${filter}`, {
     method: "DELETE",

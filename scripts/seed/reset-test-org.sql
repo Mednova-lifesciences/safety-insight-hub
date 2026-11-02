@@ -23,6 +23,7 @@ begin
   delete from public.pv_e2b_regulatory_assessments where organization_id = org;
   delete from public.pv_signals where organization_id = org and data->>'source' = 'LINE_LIST';
   delete from public.pv_pms_referrals where organization_id = org;
+  delete from public.pv_cluster_flag_dismissals where organization_id = org;
   -- The coded demo files' term and designation choices (only theirs).
   delete from public.pv_term_mappings
   where organization_id = org and first_seen_file like 'DEMO-ondo-aefi%';
