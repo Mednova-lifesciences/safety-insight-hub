@@ -15,8 +15,14 @@
  *  - Reporter designations to map in Settings: Nursing Sister, RN/RM, SMO,
  *    Pharm. Tech, Mother of child (Nurse, CHEW, Doctor, CHO are known).
  *  - An outcome word with no E2B equivalent ("Still on admission").
- *  - Fix: two broken dates, a stray character in a batch, "Serius", and a
- *    death not marked serious.
+ *  - Fix, one of each correction it makes without a person or the AI:
+ *    a letter O in a date (18/1O/2026), a five-digit year (22/10/20226), a
+ *    doubled date separator (19//10/2026), a stray comma after a date, a
+ *    stray asterisk on a batch, "Serius", "Mnths", "Femal", "11 years" in
+ *    an age column with its own unit column, a trailing separator after
+ *    reaction codes ("2, 13,"), and a death not marked serious.
+ *  - Mixed-up columns: row 23 has sex and age swapped and the reporter's
+ *    name and phone swapped; Fix puts each value back in its column.
  *  - Decisions: an anaphylaxis with no seriousness or onset date (Hold),
  *    and EPID ON/OWE/26/014 entered twice (Drop the second).
  *  - Signal screen: 4 reports of persistent crying after Pentavalent, none

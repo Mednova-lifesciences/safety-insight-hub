@@ -70,14 +70,21 @@ export function SubmissionRelationNote({
  * (by its contents, whatever it is called) is already in the organisation.
  * Returns the fingerprint so the upload does not compute it again.
  */
-export function useSameFileGuard() {
+export function useSameFileGuard(
+  find: (file: File) => Promise<{
+    fileSha256: string;
+    match: { filename: string; uploadedAt: string } | null;
+  }> = psurApi.findSameFile,
+  /** What happens if it is uploaded again, for the dialog. */
+  consequence = "A corrected version would be a different file.",
+) {
   const [match, setMatch] = useState<{ filename: string; uploadedAt: string } | null>(null);
   const resolver = useRef<((ok: boolean) => void) | null>(null);
 
   async function check(file: File): Promise<{ proceed: boolean; fileSha256?: string }> {
-    let found: Awaited<ReturnType<typeof psurApi.findSameFile>>;
+    let found: Awaited<ReturnType<typeof find>>;
     try {
-      found = await psurApi.findSameFile(file);
+      found = await find(file);
     } catch {
       // The check is a courtesy: if it cannot run, the upload goes ahead.
       return { proceed: true };
@@ -103,7 +110,7 @@ export function useSameFileGuard() {
           <AlertDialogTitle>This file has already been uploaded</AlertDialogTitle>
           <AlertDialogDescription>
             {match
-              ? `It is the exact same file as ${match.filename}, uploaded ${day(match.uploadedAt)} — the contents are identical, even if the name is different. A corrected version would be a different file.`
+              ? `It is the exact same file as ${match.filename}, uploaded ${day(match.uploadedAt)} — the contents are identical, even if the name is different. ${consequence}`
               : null}
           </AlertDialogDescription>
         </AlertDialogHeader>

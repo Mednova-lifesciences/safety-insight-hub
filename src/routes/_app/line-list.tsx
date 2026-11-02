@@ -58,6 +58,9 @@ import {
   type DecisionFilter,
 } from "@/services/api/linelist-decisions";
 import type { LineListIssue, LineListJob } from "@/types/pv";
+import { RepeatUploadNotice, useRepeatUploads } from "@/components/pv/linelist-repeat-notice";
+import { useSameFileGuard } from "@/components/pv/psur-submission-relation";
+import { findSameLineListFile } from "@/services/api/linelist-repeats";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/line-list")({
@@ -114,6 +117,7 @@ function LineListPage() {
   // validated that file instead of the one just uploaded.
   const listed = jobs.data?.data ?? [];
   const activeJob = selected ? listed.find((j) => j.id === selected) : listed[0];
+  const repeats = useRepeatUploads(listed.map((j) => j.id).join(","));
   // The list leaves each job's rows out; the open one is read in full for
   // the case IDs beside its issues and changes.
   const fullJob = useLineListJob(activeJob);
@@ -165,6 +169,10 @@ function LineListPage() {
   // a raw code to a regulator as if it were the reaction itself.
   const [sourceProfileId, setSourceProfileId] = useState(DEFAULT_SOURCE_PROFILE_ID);
   const [uploading, setUploading] = useState(false);
+  const sameFile = useSameFileGuard(
+    findSameLineListFile,
+    "If you upload it again, its cases are counted once — signals, flags and observed vs expected use the first upload.",
+  );
   const [validating, setValidating] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [decisionFilter, setDecisionFilter] = useState<DecisionFilter>("ALL");
@@ -175,7 +183,13 @@ function LineListPage() {
   async function onFile(file: File) {
     setUploading(true);
     try {
-      const created = await linelistApi.upload(file, sourceProfileId);
+      const { proceed, fileSha256 } = await sameFile.check(file);
+      if (!proceed) return;
+      const created = await linelistApi.upload(
+        file,
+        sourceProfileId,
+        fileSha256 ? { fileSha256 } : {},
+      );
       // Show the file just uploaded, so Re-run validation acts on it and
       // not on whichever job happened to be on screen before. The list is
       // refreshed first, so the new job is there the moment it is selected.
@@ -232,6 +246,7 @@ function LineListPage() {
 
   return (
     <>
+      {sameFile.dialog}
       <PageHeader
         title="Line-list processing"
         description="Messy CSV/XLSX line-lists are parsed, validated and — where OpenAI is configured — reviewed by an AI analysis pass on top of deterministic rule checks. Validation problems are always shown in full."
@@ -400,6 +415,10 @@ function LineListPage() {
             job={activeJob}
             onSaved={() => Promise.all([jobs.refetch(), issues.refetch()])}
           />
+        ) : null}
+
+        {activeJob ? (
+          <RepeatUploadNotice of={repeats.data?.get(activeJob.id)} context="line-list" />
         ) : null}
 
         {activeJob ? (

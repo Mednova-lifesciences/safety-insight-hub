@@ -2,15 +2,18 @@ import { describe, expect, it } from "vitest";
 // The two coded demo files are generated from these same rows (scripts/seed).
 import {
   DEMO_CASES,
+  DEMO_HEADER,
   DEMO_LEGEND,
   EXPECTED_DEMO_DUPLICATES,
   LGA_CASES,
   NEAR_MISS_LGA_ROWS,
 } from "../../../scripts/seed/demo-coded-data.mjs";
 import { readRowsWithSeriousness, type ParsedRow } from "./linelist";
-import { screenLineLists } from "./linelist-signals";
+import { explainCandidate, screenLineLists } from "./linelist-signals";
 import { findCrossFileDuplicates, type CrossFileCase } from "./linelist-cross-duplicates";
 import { findClusterFlags, type ClusterCase } from "./linelist-clusters";
+import { normalise } from "./linelist-normalise";
+import { applyRecoveryProposal, generateRecoveryProposal } from "./linelist-recovery";
 
 // The file's columns after S/N, as the column mapping reads them.
 const FIELDS = [
@@ -116,5 +119,74 @@ describe("the coded demo line lists", () => {
     expect(flag).toMatchObject({ pattern: "PRODUCT_QUALITY" });
     expect(flag.facilities).toHaveLength(3);
     expect(flag.warningSigns.map((w) => w.sign)).toContain("LACK_OF_EFFECT");
+  });
+});
+
+describe("every error planted in the 25-case demo for Fix has a correction", () => {
+  const cell = (caseId: string, field: (typeof FIELDS)[number]) =>
+    (DEMO_CASES as string[][]).find((c) => c[0] === caseId)![FIELDS.indexOf(field)]!;
+
+  it.each([
+    ["ON/AKS/26/012", "sex", "Female"],
+    ["ON/AKS/26/012", "age", "11"],
+    ["ON/AKS/26/013", "reaction_code", "2, 13"],
+    ["ON/AKN/26/019", "vaccination_date", "19/10/2026"],
+    ["ON/IDA/26/007", "report_date", "14/10/2026"],
+    ["ON/AKS/26/005", "vaccine_batch", "PENTA-5530"],
+    ["ON/OND/26/008", "seriousness", "Serious"],
+    ["ON/AKS/26/016", "age_unit", "Months"],
+    ["ON/OWO/26/018", "onset_date", "18/10/2026"],
+    ["ON/OND/26/021", "report_date", "22/10/2026"],
+  ] as const)("%s %s is corrected by a rule", (caseId, field, expected) => {
+    const fixed = normalise(field, cell(caseId, field));
+    expect(fixed?.value).toBe(expected);
+  });
+
+  it("ON/AKS/26/023's mixed-up columns are put back: sex ↔ age, reporter name ↔ phone", () => {
+    const row = Object.fromEntries(
+      DEMO_HEADER.slice(1).map((h, i) => [h, (DEMO_CASES as string[][])[22]![i] ?? ""]),
+    ) as Record<string, string>;
+    const mapping = Object.fromEntries(
+      DEMO_HEADER.slice(1)
+        .map((h, i) => [h, FIELDS[i]] as const)
+        .filter(([, f]) => f),
+    ) as Record<string, string>;
+    const proposal = generateRecoveryProposal(row, mapping);
+    expect(proposal).not.toBeNull();
+    const fixed = applyRecoveryProposal(row, mapping, proposal!)!;
+    expect(fixed).toMatchObject({
+      Sex: "F",
+      Age: "27",
+      "Reporter Name": "Funmilayo Adebayo",
+      "Reporter Phone": "+2348000000201",
+    });
+    // Nothing else in the row moves.
+    for (const h of ["Case ID (EPID No.)", "Vaccine", "Batch No.", "Reaction", "Outcome"])
+      expect(fixed[h]).toBe(row[h]);
+  });
+});
+
+describe("the signal screen explains its candidate in plain words", () => {
+  it("Pentavalent × persistent crying: how many, from where, how much more often, and what it is not", () => {
+    const screen = screenLineLists(DEMO);
+    const penta = screen.candidates.find((p) => p.product === "Pentavalent")!;
+    const e = explainCandidate(penta, screen);
+    expect(e.summary).toMatch(
+      /^4 reports from 1 line list · reported \d+ times as often as with other products$/,
+    );
+    expect(e.why).toMatch(
+      /^4 reports in your line lists name Persistent cries \(more than 3 hours\) after Pentavalent\./,
+    );
+    expect(e.why).toMatch(/Of the \d+ reports for Pentavalent, 4 name/);
+    expect(e.notMeaning).toMatch(/not proof that Pentavalent causes/);
+    expect(e.notMeaning).toMatch(/below the 500 recommended/);
+  });
+
+  it("the same file counted twice would have doubled it — now the screen sees each case once", () => {
+    const twice = screenLineLists([...DEMO, ...DEMO.map((c) => ({ ...c, jobId: "D2" }))]);
+    expect(twice.candidates.find((p) => p.product === "Pentavalent")!.a).toBe(8);
+    // loadValidatedCases leaves the repeat out (linelist-repeats), so the
+    // screen is given one copy:
+    expect(screenLineLists(DEMO).candidates.find((p) => p.product === "Pentavalent")!.a).toBe(4);
   });
 });

@@ -254,6 +254,8 @@ async function main() {
       }
       await step("signal screen: evaluator records Monitor", async () => {
         const candidate = evaluator.locator("li[data-e2e-candidate]").first();
+        // A candidate is one line until expanded.
+        await candidate.getByRole("button", { name: /Show details for/ }).click();
         await candidate.getByRole("button", { name: /Keep monitoring/ }).click();
         await candidate
           .locator("textarea")
@@ -266,6 +268,7 @@ async function main() {
       await step("signal screen: peer sees the Monitor decision", async () => {
         await peer.reload({ waitUntil: "domcontentloaded" });
         const candidate = peer.locator("li[data-e2e-candidate]").first();
+        await candidate.getByRole("button", { name: /Show details for/ }).click();
         await candidate.getByText("Decision recorded").waitFor({ timeout: 60000 });
         await candidate.getByText("Monitor", { exact: true }).first().waitFor();
       });
