@@ -144,6 +144,30 @@ async def resolve_meddra(
     return MedDraResolution(source_value=source, status="MAPPED", term=term)
 
 
+def _rank_meddra_matches(by_key: dict, query: str) -> list:
+    """Every term containing the query, best first: the exact term, then
+    terms starting with it, then terms with it as a whole word, then the
+    rest — shortest first within each. A search for "Fever" lists "Fever"
+    before "Blackwater fever", instead of in dictionary order."""
+    word = re.compile(r"" + re.escape(query) + r"")
+
+    def rank(item):
+        key, term = item
+        if key == query:
+            tier = 0
+        elif key.startswith(query):
+            tier = 1
+        elif word.search(key):
+            tier = 2
+        else:
+            tier = 3
+        return (tier, len(key), key)
+
+    return [term for _, term in sorted(
+        ((key, term) for key, term in by_key.items() if query in key), key=rank
+    )]
+
+
 @router.get("/meddra/search")
 async def search_meddra(
     q: str = "",
@@ -154,9 +178,7 @@ async def search_meddra(
     if not query:
         return []
     _, by_key = _load_meddra()
-    results = [
-        term for key, term in by_key.items() if query in key
-    ][: max(1, min(limit, 50))]
+    results = _rank_meddra_matches(by_key, query)[: max(1, min(limit, 50))]
     return [
         {
             "term": term.term,
