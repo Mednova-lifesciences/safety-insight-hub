@@ -192,6 +192,10 @@ async function main() {
         await L.nav(evaluator, "Dashboard", /Scientific review queue/);
         await bcg().waitFor({ timeout: 90000 });
         await bcg().getByText("Possible product quality concern", { exact: true }).waitFor();
+        // A flag is one line until expanded; its warning signs and cases open below.
+        await bcg()
+          .getByRole("button", { name: /Show details for Batch BCG-0420/ })
+          .click();
         for (const sign of ["Lack of effect / vaccine failure", "Injection-site abscess"])
           await bcg()
             .getByText(new RegExp(sign.replace(/[/]/g, "\\/")))
