@@ -49,11 +49,9 @@ describe("auth-portal — administrators come in by their own door", () => {
     expect(wrongPortalMessage("PV_COORDINATOR")).toMatch(/staff/i);
   });
 
-  it("keeps a demo account for every role: administrators in the synthetic test organisation", () => {
+  it("keeps a demo account for every role, including the one that moved", () => {
     for (const role of ALL_ROLES) {
-      expect(DEMO_CREDENTIALS[role].email).toMatch(
-        ADMIN_ROLES.includes(role) ? /^test\.[a-z]+@test\.mednovalife\.com$/ : /@demo\./,
-      );
+      expect(DEMO_CREDENTIALS[role].email).toMatch(/@demo\./);
       expect(DEMO_CREDENTIALS[role].password).toBeTruthy();
     }
   });
