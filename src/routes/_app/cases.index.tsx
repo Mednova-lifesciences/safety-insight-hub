@@ -26,6 +26,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { WORKFLOW_LABELS, WORKFLOW_STEPS } from "@/types/pv";
+import {
+  CHANNEL_NOT_RECORDED,
+  INTAKE_CHANNELS,
+  INTAKE_CHANNEL_LABELS,
+  describeIntake,
+  distinctBranches,
+  matchesBranchFilter,
+  matchesChannelFilter,
+} from "@/services/api/intake-channel";
 
 export const Route = createFileRoute("/_app/cases/")({
   head: () => ({
@@ -57,19 +66,25 @@ function CaseWorkbench() {
   const [status, setStatus] = useState("all");
   const [seriousness, setSeriousness] = useState("all");
   const [assignee, setAssignee] = useState("all");
+  const [channel, setChannel] = useState("all");
+  const [branch, setBranch] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [exporting, setExporting] = useState(false);
 
   const all = query.data?.data ?? [];
   const assignees = useMemo(() => Array.from(new Set(all.map((c) => c.assignedTo))), [all]);
+  const branches = useMemo(() => distinctBranches(all), [all]);
 
   const filtered = all.filter((c) => {
-    const text = `${c.id} ${c.patientIdentifier} ${c.product} ${c.reaction}`.toLowerCase();
+    const text =
+      `${c.id} ${c.patientIdentifier} ${c.product} ${c.reaction} ${c.branch ?? ""}`.toLowerCase();
     if (q && !text.includes(q.toLowerCase())) return false;
     if (status !== "all" && c.workflowStep !== status) return false;
     if (seriousness !== "all" && c.seriousness !== seriousness) return false;
     if (assignee !== "all" && c.assignedTo !== assignee) return false;
+    if (!matchesChannelFilter(c, channel)) return false;
+    if (!matchesBranchFilter(c, branch)) return false;
     if (from && c.receivedDate < from) return false;
     if (to && c.receivedDate > to) return false;
     return true;
@@ -127,7 +142,7 @@ function CaseWorkbench() {
               <Input
                 id="case-search"
                 className="pl-8"
-                placeholder="Case ID, patient, product, reaction"
+                placeholder="Case ID, patient, product, reaction, branch"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
@@ -184,6 +199,43 @@ function CaseWorkbench() {
           </div>
 
           <div>
+            <span className="label-caps">Channel</span>
+            <Select value={channel} onValueChange={setChannel}>
+              <SelectTrigger className="mt-1 w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All channels</SelectItem>
+                {INTAKE_CHANNELS.map((ch) => (
+                  <SelectItem key={ch} value={ch}>
+                    {INTAKE_CHANNEL_LABELS[ch]}
+                  </SelectItem>
+                ))}
+                <SelectItem value={CHANNEL_NOT_RECORDED}>Not recorded</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {branches.length > 0 ? (
+            <div>
+              <span className="label-caps">Branch</span>
+              <Select value={branch} onValueChange={setBranch}>
+                <SelectTrigger className="mt-1 w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All branches</SelectItem>
+                  {branches.map((b) => (
+                    <SelectItem key={b} value={b}>
+                      {b}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+
+          <div>
             <label className="label-caps" htmlFor="from">
               Received from
             </label>
@@ -212,7 +264,7 @@ function CaseWorkbench() {
         <QueryBoundary query={query} loadingLabel="Loading cases">
           {() => (
             <div className="panel overflow-x-auto">
-              <table className="w-full min-w-[1100px] text-sm">
+              <table className="w-full min-w-[1240px] text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50 text-left">
                     {[
@@ -220,6 +272,7 @@ function CaseWorkbench() {
                       "Patient",
                       "Product",
                       "Reaction",
+                      "Channel",
                       "Seriousness",
                       "Outcome",
                       "Status",
@@ -259,6 +312,14 @@ function CaseWorkbench() {
                       </td>
                       <td className="max-w-52 truncate px-3 py-2">{c.product}</td>
                       <td className="max-w-52 truncate px-3 py-2">{c.reaction}</td>
+                      <td
+                        className={
+                          "max-w-52 truncate px-3 py-2 text-xs " +
+                          (c.intakeChannel ? "" : "text-muted-foreground")
+                        }
+                      >
+                        {describeIntake(c)}
+                      </td>
                       <td className="px-3 py-2">
                         <SeriousnessBadge value={c.seriousness} />
                       </td>
@@ -286,7 +347,7 @@ function CaseWorkbench() {
                   {filtered.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={11}
+                        colSpan={12}
                         className="px-3 py-10 text-center text-sm text-muted-foreground"
                       >
                         No cases match the current filters.

@@ -87,6 +87,7 @@ export const demoCases: CaseSummary[] = [
     priority: "MEDIUM",
     flags: ["SERIOUSNESS_MISMATCH"],
     source: "WHATSAPP",
+    intakeChannel: "WHATSAPP",
   },
   {
     id: "MN-2026-000838",
@@ -102,6 +103,8 @@ export const demoCases: CaseSummary[] = [
     priority: "HIGH",
     flags: ["EXPEDITED"],
     source: "MANUAL",
+    intakeChannel: "BRANCH",
+    branch: "Lekki Phase 1",
   },
   {
     id: "MN-2026-000835",
@@ -117,6 +120,7 @@ export const demoCases: CaseSummary[] = [
     priority: "HIGH",
     flags: [],
     source: "EMAIL",
+    intakeChannel: "EMAIL",
   },
   {
     id: "MN-2026-000829",
@@ -147,6 +151,8 @@ export const demoCases: CaseSummary[] = [
     priority: "HIGH",
     flags: ["OVERDUE"],
     source: "MANUAL",
+    intakeChannel: "BRANCH",
+    branch: "Ikeja City Mall",
   },
   {
     id: "MN-2026-000817",
@@ -162,6 +168,7 @@ export const demoCases: CaseSummary[] = [
     priority: "HIGH",
     flags: ["INCOMPLETE"],
     source: "WHATSAPP",
+    intakeChannel: "WHATSAPP",
   },
   {
     id: "MN-2026-000812",
