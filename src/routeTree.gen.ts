@@ -28,6 +28,7 @@ import { Route as AppOversightRouteImport } from './routes/_app/oversight'
 import { Route as AppPsurRouteImport } from './routes/_app/psur'
 import { Route as AppPsurCalendarRouteImport } from './routes/_app/psur-calendar'
 import { Route as AppRegistrationsRouteImport } from './routes/_app/registrations'
+import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppScreeningRouteImport } from './routes/_app/screening'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSignalScreenRouteImport } from './routes/_app/signal-screen'
@@ -137,6 +138,11 @@ const AppRegistrationsRoute = AppRegistrationsRouteImport.update({
   path: '/registrations',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReportsRoute = AppReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppScreeningRoute = AppScreeningRouteImport.update({
   id: '/screening',
   path: '/screening',
@@ -227,6 +233,7 @@ export interface FileRoutesByFullPath {
   '/psur': typeof AppPsurRoute
   '/psur-calendar': typeof AppPsurCalendarRoute
   '/registrations': typeof AppRegistrationsRoute
+  '/reports': typeof AppReportsRoute
   '/screening': typeof AppScreeningRoute
   '/settings': typeof AppSettingsRoute
   '/signal-screen': typeof AppSignalScreenRoute
@@ -261,6 +268,7 @@ export interface FileRoutesByTo {
   '/psur': typeof AppPsurRoute
   '/psur-calendar': typeof AppPsurCalendarRoute
   '/registrations': typeof AppRegistrationsRoute
+  '/reports': typeof AppReportsRoute
   '/screening': typeof AppScreeningRoute
   '/settings': typeof AppSettingsRoute
   '/signal-screen': typeof AppSignalScreenRoute
@@ -297,6 +305,7 @@ export interface FileRoutesById {
   '/_app/psur': typeof AppPsurRoute
   '/_app/psur-calendar': typeof AppPsurCalendarRoute
   '/_app/registrations': typeof AppRegistrationsRoute
+  '/_app/reports': typeof AppReportsRoute
   '/_app/screening': typeof AppScreeningRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/signal-screen': typeof AppSignalScreenRoute
@@ -333,6 +342,7 @@ export interface FileRouteTypes {
     | '/psur'
     | '/psur-calendar'
     | '/registrations'
+    | '/reports'
     | '/screening'
     | '/settings'
     | '/signal-screen'
@@ -367,6 +377,7 @@ export interface FileRouteTypes {
     | '/psur'
     | '/psur-calendar'
     | '/registrations'
+    | '/reports'
     | '/screening'
     | '/settings'
     | '/signal-screen'
@@ -402,6 +413,7 @@ export interface FileRouteTypes {
     | '/_app/psur'
     | '/_app/psur-calendar'
     | '/_app/registrations'
+    | '/_app/reports'
     | '/_app/screening'
     | '/_app/settings'
     | '/_app/signal-screen'
@@ -565,6 +577,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRegistrationsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/reports': {
+      id: '/_app/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/screening': {
       id: '/_app/screening'
       path: '/screening'
@@ -681,6 +700,7 @@ interface AppRouteChildren {
   AppPsurRoute: typeof AppPsurRoute
   AppPsurCalendarRoute: typeof AppPsurCalendarRoute
   AppRegistrationsRoute: typeof AppRegistrationsRoute
+  AppReportsRoute: typeof AppReportsRoute
   AppScreeningRoute: typeof AppScreeningRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppSignalScreenRoute: typeof AppSignalScreenRoute
@@ -708,6 +728,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppPsurRoute: AppPsurRoute,
   AppPsurCalendarRoute: AppPsurCalendarRoute,
   AppRegistrationsRoute: AppRegistrationsRoute,
+  AppReportsRoute: AppReportsRoute,
   AppScreeningRoute: AppScreeningRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppSignalScreenRoute: AppSignalScreenRoute,
