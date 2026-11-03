@@ -2,6 +2,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Activity,
   BadgeCheck,
+  BarChart3,
   Bell,
   BriefcaseMedical,
   CalendarClock,
@@ -214,6 +215,13 @@ export const NAV: NavGroup[] = [
         label: "Signal review",
         icon: Radar,
         permission: "signal.view",
+        hiddenForRoles: ASSESSOR_ROLES,
+      },
+      {
+        to: "/reports",
+        label: "Safety reports",
+        icon: BarChart3,
+        permission: "team.view",
         hiddenForRoles: ASSESSOR_ROLES,
       },
       {
