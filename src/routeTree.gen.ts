@@ -41,6 +41,8 @@ import { Route as AppCasesCaseIdRouteImport } from './routes/_app/cases.$caseId'
 import { Route as AppIcsrNewRouteImport } from './routes/_app/icsr.new'
 import { Route as AppIntakeIndexRouteImport } from './routes/_app/intake.index'
 import { Route as AppIntakeConversationIdRouteImport } from './routes/_app/intake.$conversationId'
+import { Route as AppPsurDraftsIndexRouteImport } from './routes/_app/psur-drafts.index'
+import { Route as AppPsurDraftsDraftIdRouteImport } from './routes/_app/psur-drafts.$draftId'
 import { Route as ROrgSlugIndexRouteImport } from './routes/r.$orgSlug.index'
 import { Route as ROrgSlugReportRouteImport } from './routes/r.$orgSlug.report'
 
@@ -203,6 +205,16 @@ const AppIntakeConversationIdRoute = AppIntakeConversationIdRouteImport.update({
   path: '/intake/$conversationId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPsurDraftsIndexRoute = AppPsurDraftsIndexRouteImport.update({
+  id: '/psur-drafts/',
+  path: '/psur-drafts/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPsurDraftsDraftIdRoute = AppPsurDraftsDraftIdRouteImport.update({
+  id: '/psur-drafts/$draftId',
+  path: '/psur-drafts/$draftId',
+  getParentRoute: () => AppRoute,
+} as any)
 const ROrgSlugIndexRoute = ROrgSlugIndexRouteImport.update({
   id: '/r/$orgSlug/',
   path: '/r/$orgSlug/',
@@ -244,9 +256,11 @@ export interface FileRoutesByFullPath {
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
   '/intake/$conversationId': typeof AppIntakeConversationIdRoute
+  '/psur-drafts/$draftId': typeof AppPsurDraftsDraftIdRoute
   '/r/$orgSlug/report': typeof ROrgSlugReportRoute
   '/cases/': typeof AppCasesIndexRoute
   '/intake/': typeof AppIntakeIndexRoute
+  '/psur-drafts/': typeof AppPsurDraftsIndexRoute
   '/r/$orgSlug/': typeof ROrgSlugIndexRoute
 }
 export interface FileRoutesByTo {
@@ -279,9 +293,11 @@ export interface FileRoutesByTo {
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
   '/intake/$conversationId': typeof AppIntakeConversationIdRoute
+  '/psur-drafts/$draftId': typeof AppPsurDraftsDraftIdRoute
   '/r/$orgSlug/report': typeof ROrgSlugReportRoute
   '/cases': typeof AppCasesIndexRoute
   '/intake': typeof AppIntakeIndexRoute
+  '/psur-drafts': typeof AppPsurDraftsIndexRoute
   '/r/$orgSlug': typeof ROrgSlugIndexRoute
 }
 export interface FileRoutesById {
@@ -316,9 +332,11 @@ export interface FileRoutesById {
   '/_app/cases/$caseId': typeof AppCasesCaseIdRoute
   '/_app/icsr/new': typeof AppIcsrNewRoute
   '/_app/intake/$conversationId': typeof AppIntakeConversationIdRoute
+  '/_app/psur-drafts/$draftId': typeof AppPsurDraftsDraftIdRoute
   '/r/$orgSlug/report': typeof ROrgSlugReportRoute
   '/_app/cases/': typeof AppCasesIndexRoute
   '/_app/intake/': typeof AppIntakeIndexRoute
+  '/_app/psur-drafts/': typeof AppPsurDraftsIndexRoute
   '/r/$orgSlug/': typeof ROrgSlugIndexRoute
 }
 export interface FileRouteTypes {
@@ -353,9 +371,11 @@ export interface FileRouteTypes {
     | '/cases/$caseId'
     | '/icsr/new'
     | '/intake/$conversationId'
+    | '/psur-drafts/$draftId'
     | '/r/$orgSlug/report'
     | '/cases/'
     | '/intake/'
+    | '/psur-drafts/'
     | '/r/$orgSlug/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -388,9 +408,11 @@ export interface FileRouteTypes {
     | '/cases/$caseId'
     | '/icsr/new'
     | '/intake/$conversationId'
+    | '/psur-drafts/$draftId'
     | '/r/$orgSlug/report'
     | '/cases'
     | '/intake'
+    | '/psur-drafts'
     | '/r/$orgSlug'
   id:
     | '__root__'
@@ -424,9 +446,11 @@ export interface FileRouteTypes {
     | '/_app/cases/$caseId'
     | '/_app/icsr/new'
     | '/_app/intake/$conversationId'
+    | '/_app/psur-drafts/$draftId'
     | '/r/$orgSlug/report'
     | '/_app/cases/'
     | '/_app/intake/'
+    | '/_app/psur-drafts/'
     | '/r/$orgSlug/'
   fileRoutesById: FileRoutesById
 }
@@ -668,6 +692,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIntakeConversationIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/psur-drafts/': {
+      id: '/_app/psur-drafts/'
+      path: '/psur-drafts'
+      fullPath: '/psur-drafts/'
+      preLoaderRoute: typeof AppPsurDraftsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/psur-drafts/$draftId': {
+      id: '/_app/psur-drafts/$draftId'
+      path: '/psur-drafts/$draftId'
+      fullPath: '/psur-drafts/$draftId'
+      preLoaderRoute: typeof AppPsurDraftsDraftIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/r/$orgSlug/': {
       id: '/r/$orgSlug/'
       path: '/r/$orgSlug'
@@ -709,8 +747,10 @@ interface AppRouteChildren {
   AppCasesCaseIdRoute: typeof AppCasesCaseIdRoute
   AppIcsrNewRoute: typeof AppIcsrNewRoute
   AppIntakeConversationIdRoute: typeof AppIntakeConversationIdRoute
+  AppPsurDraftsDraftIdRoute: typeof AppPsurDraftsDraftIdRoute
   AppCasesIndexRoute: typeof AppCasesIndexRoute
   AppIntakeIndexRoute: typeof AppIntakeIndexRoute
+  AppPsurDraftsIndexRoute: typeof AppPsurDraftsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -737,8 +777,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppCasesCaseIdRoute: AppCasesCaseIdRoute,
   AppIcsrNewRoute: AppIcsrNewRoute,
   AppIntakeConversationIdRoute: AppIntakeConversationIdRoute,
+  AppPsurDraftsDraftIdRoute: AppPsurDraftsDraftIdRoute,
   AppCasesIndexRoute: AppCasesIndexRoute,
   AppIntakeIndexRoute: AppIntakeIndexRoute,
+  AppPsurDraftsIndexRoute: AppPsurDraftsIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

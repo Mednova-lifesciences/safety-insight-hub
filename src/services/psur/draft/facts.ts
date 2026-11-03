@@ -15,11 +15,16 @@ import { caseClusters, isSeriousCase } from "@/services/api/case-clusters";
 
 export type CaseRecord = CaseSummary &
   Partial<
-    Pick<CaseDetail, "suspectProducts" | "reactions" | "patient" | "reportedSeriousnessCriteria">
+    Pick<
+      CaseDetail,
+      "suspectProducts" | "reactions" | "patient" | "reportedSeriousnessCriteria" | "reporter"
+    >
   >;
 
 export interface Tally {
   total: number;
+  /** Cases whose reporter country is recorded as Nigeria. */
+  nigerian: number;
   serious: number;
   nonSerious: number;
   unassessed: number;
@@ -106,6 +111,7 @@ export function isProductCase(c: CaseRecord, drug: Pick<CatalogDrug, "id" | "nam
 function tally(cases: CaseRecord[]): Tally {
   return {
     total: cases.length,
+    nigerian: cases.filter((c) => /nigeria/i.test(c.reporter?.country ?? "")).length,
     serious: cases.filter((c) => c.seriousness === "SERIOUS").length,
     nonSerious: cases.filter((c) => c.seriousness === "NON_SERIOUS").length,
     unassessed: cases.filter((c) => c.seriousness === "UNASSESSED").length,

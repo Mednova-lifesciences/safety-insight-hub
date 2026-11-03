@@ -1,4 +1,5 @@
 import type { PsurDraft } from "./drafts";
+import { sectionBlocks } from "./content";
 import { INPUTS, SECTIONS, type DraftSectionId, type InputKey, type SectionDef } from "./template";
 
 /**
@@ -32,6 +33,9 @@ export function sectionStatus(draft: PsurDraft, s: SectionDef): SectionStatus {
   if (s.naAllowed && state?.notApplicable?.reason.trim()) return "NOT_APPLICABLE";
   if (missingInputs(draft, s).length > 0) return "NEEDS_AUTHOR";
   if (s.source !== "AUTHOR" && !draft.facts) return "NEEDS_DATA";
+  // Judged on what will print, so a section that borrows another's input
+  // (the executive summary) is incomplete while that input is empty.
+  if (sectionBlocks(draft, s.id).some((b) => b.origin === "PLACEHOLDER")) return "NEEDS_AUTHOR";
   return state?.reviewed ? "REVIEWED" : "READY_TO_REVIEW";
 }
 

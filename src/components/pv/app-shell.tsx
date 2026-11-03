@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   ClipboardPlus,
+  FilePen,
   FileSpreadsheet,
   FileStack,
   FileText,
@@ -122,6 +123,13 @@ export const NAV: NavGroup[] = [
         label: "Drug Catalog",
         icon: Pill,
         permission: "catalog.view",
+        hiddenForRoles: ASSESSOR_ROLES,
+      },
+      {
+        to: "/psur-drafts",
+        label: "PSUR drafts",
+        icon: FilePen,
+        permission: "team.view",
         hiddenForRoles: ASSESSOR_ROLES,
       },
       {
