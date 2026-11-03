@@ -35,6 +35,12 @@ import {
   matchesBranchFilter,
   matchesChannelFilter,
 } from "@/services/api/intake-channel";
+import {
+  CLOCK_TONE,
+  isPastDue,
+  matchesClockFilter,
+  reportingClock,
+} from "@/services/api/regulatory-clock";
 
 export const Route = createFileRoute("/_app/cases/")({
   head: () => ({
@@ -68,6 +74,7 @@ function CaseWorkbench() {
   const [assignee, setAssignee] = useState("all");
   const [channel, setChannel] = useState("all");
   const [branch, setBranch] = useState("all");
+  const [clockFilter, setClockFilter] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -85,6 +92,7 @@ function CaseWorkbench() {
     if (assignee !== "all" && c.assignedTo !== assignee) return false;
     if (!matchesChannelFilter(c, channel)) return false;
     if (!matchesBranchFilter(c, branch)) return false;
+    if (!matchesClockFilter(reportingClock(c), clockFilter)) return false;
     if (from && c.receivedDate < from) return false;
     if (to && c.receivedDate > to) return false;
     return true;
@@ -216,6 +224,23 @@ function CaseWorkbench() {
             </Select>
           </div>
 
+          <div>
+            <span className="label-caps">NAFDAC clock</span>
+            <Select value={clockFilter} onValueChange={setClockFilter}>
+              <SelectTrigger className="mt-1 w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="ATTENTION">Overdue or due soon</SelectItem>
+                <SelectItem value="OVERDUE">Overdue</SelectItem>
+                <SelectItem value="DUE_SOON">Due within 3 days</SelectItem>
+                <SelectItem value="ON_TRACK">On track</SelectItem>
+                <SelectItem value="STOPPED">Ready / closed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {branches.length > 0 ? (
             <div>
               <span className="label-caps">Branch</span>
@@ -264,7 +289,7 @@ function CaseWorkbench() {
         <QueryBoundary query={query} loadingLabel="Loading cases">
           {() => (
             <div className="panel overflow-x-auto">
-              <table className="w-full min-w-[1240px] text-sm">
+              <table className="w-full min-w-[1380px] text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50 text-left">
                     {[
@@ -279,6 +304,7 @@ function CaseWorkbench() {
                       "Assigned",
                       "Received",
                       "Due",
+                      "NAFDAC clock",
                       "Priority",
                     ].map((h) => (
                       <th key={h} className="label-caps px-3 py-2 whitespace-nowrap">
@@ -333,11 +359,27 @@ function CaseWorkbench() {
                       <td className="mono-num px-3 py-2 whitespace-nowrap">{c.receivedDate}</td>
                       <td className="mono-num px-3 py-2 whitespace-nowrap">
                         {c.dueDate}
-                        {c.dueDate < "2026-08-15" && c.workflowStep !== "CLOSED" ? (
+                        {isPastDue(c) ? (
                           <StatusPill tone="critical" className="ml-2">
                             overdue
                           </StatusPill>
                         ) : null}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {(() => {
+                          const clock = reportingClock(c);
+                          return (
+                            <span
+                              title={
+                                clock.deadline
+                                  ? `${clock.windowDays}-day window, due ${clock.deadline}`
+                                  : undefined
+                              }
+                            >
+                              <StatusPill tone={CLOCK_TONE[clock.status]}>{clock.label}</StatusPill>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2">
                         <PriorityBadge value={c.priority} />
@@ -347,7 +389,7 @@ function CaseWorkbench() {
                   {filtered.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={12}
+                        colSpan={13}
                         className="px-3 py-10 text-center text-sm text-muted-foreground"
                       >
                         No cases match the current filters.

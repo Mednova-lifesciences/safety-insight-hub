@@ -27,6 +27,7 @@ import {
 } from "@/components/pv/primitives";
 import { AuditTimeline } from "@/components/pv/audit-timeline";
 import { WORKFLOW_LABELS, WORKFLOW_STEPS } from "@/types/pv";
+import { reportingClock } from "@/services/api/regulatory-clock";
 
 export const Route = createFileRoute("/_app/oversight")({
   head: () => ({
@@ -133,8 +134,8 @@ function OversightPage() {
                     to="/cases"
                   />
                   <Metric
-                    label="Overdue"
-                    value={open.filter((c) => c.dueDate < "2026-08-15").length}
+                    label="Overdue for NAFDAC"
+                    value={open.filter((c) => reportingClock(c).status === "OVERDUE").length}
                     tone="text-critical"
                     to="/cases"
                   />
