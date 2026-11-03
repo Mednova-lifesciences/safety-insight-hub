@@ -187,6 +187,10 @@ export interface CaseSummary {
   /** Catalog id of the primary suspect product, when it was picked from the
    *  catalog. Absent on older cases, which are matched by name instead. */
   productId?: string | undefined;
+  /** The reporter could not find the primary product in the catalog. */
+  unlistedProduct?: boolean | undefined;
+  /** Holder / manufacturer the reporter gave for an unlisted product. */
+  reportedHolder?: string | undefined;
   /** Reports passed on to the product's marketing authorisation holder. */
   holderForwards?: HolderForward[] | undefined;
   /** Precomputed from CaseDetail.dynamicFields for the cases list page —

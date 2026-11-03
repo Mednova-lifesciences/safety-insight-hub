@@ -42,7 +42,11 @@ import {
   reportingClock,
 } from "@/services/api/regulatory-clock";
 import { products as productsApi } from "@/services/api/products";
-import { FORWARD_STATE_LABELS, primaryForwardState } from "@/services/api/holder-forwarding";
+import {
+  FORWARD_STATE_LABELS,
+  needsForward,
+  primaryForwardState,
+} from "@/services/api/holder-forwarding";
 import { demoProducts } from "@/services/demo/dataset";
 
 export const Route = createFileRoute("/_app/cases/")({
@@ -368,11 +372,14 @@ function CaseWorkbench() {
                       </td>
                       <td className="max-w-52 px-3 py-2">
                         <span className="block truncate">{c.product}</span>
-                        {primaryForwardState(c, catalog) === "AWAITING" ? (
-                          <StatusPill tone="warning" className="mt-1">
-                            Forward to holder
-                          </StatusPill>
-                        ) : null}
+                        {(() => {
+                          const state = primaryForwardState(c, catalog);
+                          return needsForward(state) ? (
+                            <StatusPill tone="warning" className="mt-1">
+                              {state === "UNLISTED" ? "Not in catalog" : "Forward to holder"}
+                            </StatusPill>
+                          ) : null;
+                        })()}
                       </td>
                       <td className="max-w-52 truncate px-3 py-2">{c.reaction}</td>
                       <td

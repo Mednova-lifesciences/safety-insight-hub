@@ -40,6 +40,25 @@ function HolderLine({ p, canManageCatalog }: { p: ProductHolder; canManageCatalo
         ) : (
           <StatusPill tone="warning">Holder: {p.holder} — forward this report</StatusPill>
         )
+      ) : p.status === "UNLISTED" ? (
+        p.forwards.length > 0 ? (
+          <StatusPill tone="success">Not in catalog — forwarded</StatusPill>
+        ) : (
+          <>
+            <StatusPill tone="warning">
+              Not in the drug catalog
+              {p.holder ? ` — reporter named ${p.holder}` : " — holder unknown"}
+            </StatusPill>
+            <span className="text-xs text-muted-foreground">
+              Find the holder and forward the report, or add the product to the catalog.
+            </span>
+            {canManageCatalog ? (
+              <Link to="/drugs" className="text-xs text-primary hover:underline">
+                Drug Catalog
+              </Link>
+            ) : null}
+          </>
+        )
       ) : (
         <>
           <StatusPill tone="neutral">Holder not recorded in the catalog</StatusPill>
@@ -85,7 +104,9 @@ export function HolderForwardPanel({ c, onSaved }: { c: CaseDetail; onSaved: () 
     () => demoProducts,
   );
   const holders = caseProductHolders(c, catalogQuery.data?.data ?? []);
-  const firstToForward = holders.find((h) => h.status === "THIRD_PARTY" && h.forwards.length === 0);
+  const firstToForward = holders.find(
+    (h) => (h.status === "THIRD_PARTY" || h.status === "UNLISTED") && h.forwards.length === 0,
+  );
   const [productName, setProductName] = useState("");
   const [holder, setHolder] = useState("");
   const [contact, setContact] = useState("");
@@ -96,7 +117,7 @@ export function HolderForwardPanel({ c, onSaved }: { c: CaseDetail; onSaved: () 
   const [open, setOpen] = useState(false);
 
   const allForwards = c.holderForwards ?? [];
-  const anyThirdParty = holders.some((h) => h.status === "THIRD_PARTY");
+  const anyThirdParty = holders.some((h) => h.status === "THIRD_PARTY" || h.status === "UNLISTED");
 
   function start() {
     const target = firstToForward ?? holders[0];

@@ -3,6 +3,7 @@ import {
   caseProductHolders,
   findCatalogDrug,
   holderOf,
+  needsForward,
   primaryForwardState,
   validateForward,
 } from "./holder-forwarding";
@@ -114,5 +115,66 @@ describe("buildCaseDetail", () => {
       "x",
     );
     expect(c.productId).toBe("d2");
+  });
+});
+
+describe("unlisted products", () => {
+  const base = {
+    reporter: {},
+    patient: {},
+    reaction: { reportedTerm: "Rash" },
+    narrative: "",
+    reportedSeriousness: "NON_SERIOUS",
+    seriousnessCriteria: [],
+  };
+
+  it("marks the case unlisted and keeps the holder the reporter gave", () => {
+    const c = buildCaseDetail(
+      "MN-1",
+      {
+        ...base,
+        product: { reportedName: "Foreign Syrup", unlisted: true, reportedHolder: " Acme " },
+      },
+      "x",
+    );
+    expect(c.unlistedProduct).toBe(true);
+    expect(c.reportedHolder).toBe("Acme");
+  });
+
+  it("ignores the unlisted flag when a catalog drug was picked", () => {
+    const c = buildCaseDetail(
+      "MN-1",
+      { ...base, product: { reportedName: "Brand X", unlisted: true, catalogId: "d2" } },
+      "x",
+    );
+    expect(c).not.toHaveProperty("unlistedProduct");
+  });
+
+  it("stays flagged until forwarded", () => {
+    const c = { product: "Foreign Syrup", unlistedProduct: true };
+    expect(primaryForwardState(c, catalog)).toBe("UNLISTED");
+    expect(needsForward(primaryForwardState(c, catalog))).toBe(true);
+    expect(primaryForwardState({ ...c, holderForwards: [fwd("Foreign Syrup")] }, catalog)).toBe(
+      "FORWARDED",
+    );
+  });
+
+  it("lets the catalog decide once the product is added to it", () => {
+    const withDrug = [...catalog, { id: "d9", name: "Foreign Syrup", holder: "Acme" }];
+    expect(primaryForwardState({ product: "Foreign Syrup", unlistedProduct: true }, withDrug)).toBe(
+      "AWAITING",
+    );
+  });
+
+  it("shows the reporter's holder on the case panel", () => {
+    const [h] = caseProductHolders(
+      {
+        suspectProducts: [{ reportedName: "Foreign Syrup" }],
+        unlistedProduct: true,
+        reportedHolder: "Acme",
+      },
+      catalog,
+    );
+    expect(h).toMatchObject({ status: "UNLISTED", holder: "Acme" });
   });
 });

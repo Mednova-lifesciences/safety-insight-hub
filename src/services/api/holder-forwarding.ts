@@ -8,7 +8,8 @@ import type { CatalogDrug } from "./products";
  * Who holds what is read from the drug catalog, never guessed.
  */
 
-export type HolderStatus = "OWN_BRAND" | "THIRD_PARTY" | "UNKNOWN";
+/** UNLISTED: the reporter could not find the product in the catalog. */
+export type HolderStatus = "OWN_BRAND" | "THIRD_PARTY" | "UNKNOWN" | "UNLISTED";
 
 export interface ProductHolder {
   productName: string;
@@ -59,35 +60,53 @@ function forwardsFor(forwards: HolderForward[] | undefined, productName: string)
 
 /** Holder status of every suspect product on a case, with forwards made. */
 export function caseProductHolders(
-  c: Pick<CaseDetail, "suspectProducts" | "productId" | "holderForwards">,
+  c: Pick<
+    CaseDetail,
+    "suspectProducts" | "productId" | "holderForwards" | "unlistedProduct" | "reportedHolder"
+  >,
   catalog: CatalogDrug[],
 ): ProductHolder[] {
   return c.suspectProducts.map((p, i) => {
     const drug = findCatalogDrug(catalog, p.reportedName, i === 0 ? c.productId : undefined);
+    const holder =
+      !drug && i === 0 && c.unlistedProduct
+        ? { status: "UNLISTED" as const, holder: c.reportedHolder }
+        : holderOf(drug);
     return {
       productName: p.reportedName,
-      ...holderOf(drug),
+      ...holder,
       drug,
       forwards: forwardsFor(c.holderForwards, p.reportedName),
     };
   });
 }
 
-export type ForwardState = "AWAITING" | "FORWARDED" | "OWN_BRAND" | "UNKNOWN";
+export type ForwardState = "AWAITING" | "UNLISTED" | "FORWARDED" | "OWN_BRAND" | "UNKNOWN";
 
-/** Forwarding state of a case's primary suspect product, for the Cases list. */
+/** Forwarding state of a case's primary suspect product, for the Cases list.
+ *  An unlisted product stays flagged until it is forwarded or added to the
+ *  catalog (after which the catalog decides). */
 export function primaryForwardState(
-  c: Pick<CaseSummary, "product" | "productId" | "holderForwards">,
+  c: Pick<CaseSummary, "product" | "productId" | "holderForwards" | "unlistedProduct">,
   catalog: CatalogDrug[],
 ): ForwardState {
-  const { status } = holderOf(findCatalogDrug(catalog, c.product, c.productId));
-  if (status !== "THIRD_PARTY") return status;
-  return forwardsFor(c.holderForwards, c.product).length > 0 ? "FORWARDED" : "AWAITING";
+  const drug = findCatalogDrug(catalog, c.product, c.productId);
+  const forwarded = forwardsFor(c.holderForwards, c.product).length > 0;
+  if (!drug && c.unlistedProduct) return forwarded ? "FORWARDED" : "UNLISTED";
+  const { status } = holderOf(drug);
+  if (status !== "THIRD_PARTY") return status as ForwardState;
+  return forwarded ? "FORWARDED" : "AWAITING";
+}
+
+/** Still needs someone to pass it on. */
+export function needsForward(state: ForwardState): boolean {
+  return state === "AWAITING" || state === "UNLISTED";
 }
 
 export const FORWARD_STATE_LABELS: Record<ForwardState, string> = {
   AWAITING: "Third-party — not yet forwarded",
-  FORWARDED: "Third-party — forwarded",
+  UNLISTED: "Not in catalog — not yet forwarded",
+  FORWARDED: "Forwarded to holder",
   OWN_BRAND: "Own brand",
   UNKNOWN: "Holder not recorded",
 };

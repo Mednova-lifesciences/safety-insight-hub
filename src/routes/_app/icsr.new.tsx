@@ -7,6 +7,7 @@ import { demoProducts } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { EmptyState, PageHeader, QueryBoundary } from "@/components/pv/primitives";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_app/icsr/new")({
   head: () => ({
@@ -42,14 +43,23 @@ function NewIcsrPage() {
 }
 
 function DrugPickerThenForm() {
-  const [selected, setSelected] = useState<CatalogDrug | null>(null);
+  const [selected, setSelected] = useState<CatalogDrug | "UNLISTED" | null>(null);
+  if (selected === "UNLISTED") {
+    return <IcsrIntakeForm unlistedProduct onChangeDrug={() => setSelected(null)} />;
+  }
   if (selected) {
     return <IcsrIntakeForm lockedProduct={selected} onChangeDrug={() => setSelected(null)} />;
   }
-  return <DrugPicker onPick={setSelected} />;
+  return <DrugPicker onPick={setSelected} onUnlisted={() => setSelected("UNLISTED")} />;
 }
 
-function DrugPicker({ onPick }: { onPick: (drug: CatalogDrug) => void }) {
+function DrugPicker({
+  onPick,
+  onUnlisted,
+}: {
+  onPick: (drug: CatalogDrug) => void;
+  onUnlisted: () => void;
+}) {
   const [search, setSearch] = useState("");
   const query = usePvQuery(
     ["products"],
@@ -91,7 +101,7 @@ function DrugPicker({ onPick }: { onPick: (drug: CatalogDrug) => void }) {
                   {drugs.length === 0 ? (
                     <EmptyState
                       title="No drugs in the catalog yet"
-                      description="Ask your PV manager to add drugs to the catalog before filing an ICSR."
+                      description="Ask your PV manager to add drugs to the catalog, or report the product below."
                     />
                   ) : filtered.length === 0 ? (
                     <EmptyState title="No drugs match your search" />
@@ -115,6 +125,15 @@ function DrugPicker({ onPick }: { onPick: (drug: CatalogDrug) => void }) {
                       </button>
                     ))
                   )}
+                </div>
+                <div className="mt-6 rounded-md border border-dashed border-border px-4 py-3 text-sm">
+                  <p className="text-muted-foreground">
+                    Can&apos;t find the product? Reports about products that are not on the list
+                    still count.
+                  </p>
+                  <Button variant="outline" size="sm" className="mt-2" onClick={onUnlisted}>
+                    Report a product not in the list
+                  </Button>
                 </div>
               </div>
             );

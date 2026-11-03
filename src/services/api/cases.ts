@@ -119,6 +119,14 @@ export function buildCaseDetail(
     source: "MANUAL",
     ...resolveIntake(payload.intakeChannel, payload.branch),
     ...(str(payload.product["catalogId"]) ? { productId: str(payload.product["catalogId"]) } : {}),
+    ...(payload.product["unlisted"] === true && !str(payload.product["catalogId"])
+      ? {
+          unlistedProduct: true,
+          ...(str(payload.product["reportedHolder"])
+            ? { reportedHolder: str(payload.product["reportedHolder"]).slice(0, 120) }
+            : {}),
+        }
+      : {}),
     reporter: {
       name: str(payload.reporter["name"], "Unknown reporter"),
       qualification: str(payload.reporter["qualification"], "Not stated"),

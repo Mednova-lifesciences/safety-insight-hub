@@ -219,6 +219,7 @@ export function IcsrIntakeForm({
   onChangeDrug,
   submitOverride,
   fixedIntake,
+  unlistedProduct,
 }: {
   lockedProduct?: LockedDrug | undefined;
   onChangeDrug?: (() => void) | undefined;
@@ -226,6 +227,9 @@ export function IcsrIntakeForm({
   /** Set by flows that already know where the report came from (the public
    *  reporting link), which then hide the channel picker. */
   fixedIntake?: FixedIntake | undefined;
+  /** The reporter could not find the product in the catalog: the product is
+   *  typed in, with its holder if known, and the case is marked unlisted. */
+  unlistedProduct?: boolean | undefined;
 } = {}) {
   const [instanceKey, setInstanceKey] = useState(0);
   const reset = () => setInstanceKey((k) => k + 1);
@@ -237,6 +241,7 @@ export function IcsrIntakeForm({
       onChangeDrug={onChangeDrug}
       submitOverride={submitOverride}
       fixedIntake={fixedIntake}
+      unlistedProduct={unlistedProduct}
     />
   );
 }
@@ -247,14 +252,17 @@ function IcsrIntakeFormFields({
   onChangeDrug,
   submitOverride,
   fixedIntake,
+  unlistedProduct,
 }: {
   onResetAfterAnonymousSubmit: () => void;
   lockedProduct?: LockedDrug | undefined;
   onChangeDrug?: (() => void) | undefined;
   submitOverride?: ((payload: NewIcsrPayload) => Promise<{ caseId: string }>) | undefined;
   fixedIntake?: FixedIntake | undefined;
+  unlistedProduct?: boolean | undefined;
 }) {
   const navigate = useNavigate();
+  const unlisted = !lockedProduct && !!unlistedProduct;
   const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -487,6 +495,7 @@ function IcsrIntakeFormFields({
         },
         product: {
           ...(lockedProduct ? { catalogId: lockedProduct.id } : {}),
+          ...(unlisted ? { unlisted: true, reportedHolder: form["productHolder"] ?? "" } : {}),
           reportedName: form["productName"],
           dose: form["productDose"],
           route: form["productRoute"],
@@ -945,20 +954,52 @@ function IcsrIntakeFormFields({
                   </p>
                 </div>
               ) : (
-                <FieldRow
-                  id="productName"
-                  label="Product as reported"
-                  required
-                  hint="Coding candidates are retrieved from WHODrug after submission."
-                  aiExtracted={extractedFieldKeys.has("productName")}
-                >
-                  <Input
+                <>
+                  {unlisted ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning-soft px-3 py-2.5 text-sm sm:col-span-2 xl:col-span-3">
+                      <p>
+                        This product is not in the company drug list. Type it as it appears on the
+                        pack — the safety team will pass the report to its holder.
+                      </p>
+                      {onChangeDrug ? (
+                        <Button type="button" variant="outline" size="sm" onClick={onChangeDrug}>
+                          Back to drug list
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <FieldRow
                     id="productName"
+                    label="Product as reported"
                     required
-                    value={form["productName"] ?? ""}
-                    onChange={set("productName")}
-                  />
-                </FieldRow>
+                    hint={
+                      unlisted
+                        ? "Brand name and strength, as on the pack."
+                        : "Coding candidates are retrieved from WHODrug after submission."
+                    }
+                    aiExtracted={extractedFieldKeys.has("productName")}
+                  >
+                    <Input
+                      id="productName"
+                      required
+                      value={form["productName"] ?? ""}
+                      onChange={set("productName")}
+                    />
+                  </FieldRow>
+                  {unlisted ? (
+                    <FieldRow
+                      id="productHolder"
+                      label="Manufacturer / holder"
+                      hint="As printed on the pack, if known."
+                    >
+                      <Input
+                        id="productHolder"
+                        value={form["productHolder"] ?? ""}
+                        onChange={set("productHolder")}
+                      />
+                    </FieldRow>
+                  ) : null}
+                </>
               )}
               <FieldRow
                 id="productDose"
