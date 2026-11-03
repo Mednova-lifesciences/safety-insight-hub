@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { currentActor, newId, pushNotification, recordAudit, stepStates, toJson } from "./db";
 import { linelist, type ParsedRow } from "./linelist";
+import { resolveIntake } from "./intake-channel";
 import type {
   CaseDetail,
   CaseSummary,
@@ -63,9 +64,13 @@ export interface NewIcsrPayload {
     status?: "detected" | "confirmed" | "edited" | undefined;
   }>;
   rawExtraction?: RawExtractionRecord;
+  /** An IntakeChannel; anything else is ignored. */
+  intakeChannel?: string;
+  /** Kept only for the BRANCH channel. */
+  branch?: string;
 }
 
-const str = (v: unknown, fallback = "") =>
+const str =(v: unknown, fallback = "") =>
   typeof v === "string" && v.trim().length > 0 ? v.trim() : fallback;
 
 async function allCases(): Promise<CaseDetail[]> {
@@ -110,6 +115,7 @@ export function buildCaseDetail(
     priority: seriousness === "SERIOUS" ? "HIGH" : "MEDIUM",
     flags: seriousness === "SERIOUS" ? ["EXPEDITED"] : [],
     source: "MANUAL",
+    ...resolveIntake(payload.intakeChannel, payload.branch),
     reporter: {
       name: str(payload.reporter["name"], "Unknown reporter"),
       qualification: str(payload.reporter["qualification"], "Not stated"),

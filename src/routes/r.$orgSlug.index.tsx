@@ -4,11 +4,15 @@ import { useMemo, useState } from "react";
 import { Pill, Search, ShieldCheck } from "lucide-react";
 import { getOrganizationBySlug } from "@/services/api/organizations";
 import { products as productsApi } from "@/services/api/products";
+import { cleanBranch } from "@/services/api/intake-channel";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/pv/primitives";
 
 export const Route = createFileRoute("/r/$orgSlug/")({
   ssr: false,
+  validateSearch: (search: Record<string, unknown>): { branch?: string | undefined } => ({
+    branch: cleanBranch(search["branch"]),
+  }),
   head: () => ({
     meta: [
       { title: "Report a case — MedNova PV Assist" },
@@ -29,6 +33,7 @@ export const Route = createFileRoute("/r/$orgSlug/")({
 
 function DrugPickerPage() {
   const { orgSlug } = Route.useParams();
+  const { branch } = Route.useSearch();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
 
@@ -75,6 +80,9 @@ function DrugPickerPage() {
         ) : (
           <>
             <h1 className="text-xl font-semibold text-foreground">{orgQuery.data.name}</h1>
+            {branch ? (
+              <p className="mt-1 text-sm font-medium text-foreground">Branch: {branch}</p>
+            ) : null}
             <p className="mt-1 text-sm text-muted-foreground">
               Search for the drug you'd like to report a case for. No account is needed.
             </p>
@@ -111,7 +119,7 @@ function DrugPickerPage() {
                       navigate({
                         to: "/r/$orgSlug/report",
                         params: { orgSlug },
-                        search: { productId: drug.id },
+                        search: branch ? { productId: drug.id, branch } : { productId: drug.id },
                       })
                     }
                     className="flex w-full items-center justify-between gap-3 rounded-md border border-border px-4 py-3 text-left transition-colors hover:border-primary hover:bg-accent"

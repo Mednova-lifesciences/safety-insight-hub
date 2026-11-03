@@ -7,6 +7,7 @@ import { audit as auditApi } from "@/services/api/audit";
 import { newId } from "@/services/api/db";
 import { demoAudit, demoCaseDetails } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
+import { describeIntake } from "@/services/api/intake-channel";
 import { isNotConfigured } from "@/services/api/client";
 import {
   Field,
@@ -847,6 +848,7 @@ function CaseDetailPage() {
                   </StatusPill>
                   <StatusPill tone="neutral">Assigned to {c.assignedTo}</StatusPill>
                   <StatusPill tone="info">Source {c.source.toLowerCase()}</StatusPill>
+                  <StatusPill tone="neutral">Channel: {describeIntake(c)}</StatusPill>
                   <SourceTag source={source} />
                 </>
               }

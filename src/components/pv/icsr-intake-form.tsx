@@ -6,7 +6,13 @@ import { cases as casesApi, type NewIcsrPayload } from "@/services/api/cases";
 import { ai } from "@/services/api/ai";
 import { isNotConfigured } from "@/services/api/client";
 import { newId } from "@/services/api/db";
-import type { DynamicField } from "@/types/pv";
+import type { DynamicField, IntakeChannel } from "@/types/pv";
+import {
+  INTAKE_CHANNEL_LABELS,
+  STAFF_SELECTABLE_CHANNELS,
+  BRANCH_MAX_LENGTH,
+  describeIntake,
+} from "@/services/api/intake-channel";
 import { PageHeader, Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -174,6 +180,11 @@ function FieldRow({
   );
 }
 
+export interface FixedIntake {
+  intakeChannel: IntakeChannel;
+  branch?: string | undefined;
+}
+
 /** A drug picked from a company's catalog — its identity is locked on the
  *  form until the reporter explicitly goes back and picks a different one. */
 export interface LockedDrug {
@@ -207,10 +218,14 @@ export function IcsrIntakeForm({
   lockedProduct,
   onChangeDrug,
   submitOverride,
+  fixedIntake,
 }: {
   lockedProduct?: LockedDrug | undefined;
   onChangeDrug?: (() => void) | undefined;
   submitOverride?: ((payload: NewIcsrPayload) => Promise<{ caseId: string }>) | undefined;
+  /** Set by flows that already know where the report came from (the public
+   *  reporting link), which then hide the channel picker. */
+  fixedIntake?: FixedIntake | undefined;
 } = {}) {
   const [instanceKey, setInstanceKey] = useState(0);
   const reset = () => setInstanceKey((k) => k + 1);
@@ -221,6 +236,7 @@ export function IcsrIntakeForm({
       lockedProduct={lockedProduct}
       onChangeDrug={onChangeDrug}
       submitOverride={submitOverride}
+      fixedIntake={fixedIntake}
     />
   );
 }
@@ -230,11 +246,13 @@ function IcsrIntakeFormFields({
   lockedProduct,
   onChangeDrug,
   submitOverride,
+  fixedIntake,
 }: {
   onResetAfterAnonymousSubmit: () => void;
   lockedProduct?: LockedDrug | undefined;
   onChangeDrug?: (() => void) | undefined;
   submitOverride?: ((payload: NewIcsrPayload) => Promise<{ caseId: string }>) | undefined;
+  fixedIntake?: FixedIntake | undefined;
 }) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -291,6 +309,14 @@ function IcsrIntakeFormFields({
     { label: "Adverse event / reaction", ok: !!form["reactionTerm"] },
   ];
   const valid = minimumCriteria.every((c) => c.ok);
+  const channel =
+    fixedIntake?.intakeChannel ?? (form["intakeChannel"] as IntakeChannel | undefined);
+  const branch = fixedIntake ? (fixedIntake.branch ?? "") : (form["branch"] ?? "");
+  const intakeProblem = !channel
+    ? "Choose where this report came from."
+    : channel === "BRANCH" && !branch.trim()
+      ? "Enter the branch or store the report came from."
+      : null;
 
   async function extractFromImage(file: File) {
     setExtracting(true);
@@ -438,6 +464,10 @@ function IcsrIntakeFormFields({
       toast.error("All four minimum ICSR criteria must be captured before submission.");
       return;
     }
+    if (intakeProblem) {
+      toast.error(intakeProblem);
+      return;
+    }
     setSubmitting(true);
     try {
       const create = submitOverride ?? casesApi.create;
@@ -478,6 +508,8 @@ function IcsrIntakeFormFields({
         concomitantMedicines: concomitantMeds.filter((m) => m.name.trim().length > 0),
         dynamicFields: dynamicFields.filter((f) => f.label.trim().length > 0),
         ...(rawExtraction ? { rawExtraction } : {}),
+        ...(channel ? { intakeChannel: channel } : {}),
+        ...(channel === "BRANCH" && branch.trim() ? { branch: branch.trim() } : {}),
       });
       toast.success(`Case ${created.caseId} created.`);
       if (user) {
@@ -707,6 +739,49 @@ function IcsrIntakeFormFields({
         </Section>
 
         <form onSubmit={submit} className="space-y-4">
+          {fixedIntake ? (
+            <p className="text-sm text-muted-foreground">
+              Reported through:{" "}
+              <span className="font-medium text-foreground">{describeIntake(fixedIntake)}</span>
+            </p>
+          ) : (
+            <Section
+              title="Where the report came from"
+              description="Used to track reports by channel and by branch."
+            >
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <FieldRow id="intakeChannel" label="Channel" required>
+                  <Select
+                    value={form["intakeChannel"] ?? ""}
+                    onValueChange={setField("intakeChannel")}
+                  >
+                    <SelectTrigger id="intakeChannel">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STAFF_SELECTABLE_CHANNELS.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {INTAKE_CHANNEL_LABELS[c]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FieldRow>
+                {form["intakeChannel"] === "BRANCH" ? (
+                  <FieldRow id="branch" label="Branch / store" required>
+                    <Input
+                      id="branch"
+                      maxLength={BRANCH_MAX_LENGTH}
+                      placeholder="e.g. Lekki Phase 1"
+                      value={form["branch"] ?? ""}
+                      onChange={set("branch")}
+                    />
+                  </FieldRow>
+                ) : null}
+              </div>
+            </Section>
+          )}
+
           <Section title="Reporter information">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <FieldRow

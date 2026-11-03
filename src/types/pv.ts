@@ -32,6 +32,15 @@ export const WORKFLOW_LABELS: Record<WorkflowStep, string> = {
 };
 
 export type Seriousness = "SERIOUS" | "NON_SERIOUS" | "UNASSESSED";
+export type IntakeChannel =
+  | "BRANCH"
+  | "ECOMMERCE"
+  | "CUSTOMER_SERVICE"
+  | "REPORTING_LINK"
+  | "WHATSAPP"
+  | "PHONE"
+  | "EMAIL"
+  | "OTHER";
 export type Priority = "HIGH" | "MEDIUM" | "LOW";
 export type CaseOutcome =
   "RECOVERED" | "RECOVERING" | "NOT_RECOVERED" | "RECOVERED_WITH_SEQUELAE" | "FATAL" | "UNKNOWN";
@@ -156,6 +165,10 @@ export interface CaseSummary {
   priority: Priority;
   flags: string[];
   source: "MANUAL" | "WHATSAPP" | "LINELIST" | "EMAIL";
+  /** Where the report came from. Absent on cases created before it was recorded. */
+  intakeChannel?: IntakeChannel | undefined;
+  /** The branch or store, only for the BRANCH channel. */
+  branch?: string | undefined;
   /** Precomputed from CaseDetail.dynamicFields for the cases list page —
    *  count only, so the list view can show "N additional fields" without
    *  fetching every case's full detail. Absent/0 when there are none. */

@@ -4,18 +4,21 @@ import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { getOrganizationBySlug } from "@/services/api/organizations";
 import { products as productsApi } from "@/services/api/products";
 import { createPublicCase } from "@/services/api/public-intake";
+import { cleanBranch } from "@/services/api/intake-channel";
 import { IcsrIntakeForm } from "@/components/pv/icsr-intake-form";
 import { LoadingState } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 
 interface ReportSearch {
   productId: string;
+  branch?: string | undefined;
 }
 
 export const Route = createFileRoute("/r/$orgSlug/report")({
   ssr: false,
   validateSearch: (search: Record<string, unknown>): ReportSearch => ({
     productId: typeof search["productId"] === "string" ? search["productId"] : "",
+    branch: cleanBranch(search["branch"]),
   }),
   head: () => ({
     meta: [
@@ -38,7 +41,7 @@ export const Route = createFileRoute("/r/$orgSlug/report")({
 
 function PublicReportPage() {
   const { orgSlug } = Route.useParams();
-  const { productId } = Route.useSearch();
+  const { productId, branch } = Route.useSearch();
   const navigate = useNavigate();
 
   const orgQuery = useQuery({
@@ -52,7 +55,8 @@ function PublicReportPage() {
     enabled: !!orgQuery.data,
   });
 
-  const backToPicker = () => navigate({ to: "/r/$orgSlug", params: { orgSlug } });
+  const backToPicker = () =>
+    navigate({ to: "/r/$orgSlug", params: { orgSlug }, search: branch ? { branch } : {} });
 
   if (orgQuery.isPending || drugsQuery.isPending) {
     return (
@@ -94,6 +98,9 @@ function PublicReportPage() {
         lockedProduct={drug}
         onChangeDrug={backToPicker}
         submitOverride={(payload) => createPublicCase(org.id, payload)}
+        fixedIntake={
+          branch ? { intakeChannel: "BRANCH", branch } : { intakeChannel: "REPORTING_LINK" }
+        }
       />
     </div>
   );

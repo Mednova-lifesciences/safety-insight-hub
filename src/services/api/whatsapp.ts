@@ -267,6 +267,7 @@ export const whatsapp = {
       reportedSeriousness: "UNASSESSED",
       seriousnessCriteria: [],
       additionalInformation: "Captured via the WhatsApp intake channel.",
+      intakeChannel: "WHATSAPP",
       additionalProducts: d.suspectProducts.slice(1),
       dynamicFields: d.dynamicFields,
     } satisfies Record<string, unknown> as unknown as NewIcsrPayload;
