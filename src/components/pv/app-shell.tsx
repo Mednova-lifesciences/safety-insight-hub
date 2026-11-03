@@ -1,6 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Activity,
+  BadgeCheck,
   Bell,
   BriefcaseMedical,
   CalendarClock,
@@ -126,6 +127,13 @@ export const NAV: NavGroup[] = [
         to: "/branches",
         label: "Branches",
         icon: Store,
+        permission: "team.view",
+        hiddenForRoles: ASSESSOR_ROLES,
+      },
+      {
+        to: "/registrations",
+        label: "Registrations",
+        icon: BadgeCheck,
         permission: "team.view",
         hiddenForRoles: ASSESSOR_ROLES,
       },
