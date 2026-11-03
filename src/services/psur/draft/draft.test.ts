@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { INPUTS, SECTIONS, SECTION_BY_ID, type InputKey } from "./template";
 import { buildDraftFacts, type CaseRecord } from "./facts";
 import { draftReadiness, missingInputs, sectionStatus } from "./status";
+import { placeholderText, printsIn, sectionBlocks } from "./content";
 import type { PsurDraft } from "./drafts";
 import type { CatalogDrug } from "@/services/api/products";
 import type { Signal } from "@/types/pv";
@@ -63,6 +64,7 @@ describe("buildDraftFacts", () => {
       outcome: "FATAL",
       reportedSeriousnessCriteria: ["Results in death"],
       patient: { identifier: "P", sex: "FEMALE", age: "34" },
+      reporter: { name: "R", qualification: "Pharmacist", country: "Nigeria" },
       reactions: [
         {
           reportedTerm: "skin rash",
@@ -136,7 +138,14 @@ describe("buildDraftFacts", () => {
 
   it("counts the interval (start exclusive, DLP inclusive) and cumulatively to the DLP", () => {
     expect(f.lineListing.map((r) => r.caseId)).toEqual(["A", "BYID", "B"]);
-    expect(f.interval).toEqual({ total: 3, serious: 1, nonSerious: 2, unassessed: 0, fatal: 1 });
+    expect(f.interval).toEqual({
+      total: 3,
+      nigerian: 1,
+      serious: 1,
+      nonSerious: 2,
+      unassessed: 0,
+      fatal: 1,
+    });
     expect(f.cumulative.total).toBe(5);
   });
   it("lists cases received after the DLP as late-breaking", () => {
@@ -228,5 +237,96 @@ describe("section status", () => {
     expect(r.cleanAllowed).toBe(false);
     expect(r.total).toBe(24);
     expect(r.blocking).toContain("TITLE_PAGE");
+  });
+});
+
+describe("content — nothing is invented", () => {
+  const facts = buildDraftFacts({
+    drug,
+    periodStart: "2025-08-31",
+    dlp: "2026-08-31",
+    cases: [
+      kase("A", {
+        receivedDate: "2025-10-01",
+        seriousness: "SERIOUS",
+        reporter: { name: "R", qualification: "Pharmacist", country: "Nigeria" },
+      }),
+      kase("B", { receivedDate: "2026-01-01" }),
+    ],
+    signals: [],
+    registrations: [],
+    organisation: "Demo Org",
+    now: new Date("2026-11-03T10:00:00Z"),
+  });
+
+  it("prints a placeholder, never text, for every empty required input", () => {
+    const d = draft({ facts });
+    for (const s of SECTIONS) {
+      const blocks = sectionBlocks(d, s.id);
+      expect(
+        blocks.some((b) => b.origin === "AUTHOR"),
+        s.id,
+      ).toBe(false);
+      for (const k of s.inputs.filter((k) => INPUTS[k].required)) {
+        expect(
+          blocks.some((b) => JSON.stringify(b).includes(placeholderText(k))),
+          `${s.id} ${k}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("prints the author's text exactly as written", () => {
+    const d = draft({
+      facts,
+      inputs: { worldwideStatus: "  Marketed in Nigeria only since 2019.  " },
+    });
+    expect(sectionBlocks(d, "S2")).toEqual([
+      { kind: "para", text: "Marketed in Nigeria only since 2019.", origin: "AUTHOR" },
+    ]);
+  });
+
+  it("states the counts from the facts, with the interval from the day after the last DLP", () => {
+    const text = JSON.stringify(sectionBlocks(draft({ facts }), "S6"));
+    expect(text).toContain("1 September 2025 to 31 August 2026");
+    expect(text).toContain("2 individual case safety reports (ICSRs)");
+    expect(text).toContain("of which 1 was serious");
+    expect(text).toContain("1 was reported from Nigeria");
+  });
+
+  it("writes a nil statement when there are no cases, and says data is missing before a refresh", () => {
+    const empty = buildDraftFacts({
+      drug,
+      periodStart: "2025-08-31",
+      dlp: "2026-08-31",
+      cases: [],
+      signals: [],
+      registrations: [],
+      organisation: "O",
+    });
+    expect(JSON.stringify(sectionBlocks(draft({ facts: empty }), "S21"))).toContain(
+      "Nil statement",
+    );
+    expect(sectionBlocks(draft(), "S6")[0]!.origin).toBe("PLACEHOLDER");
+  });
+
+  it("prints a not-applicable reason only where the author gave one", () => {
+    const d = draft({
+      facts,
+      sections: { S7: { notApplicable: { reason: "No trials sponsored." } } },
+    });
+    expect(sectionBlocks(d, "S7")).toEqual([
+      { kind: "para", text: "No trials sponsored.", origin: "NA" },
+    ]);
+    expect(sectionBlocks(draft({ facts }), "S7")[0]!.origin).toBe("PLACEHOLDER");
+  });
+
+  it("keeps author aids out of the clean draft", () => {
+    expect(printsIn({ kind: "para", text: "x", origin: "AID" }, "clean")).toBe(false);
+    expect(printsIn({ kind: "para", text: "x", origin: "AID" }, "working")).toBe(true);
+  });
+
+  it("marks the executive summary incomplete while a borrowed input is empty", () => {
+    expect(sectionStatus(draft({ facts }), SECTION_BY_ID.EXEC_SUMMARY)).toBe("NEEDS_AUTHOR");
   });
 });

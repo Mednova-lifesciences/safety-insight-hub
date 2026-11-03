@@ -467,7 +467,7 @@ export const SECTIONS: SectionDef[] = [
     source: "RECORDS",
     naAllowed: false,
     guidance:
-      "Interval and cumulative summary tabulations of adverse reactions from post-marketing sources, by MedDRA SOC where coded, with Nigerian case counts.",
+      "Interval and cumulative summary tabulations of adverse reactions from post-marketing sources, by MedDRA preferred term where the case is coded (reported term otherwise), with Nigerian case counts.",
     inputs: ["tabulationComment"],
   },
   {
@@ -522,7 +522,7 @@ export const SECTIONS: SectionDef[] = [
     naAllowed: false,
     guidance:
       "New and significant safety findings from the literature, in the holder's own words, with a product-specific assessment (screening item 13). Literature screening hits for this product are listed for the author.",
-    inputs: ["literatureSummary", "literatureStrategy"],
+    inputs: ["literatureSummary"],
   },
   {
     id: "S12",
@@ -622,7 +622,7 @@ export const SECTIONS: SectionDef[] = [
     naAllowed: false,
     guidance:
       "I Reference safety information (SmPC); II Clinical-trial tabulation (if any); III Line listing of serious adverse events / ICSRs or a nil statement (from the records); IV Literature search strategy and references.",
-    inputs: ["rmpVersion"],
+    inputs: ["literatureStrategy", "rmpVersion"],
   },
 ];
 

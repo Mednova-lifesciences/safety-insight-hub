@@ -1,8 +1,9 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { psurDrafts, type PsurDraft } from "@/services/psur/draft/drafts";
 import { toast } from "sonner";
-import { CalendarClock, CheckCircle2, Download, FileText, Settings2 } from "lucide-react";
+import { CalendarClock, CheckCircle2, Download, FilePen, FileText, Settings2 } from "lucide-react";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import { PageHeader, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
@@ -272,6 +273,53 @@ function RecordSubmissionDialog({
   );
 }
 
+function DraftButton({ entry, drafts }: { entry: CalendarEntry; drafts: PsurDraft[] | undefined }) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const { drug, periodStart, nextDlp } = entry;
+  if (!periodStart || !nextDlp || !drafts) return null;
+  const existing = drafts.find((d) => d.productId === drug.id && d.dlp === nextDlp);
+  if (existing)
+    return (
+      <Button asChild size="sm" variant="ghost">
+        <Link to="/psur-drafts/$draftId" params={{ draftId: existing.id }}>
+          <FilePen className="size-3.5" /> Open draft
+        </Link>
+      </Button>
+    );
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          // Prefilled only from the catalog entry; the author checks them.
+          const prefill: Partial<Record<"mahName" | "activeSubstance", string>> = {};
+          if (drug.holder) prefill.mahName = drug.holder;
+          if (drug.activeIngredient) prefill.activeSubstance = drug.activeIngredient;
+          const d = await psurDrafts.create({
+            productId: drug.id,
+            productName: drug.name,
+            periodStart,
+            dlp: nextDlp,
+            intervalMonths: drug.psur?.intervalMonths ?? 12,
+            ibd: drug.psur?.ibd,
+            inputs: prefill,
+          });
+          navigate({ to: "/psur-drafts/$draftId", params: { draftId: d.id } });
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : "The draft could not be started.");
+          setBusy(false);
+        }
+      }}
+    >
+      <FilePen className="size-3.5" /> {busy ? "Starting…" : "Start PSUR draft"}
+    </Button>
+  );
+}
+
 function CalendarTable({
   entries,
   cases,
@@ -283,6 +331,12 @@ function CalendarTable({
 }) {
   const canManage = usePermission("catalog.manage");
   const canRecord = usePermission("psur.review");
+  const canDraft = usePermission("case.assign");
+  const draftsQuery = useQuery({
+    queryKey: ["psur-drafts"],
+    queryFn: () => psurDrafts.list(),
+    retry: false,
+  });
   const today = todayIso();
 
   return (
@@ -368,6 +422,7 @@ function CalendarTable({
                         onSaved={onSaved}
                       />
                     ) : null}
+                    {canDraft ? <DraftButton entry={e} drafts={draftsQuery.data} /> : null}
                     {canManage ? <ScheduleDialog drug={e.drug} onSaved={onSaved} /> : null}
                   </div>
                 </td>
