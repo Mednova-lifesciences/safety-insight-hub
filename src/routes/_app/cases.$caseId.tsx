@@ -8,6 +8,18 @@ import { newId } from "@/services/api/db";
 import { demoAudit, demoCaseDetails } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { describeIntake } from "@/services/api/intake-channel";
+import { CLOCK_TONE, isPastDue, reportingClock } from "@/services/api/regulatory-clock";
+import type { CaseSummary } from "@/types/pv";
+
+function NafdacClockPill({ c }: { c: CaseSummary }) {
+  const clock = reportingClock(c);
+  return (
+    <StatusPill tone={CLOCK_TONE[clock.status]}>
+      NAFDAC {clock.windowDays}-day clock: {clock.label}
+      {clock.deadline ? ` (${clock.deadline})` : ""}
+    </StatusPill>
+  );
+}
 import { isNotConfigured } from "@/services/api/client";
 import {
   Field,
@@ -843,9 +855,10 @@ function CaseDetailPage() {
                   <PriorityBadge value={c.priority} />
                   <StatusPill tone="neutral">Patient {c.patientIdentifier}</StatusPill>
                   <StatusPill tone="neutral">Received {c.receivedDate}</StatusPill>
-                  <StatusPill tone={c.dueDate < "2026-08-15" ? "critical" : "neutral"}>
+                  <StatusPill tone={isPastDue(c) ? "critical" : "neutral"}>
                     Due {c.dueDate}
                   </StatusPill>
+                  <NafdacClockPill c={c} />
                   <StatusPill tone="neutral">Assigned to {c.assignedTo}</StatusPill>
                   <StatusPill tone="info">Source {c.source.toLowerCase()}</StatusPill>
                   <StatusPill tone="neutral">Channel: {describeIntake(c)}</StatusPill>
