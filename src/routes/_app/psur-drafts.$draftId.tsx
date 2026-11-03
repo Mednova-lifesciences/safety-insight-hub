@@ -25,6 +25,63 @@ import {
 import { intervalFrom, longDate, sectionBlocks } from "@/services/psur/draft/content";
 import { STATUS_LABELS, draftReadiness, type SectionStatus } from "@/services/psur/draft/status";
 import { cn } from "@/lib/utils";
+import { downloadDraftDocx, type DraftVersion } from "@/services/psur/draft/draft-docx";
+import {
+  presubmissionCheck,
+  presubmissionSummary,
+  type CheckResult,
+} from "@/services/psur/draft/presubmission";
+import { recordAudit } from "@/services/api/db";
+import { ClipboardCheck, Download } from "lucide-react";
+
+const CHECK_TONE: Record<CheckResult, Tone> = {
+  PASS: "success",
+  ACTION: "warning",
+  MANUAL: "info",
+};
+const CHECK_LABEL: Record<CheckResult, string> = {
+  PASS: "Pass",
+  ACTION: "Action needed",
+  MANUAL: "Confirm by hand",
+};
+
+function PresubmissionPanel({ draft }: { draft: PsurDraft }) {
+  const items = presubmissionCheck(draft);
+  const sum = presubmissionSummary(items);
+  return (
+    <Section
+      title="Pre-submission check"
+      description="The draft checked the way NAFDAC's Review Officer will screen it: the 16 items of the PSUR Administrative Screening Checklist, plus the Nigerian requirements of the V4 evaluation form."
+      actions={
+        <div className="flex gap-2">
+          <StatusPill tone="success">{sum.pass} pass</StatusPill>
+          <StatusPill tone="warning">{sum.action} action</StatusPill>
+          <StatusPill tone="info">{sum.manual} by hand</StatusPill>
+        </div>
+      }
+    >
+      <ul className="space-y-2">
+        {items.map((i) => (
+          <li
+            key={i.key}
+            className="grid gap-1 border-b border-border pb-2 last:border-0 sm:grid-cols-[8.5rem_1fr]"
+          >
+            <span>
+              <StatusPill tone={CHECK_TONE[i.result]}>{CHECK_LABEL[i.result]}</StatusPill>
+            </span>
+            <span className="text-sm">
+              <span className="font-medium">
+                {i.number ? `${i.number}. ` : ""}
+                {i.label}
+              </span>
+              <span className="block text-muted-foreground">{i.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
 
 export const Route = createFileRoute("/_app/psur-drafts/$draftId")({
   head: () => ({ meta: [{ title: "PSUR draft — MedNova PV Assist" }] }),
@@ -289,7 +346,8 @@ function DraftWorkspace() {
     queryKey: ["psur-draft", draftId],
     queryFn: () => psurDrafts.get(draftId),
   });
-  const [selected, setSelected] = useState<DraftSectionId>("TITLE_PAGE");
+  const [selected, setSelected] = useState<DraftSectionId | "CHECK">("TITLE_PAGE");
+  const [exporting, setExporting] = useState<DraftVersion | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const setDraft = (d: PsurDraft) => {
@@ -303,6 +361,23 @@ function DraftWorkspace() {
 
   const draft = query.data;
   const readiness = draftReadiness(draft);
+
+  async function exportDocx(version: DraftVersion) {
+    setExporting(version);
+    try {
+      await downloadDraftDocx(draft, version);
+      await recordAudit({
+        action: version === "clean" ? "PSUR_DRAFT_EXPORTED_CLEAN" : "PSUR_DRAFT_EXPORTED_WORKING",
+        entity: "PsurDraft",
+        entityId: draft.id,
+        newValue: `${draft.productName}, DLP ${draft.dlp}`,
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "The draft could not be exported.");
+    } finally {
+      setExporting(null);
+    }
+  }
 
   async function refresh() {
     setRefreshing(true);
@@ -340,6 +415,28 @@ function DraftWorkspace() {
                 <ArrowLeft className="size-4" /> All drafts
               </Link>
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!!exporting}
+              onClick={() => exportDocx("working")}
+            >
+              <Download className="size-4" />
+              {exporting === "working" ? "Preparing…" : "Working draft (Word)"}
+            </Button>
+            <Button
+              size="sm"
+              disabled={!!exporting || !readiness.cleanAllowed}
+              title={
+                readiness.cleanAllowed
+                  ? undefined
+                  : "Every section must be reviewed or marked not applicable first."
+              }
+              onClick={() => exportDocx("clean")}
+            >
+              <Download className="size-4" />
+              {exporting === "clean" ? "Preparing…" : "Clean draft (Word)"}
+            </Button>
             {canEdit ? (
               <Button size="sm" variant="outline" disabled={refreshing} onClick={refresh}>
                 <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
@@ -352,6 +449,18 @@ function DraftWorkspace() {
       <div className="grid gap-4 p-6 lg:grid-cols-[17rem_1fr]">
         <nav className="panel h-fit p-2 lg:sticky lg:top-16">
           <ul className="space-y-0.5">
+            <li>
+              <button
+                type="button"
+                onClick={() => setSelected("CHECK")}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm font-medium",
+                  selected === "CHECK" ? "bg-accent" : "hover:bg-muted",
+                )}
+              >
+                <ClipboardCheck className="size-4" /> Pre-submission check
+              </button>
+            </li>
             {SECTIONS.map((s) => {
               const st = readiness.statuses[s.id];
               return (
@@ -383,14 +492,18 @@ function DraftWorkspace() {
             })}
           </ul>
         </nav>
-        <SectionEditor
-          key={selected}
-          draft={draft}
-          id={selected}
-          canEdit={canEdit}
-          status={readiness.statuses[selected]}
-          onChange={setDraft}
-        />
+        {selected === "CHECK" ? (
+          <PresubmissionPanel draft={draft} />
+        ) : (
+          <SectionEditor
+            key={selected}
+            draft={draft}
+            id={selected}
+            canEdit={canEdit}
+            status={readiness.statuses[selected]}
+            onChange={setDraft}
+          />
+        )}
       </div>
     </>
   );
