@@ -1,5 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { branches as branchesApi } from "@/services/api/branches";
 import { toast } from "sonner";
 import { ArrowRight, ImageUp, Pencil, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 import { cases as casesApi, type NewIcsrPayload } from "@/services/api/cases";
@@ -264,6 +266,14 @@ function IcsrIntakeFormFields({
   const navigate = useNavigate();
   const unlisted = !lockedProduct && !!unlistedProduct;
   const { user } = useAuth();
+  // Suggestions only: the register may not exist yet, and anonymous
+  // reporters have their branch fixed by the link.
+  const branchRegister = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => branchesApi.list(),
+    enabled: !!user && !fixedIntake,
+    retry: false,
+  });
   const [submitting, setSubmitting] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [criteria, setCriteria] = useState<string[]>([]);
@@ -781,11 +791,19 @@ function IcsrIntakeFormFields({
                   <FieldRow id="branch" label="Branch / store" required>
                     <Input
                       id="branch"
+                      list="branch-register"
                       maxLength={BRANCH_MAX_LENGTH}
                       placeholder="e.g. Lekki Phase 1"
                       value={form["branch"] ?? ""}
                       onChange={set("branch")}
                     />
+                    <datalist id="branch-register">
+                      {(branchRegister.data ?? [])
+                        .filter((b) => b.active)
+                        .map((b) => (
+                          <option key={b.id} value={b.name} />
+                        ))}
+                    </datalist>
                   </FieldRow>
                 ) : null}
               </div>

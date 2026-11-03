@@ -178,3 +178,21 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
 }
+
+/* "Print poster" on the Branches page prints only the open poster. */
+@media print {
+  body:has(.print-area) * {
+    visibility: hidden;
+  }
+  body:has(.print-area) .print-area,
+  body:has(.print-area) .print-area * {
+    visibility: visible;
+  }
+  body:has(.print-area) .print-area {
+    position: fixed;
+    inset: 0;
+    padding: 2rem;
+    background: #fff;
+    color: #000;
+  }
+}
