@@ -37,6 +37,7 @@ import {
 import { AuditTimeline } from "@/components/pv/audit-timeline";
 import { ClusterFlagsCard } from "@/components/pv/linelist-cross-file-panels";
 import { PsurForecastCard } from "@/components/pv/psur-forecast-card";
+import { RegulatoryDeadlinesCard } from "@/components/pv/regulatory-deadlines-card";
 import { ObservedExpectedCard } from "@/components/pv/observed-expected-card";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS, useAuth } from "@/lib/auth";
@@ -177,6 +178,7 @@ function CoordinatorDashboard() {
             </QueryBoundary>
           </Section>
         </div>
+        <RegulatoryDeadlinesCard />
       </div>
     </>
   );
@@ -212,6 +214,7 @@ function AdminDashboard() {
             </Button>
           </div>
         </Section>
+        <RegulatoryDeadlinesCard />
         <Section title="Recent audit activity">
           <QueryBoundary query={auditQuery}>
             {(events) => <AuditTimeline events={events} dense />}
