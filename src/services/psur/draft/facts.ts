@@ -2,7 +2,7 @@ import type { CaseDetail, CaseSummary, Signal } from "@/types/pv";
 import type { CatalogDrug } from "@/services/api/products";
 import type { Registration } from "@/services/api/registrations";
 import { describeIntake } from "@/services/api/intake-channel";
-import { caseClusters, isSeriousCase } from "@/services/api/case-clusters";
+import { caseClusters } from "@/services/api/case-clusters";
 
 /**
  * Everything a PSUR draft takes from the safety database, computed here and
@@ -57,6 +57,10 @@ export interface LineListingRow {
 }
 
 export interface SignalFact {
+  /** The product as the signal record names it. */
+  product: string;
+  /** Where the signal was detected. */
+  origin: "Case data" | "Literature";
   reaction: string;
   status: Signal["status"];
   method: string;
@@ -102,6 +106,16 @@ export interface DraftFacts {
 }
 
 const norm = (s: string | undefined) => (s ?? "").trim().toLowerCase();
+
+/** A signal names this product when the product's name appears in it as a
+ *  whole word ("paracetamol syrup" names Paracetamol; "paracetamolx" does
+ *  not). Shown with the product as recorded, for the author to judge. */
+export function namesProduct(signalProduct: string | undefined, drugName: string): boolean {
+  const name = norm(drugName);
+  if (!name) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(norm(signalProduct));
+}
 
 export function isProductCase(c: CaseRecord, drug: Pick<CatalogDrug, "id" | "name">): boolean {
   if (c.productId) return c.productId === drug.id;
@@ -176,7 +190,9 @@ export function buildDraftFacts(input: {
       cumulative: 0,
       cumulativeSerious: 0,
     };
-    const serious = isSeriousCase(c);
+    // As recorded, so the table agrees with the counts in the text; a fatal
+    // case recorded as non-serious is raised by the pre-submission check.
+    const serious = c.seriousness === "SERIOUS";
     row.cumulative++;
     if (serious) row.cumulativeSerious++;
     if (c.receivedDate > periodStart) {
@@ -192,7 +208,7 @@ export function buildDraftFacts(input: {
   );
 
   const productSignals = input.signals.filter(
-    (s) => s.source !== "LINE_LIST" && norm(s.product) === norm(drug.name),
+    (s) => s.source !== "LINE_LIST" && namesProduct(s.product, drug.name),
   );
 
   const channels = new Map<string, number>();
@@ -229,17 +245,17 @@ export function buildDraftFacts(input: {
     uncodedInInterval: intervalCases.filter((c) => !reactionOf(c).coded).length,
     lineListing: intervalCases.map(lineRow),
     lateBreaking: late.map(lineRow),
-    signals: productSignals
-      .filter((s) => !s.literature)
-      .map((s) => ({
-        reaction: s.reaction,
-        status: s.status,
-        method: s.detectionMethod,
-        detectionPeriod: s.detectionPeriod,
-        caseCount: s.caseCount,
-        rationale: s.rationale ?? undefined,
-        decidedAt: s.decidedAt ?? undefined,
-      })),
+    signals: productSignals.map((s) => ({
+      product: s.product,
+      origin: s.literature ? ("Literature" as const) : ("Case data" as const),
+      reaction: s.reaction,
+      status: s.status,
+      method: s.detectionMethod,
+      detectionPeriod: s.detectionPeriod,
+      caseCount: s.caseCount,
+      rationale: s.rationale ?? undefined,
+      decidedAt: s.decidedAt ?? undefined,
+    })),
     clusters: caseClusters(intervalCases, false).map((f) => ({
       kind: f.kind === "BATCH" ? "BATCH" : "BRANCH",
       label: f.label,
