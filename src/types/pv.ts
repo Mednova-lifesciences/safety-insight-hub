@@ -80,6 +80,21 @@ export interface SuspectProduct {
   codedTerm?: CodedTerm | null | undefined;
 }
 
+/** A case passed on to the holder of a product someone else registered. */
+export interface HolderForward {
+  id: string;
+  /** The suspect product the forward is about, as reported on the case. */
+  productName: string;
+  holder: string;
+  contact?: string | undefined;
+  method: "EMAIL" | "PORTAL" | "PHONE" | "LETTER" | "OTHER";
+  /** Date the report was sent to the holder (YYYY-MM-DD). */
+  sentOn: string;
+  note?: string | undefined;
+  recordedBy: string;
+  recordedAt: string;
+}
+
 export interface ConcomitantMedicine {
   name: string;
   dose?: string | undefined;
@@ -169,6 +184,11 @@ export interface CaseSummary {
   intakeChannel?: IntakeChannel | undefined;
   /** The branch or store, only for the BRANCH channel. */
   branch?: string | undefined;
+  /** Catalog id of the primary suspect product, when it was picked from the
+   *  catalog. Absent on older cases, which are matched by name instead. */
+  productId?: string | undefined;
+  /** Reports passed on to the product's marketing authorisation holder. */
+  holderForwards?: HolderForward[] | undefined;
   /** Precomputed from CaseDetail.dynamicFields for the cases list page —
    *  count only, so the list view can show "N additional fields" without
    *  fetching every case's full detail. Absent/0 when there are none. */

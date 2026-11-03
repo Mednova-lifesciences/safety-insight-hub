@@ -9,6 +9,10 @@ export interface CatalogDrug {
   strength?: string | undefined;
   doseUnit?: string | undefined;
   route?: string | undefined;
+  /** Marketing authorisation holder — whoever holds the NAFDAC registration. */
+  holder?: string | undefined;
+  /** The organisation itself holds the registration (e.g. a private label). */
+  ownBrand?: boolean | undefined;
 }
 
 export interface CatalogDrugInput {
@@ -17,6 +21,16 @@ export interface CatalogDrugInput {
   strength?: string | undefined;
   doseUnit?: string | undefined;
   route?: string | undefined;
+  holder?: string | undefined;
+  ownBrand?: boolean | undefined;
+}
+
+function describeHolder(d: {
+  name: string;
+  holder?: string | undefined;
+  ownBrand?: boolean | undefined;
+}) {
+  return `${d.name} — ${d.ownBrand ? "own brand" : d.holder ? `holder ${d.holder}` : "holder not recorded"}`;
 }
 
 function fromRow(row: { id: string; data: unknown }): CatalogDrug {
@@ -47,6 +61,31 @@ export const products = {
       reason: "Drug added to catalog",
     });
     return drug;
+  },
+
+  update: async (id: string, input: CatalogDrugInput): Promise<CatalogDrug> => {
+    const { data: existing, error: readError } = await supabase
+      .from("pv_products")
+      .select("id,data")
+      .eq("id", id)
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (!existing) throw new Error("That drug could no longer be found.");
+    const before = fromRow(existing);
+    const { error } = await supabase
+      .from("pv_products")
+      .update({ data: toJson({ ...input }) })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      action: "PRODUCT_UPDATED",
+      entity: "Product",
+      entityId: id,
+      previousValue: describeHolder(before),
+      newValue: describeHolder(input),
+      reason: `Catalog entry for ${input.name} edited`,
+    });
+    return { id, ...input };
   },
 
   /** Inserts every row not already present (case-insensitive name match),

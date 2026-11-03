@@ -41,6 +41,9 @@ import {
   matchesClockFilter,
   reportingClock,
 } from "@/services/api/regulatory-clock";
+import { products as productsApi } from "@/services/api/products";
+import { FORWARD_STATE_LABELS, primaryForwardState } from "@/services/api/holder-forwarding";
+import { demoProducts } from "@/services/demo/dataset";
 
 export const Route = createFileRoute("/_app/cases/")({
   head: () => ({
@@ -75,6 +78,13 @@ function CaseWorkbench() {
   const [channel, setChannel] = useState("all");
   const [branch, setBranch] = useState("all");
   const [clockFilter, setClockFilter] = useState("all");
+  const [holderFilter, setHolderFilter] = useState("all");
+  const catalogQuery = usePvQuery(
+    ["products"],
+    () => productsApi.list(),
+    () => demoProducts,
+  );
+  const catalog = catalogQuery.data?.data ?? [];
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -93,6 +103,7 @@ function CaseWorkbench() {
     if (!matchesChannelFilter(c, channel)) return false;
     if (!matchesBranchFilter(c, branch)) return false;
     if (!matchesClockFilter(reportingClock(c), clockFilter)) return false;
+    if (holderFilter !== "all" && primaryForwardState(c, catalog) !== holderFilter) return false;
     if (from && c.receivedDate < from) return false;
     if (to && c.receivedDate > to) return false;
     return true;
@@ -241,6 +252,25 @@ function CaseWorkbench() {
             </Select>
           </div>
 
+          <div>
+            <span className="label-caps">Product holder</span>
+            <Select value={holderFilter} onValueChange={setHolderFilter}>
+              <SelectTrigger className="mt-1 w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {(Object.keys(FORWARD_STATE_LABELS) as (keyof typeof FORWARD_STATE_LABELS)[]).map(
+                  (k) => (
+                    <SelectItem key={k} value={k}>
+                      {FORWARD_STATE_LABELS[k]}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
           {branches.length > 0 ? (
             <div>
               <span className="label-caps">Branch</span>
@@ -336,7 +366,14 @@ function CaseWorkbench() {
                       <td className="mono-num px-3 py-2 whitespace-nowrap">
                         {c.patientIdentifier}
                       </td>
-                      <td className="max-w-52 truncate px-3 py-2">{c.product}</td>
+                      <td className="max-w-52 px-3 py-2">
+                        <span className="block truncate">{c.product}</span>
+                        {primaryForwardState(c, catalog) === "AWAITING" ? (
+                          <StatusPill tone="warning" className="mt-1">
+                            Forward to holder
+                          </StatusPill>
+                        ) : null}
+                      </td>
                       <td className="max-w-52 truncate px-3 py-2">{c.reaction}</td>
                       <td
                         className={

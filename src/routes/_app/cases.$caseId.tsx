@@ -10,6 +10,7 @@ import { usePvQuery } from "@/lib/data-source";
 import { describeIntake } from "@/services/api/intake-channel";
 import { CLOCK_TONE, isPastDue, reportingClock } from "@/services/api/regulatory-clock";
 import type { CaseSummary } from "@/types/pv";
+import { HolderForwardPanel } from "@/components/pv/holder-forward-panel";
 
 function NafdacClockPill({ c }: { c: CaseSummary }) {
   const clock = reportingClock(c);
@@ -913,6 +914,14 @@ function CaseDetailPage() {
                       }}
                     />
                   ) : null}
+
+                  <HolderForwardPanel
+                    c={c}
+                    onSaved={() => {
+                      query.refetch();
+                      auditQuery.refetch();
+                    }}
+                  />
 
                   <div className="grid gap-4 xl:grid-cols-2">
                     <Section title="Patient">

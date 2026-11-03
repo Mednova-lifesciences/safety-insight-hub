@@ -486,6 +486,7 @@ function IcsrIntakeFormFields({
           medicalHistory: form["patientHistory"],
         },
         product: {
+          ...(lockedProduct ? { catalogId: lockedProduct.id } : {}),
           reportedName: form["productName"],
           dose: form["productDose"],
           route: form["productRoute"],
