@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 interface ReportSearch {
   productId: string;
   branch?: string | undefined;
+  /** The reporter could not find the medicine in the list. */
+  unlisted?: boolean | undefined;
 }
 
 export const Route = createFileRoute("/r/$orgSlug/report")({
@@ -19,6 +21,7 @@ export const Route = createFileRoute("/r/$orgSlug/report")({
   validateSearch: (search: Record<string, unknown>): ReportSearch => ({
     productId: typeof search["productId"] === "string" ? search["productId"] : "",
     branch: cleanBranch(search["branch"]),
+    unlisted: search["unlisted"] === true || search["unlisted"] === "true" ? true : undefined,
   }),
   head: () => ({
     meta: [
@@ -41,7 +44,7 @@ export const Route = createFileRoute("/r/$orgSlug/report")({
 
 function PublicReportPage() {
   const { orgSlug } = Route.useParams();
-  const { productId, branch } = Route.useSearch();
+  const { productId, branch, unlisted } = Route.useSearch();
   const navigate = useNavigate();
 
   const orgQuery = useQuery({
@@ -69,7 +72,7 @@ function PublicReportPage() {
   const org = orgQuery.data;
   const drug = drugsQuery.data?.find((d) => d.id === productId);
 
-  if (!org || !drug) {
+  if (!org || (!drug && !unlisted)) {
     return (
       <div className="mx-auto max-w-md px-6 py-16 text-center">
         <p className="text-sm font-medium">
@@ -86,7 +89,7 @@ function PublicReportPage() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-card/95 px-4 py-2.5 backdrop-blur">
         <Button variant="ghost" size="sm" onClick={backToPicker}>
-          <ArrowLeft className="size-4" /> Change drug
+          <ArrowLeft className="size-4" /> {unlisted ? "Back to drug list" : "Change drug"}
         </Button>
         <div className="ml-auto flex items-center gap-2">
           <ShieldCheck className="size-5 text-primary" />
@@ -95,7 +98,8 @@ function PublicReportPage() {
       </header>
 
       <IcsrIntakeForm
-        lockedProduct={drug}
+        lockedProduct={unlisted ? undefined : drug}
+        unlistedProduct={unlisted}
         onChangeDrug={backToPicker}
         submitOverride={(payload) => createPublicCase(org.id, payload)}
         fixedIntake={

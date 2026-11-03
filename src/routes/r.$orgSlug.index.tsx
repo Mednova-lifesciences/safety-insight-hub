@@ -136,6 +136,26 @@ function DrugPickerPage() {
                 ))
               )}
             </div>
+            <div className="mt-6 rounded-md border border-dashed border-border px-4 py-3 text-sm">
+              <p className="text-muted-foreground">
+                Can&apos;t find the medicine? You can still report it.
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  navigate({
+                    to: "/r/$orgSlug/report",
+                    params: { orgSlug },
+                    search: branch
+                      ? { productId: "", unlisted: true, branch }
+                      : { productId: "", unlisted: true },
+                  })
+                }
+                className="mt-2 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:border-primary hover:bg-accent"
+              >
+                Report a medicine not in the list
+              </button>
+            </div>
           </>
         )}
       </main>
