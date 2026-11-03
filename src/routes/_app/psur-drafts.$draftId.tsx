@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, CheckCircle2, RefreshCw, Undo2 } from "lucide-react";
@@ -347,6 +347,13 @@ function DraftWorkspace() {
     queryFn: () => psurDrafts.get(draftId),
   });
   const [selected, setSelected] = useState<DraftSectionId | "CHECK">("TITLE_PAGE");
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Picking a section low in the list leaves the page scrolled down; bring
+  // the chosen section's start back into view.
+  useEffect(() => {
+    const el = contentRef.current;
+    if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" });
+  }, [selected]);
   const [exporting, setExporting] = useState<DraftVersion | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -492,18 +499,20 @@ function DraftWorkspace() {
             })}
           </ul>
         </nav>
-        {selected === "CHECK" ? (
-          <PresubmissionPanel draft={draft} />
-        ) : (
-          <SectionEditor
-            key={selected}
-            draft={draft}
-            id={selected}
-            canEdit={canEdit}
-            status={readiness.statuses[selected]}
-            onChange={setDraft}
-          />
-        )}
+        <div ref={contentRef} className="min-w-0 scroll-mt-20">
+          {selected === "CHECK" ? (
+            <PresubmissionPanel draft={draft} />
+          ) : (
+            <SectionEditor
+              key={selected}
+              draft={draft}
+              id={selected}
+              canEdit={canEdit}
+              status={readiness.statuses[selected]}
+              onChange={setDraft}
+            />
+          )}
+        </div>
       </div>
     </>
   );
