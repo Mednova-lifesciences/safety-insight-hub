@@ -2,12 +2,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { currentActor, newId, pushNotification, recordAudit, stepStates, toJson } from "./db";
 import { linelist, type ParsedRow } from "./linelist";
 import { resolveIntake } from "./intake-channel";
+import type { ForwardInput } from "./holder-forwarding";
 import type {
   CaseDetail,
   CaseSummary,
   CodedTerm,
   DynamicField,
   FollowUpRequest,
+  HolderForward,
   LineListJob,
   RawExtractionRecord,
   Seriousness,
@@ -70,7 +72,7 @@ export interface NewIcsrPayload {
   branch?: string;
 }
 
-const str =(v: unknown, fallback = "") =>
+const str = (v: unknown, fallback = "") =>
   typeof v === "string" && v.trim().length > 0 ? v.trim() : fallback;
 
 async function allCases(): Promise<CaseDetail[]> {
@@ -116,6 +118,7 @@ export function buildCaseDetail(
     flags: seriousness === "SERIOUS" ? ["EXPEDITED"] : [],
     source: "MANUAL",
     ...resolveIntake(payload.intakeChannel, payload.branch),
+    ...(str(payload.product["catalogId"]) ? { productId: str(payload.product["catalogId"]) } : {}),
     reporter: {
       name: str(payload.reporter["name"], "Unknown reporter"),
       qualification: str(payload.reporter["qualification"], "Not stated"),
@@ -601,6 +604,40 @@ export const cases = {
    * require the stricter resubmit-to-Intake workflow reset that editing
    * patient/reporter/product/reaction does.
    */
+  recordHolderForward: async (caseId: string, input: ForwardInput): Promise<CaseDetail> => {
+    const actor = currentActor();
+    const detail = await cases.get(caseId);
+    const forward: HolderForward = {
+      id: newId("fwd"),
+      productName: input.productName.trim(),
+      holder: input.holder.trim(),
+      ...(input.contact?.trim() ? { contact: input.contact.trim() } : {}),
+      method: input.method,
+      sentOn: input.sentOn,
+      ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+      recordedBy: actor.name,
+      recordedAt: new Date().toISOString(),
+    };
+    const next: CaseDetail = {
+      ...detail,
+      holderForwards: [...(detail.holderForwards ?? []), forward],
+    };
+    const { error } = await supabase
+      .from("pv_cases")
+      .update({ data: toJson(next), updated_at: new Date().toISOString() })
+      .eq("id", caseId);
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      action: "CASE_FORWARDED_TO_HOLDER",
+      entity: "Case",
+      entityId: caseId,
+      newValue: `${forward.productName} → ${forward.holder} (${forward.method.toLowerCase()}, sent ${forward.sentOn})`,
+      reason:
+        forward.note ?? "Third-party product report passed to its marketing authorisation holder",
+    });
+    return next;
+  },
+
   updateDynamicFields: async (
     caseId: string,
     dynamicFields: DynamicField[],

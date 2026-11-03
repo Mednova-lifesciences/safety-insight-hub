@@ -55,6 +55,7 @@ export const demoProducts: import("@/services/api/products").CatalogDrug[] = [
     activeIngredient: "Amoxicillin",
     strength: "500mg",
     route: "Oral",
+    ownBrand: true,
   },
   {
     id: "drug-demo-2",
@@ -62,6 +63,7 @@ export const demoProducts: import("@/services/api/products").CatalogDrug[] = [
     activeIngredient: "Artemether, Lumefantrine",
     strength: "20/120mg",
     route: "Oral",
+    holder: "Example Pharma Ltd (demo)",
   },
   {
     id: "drug-demo-3",
