@@ -691,6 +691,27 @@ export type Database = {
         };
         Relationships: [];
       };
+      pv_psur_drafts: {
+        Row: {
+          created_at: string;
+          data: Json;
+          id: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          data: Json;
+          id: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          data?: Json;
+          id?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       pv_pms_referrals: {
         Row: {
           created_at: string;
