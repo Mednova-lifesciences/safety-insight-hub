@@ -238,6 +238,46 @@ export function presubmissionCheck(draft: PsurDraft, today = todayIso()): Presub
         "This system cannot see VigiFlow. If you can, state in the Section 6 comment how many of these ICSRs were submitted to NAFDAC.",
     },
   );
+  if (draft.facts) {
+    const rows = [...draft.facts.lineListing, ...draft.facts.lateBreaking];
+    const ids = (r: typeof rows) => r.map((x) => x.caseId).join(", ");
+    const fatalNotSerious = rows.filter(
+      (r) => r.outcome === "FATAL" && r.seriousness !== "SERIOUS",
+    );
+    const uncoded = draft.facts.lineListing.filter((r) => !r.coded);
+    const onsetAfter = rows.filter((r) => r.onsetDate && r.onsetDate > r.receivedDate);
+    items.push(
+      {
+        key: "DATA_FATAL_NOT_SERIOUS",
+        label:
+          "Every case with a fatal outcome is classed serious (death is a seriousness criterion).",
+        ...(fatalNotSerious.length
+          ? {
+              result: "ACTION" as const,
+              detail: `Correct the case record, then refresh: ${ids(fatalNotSerious)}.`,
+            }
+          : { result: "PASS" as const, detail: "No fatal case is recorded as non-serious." }),
+      },
+      {
+        key: "DATA_CODED",
+        label:
+          "Reactions in the interval are coded to MedDRA, so the tabulations use preferred terms.",
+        ...(uncoded.length
+          ? {
+              result: "ACTION" as const,
+              detail: `Code these cases, then refresh: ${ids(uncoded)}.`,
+            }
+          : { result: "PASS" as const, detail: "Every case in the interval is coded." }),
+      },
+      {
+        key: "DATA_ONSET_DATES",
+        label: "Reaction onset dates are not later than the date the report was received.",
+        ...(onsetAfter.length
+          ? { result: "ACTION" as const, detail: `Check the onset date on: ${ids(onsetAfter)}.` }
+          : { result: "PASS" as const, detail: "No onset date falls after its report." }),
+      },
+    );
+  }
   return items;
 }
 

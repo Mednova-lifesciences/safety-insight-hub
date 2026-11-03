@@ -446,7 +446,9 @@ export function sectionBlocks(draft: PsurDraft, id: DraftSectionId): Block[] {
           caption: `Signals recorded for ${draft.productName}`,
           origin: "RECORDS",
           headers: [
+            "Product (as recorded)",
             "Reaction",
+            "Source",
             "Status",
             "Detection method",
             "Period",
@@ -454,7 +456,9 @@ export function sectionBlocks(draft: PsurDraft, id: DraftSectionId): Block[] {
             "Decision rationale",
           ],
           rows: f.signals.map((x) => [
+            x.product,
             x.reaction,
+            x.origin,
             SIGNAL_STATE[x.status] ?? x.status,
             x.method,
             x.detectionPeriod,

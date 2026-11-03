@@ -120,6 +120,9 @@ describe("pre-submission check", () => {
       "NIGERIAN_EXPOSURE",
       "NIGERIAN_CASES",
       "NIGERIAN_RECONCILIATION",
+      "DATA_FATAL_NOT_SERIOUS",
+      "DATA_CODED",
+      "DATA_ONSET_DATES",
     ]);
   });
 
@@ -145,5 +148,126 @@ describe("pre-submission check", () => {
     );
     const off = presubmissionCheck({ ...complete(), ibd: "2019-07-15" }, "2026-09-10");
     expect(off.find((i) => i.key === "IBD_AND_FIRST_REGISTRATION_STATED")?.result).toBe("ACTION");
+  });
+});
+
+describe("found in the live test", () => {
+  // The live Paracetamol data, reduced: one serious uncoded case, and one
+  // fatal case recorded as non-serious with an onset after receipt.
+  const liveFacts = buildDraftFacts({
+    drug: { id: "d1", name: "Paracetamol", ownBrand: true },
+    periodStart: "2025-08-31",
+    dlp: "2026-08-31",
+    cases: [
+      {
+        id: "MN-1",
+        patientIdentifier: "P",
+        product: "paracetamol",
+        reaction: "rashes",
+        seriousness: "SERIOUS",
+        outcome: "UNKNOWN",
+        workflowStep: "QC",
+        assignedTo: "x",
+        receivedDate: "2026-08-19",
+        dueDate: "",
+        priority: "HIGH",
+        flags: [],
+        source: "MANUAL",
+      },
+      {
+        id: "MN-12",
+        patientIdentifier: "P",
+        product: "Paracetamol",
+        reaction: "RASHES",
+        seriousness: "NON_SERIOUS",
+        outcome: "FATAL",
+        workflowStep: "QC",
+        assignedTo: "x",
+        receivedDate: "2026-08-27",
+        dueDate: "",
+        priority: "LOW",
+        flags: [],
+        source: "MANUAL",
+        reactions: [
+          {
+            reportedTerm: "RASHES",
+            outcome: "FATAL",
+            onsetDate: "2026-09-12",
+            codedTerm: {
+              term: "Rash",
+              code: "10037844",
+              dictionary: "MedDRA",
+              dictionaryVersion: "x",
+            },
+          },
+        ],
+      },
+    ],
+    signals: [
+      {
+        id: "s",
+        reference: "S",
+        product: "paracetamol syrup",
+        reaction: "severe hepatotoxicity",
+        detectionMethod: "Local literature screening",
+        detectionPeriod: "2026",
+        caseCount: 0,
+        statistic: [],
+        supportingCaseIds: [],
+        status: "UNDER_REVIEW",
+        literature: {
+          articleId: "a",
+          publication: "Lagos Health Watch",
+          headline: "h",
+          publicationDate: "2026-03-10",
+          author: "a",
+          keywords: [],
+          contextSnippet: "",
+          riskLevel: "HIGH",
+        },
+      },
+      {
+        id: "t",
+        reference: "T",
+        product: "Paracetamolx",
+        reaction: "x",
+        detectionMethod: "m",
+        detectionPeriod: "p",
+        caseCount: 1,
+        statistic: [],
+        supportingCaseIds: [],
+        status: "POTENTIAL",
+      },
+    ],
+    registrations: [],
+    organisation: "Demo",
+  });
+
+  it("counts serious in the table exactly as the text does", () => {
+    const tableSerious = liveFacts.reactions.reduce((n, r) => n + r.intervalSerious, 0);
+    expect(tableSerious).toBe(liveFacts.interval.serious);
+  });
+
+  it("finds a signal naming the product as a whole word, shown as recorded", () => {
+    expect(liveFacts.signals.map((s) => [s.product, s.origin, s.status])).toEqual([
+      ["paracetamol syrup", "Literature", "UNDER_REVIEW"],
+    ]);
+  });
+
+  it("flags the record problems before export", () => {
+    const items = presubmissionCheck({ ...base, facts: liveFacts }, "2026-09-10");
+    const get = (k: string) => items.find((i) => i.key === k)!;
+    expect(get("DATA_FATAL_NOT_SERIOUS")).toMatchObject({
+      result: "ACTION",
+      detail: expect.stringContaining("MN-12"),
+    });
+    expect(get("DATA_CODED")).toMatchObject({
+      result: "ACTION",
+      detail: expect.stringContaining("MN-1"),
+    });
+    expect(get("DATA_ONSET_DATES")).toMatchObject({
+      result: "ACTION",
+      detail: expect.stringContaining("MN-12"),
+    });
   });
 });
