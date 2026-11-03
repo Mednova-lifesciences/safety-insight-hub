@@ -16,6 +16,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as AppAiLogRouteImport } from './routes/_app/ai-log'
 import { Route as AppAuditRouteImport } from './routes/_app/audit'
+import { Route as AppBranchesRouteImport } from './routes/_app/branches'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppDrugsRouteImport } from './routes/_app/drugs'
 import { Route as AppE2bRouteImport } from './routes/_app/e2b'
@@ -73,6 +74,11 @@ const AppAiLogRoute = AppAiLogRouteImport.update({
 const AppAuditRoute = AppAuditRouteImport.update({
   id: '/audit',
   path: '/audit',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBranchesRoute = AppBranchesRouteImport.update({
+  id: '/branches',
+  path: '/branches',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
@@ -203,6 +209,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/ai-log': typeof AppAiLogRoute
   '/audit': typeof AppAuditRoute
+  '/branches': typeof AppBranchesRoute
   '/dashboard': typeof AppDashboardRoute
   '/drugs': typeof AppDrugsRoute
   '/e2b': typeof AppE2bRoute
@@ -235,6 +242,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/ai-log': typeof AppAiLogRoute
   '/audit': typeof AppAuditRoute
+  '/branches': typeof AppBranchesRoute
   '/dashboard': typeof AppDashboardRoute
   '/drugs': typeof AppDrugsRoute
   '/e2b': typeof AppE2bRoute
@@ -269,6 +277,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_app/ai-log': typeof AppAiLogRoute
   '/_app/audit': typeof AppAuditRoute
+  '/_app/branches': typeof AppBranchesRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/drugs': typeof AppDrugsRoute
   '/_app/e2b': typeof AppE2bRoute
@@ -303,6 +312,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/ai-log'
     | '/audit'
+    | '/branches'
     | '/dashboard'
     | '/drugs'
     | '/e2b'
@@ -335,6 +345,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/ai-log'
     | '/audit'
+    | '/branches'
     | '/dashboard'
     | '/drugs'
     | '/e2b'
@@ -368,6 +379,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_app/ai-log'
     | '/_app/audit'
+    | '/_app/branches'
     | '/_app/dashboard'
     | '/_app/drugs'
     | '/_app/e2b'
@@ -455,6 +467,13 @@ declare module '@tanstack/react-router' {
       path: '/audit'
       fullPath: '/audit'
       preLoaderRoute: typeof AppAuditRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/branches': {
+      id: '/_app/branches'
+      path: '/branches'
+      fullPath: '/branches'
+      preLoaderRoute: typeof AppBranchesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/dashboard': {
@@ -631,6 +650,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppAiLogRoute: typeof AppAiLogRoute
   AppAuditRoute: typeof AppAuditRoute
+  AppBranchesRoute: typeof AppBranchesRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDrugsRoute: typeof AppDrugsRoute
   AppE2bRoute: typeof AppE2bRoute
@@ -656,6 +676,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAiLogRoute: AppAiLogRoute,
   AppAuditRoute: AppAuditRoute,
+  AppBranchesRoute: AppBranchesRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDrugsRoute: AppDrugsRoute,
   AppE2bRoute: AppE2bRoute,

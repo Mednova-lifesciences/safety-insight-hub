@@ -19,6 +19,7 @@ import {
   Pill,
   Radar,
   Settings,
+  Store,
   ShieldCheck,
   Timer,
 } from "lucide-react";
@@ -119,6 +120,13 @@ export const NAV: NavGroup[] = [
         label: "Drug Catalog",
         icon: Pill,
         permission: "catalog.view",
+        hiddenForRoles: ASSESSOR_ROLES,
+      },
+      {
+        to: "/branches",
+        label: "Branches",
+        icon: Store,
+        permission: "team.view",
         hiddenForRoles: ASSESSOR_ROLES,
       },
       {
