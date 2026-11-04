@@ -1,4 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { Bell } from "lucide-react";
 import { notifications as notificationsApi } from "@/services/api/notifications";
 import { demoNotifications } from "@/services/demo/dataset";
@@ -9,7 +10,9 @@ import { Button } from "@/components/ui/button";
 import {
   EmptyState,
   PageHeader,
+  Pager,
   QueryBoundary,
+  paginate,
   Section,
   SourceTag,
   StatusPill,
@@ -60,6 +63,8 @@ function NotificationsPage() {
     () => notificationsApi.list(role),
     () => demoNotifications,
   );
+  const [page, setPage] = useState(1);
+  const [unreadOnly, setUnreadOnly] = useState(false);
   return (
     <>
       <PageHeader
@@ -68,57 +73,81 @@ function NotificationsPage() {
         meta={query.data ? <SourceTag source={query.data.source} /> : null}
       />
       <div className="p-6">
-        <Section title="All notifications">
+        <Section
+          title="All notifications"
+          description="Unread first, then newest. 10 to a page."
+          actions={
+            <Button
+              size="sm"
+              variant={unreadOnly ? "default" : "outline"}
+              aria-pressed={unreadOnly}
+              onClick={() => {
+                setUnreadOnly((v) => !v);
+                setPage(1);
+              }}
+            >
+              {unreadOnly ? "Showing unread only" : "Show unread only"}
+            </Button>
+          }
+        >
           <QueryBoundary query={query}>
-            {(items) =>
-              items.length === 0 ? (
-                <EmptyState title="Nothing to review" />
+            {(all) => {
+              const items = [...all]
+                .filter((n) => !unreadOnly || !n.read)
+                .sort((a, b) => Number(a.read) - Number(b.read) || b.at.localeCompare(a.at));
+              const pageCount = Math.max(1, Math.ceil(items.length / 10));
+              const shownPage = Math.min(page, pageCount);
+              return items.length === 0 ? (
+                <EmptyState title={unreadOnly ? "No unread notifications" : "Nothing to review"} />
               ) : (
-                <ul className="divide-y divide-border">
-                  {items.map((n) => (
-                    <li key={n.id} className="flex flex-wrap items-start gap-3 py-3">
-                      <Bell
-                        className={
-                          n.read
-                            ? "mt-0.5 size-4 text-muted-foreground"
-                            : "mt-0.5 size-4 text-primary"
-                        }
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-medium">{n.title}</p>
-                          <StatusPill tone={tone[n.type]}>
-                            {n.type.replaceAll("_", " ").toLowerCase()}
-                          </StatusPill>
-                          {!n.read ? <StatusPill tone="info">unread</StatusPill> : null}
+                <div className="space-y-3">
+                  <ul className="divide-y divide-border">
+                    {paginate(items, shownPage).map((n) => (
+                      <li key={n.id} className="flex flex-wrap items-start gap-3 py-3">
+                        <Bell
+                          className={
+                            n.read
+                              ? "mt-0.5 size-4 text-muted-foreground"
+                              : "mt-0.5 size-4 text-primary"
+                          }
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-medium">{n.title}</p>
+                            <StatusPill tone={tone[n.type]}>
+                              {n.type.replaceAll("_", " ").toLowerCase()}
+                            </StatusPill>
+                            {!n.read ? <StatusPill tone="info">unread</StatusPill> : null}
+                          </div>
+                          <p className="mt-0.5 text-sm text-muted-foreground">{n.body}</p>
                         </div>
-                        <p className="mt-0.5 text-sm text-muted-foreground">{n.body}</p>
-                      </div>
-                      <span className="mono-num text-xs text-muted-foreground">
-                        {n.at.replace("T", " ").slice(0, 16)} UTC
-                      </span>
-                      {n.link ? (
-                        <Link to={n.link} className="text-sm text-primary hover:underline">
-                          Open
-                        </Link>
-                      ) : null}
-                      {!n.read ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={async () => {
-                            await notificationsApi.markRead(n.id);
-                            await queryClient.invalidateQueries({ queryKey: ["notifications"] });
-                          }}
-                        >
-                          Mark read
-                        </Button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              )
-            }
+                        <span className="mono-num text-xs text-muted-foreground">
+                          {n.at.replace("T", " ").slice(0, 16)} UTC
+                        </span>
+                        {n.link ? (
+                          <Link to={n.link} className="text-sm text-primary hover:underline">
+                            Open
+                          </Link>
+                        ) : null}
+                        {!n.read ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              await notificationsApi.markRead(n.id);
+                              await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+                            }}
+                          >
+                            Mark read
+                          </Button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                  <Pager page={shownPage} total={items.length} onPageChange={setPage} />
+                </div>
+              );
+            }}
           </QueryBoundary>
         </Section>
       </div>
