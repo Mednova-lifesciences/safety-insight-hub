@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download, Newspaper, ScanSearch, Sparkles, Upload, X } from "lucide-react";
+import { ChevronRight, Download, Newspaper, ScanSearch, Sparkles, Upload, X } from "lucide-react";
 import { ai, type AiLiteratureAnalysis } from "@/services/api/ai";
 import { isNotConfigured } from "@/services/api/client";
 import { recordAudit } from "@/services/api/db";
@@ -13,7 +13,7 @@ import {
   type FlaggedLiteratureSignal,
   type LiteratureArticle,
 } from "@/services/literature/screener";
-import { PageHeader, StatusPill } from "@/components/pv/primitives";
+import { PageHeader, Paged, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -382,98 +382,114 @@ function LiteratureScreeningPage() {
         {results.length > 0 ? (
           <section className="space-y-3">
             <p className="label-caps">Flagged publications</p>
-            {results.map((r) => (
-              <article key={r.flag.article.id} className="panel space-y-3 p-4">
-                <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
-                  <Newspaper className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">{r.flag.article.title}</p>
-                    <p className="mono-num mt-0.5 text-xs text-muted-foreground">
-                      {r.flag.article.publication} · {r.flag.article.date} · {r.flag.article.author}
-                    </p>
-                  </div>
-                  <StatusPill tone={r.flag.riskLevel === "HIGH" ? "critical" : "warning"}>
-                    {r.flag.riskLevel} risk
-                  </StatusPill>
-                  <StatusPill tone={r.flag.article.origin === "demo" ? "neutral" : "info"}>
-                    {r.flag.article.origin === "demo" ? "Demo corpus" : "Pasted"}
-                  </StatusPill>
-                  {r.signalReference ? (
-                    <StatusPill tone="success">Signal {r.signalReference}</StatusPill>
-                  ) : null}
-                </div>
-
-                <div className="flex flex-wrap gap-1.5">
-                  {r.flag.keywords.map((k) => (
-                    <StatusPill key={k} tone="assist">
-                      {k}
-                    </StatusPill>
-                  ))}
-                </div>
-
-                <p className="border-l-2 border-border pl-3 text-xs italic text-muted-foreground">
-                  {r.flag.snippet}
-                </p>
-
-                {r.aiState === "done" && r.ai ? (
-                  <div className="space-y-2 rounded-md border border-assist/30 bg-assist-soft px-3 py-2.5 text-sm">
-                    <p className="flex items-center gap-1.5 text-xs font-medium text-assist">
-                      <Sparkles className="size-3.5" /> AI assist — review before acting
-                      {r.aiNote ? (
-                        <span className="font-normal text-muted-foreground">· {r.aiNote}</span>
+            <Paged items={results}>
+              {(pageItems) =>
+                pageItems.map((r) => (
+                  <details key={r.flag.article.id} className="group panel p-4">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-start gap-x-3 gap-y-1 [&::-webkit-details-marker]:hidden">
+                      <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+                      <Newspaper className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">{r.flag.article.title}</p>
+                        <p className="mono-num mt-0.5 text-xs text-muted-foreground">
+                          {r.flag.article.publication} · {r.flag.article.date} ·{" "}
+                          {r.flag.article.author}
+                        </p>
+                      </div>
+                      <StatusPill tone={r.flag.riskLevel === "HIGH" ? "critical" : "warning"}>
+                        {r.flag.riskLevel} risk
+                      </StatusPill>
+                      <StatusPill tone={r.flag.article.origin === "demo" ? "neutral" : "info"}>
+                        {r.flag.article.origin === "demo" ? "Demo corpus" : "Pasted"}
+                      </StatusPill>
+                      {r.signalReference ? (
+                        <StatusPill tone="success">Signal {r.signalReference}</StatusPill>
                       ) : null}
-                    </p>
-                    <p>{r.ai.summary}</p>
-                    {r.ai.products.length > 0 || r.ai.reaction_terms.length > 0 ? (
+                    </summary>
+
+                    <div className="mt-3 space-y-3">
                       <div className="flex flex-wrap gap-1.5">
-                        {r.ai.products.map((p) => (
-                          <StatusPill key={`p-${p}`} tone="neutral">
-                            {p}
-                          </StatusPill>
-                        ))}
-                        {r.ai.reaction_terms.map((t) => (
-                          <StatusPill key={`r-${t}`} tone="warning">
-                            {t}
+                        {r.flag.keywords.map((k) => (
+                          <StatusPill key={k} tone="assist">
+                            {k}
                           </StatusPill>
                         ))}
                       </div>
-                    ) : null}
-                    <p className="text-xs text-muted-foreground">{r.ai.rationale}</p>
-                  </div>
-                ) : null}
-                {r.aiState === "unavailable" ? (
-                  <div className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-xs text-foreground">
-                    {r.aiNote}
-                  </div>
-                ) : null}
-                {r.aiState === "loading" ? (
-                  <p className="animate-pulse text-xs text-muted-foreground">Analyzing with AI…</p>
-                ) : null}
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={r.aiState === "loading" || r.aiState === "done"}
-                    onClick={() => analyzeWithAi(r)}
-                  >
-                    <Sparkles className="size-4" />
-                    {r.aiState === "done" ? "AI analysis applied" : "Analyze with AI"}
-                  </Button>
-                  <Button size="sm" disabled={!!r.signalReference} onClick={() => createSignal(r)}>
-                    Create signal
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => dismiss(r)}>
-                    <X className="size-4" /> Dismiss
-                  </Button>
-                  {r.signalReference ? (
-                    <Button asChild size="sm" variant="ghost">
-                      <Link to="/signals">View on Signal review</Link>
-                    </Button>
-                  ) : null}
-                </div>
-              </article>
-            ))}
+                      <p className="border-l-2 border-border pl-3 text-xs italic text-muted-foreground">
+                        {r.flag.snippet}
+                      </p>
+
+                      {r.aiState === "done" && r.ai ? (
+                        <div className="space-y-2 rounded-md border border-assist/30 bg-assist-soft px-3 py-2.5 text-sm">
+                          <p className="flex items-center gap-1.5 text-xs font-medium text-assist">
+                            <Sparkles className="size-3.5" /> AI assist — review before acting
+                            {r.aiNote ? (
+                              <span className="font-normal text-muted-foreground">
+                                · {r.aiNote}
+                              </span>
+                            ) : null}
+                          </p>
+                          <p>{r.ai.summary}</p>
+                          {r.ai.products.length > 0 || r.ai.reaction_terms.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {r.ai.products.map((p) => (
+                                <StatusPill key={`p-${p}`} tone="neutral">
+                                  {p}
+                                </StatusPill>
+                              ))}
+                              {r.ai.reaction_terms.map((t) => (
+                                <StatusPill key={`r-${t}`} tone="warning">
+                                  {t}
+                                </StatusPill>
+                              ))}
+                            </div>
+                          ) : null}
+                          <p className="text-xs text-muted-foreground">{r.ai.rationale}</p>
+                        </div>
+                      ) : null}
+                      {r.aiState === "unavailable" ? (
+                        <div className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-xs text-foreground">
+                          {r.aiNote}
+                        </div>
+                      ) : null}
+                      {r.aiState === "loading" ? (
+                        <p className="animate-pulse text-xs text-muted-foreground">
+                          Analyzing with AI…
+                        </p>
+                      ) : null}
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={r.aiState === "loading" || r.aiState === "done"}
+                          onClick={() => analyzeWithAi(r)}
+                        >
+                          <Sparkles className="size-4" />
+                          {r.aiState === "done" ? "AI analysis applied" : "Analyze with AI"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={!!r.signalReference}
+                          onClick={() => createSignal(r)}
+                        >
+                          Create signal
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => dismiss(r)}>
+                          <X className="size-4" /> Dismiss
+                        </Button>
+                        {r.signalReference ? (
+                          <Button asChild size="sm" variant="ghost">
+                            <Link to="/signals">View on Signal review</Link>
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </details>
+                ))
+              }
+            </Paged>
           </section>
         ) : null}
       </div>

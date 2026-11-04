@@ -231,7 +231,7 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
     <div className="space-y-4">
       <Section
         title="Coding assist"
-        description="Reactions are matched against MedDRA and products against the WHODrug catalogue. Where nothing matches, the AI may suggest a term name — always labelled, never given a code. Accept, reject, or choose another term; every decision is recorded."
+        description="Reactions are matched against MedDRA 29.1. Products are matched against a short sample product list, not a licensed WHODrug dictionary, so product codes are placeholders until a WHODrug licence is connected. Where nothing matches, the AI may suggest a term name — always labelled, never given a code. Accept, reject, or choose another term; every decision is recorded."
         actions={
           <div className="flex items-center gap-2">
             <AssistLabel>Recommendations — confirmation required</AssistLabel>
@@ -282,7 +282,9 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
             return (
               <div className="space-y-5">
                 <div>
-                  <p className="label-caps mb-1">Drug / product coding (WHODrug)</p>
+                  <p className="label-caps mb-1">
+                    Drug / product coding (sample list, not WHODrug)
+                  </p>
                   <ul className="divide-y divide-border rounded-md border border-border">
                     {drugs.length ? (
                       drugs.map((s) => (
@@ -373,7 +375,7 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
             onChange={(e) => setDictDictionary(e.target.value as "MedDRA" | "WHODrug")}
           >
             <option value="MedDRA">MedDRA (reactions)</option>
-            <option value="WHODrug">WHODrug (drugs)</option>
+            <option value="WHODrug">Products (sample list)</option>
           </select>
           <Button type="submit" variant="outline" size="sm" disabled={dictSearching}>
             <Search className="size-4" /> {dictSearching ? "Searching…" : "Search"}

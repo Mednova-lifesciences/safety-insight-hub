@@ -35,6 +35,8 @@ export interface ReactionRow {
   /** MedDRA preferred term where the case has been coded, else the term as reported. */
   term: string;
   coded: boolean;
+  /** Primary MedDRA system organ class, when the dictionary service resolved it. */
+  soc?: string | undefined;
   interval: number;
   intervalSerious: number;
   cumulative: number;
@@ -138,6 +140,29 @@ function reactionOf(c: CaseRecord): { term: string; coded: boolean } {
   return coded ? { term: coded, coded: true } : { term: c.reaction, coded: false };
 }
 
+/** The preferred term and primary SOC of a MedDRA lowest level term. */
+export type MeddraLookup = Map<string, { preferredTerm: string; soc: string }>;
+
+/** MedDRA LLT codes of the coded reactions in these cases (for the lookup). */
+export function codedReactionCodes(cases: CaseRecord[]): string[] {
+  const codes = new Set<string>();
+  for (const c of cases) {
+    const t = c.reactions?.[0]?.codedTerm;
+    if (t?.dictionary === "MedDRA" && t.code) codes.add(t.code);
+  }
+  return [...codes];
+}
+
+function tabulatedReaction(
+  c: CaseRecord,
+  meddra: MeddraLookup | undefined,
+): { term: string; coded: boolean; soc?: string } {
+  const r = reactionOf(c);
+  const code = c.reactions?.[0]?.codedTerm?.code;
+  const hit = r.coded && code ? meddra?.get(code) : undefined;
+  return hit ? { term: hit.preferredTerm, coded: true, soc: hit.soc } : r;
+}
+
 function lineRow(c: CaseRecord): LineListingRow {
   const r = reactionOf(c);
   return {
@@ -167,6 +192,8 @@ export function buildDraftFacts(input: {
   signals: Signal[];
   registrations: Registration[];
   organisation: string;
+  /** Resolves coded LLTs to PT and primary SOC; without it rows stay as coded. */
+  meddra?: MeddraLookup;
   now?: Date;
 }): DraftFacts {
   const { drug, periodStart, dlp } = input;
@@ -178,13 +205,14 @@ export function buildDraftFacts(input: {
 
   const rows = new Map<string, ReactionRow>();
   for (const c of cumulativeCases) {
-    const r = reactionOf(c);
+    const r = tabulatedReaction(c, input.meddra);
     // Coded and uncoded rows stay apart: a MedDRA term and raw reported text
     // are not the same thing, even when they read alike.
     const key = `${r.coded ? "C" : "U"}:${norm(r.term)}`;
     const row = rows.get(key) ?? {
       term: r.term,
       coded: r.coded,
+      ...(r.soc ? { soc: r.soc } : {}),
       interval: 0,
       intervalSerious: 0,
       cumulative: 0,

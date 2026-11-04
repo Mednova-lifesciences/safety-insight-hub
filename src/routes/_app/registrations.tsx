@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AlertTriangle, Pencil, Plus, Trash2 } from "lucide-react";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { PageHeader, Section, StatusPill } from "@/components/pv/primitives";
+import { PageHeader, Paged, Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -492,17 +492,21 @@ function RegistrationsPage() {
               {alerts.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nothing due.</p>
               ) : (
-                <ul className="space-y-1.5">
-                  {alerts.map((a) => (
-                    <li key={a.key} className="flex flex-wrap items-center gap-2 text-sm">
-                      <StatusPill tone={ALERT_TONE[a.level]}>
-                        {a.level === "EXPIRED" ? "Overdue" : a.date}
-                      </StatusPill>
-                      <span className="font-medium">{a.productName}</span>
-                      <span>{a.title}</span>
-                    </li>
-                  ))}
-                </ul>
+                <Paged items={alerts}>
+                  {(pageAlerts) => (
+                    <ul className="space-y-1.5">
+                      {pageAlerts.map((a) => (
+                        <li key={a.key} className="flex flex-wrap items-center gap-2 text-sm">
+                          <StatusPill tone={ALERT_TONE[a.level]}>
+                            {a.level === "EXPIRED" ? "Overdue" : a.date}
+                          </StatusPill>
+                          <span className="font-medium">{a.productName}</span>
+                          <span>{a.title}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Paged>
               )}
             </Section>
 
@@ -513,66 +517,70 @@ function RegistrationsPage() {
                   alerts.
                 </p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px] text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left">
-                        {[
-                          "Product",
-                          "Reg. no.",
-                          "Holder",
-                          "Issued",
-                          "Expires",
-                          "Validity",
-                          "Variations",
-                          "Commitments",
-                          "",
-                        ].map((h) => (
-                          <th key={h} className="label-caps px-3 py-2 whitespace-nowrap">
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {list.map((r) => {
-                        const openCommitments = r.commitments.filter((c) => !c.done).length;
-                        const pendingVariations = r.variations.filter(
-                          (v) => v.status === "PLANNED" || v.status === "SUBMITTED",
-                        ).length;
-                        return (
-                          <tr key={r.id} className="border-b border-border last:border-0">
-                            <td className="px-3 py-2 font-medium">{r.productName}</td>
-                            <td className="mono-num px-3 py-2">{r.registrationNumber}</td>
-                            <td className="px-3 py-2">{r.holder ?? "—"}</td>
-                            <td className="mono-num px-3 py-2 whitespace-nowrap">
-                              {r.issueDate ?? "—"}
-                            </td>
-                            <td className="mono-num px-3 py-2 whitespace-nowrap">
-                              {r.expiryDate ?? "—"}
-                            </td>
-                            <td className="px-3 py-2 whitespace-nowrap">
-                              <ValidityPill r={r} today={today} />
-                            </td>
-                            <td className="px-3 py-2 text-xs">
-                              {r.variations.length
-                                ? `${r.variations.length} (${pendingVariations} pending)`
-                                : "—"}
-                            </td>
-                            <td className="px-3 py-2 text-xs">
-                              {r.commitments.length
-                                ? `${openCommitments} open of ${r.commitments.length}`
-                                : "—"}
-                            </td>
-                            <td className="px-3 py-2">
-                              <RegistrationDialog registration={r} onSaved={refresh} />
-                            </td>
+                <Paged items={list}>
+                  {(pageList) => (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[900px] text-sm">
+                        <thead>
+                          <tr className="border-b border-border text-left">
+                            {[
+                              "Product",
+                              "Reg. no.",
+                              "Holder",
+                              "Issued",
+                              "Expires",
+                              "Validity",
+                              "Variations",
+                              "Commitments",
+                              "",
+                            ].map((h) => (
+                              <th key={h} className="label-caps px-3 py-2 whitespace-nowrap">
+                                {h}
+                              </th>
+                            ))}
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody>
+                          {pageList.map((r) => {
+                            const openCommitments = r.commitments.filter((c) => !c.done).length;
+                            const pendingVariations = r.variations.filter(
+                              (v) => v.status === "PLANNED" || v.status === "SUBMITTED",
+                            ).length;
+                            return (
+                              <tr key={r.id} className="border-b border-border last:border-0">
+                                <td className="px-3 py-2 font-medium">{r.productName}</td>
+                                <td className="mono-num px-3 py-2">{r.registrationNumber}</td>
+                                <td className="px-3 py-2">{r.holder ?? "—"}</td>
+                                <td className="mono-num px-3 py-2 whitespace-nowrap">
+                                  {r.issueDate ?? "—"}
+                                </td>
+                                <td className="mono-num px-3 py-2 whitespace-nowrap">
+                                  {r.expiryDate ?? "—"}
+                                </td>
+                                <td className="px-3 py-2 whitespace-nowrap">
+                                  <ValidityPill r={r} today={today} />
+                                </td>
+                                <td className="px-3 py-2 text-xs">
+                                  {r.variations.length
+                                    ? `${r.variations.length} (${pendingVariations} pending)`
+                                    : "—"}
+                                </td>
+                                <td className="px-3 py-2 text-xs">
+                                  {r.commitments.length
+                                    ? `${openCommitments} open of ${r.commitments.length}`
+                                    : "—"}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <RegistrationDialog registration={r} onSaved={refresh} />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Paged>
               )}
             </Section>
           </>

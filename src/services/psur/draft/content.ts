@@ -169,6 +169,11 @@ function lineTable(rows: LineListingRow[], caption: string): Block {
   };
 }
 
+/** SOCs alphabetically (ICH order is per SOC); unresolved, then uncoded, last. */
+function socRank(r: { soc?: string | undefined; coded: boolean }): string {
+  return r.soc ? `0${r.soc}` : r.coded ? "1" : "2";
+}
+
 function naOr(draft: PsurDraft, s: SectionDef, key: InputKey): Block[] {
   const reason = draft.sections[s.id]?.notApplicable?.reason;
   if (s.naAllowed && has(reason)) return [{ kind: "para", text: reason.trim(), origin: "NA" }];
@@ -344,22 +349,43 @@ export function sectionBlocks(draft: PsurDraft, id: DraftSectionId): Block[] {
       if (!f) return noFacts();
       const blocks: Block[] = [
         { kind: "para", text: safetyDataSentence(draft, f), origin: "RECORDS" },
-        {
-          kind: "table",
-          caption: `Summary tabulation of adverse reactions for ${draft.productName}: reporting interval and cumulative to ${dlp}`,
-          origin: "RECORDS",
-          headers: [
-            "Reaction (MedDRA PT where coded)",
-            "Interval (serious)",
-            "Cumulative (serious)",
-          ],
-          rows: f.reactions.map((r) => [
-            r.coded ? r.term : `${r.term} (not yet coded)`,
-            `${r.interval} (${r.intervalSerious})`,
-            `${r.cumulative} (${r.cumulativeSerious})`,
-          ]),
-          note: sourceNote(f),
-        },
+        f.reactions.some((r) => r.soc)
+          ? {
+              kind: "table",
+              caption: `Summary tabulation of adverse reactions for ${draft.productName} by MedDRA system organ class: reporting interval and cumulative to ${dlp}`,
+              origin: "RECORDS",
+              headers: [
+                "System organ class",
+                "Preferred term",
+                "Interval (serious)",
+                "Cumulative (serious)",
+              ],
+              rows: [...f.reactions]
+                .sort((a, b) => socRank(a).localeCompare(socRank(b)))
+                .map((r) => [
+                  r.soc ?? (r.coded ? "SOC not resolved" : "Not yet coded"),
+                  r.coded ? r.term : `${r.term} (as reported)`,
+                  `${r.interval} (${r.intervalSerious})`,
+                  `${r.cumulative} (${r.cumulativeSerious})`,
+                ]),
+              note: sourceNote(f),
+            }
+          : {
+              kind: "table",
+              caption: `Summary tabulation of adverse reactions for ${draft.productName}: reporting interval and cumulative to ${dlp}`,
+              origin: "RECORDS",
+              headers: [
+                "Reaction (MedDRA term where coded)",
+                "Interval (serious)",
+                "Cumulative (serious)",
+              ],
+              rows: f.reactions.map((r) => [
+                r.coded ? r.term : `${r.term} (not yet coded)`,
+                `${r.interval} (${r.intervalSerious})`,
+                `${r.cumulative} (${r.cumulativeSerious})`,
+              ]),
+              note: sourceNote(f),
+            },
       ];
       if (f.uncodedInInterval > 0)
         blocks.push({
@@ -566,6 +592,39 @@ export function sectionBlocks(draft: PsurDraft, id: DraftSectionId): Block[] {
           origin: "FIXED",
         },
         ...input(draft, "literatureStrategy"),
+        {
+          kind: "subheading",
+          text: "Appendix V — Tabulated Summary of Signals",
+          origin: "FIXED",
+        },
+        f
+          ? {
+              kind: "para",
+              text: f.signals.length
+                ? `The ${n(f.signals.length, "signal", "signals")} recorded for ${draft.productName} ${f.signals.length === 1 ? "is" : "are"} tabulated in Section 15.`
+                : `No signals were recorded for ${draft.productName} up to ${longDate(f.takenAt)}.`,
+              origin: "RECORDS",
+            }
+          : noFacts()[0]!,
+        {
+          kind: "subheading",
+          text: "Appendix VI — Sources of Safety Information",
+          origin: "FIXED",
+        },
+        ...(f
+          ? [
+              {
+                kind: "para" as const,
+                text: [
+                  f.byChannel.length
+                    ? `Individual case safety reports in the interval, by source: ${f.byChannel.map((c) => `${c.name} (${c.count})`).join("; ")}.`
+                    : "No individual case safety reports were received in the interval.",
+                  "Literature screening and signal detection on the holder's safety database.",
+                ].join(" "),
+                origin: "RECORDS" as const,
+              },
+            ]
+          : noFacts()),
       ];
     }
   }

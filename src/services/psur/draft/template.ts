@@ -347,7 +347,7 @@ export const INPUTS: Record<InputKey, InputDef> = {
   conclusionsActions: {
     key: "conclusionsActions",
     label: "Conclusions and actions",
-    hint: "Overall benefit-risk conclusion, new risks, and any actions proposed (e.g. SmPC update).",
+    hint: "State whether the benefit-risk balance remains favourable, then new risks and any actions proposed (e.g. SmPC update).",
     multiline: true,
     required: true,
   },

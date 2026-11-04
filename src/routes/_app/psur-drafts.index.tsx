@@ -2,7 +2,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CalendarClock } from "lucide-react";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { PageHeader, Section, StatusPill } from "@/components/pv/primitives";
+import { PageHeader, Paged, Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { DraftsNotSetUpError, psurDrafts } from "@/services/psur/draft/drafts";
 import { draftReadiness } from "@/services/psur/draft/status";
@@ -57,34 +57,38 @@ function DraftsPage() {
                 on an own-brand product.
               </p>
             ) : (
-              <ul className="divide-y divide-border">
-                {query.data.map((d) => {
-                  const r = draftReadiness(d);
-                  return (
-                    <li key={d.id} className="flex flex-wrap items-center gap-3 py-2.5">
-                      <Link
-                        to="/psur-drafts/$draftId"
-                        params={{ draftId: d.id }}
-                        className="font-medium text-primary hover:underline"
-                      >
-                        {d.productName}
-                      </Link>
-                      <span className="text-sm text-muted-foreground">
-                        {longDate(intervalFrom(d))} – {longDate(d.dlp)}
-                      </span>
-                      <StatusPill tone={r.cleanAllowed ? "success" : "neutral"}>
-                        {r.done} of {r.total} sections done
-                      </StatusPill>
-                      {d.status === "SENT_TO_QC" ? (
-                        <StatusPill tone="info">Sent to QC</StatusPill>
-                      ) : null}
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        Updated {d.updatedAt.slice(0, 16).replace("T", " ")}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+              <Paged items={query.data}>
+                {(pageDrafts) => (
+                  <ul className="divide-y divide-border">
+                    {pageDrafts.map((d) => {
+                      const r = draftReadiness(d);
+                      return (
+                        <li key={d.id} className="flex flex-wrap items-center gap-3 py-2.5">
+                          <Link
+                            to="/psur-drafts/$draftId"
+                            params={{ draftId: d.id }}
+                            className="font-medium text-primary hover:underline"
+                          >
+                            {d.productName}
+                          </Link>
+                          <span className="text-sm text-muted-foreground">
+                            {longDate(intervalFrom(d))} – {longDate(d.dlp)}
+                          </span>
+                          <StatusPill tone={r.cleanAllowed ? "success" : "neutral"}>
+                            {r.done} of {r.total} sections done
+                          </StatusPill>
+                          {d.status === "SENT_TO_QC" ? (
+                            <StatusPill tone="info">Sent to QC</StatusPill>
+                          ) : null}
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            Updated {d.updatedAt.slice(0, 16).replace("T", " ")}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </Paged>
             )}
           </Section>
         ) : null}

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Download } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { PageHeader, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
+import { PageHeader, Paged, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -238,29 +238,37 @@ function ReportView({ report, quarterly }: { report: ActivityReport; quarterly: 
           {psurDue.length === 0 ? (
             <p className="text-sm text-muted-foreground">None overdue or due within 30 days.</p>
           ) : (
-            <ul className="space-y-1.5 text-sm">
-              {psurDue.map((e) => (
-                <li key={e.drug.id} className="flex flex-wrap items-center gap-2">
-                  <StatusPill tone={e.status === "OVERDUE" ? "critical" : "warning"}>
-                    {e.label}
-                  </StatusPill>
-                  {e.drug.name} — DLP {e.nextDlp}, deadline {e.deadline}
-                </li>
-              ))}
-            </ul>
+            <Paged items={psurDue}>
+              {(pageDue) => (
+                <ul className="space-y-1.5 text-sm">
+                  {pageDue.map((e) => (
+                    <li key={e.drug.id} className="flex flex-wrap items-center gap-2">
+                      <StatusPill tone={e.status === "OVERDUE" ? "critical" : "warning"}>
+                        {e.label}
+                      </StatusPill>
+                      {e.drug.name} — DLP {e.nextDlp}, deadline {e.deadline}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Paged>
           )}
         </Section>
         <Section title="Registrations and commitments">
           {report.registrationAlerts.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nothing due.</p>
           ) : (
-            <ul className="space-y-1.5 text-sm">
-              {report.registrationAlerts.slice(0, 8).map((a) => (
-                <li key={a.key}>
-                  <span className="font-medium">{a.productName}</span> — {a.title}
-                </li>
-              ))}
-            </ul>
+            <Paged items={report.registrationAlerts}>
+              {(pageAlerts) => (
+                <ul className="space-y-1.5 text-sm">
+                  {pageAlerts.map((a) => (
+                    <li key={a.key}>
+                      <span className="font-medium">{a.productName}</span> — {a.title}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Paged>
           )}
         </Section>
       </div>

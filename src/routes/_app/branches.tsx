@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AlertTriangle, Copy, Pencil, Plus, Printer, QrCode as QrIcon } from "lucide-react";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { PageHeader, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
+import { PageHeader, Paged, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
 import { QrCode } from "@/components/pv/qr-code";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -263,81 +263,87 @@ function ActivityTable({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[960px] text-sm">
-        <thead>
-          <tr className="border-b border-border text-left">
-            <th className="label-caps px-3 py-2">Branch</th>
-            <th className="label-caps px-3 py-2">Focal person</th>
-            <th className="label-caps px-3 py-2 text-right">Last 30 days</th>
-            {months.map((m) => (
-              <th key={m} className="label-caps px-2 py-2 text-right">
-                {monthLabel(m)}
-              </th>
-            ))}
-            <th className="label-caps px-3 py-2 text-right">Total</th>
-            <th className="label-caps px-3 py-2">Last report</th>
-            <th className="px-3 py-2" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.name} className="border-b border-border last:border-0">
-              <td className="px-3 py-2">
-                <p className="font-medium">{r.name}</p>
-                <div className="mt-0.5 flex flex-wrap gap-1">
-                  {r.branch?.area ? (
-                    <span className="text-xs text-muted-foreground">{r.branch.area}</span>
-                  ) : null}
-                  {!r.branch ? <StatusPill tone="neutral">Not in register</StatusPill> : null}
-                  {r.branch && !r.branch.active ? (
-                    <StatusPill tone="neutral">Inactive</StatusPill>
-                  ) : null}
-                  {r.silent ? <StatusPill tone="warning">No reports in 30 days</StatusPill> : null}
-                </div>
-              </td>
-              <td className="px-3 py-2 text-xs">
-                {r.branch?.focalPerson ?? <span className="text-muted-foreground">—</span>}
-                {r.branch?.focalPhone ? (
-                  <span className="block text-muted-foreground">{r.branch.focalPhone}</span>
-                ) : null}
-              </td>
-              <td className="mono-num px-3 py-2 text-right font-semibold">{r.last30Days}</td>
-              {r.monthly.map((n, i) => (
-                <td
-                  key={i}
-                  className={
-                    "mono-num px-2 py-2 text-right " + (n === 0 ? "text-muted-foreground" : "")
-                  }
-                >
-                  {n}
-                </td>
+    <Paged items={rows}>
+      {(pageRows) => (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[960px] text-sm">
+            <thead>
+              <tr className="border-b border-border text-left">
+                <th className="label-caps px-3 py-2">Branch</th>
+                <th className="label-caps px-3 py-2">Focal person</th>
+                <th className="label-caps px-3 py-2 text-right">Last 30 days</th>
+                {months.map((m) => (
+                  <th key={m} className="label-caps px-2 py-2 text-right">
+                    {monthLabel(m)}
+                  </th>
+                ))}
+                <th className="label-caps px-3 py-2 text-right">Total</th>
+                <th className="label-caps px-3 py-2">Last report</th>
+                <th className="px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((r) => (
+                <tr key={r.name} className="border-b border-border last:border-0">
+                  <td className="px-3 py-2">
+                    <p className="font-medium">{r.name}</p>
+                    <div className="mt-0.5 flex flex-wrap gap-1">
+                      {r.branch?.area ? (
+                        <span className="text-xs text-muted-foreground">{r.branch.area}</span>
+                      ) : null}
+                      {!r.branch ? <StatusPill tone="neutral">Not in register</StatusPill> : null}
+                      {r.branch && !r.branch.active ? (
+                        <StatusPill tone="neutral">Inactive</StatusPill>
+                      ) : null}
+                      {r.silent ? (
+                        <StatusPill tone="warning">No reports in 30 days</StatusPill>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {r.branch?.focalPerson ?? <span className="text-muted-foreground">—</span>}
+                    {r.branch?.focalPhone ? (
+                      <span className="block text-muted-foreground">{r.branch.focalPhone}</span>
+                    ) : null}
+                  </td>
+                  <td className="mono-num px-3 py-2 text-right font-semibold">{r.last30Days}</td>
+                  {r.monthly.map((n, i) => (
+                    <td
+                      key={i}
+                      className={
+                        "mono-num px-2 py-2 text-right " + (n === 0 ? "text-muted-foreground" : "")
+                      }
+                    >
+                      {n}
+                    </td>
+                  ))}
+                  <td className="mono-num px-3 py-2 text-right">{r.total}</td>
+                  <td className="mono-num px-3 py-2 whitespace-nowrap">{r.lastReport ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {slug ? (
+                        <QrDialog
+                          name={r.name}
+                          orgName={user?.organisation ?? ""}
+                          link={branchLink(origin, slug, r.name)}
+                        />
+                      ) : null}
+                      {setUp ? (
+                        r.branch ? (
+                          <BranchDialog branch={r.branch} all={register} onSaved={onSaved} />
+                        ) : (
+                          <BranchDialog prefillName={r.name} all={register} onSaved={onSaved} />
+                        )
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
               ))}
-              <td className="mono-num px-3 py-2 text-right">{r.total}</td>
-              <td className="mono-num px-3 py-2 whitespace-nowrap">{r.lastReport ?? "—"}</td>
-              <td className="px-3 py-2">
-                <div className="flex flex-wrap justify-end gap-1">
-                  {slug ? (
-                    <QrDialog
-                      name={r.name}
-                      orgName={user?.organisation ?? ""}
-                      link={branchLink(origin, slug, r.name)}
-                    />
-                  ) : null}
-                  {setUp ? (
-                    r.branch ? (
-                      <BranchDialog branch={r.branch} all={register} onSaved={onSaved} />
-                    ) : (
-                      <BranchDialog prefillName={r.name} all={register} onSaved={onSaved} />
-                    )
-                  ) : null}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Paged>
   );
 }
 

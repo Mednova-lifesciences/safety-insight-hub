@@ -63,6 +63,7 @@ function complete(): PsurDraft {
   const inputs = Object.fromEntries(
     (Object.keys(INPUTS) as InputKey[]).map((k) => [k, `Author text for ${k}`]),
   ) as Record<InputKey, string>;
+  inputs.conclusionsActions = "The benefit-risk balance remains favourable.";
   const sections = Object.fromEntries(
     SECTIONS.map((s) => [
       s.id,
@@ -120,8 +121,10 @@ describe("pre-submission check", () => {
       "NIGERIAN_EXPOSURE",
       "NIGERIAN_CASES",
       "NIGERIAN_RECONCILIATION",
+      "BENEFIT_RISK_STATED",
       "DATA_FATAL_NOT_SERIOUS",
       "DATA_CODED",
+      "DATA_SOC",
       "DATA_ONSET_DATES",
     ]);
   });
