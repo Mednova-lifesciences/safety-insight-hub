@@ -87,23 +87,22 @@ describe("the Processing pages", () => {
     ]);
   });
 
-  it("hides nobody — the permission alone governs", () => {
-    // Processing is not role-shaped the way case handling is: anyone
-    // granted these permissions is expected to use these pages. A
-    // restriction, if one is ever wanted, belongs in ROLE_PERMISSIONS where
-    // PermissionGate enforces it on the route too — not in a nav flag that
-    // leaves the page live but invisible.
+  const STAFF: Role[] = ["PV_MANAGER", "PV_COORDINATOR", "FIELD_ASSOCIATE"];
+
+  it("is not in the staff sidebar (the owner's decision, 4 Nov 2026)", () => {
+    // The Processing pages are the NAFDAC assessors' workspace. The PV
+    // Manager and Coordinator keep the permissions (the PSUR calendar and
+    // the backend use them) but not the sidebar entries.
     for (const item of processing!.items) {
-      expect(
-        item.hiddenForRoles,
-        `${item.label} reintroduced a nav-level role filter`,
-      ).toBeUndefined();
+      for (const role of STAFF) {
+        expect(canSee(role, item), `${item.label} shown to ${role}`).toBe(false);
+      }
     }
   });
 
-  it("is visible to every role that can actually open the routes", () => {
+  it("is visible to every assessor role that can actually open the routes", () => {
     for (const item of processing!.items) {
-      for (const role of entitledRoles(item.permission)) {
+      for (const role of entitledRoles(item.permission).filter((r) => !STAFF.includes(r))) {
         expect(canSee(role, item), `${item.label} hidden from ${role}`).toBe(true);
       }
     }

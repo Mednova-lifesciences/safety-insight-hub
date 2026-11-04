@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { RefreshCw } from "lucide-react";
+import { ChevronRight, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { signals as signalsApi } from "@/services/api/signals";
@@ -18,10 +18,12 @@ import { isNotConfigured } from "@/services/api/client";
 import {
   EmptyState,
   PageHeader,
+  Pager,
   QueryBoundary,
   Section,
   SourceTag,
   StatusPill,
+  paginate,
   type Tone,
 } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
@@ -75,6 +77,7 @@ function SignalCard({
   const [mode, setMode] = useState<"CONFIRMED" | "REFUTED" | null>(null);
   const [rationale, setRationale] = useState("");
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   async function decide() {
     if (rationale.trim().length < 10) {
@@ -100,8 +103,25 @@ function SignalCard({
   }
 
   return (
-    <li className="rounded-md border border-border p-4">
-      <div className="flex flex-wrap items-center gap-2">
+    <li className="rounded-md border border-border" data-e2e-signal={s.id}>
+      <div
+        className="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2.5 hover:bg-muted/40"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Hide" : "Show"} details for ${s.reference}`}
+          className="flex size-6 items-center justify-center rounded hover:bg-muted"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+        >
+          <ChevronRight
+            className={"size-4 transition-transform " + (expanded ? "rotate-90" : "")}
+          />
+        </button>
         <span className="mono-num text-sm font-semibold">{s.reference}</span>
         <StatusPill tone={statusTone[s.status]}>
           {s.status.replaceAll("_", " ").toLowerCase()}
@@ -112,147 +132,183 @@ function SignalCard({
         <span className="mono-num ml-auto text-xs text-muted-foreground">{s.caseCount} cases</span>
       </div>
 
-      <dl className="mt-3 grid gap-3 sm:grid-cols-4">
-        <div>
-          <dt className="label-caps">Detection method</dt>
-          <dd className="text-sm">{s.detectionMethod}</dd>
-        </div>
-        <div>
-          <dt className="label-caps">Detection period</dt>
-          <dd className="text-sm">{s.detectionPeriod}</dd>
-        </div>
-        <div className="sm:col-span-2">
-          <dt className="label-caps">Statistical evidence</dt>
-          <dd className="mono-num text-sm">
-            {s.statistic
-              .map((st) => `${st.name} ${st.value}${st.ci ? ` (${st.ci})` : ""}`)
-              .join(" · ")}
-          </dd>
-        </div>
-      </dl>
+      {expanded ? (
+        <div className="border-t border-border px-4 pt-1 pb-4">
+          <dl className="mt-3 grid gap-3 sm:grid-cols-4">
+            <div>
+              <dt className="label-caps">Detection method</dt>
+              <dd className="text-sm">{s.detectionMethod}</dd>
+            </div>
+            <div>
+              <dt className="label-caps">Detection period</dt>
+              <dd className="text-sm">{s.detectionPeriod}</dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="label-caps">Statistical evidence</dt>
+              <dd className="mono-num text-sm">
+                {s.statistic
+                  .map((st) => `${st.name} ${st.value}${st.ci ? ` (${st.ci})` : ""}`)
+                  .join(" · ")}
+              </dd>
+            </div>
+          </dl>
 
-      <div className="mt-3">
-        <p className="label-caps">Supporting cases</p>
-        <div className="mt-1 flex flex-wrap gap-2">
-          {s.supportingCaseIds.map((id) => (
-            <Link
-              key={id}
-              to="/cases/$caseId"
-              params={{ caseId: id }}
-              className="mono-num text-sm text-primary hover:underline"
-            >
-              {id}
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {s.literature ? (
-        <div className="mt-3 rounded-md border border-assist/30 bg-assist-soft px-3 py-2 text-sm">
-          <p className="label-caps">Literature source</p>
-          <p className="mono-num mt-1 text-xs">
-            {s.literature.publication} · {s.literature.publicationDate} · {s.literature.author}
-          </p>
-          <p className="mt-0.5 text-xs">{s.literature.headline}</p>
-          <p className="mt-1.5 border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
-            {s.literature.contextSnippet}
-          </p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {s.literature.keywords.map((k) => (
-              <StatusPill key={k} tone="neutral">
-                {k}
-              </StatusPill>
-            ))}
+          <div className="mt-3">
+            <p className="label-caps">Supporting cases</p>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {s.supportingCaseIds.map((id) => (
+                <Link
+                  key={id}
+                  to="/cases/$caseId"
+                  params={{ caseId: id }}
+                  className="mono-num text-sm text-primary hover:underline"
+                >
+                  {id}
+                </Link>
+              ))}
+            </div>
           </div>
-        </div>
-      ) : null}
 
-      {s.rationale ? (
-        <div className="mt-3 rounded-md border border-border bg-muted/50 px-3 py-2">
-          <p className="label-caps">Recorded rationale</p>
-          <p className="mt-1 text-sm">{s.rationale}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {s.reviewer ?? "Reviewer"} · {s.decidedAt?.slice(0, 10)}
-          </p>
-        </div>
-      ) : null}
-
-      {canTriage && s.status === "POTENTIAL" ? (
-        <div className="mt-3">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={async () => {
-              try {
-                await signalsApi.startReview(s.id);
-                toast.success("Review started.");
-                onChanged();
-              } catch (err) {
-                toast.error(
-                  isNotConfigured(err)
-                    ? "Backend not connected — review not started."
-                    : "Could not start review.",
-                );
-              }
-            }}
-          >
-            Start review
-          </Button>
-        </div>
-      ) : null}
-
-      {canDecide && (s.status === "POTENTIAL" || s.status === "UNDER_REVIEW") ? (
-        <div className="mt-3 space-y-2">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant={mode === "CONFIRMED" ? "default" : "outline"}
-              onClick={() => setMode("CONFIRMED")}
-            >
-              Confirm signal
-            </Button>
-            <Button
-              size="sm"
-              variant={mode === "REFUTED" ? "default" : "outline"}
-              onClick={() => setMode("REFUTED")}
-            >
-              Refute signal
-            </Button>
-          </div>
-          {mode ? (
-            <div className="space-y-2">
-              <label className="label-caps" htmlFor={`rationale-${s.id}`}>
-                Rationale (required, recorded in the audit trail)
-              </label>
-              <Textarea
-                id={`rationale-${s.id}`}
-                rows={3}
-                value={rationale}
-                onChange={(e) => setRationale(e.target.value)}
-                placeholder="Document the evidence and reasoning supporting this decision."
-              />
-              <div className="flex gap-2">
-                <Button size="sm" onClick={decide} disabled={busy}>
-                  Record {mode.toLowerCase()} decision
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setMode(null)}>
-                  Cancel
-                </Button>
+          {s.literature ? (
+            <div className="mt-3 rounded-md border border-assist/30 bg-assist-soft px-3 py-2 text-sm">
+              <p className="label-caps">Literature source</p>
+              <p className="mono-num mt-1 text-xs">
+                {s.literature.publication} · {s.literature.publicationDate} · {s.literature.author}
+              </p>
+              <p className="mt-0.5 text-xs">{s.literature.headline}</p>
+              <p className="mt-1.5 border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
+                {s.literature.contextSnippet}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {s.literature.keywords.map((k) => (
+                  <StatusPill key={k} tone="neutral">
+                    {k}
+                  </StatusPill>
+                ))}
               </div>
             </div>
           ) : null}
+
+          {s.rationale ? (
+            <div className="mt-3 rounded-md border border-border bg-muted/50 px-3 py-2">
+              <p className="label-caps">Recorded rationale</p>
+              <p className="mt-1 text-sm">{s.rationale}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {s.reviewer ?? "Reviewer"} · {s.decidedAt?.slice(0, 10)}
+              </p>
+            </div>
+          ) : null}
+
+          {canTriage && s.status === "POTENTIAL" ? (
+            <div className="mt-3">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={async () => {
+                  try {
+                    await signalsApi.startReview(s.id);
+                    toast.success("Review started.");
+                    onChanged();
+                  } catch (err) {
+                    toast.error(
+                      isNotConfigured(err)
+                        ? "Backend not connected — review not started."
+                        : "Could not start review.",
+                    );
+                  }
+                }}
+              >
+                Start review
+              </Button>
+            </div>
+          ) : null}
+
+          {canDecide && (s.status === "POTENTIAL" || s.status === "UNDER_REVIEW") ? (
+            <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant={mode === "CONFIRMED" ? "default" : "outline"}
+                  onClick={() => setMode("CONFIRMED")}
+                >
+                  Confirm signal
+                </Button>
+                <Button
+                  size="sm"
+                  variant={mode === "REFUTED" ? "default" : "outline"}
+                  onClick={() => setMode("REFUTED")}
+                >
+                  Refute signal
+                </Button>
+              </div>
+              {mode ? (
+                <div className="space-y-2">
+                  <label className="label-caps" htmlFor={`rationale-${s.id}`}>
+                    Rationale (required, recorded in the audit trail)
+                  </label>
+                  <Textarea
+                    id={`rationale-${s.id}`}
+                    rows={3}
+                    value={rationale}
+                    onChange={(e) => setRationale(e.target.value)}
+                    placeholder="Document the evidence and reasoning supporting this decision."
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={decide} disabled={busy}>
+                      Record {mode.toLowerCase()} decision
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setMode(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {!canDecide && (s.status === "POTENTIAL" || s.status === "UNDER_REVIEW") ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {s.status === "POTENTIAL" && canTriage
+                ? "You can start the review; confirming or refuting this signal requires a PV Manager or Administrator."
+                : "Confirming or refuting this signal requires a PV Manager or Administrator."}
+            </p>
+          ) : null}
         </div>
       ) : null}
-
-      {!canDecide && (s.status === "POTENTIAL" || s.status === "UNDER_REVIEW") ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          {s.status === "POTENTIAL" && canTriage
-            ? "You can start the review; confirming or refuting this signal requires a PV Manager or Administrator."
-            : "Confirming or refuting this signal requires a PV Manager or Administrator."}
-        </p>
-      ) : null}
     </li>
+  );
+}
+
+/** A tab's signals, 10 to a page. */
+function PagedSignals({
+  list,
+  canDecide,
+  canTriage,
+  onChanged,
+}: {
+  list: Signal[];
+  canDecide: boolean;
+  canTriage: boolean;
+  onChanged: () => void;
+}) {
+  const [page, setPage] = useState(1);
+  const shownPage = Math.min(page, Math.max(1, Math.ceil(list.length / 10)));
+  return (
+    <div className="space-y-3">
+      <ul className="space-y-2">
+        {paginate(list, shownPage).map((s) => (
+          <SignalCard
+            key={s.id}
+            s={s}
+            canDecide={canDecide}
+            canTriage={canTriage}
+            onChanged={onChanged}
+          />
+        ))}
+      </ul>
+      <Pager page={shownPage} total={list.length} onPageChange={setPage} />
+    </div>
   );
 }
 
@@ -334,17 +390,12 @@ function SignalsPage() {
                       {list.length === 0 ? (
                         <EmptyState title={`No ${label.toLowerCase()} signals`} />
                       ) : (
-                        <ul className="space-y-3">
-                          {list.map((s) => (
-                            <SignalCard
-                              key={s.id}
-                              s={s}
-                              canDecide={canDecide}
-                              canTriage={canTriage}
-                              onChanged={() => query.refetch()}
-                            />
-                          ))}
-                        </ul>
+                        <PagedSignals
+                          list={list}
+                          canDecide={canDecide}
+                          canTriage={canTriage}
+                          onChanged={() => query.refetch()}
+                        />
                       )}
                     </Section>
                   </TabsContent>
@@ -361,6 +412,7 @@ function SignalsPage() {
 
 function BatchBranchClusters() {
   const [includeNonSerious, setIncludeNonSerious] = useState(false);
+  const [page, setPage] = useState(1);
   const casesQuery = usePvQuery(
     ["cases"],
     () => casesApi.list(),
@@ -395,50 +447,54 @@ function BatchBranchClusters() {
                 }
               />
             );
+          const shownPage = Math.min(page, Math.max(1, Math.ceil(flags.length / 10)));
           return (
-            <ul className="space-y-3">
-              {flags.map((f) => (
-                <li key={f.key} className="rounded-md border border-border p-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StatusPill tone={f.kind === "BATCH" ? "warning" : "info"}>
-                      {f.kind === "BATCH" ? "Batch" : "Branch"}
-                    </StatusPill>
-                    <span className="font-medium">{f.label}</span>
-                    <span className="text-sm text-muted-foreground">
-                      {f.cases.length} case(s), {f.from} → {f.to}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm">{branchPatternNote(f)}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Products: {f.products.join(", ") || "—"} · Branches:{" "}
-                    {f.facilities.join(", ") || "not recorded"} · Batches:{" "}
-                    {f.batches.join(", ") || "not recorded"}
-                  </p>
-                  {f.warningSigns.length > 0 ? (
-                    <p className="mt-1 text-xs text-warning">
-                      Quality warning signs:{" "}
-                      {f.warningSigns
-                        .map((w) => QUALITY_SIGN_LABELS[w.sign].replace(" / vaccine failure", ""))
-                        .join(", ")}
+            <div className="space-y-3">
+              <ul className="space-y-3">
+                {paginate(flags, shownPage).map((f) => (
+                  <li key={f.key} className="rounded-md border border-border p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusPill tone={f.kind === "BATCH" ? "warning" : "info"}>
+                        {f.kind === "BATCH" ? "Batch" : "Branch"}
+                      </StatusPill>
+                      <span className="font-medium">{f.label}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {f.cases.length} case(s), {f.from} → {f.to}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm">{branchPatternNote(f)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Products: {f.products.join(", ") || "—"} · Branches:{" "}
+                      {f.facilities.join(", ") || "not recorded"} · Batches:{" "}
+                      {f.batches.join(", ") || "not recorded"}
                     </p>
-                  ) : null}
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {f.cases.map((c) =>
-                      c.caseId ? (
-                        <Link
-                          key={c.caseId}
-                          to="/cases/$caseId"
-                          params={{ caseId: c.caseId }}
-                          className="mono-num rounded border border-border px-1.5 py-0.5 text-xs text-primary hover:underline"
-                        >
-                          {c.caseId}
-                        </Link>
-                      ) : null,
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    {f.warningSigns.length > 0 ? (
+                      <p className="mt-1 text-xs text-warning">
+                        Quality warning signs:{" "}
+                        {f.warningSigns
+                          .map((w) => QUALITY_SIGN_LABELS[w.sign].replace(" / vaccine failure", ""))
+                          .join(", ")}
+                      </p>
+                    ) : null}
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {f.cases.map((c) =>
+                        c.caseId ? (
+                          <Link
+                            key={c.caseId}
+                            to="/cases/$caseId"
+                            params={{ caseId: c.caseId }}
+                            className="mono-num rounded border border-border px-1.5 py-0.5 text-xs text-primary hover:underline"
+                          >
+                            {c.caseId}
+                          </Link>
+                        ) : null,
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <Pager page={shownPage} total={flags.length} onPageChange={setPage} />
+            </div>
           );
         }}
       </QueryBoundary>

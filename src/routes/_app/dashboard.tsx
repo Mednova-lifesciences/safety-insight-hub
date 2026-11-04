@@ -156,19 +156,16 @@ function CoordinatorDashboard() {
           }}
         </QueryBoundary>
         <div className="grid gap-4 xl:grid-cols-2">
-          <Section
-            title="Coordinator actions"
-            description="Workflows available to the processing team."
-          >
+          <Section title="Coordinator actions" description="Where the coordinator's work starts.">
             <div className="flex flex-wrap gap-2">
               <Button asChild>
-                <Link to="/line-list">Process line-list</Link>
+                <Link to="/cases">Open the case workbench</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link to="/e2b">Prepare E2B(R3)</Link>
+                <Link to="/icsr/new">Report a new ICSR</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link to="/psur">Review PSUR</Link>
+                <Link to="/follow-ups">Follow-ups</Link>
               </Button>
             </div>
           </Section>
