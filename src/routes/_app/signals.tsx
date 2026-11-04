@@ -280,7 +280,11 @@ function SignalCard({
   );
 }
 
-/** A tab's signals, 10 to a page. */
+/** Signals per page: short enough that the batch and branch clusters below
+ *  are a short scroll away. */
+const SIGNALS_PER_PAGE = 7;
+
+/** A tab's signals, one line each (open one for its detail), 7 to a page. */
 function PagedSignals({
   list,
   canDecide,
@@ -293,11 +297,11 @@ function PagedSignals({
   onChanged: () => void;
 }) {
   const [page, setPage] = useState(1);
-  const shownPage = Math.min(page, Math.max(1, Math.ceil(list.length / 10)));
+  const shownPage = Math.min(page, Math.max(1, Math.ceil(list.length / SIGNALS_PER_PAGE)));
   return (
     <div className="space-y-3">
       <ul className="space-y-2">
-        {paginate(list, shownPage).map((s) => (
+        {paginate(list, shownPage, SIGNALS_PER_PAGE).map((s) => (
           <SignalCard
             key={s.id}
             s={s}
@@ -307,7 +311,7 @@ function PagedSignals({
           />
         ))}
       </ul>
-      <Pager page={shownPage} total={list.length} onPageChange={setPage} />
+      <Pager page={shownPage} total={list.length} onPageChange={setPage} size={SIGNALS_PER_PAGE} />
     </div>
   );
 }

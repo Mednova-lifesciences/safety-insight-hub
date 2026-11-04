@@ -15,8 +15,7 @@ import {
 import { cases as casesApi } from "@/services/api/cases";
 import { signals as signalsApi } from "@/services/api/signals";
 import { audit as auditApi } from "@/services/api/audit";
-import { psur as psurApi } from "@/services/api/psur";
-import { demoAudit, demoCases, demoPsurDocuments, demoSignals } from "@/services/demo/dataset";
+import { demoAudit, demoCases, demoSignals } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import {
   PageHeader,
@@ -89,12 +88,6 @@ function OversightPage() {
     () => auditApi.list({ limit: 8 }),
     () => demoAudit,
   );
-  const psurQuery = usePvQuery(
-    ["psur", "documents"],
-    () => psurApi.documents(),
-    () => demoPsurDocuments,
-  );
-
   return (
     <>
       <PageHeader
@@ -254,7 +247,7 @@ function OversightPage() {
           }}
         </QueryBoundary>
 
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-4">
           <Section
             title="Signals"
             description="Drill into the signal workspace for evidence and decisions."
@@ -284,33 +277,6 @@ function OversightPage() {
                             {s.status.replaceAll("_", " ").toLowerCase()}
                           </StatusPill>
                           <Link to="/signals" className="text-sm text-primary hover:underline">
-                            Open
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </Paged>
-              )}
-            </QueryBoundary>
-          </Section>
-
-          <Section title="PSUR / PBRER reviews">
-            <QueryBoundary query={psurQuery}>
-              {(items) => (
-                <Paged items={items}>
-                  {(pageItems) => (
-                    <ul className="divide-y divide-border">
-                      {pageItems.map((d) => (
-                        <li key={d.id} className="flex flex-wrap items-center gap-2 py-2.5">
-                          <span className="text-sm">{d.product}</span>
-                          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                            {d.reportingPeriod}
-                          </span>
-                          <StatusPill tone={d.stage === "REVIEWED" ? "success" : "info"}>
-                            {d.stage.toLowerCase()}
-                          </StatusPill>
-                          <Link to="/psur" className="text-sm text-primary hover:underline">
                             Open
                           </Link>
                         </li>

@@ -84,6 +84,9 @@ async function openCase(page, caseId) {
 }
 
 async function advance(page, to) {
+  // Advancing needs a reason; the button stays disabled until one is typed.
+  const reason = page.getByPlaceholder(new RegExp(`Why is this case moving to ${to}`, "i"));
+  if (await reason.count()) await reason.fill(`${RUN}: ${to} — synthetic test step.`);
   await L.expectNewToast(page, new RegExp(`Case moved to ${to}`), () =>
     page.getByRole("button", { name: `Advance to ${to}` }).click(),
   );
@@ -268,7 +271,7 @@ async function main() {
       ["/reports", /Safety reports|Reports/],
       ["/signals", /Signal review/],
       ["/literature", /Literature/],
-      ["/oversight", /Oversight/],
+      ["/oversight", /Operational overview/],
       ["/follow-ups", /Follow-ups?/],
       ["/intake", /Inbound intake/],
       ["/audit", /Audit/],
