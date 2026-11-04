@@ -72,6 +72,95 @@ function matchTerms(
   return hits;
 }
 
+/** Words worth looking up on their own when a whole phrase matches nothing. */
+const MEDDRA_STOP_WORDS = new Set([
+  "and",
+  "the",
+  "with",
+  "after",
+  "above",
+  "below",
+  "more",
+  "less",
+  "than",
+  "from",
+  "into",
+  "over",
+  "under",
+  "about",
+  "very",
+  "body",
+  "site",
+  "hours",
+  "days",
+  "weeks",
+  "patient",
+]);
+
+interface MeddraMatch {
+  verbatim: string;
+  term: string;
+  code: string;
+  dictionaryVersion: string;
+  matchType: CodingSuggestion["matchType"];
+  confidence: number;
+  evidence: string;
+}
+
+/**
+ * The best MedDRA term for one reported reaction, from the full licensed
+ * dictionary on the backend (ranked: exact term first). When the whole
+ * wording matches nothing — local phrasing rarely does — each of its words
+ * is tried. Undefined when MedDRA has nothing; never throws.
+ */
+async function bestMeddraMatch(verbatim: string): Promise<MeddraMatch | undefined> {
+  const lookup = async (q: string) => {
+    try {
+      return (await coding.searchDictionary("MedDRA", q)).filter((r) => r.source === "dictionary");
+    } catch {
+      return [];
+    }
+  };
+  const wanted = verbatim.trim().toLowerCase();
+  const direct = await lookup(verbatim);
+  if (direct[0]) {
+    const exact = direct[0].term.trim().toLowerCase() === wanted;
+    return {
+      verbatim,
+      term: direct[0].term,
+      code: direct[0].code,
+      dictionaryVersion: direct[0].dictionaryVersion,
+      matchType: exact ? "EXACT" : "FUZZY",
+      confidence: exact ? 0.98 : 0.75,
+      evidence: exact
+        ? `"${verbatim}" is the MedDRA term ${direct[0].term} (${direct[0].code}).`
+        : `Closest MedDRA term for "${verbatim}": ${direct[0].term} (${direct[0].code}). Check it, or choose another term.`,
+    };
+  }
+  const words = [
+    ...new Set(
+      verbatim
+        .toLowerCase()
+        .split(/[^a-z]+/)
+        .filter((w) => w.length >= 4 && !MEDDRA_STOP_WORDS.has(w)),
+    ),
+  ].slice(0, 4);
+  for (const w of words) {
+    const hits = await lookup(w);
+    if (hits[0])
+      return {
+        verbatim,
+        term: hits[0].term,
+        code: hits[0].code,
+        dictionaryVersion: hits[0].dictionaryVersion,
+        matchType: "FUZZY",
+        confidence: 0.6,
+        evidence: `Nothing in MedDRA matches "${verbatim}" as a whole; found by its word "${w}": ${hits[0].term} (${hits[0].code}). Check it, or choose another term.`,
+      };
+  }
+  return undefined;
+}
+
 async function fetchDictionaryTerms(kind?: "DRUG" | "REACTION"): Promise<DictionaryTermRow[]> {
   let query = supabase.from("pv_dictionary_terms").select("*");
   if (kind) query = query.eq("kind", kind);
@@ -106,26 +195,28 @@ export const coding = {
     const detail = await cases.get(caseId);
 
     const drugTerms = await fetchDictionaryTerms("DRUG");
-    const reactionTerms = await fetchDictionaryTerms("REACTION");
 
     const drugText = [detail.product, ...detail.suspectProducts.map((p) => p.reportedName)].join(
       " ",
     );
-    const reactionText = [detail.reaction, ...detail.reactions.map((r) => r.reportedTerm)].join(
-      " ",
-    );
-
     const drugHits = matchTerms(drugTerms, drugText);
-    const reactionHits = matchTerms(reactionTerms, reactionText);
 
-    // The demo dictionary only has a handful of terms — AI candidates fill
-    // the gap for everything else, always additive and always clearly
-    // labelled (see aiCandidates' doc comment and AI_SUGGESTED_CODE), never
-    // replacing a real dictionary hit. A term the demo dictionary already
-    // matched isn't duplicated as an AI suggestion too.
-    const [drugAi, reactionAi] = await Promise.all([
-      aiCandidates("WHODrug", drugText),
-      aiCandidates("MedDRA", reactionText),
+    // Reactions: each reported term is looked up in the full MedDRA
+    // dictionary (the same one the search box uses). Only a term MedDRA has
+    // nothing for gets an AI suggestion — always labelled, never a code.
+    const reactionVerbatims = [
+      ...new Set(
+        [detail.reaction, ...detail.reactions.map((r) => r.reportedTerm)]
+          .map((t) => (t ?? "").trim())
+          .filter(Boolean),
+      ),
+    ];
+    const meddra = await Promise.all(reactionVerbatims.map((v) => bestMeddraMatch(v)));
+    const uncoded = reactionVerbatims.filter((_, i) => !meddra[i]);
+
+    const [drugAi, reactionAiLists] = await Promise.all([
+      drugHits.length ? Promise.resolve([]) : aiCandidates("WHODrug", drugText),
+      Promise.all(uncoded.map((v) => aiCandidates("MedDRA", v))),
     ]);
     const notAlreadyMatched =
       (hits: { row: DictionaryTermRow }[]) => (candidate: { term: string }) =>
@@ -142,7 +233,7 @@ export const coding = {
         dictionaryVersion: row.dictionary_version,
         matchType,
         confidence,
-        evidence: `Matched against demo dictionary term "${row.term}".`,
+        evidence: `Matched to the product dictionary entry "${row.term}".`,
         status: "PENDING" as const,
       })),
       ...drugAi.filter(notAlreadyMatched(drugHits)).map((c) => ({
@@ -158,32 +249,36 @@ export const coding = {
         evidence: `AI-suggested candidate, not verified against the licensed dictionary — ${c.rationale}`,
         status: "PENDING" as const,
       })),
-      ...reactionHits.map(({ row, matchType, confidence }) => ({
-        id: newId("cs"),
-        sourceText: detail.reaction,
-        kind: "REACTION" as const,
-        term: row.term,
-        code: row.code,
-        dictionary: row.dictionary,
-        dictionaryVersion: row.dictionary_version,
-        matchType,
-        confidence,
-        evidence: `Matched against demo dictionary term "${row.term}".`,
-        status: "PENDING" as const,
-      })),
-      ...reactionAi.filter(notAlreadyMatched(reactionHits)).map((c) => ({
-        id: newId("cs"),
-        sourceText: detail.reaction,
-        kind: "REACTION" as const,
-        term: c.term,
-        code: AI_SUGGESTED_CODE,
-        dictionary: "MedDRA" as const,
-        dictionaryVersion: AI_SUGGESTED_VERSION,
-        matchType: "AI_SUGGESTED" as const,
-        confidence: c.confidence,
-        evidence: `AI-suggested candidate, not verified against the licensed dictionary — ${c.rationale}`,
-        status: "PENDING" as const,
-      })),
+      ...meddra
+        .filter((m): m is MeddraMatch => !!m)
+        .map((m) => ({
+          id: newId("cs"),
+          sourceText: m.verbatim,
+          kind: "REACTION" as const,
+          term: m.term,
+          code: m.code,
+          dictionary: "MedDRA" as const,
+          dictionaryVersion: m.dictionaryVersion,
+          matchType: m.matchType,
+          confidence: m.confidence,
+          evidence: m.evidence,
+          status: "PENDING" as const,
+        })),
+      ...uncoded.flatMap((v, i) =>
+        (reactionAiLists[i] ?? []).slice(0, 1).map((c) => ({
+          id: newId("cs"),
+          sourceText: v,
+          kind: "REACTION" as const,
+          term: c.term,
+          code: AI_SUGGESTED_CODE,
+          dictionary: "MedDRA" as const,
+          dictionaryVersion: AI_SUGGESTED_VERSION,
+          matchType: "AI_SUGGESTED" as const,
+          confidence: c.confidence,
+          evidence: `MedDRA has no match for "${v}". AI-suggested name, not verified against the dictionary — ${c.rationale}`,
+          status: "PENDING" as const,
+        })),
+      ),
     ];
 
     if (suggestions.length === 0) return [];

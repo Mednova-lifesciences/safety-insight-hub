@@ -83,6 +83,9 @@ async function newPage(browser, label, who) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     acceptDownloads: true,
+    // The site's CSP has no 'unsafe-eval', which silently breaks
+    // page.waitForFunction (waitNoLoading); this affects the test browser only.
+    bypassCSP: true,
     ...(cached ? { storageState: cached } : {}),
   });
   // A protected Vercel preview: the short-lived development token from a

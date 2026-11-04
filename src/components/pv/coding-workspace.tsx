@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Check, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -27,7 +27,16 @@ const matchTone: Record<CodingSuggestion["matchType"], Tone> = {
   AI_SUGGESTED: "assist",
 };
 
-function SuggestionRow({ s, caseId }: { s: CodingSuggestion; caseId: string }) {
+function SuggestionRow({
+  s,
+  caseId,
+  onChooseAnother,
+}: {
+  s: CodingSuggestion;
+  caseId: string;
+  /** Opens the dictionary search for this verbatim term. */
+  onChooseAnother: (s: CodingSuggestion) => void;
+}) {
   const [busy, setBusy] = useState(false);
   const queryClient = useQueryClient();
 
@@ -96,7 +105,13 @@ function SuggestionRow({ s, caseId }: { s: CodingSuggestion; caseId: string }) {
         <Button size="sm" variant="outline" disabled={busy} onClick={() => act("reject")}>
           <X className="size-4" /> Reject
         </Button>
-        <Button size="sm" variant="outline" disabled={busy}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() => onChooseAnother(s)}
+          aria-label={`Choose another term for ${s.sourceText}`}
+        >
           <BookOpen className="size-4" /> Choose another term
         </Button>
       </div>
@@ -130,12 +145,93 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
   >(null);
   const [dictSearching, setDictSearching] = useState(false);
   const [generating, setGenerating] = useState(false);
+  // Set by "Choose another term": the verbatim being recoded, so a term
+  // picked from the search is filed against the report's own words (not
+  // the search words) and the suggestion it replaces is rejected.
+  const [replacing, setReplacing] = useState<CodingSuggestion | null>(null);
+  const [picking, setPicking] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+
+  async function refreshCoding() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["case", caseId] }),
+      queryClient.invalidateQueries({ queryKey: ["coding", caseId] }),
+      queryClient.invalidateQueries({ queryKey: ["coding-history", caseId] }),
+    ]);
+  }
+
+  /** A term picked from the search: replaces the suggestion being recoded
+   *  (rejected, with the reason) and is accepted in its place; otherwise
+   *  it is added as a new candidate to accept or reject. An AI-suggested
+   *  name is never accepted directly — it has no dictionary code. */
+  async function pick(r: NonNullable<typeof dictResults>[number]) {
+    setPicking(`${r.dictionary}-${r.code}-${r.term}`);
+    try {
+      const kind = r.dictionary === "WHODrug" ? "DRUG" : "REACTION";
+      const sourceText = replacing?.sourceText ?? dictQuery;
+      const added = await codingApi.addCandidate(caseId, kind, sourceText, r);
+      if (replacing && r.source === "dictionary") {
+        if (replacing.status !== "REJECTED")
+          await codingApi.reject(
+            caseId,
+            replacing.id,
+            `Replaced by ${r.term} (${r.dictionary} ${r.code})`,
+          );
+        await codingApi.accept(caseId, added.id, `Chosen instead of ${replacing.term}`);
+        toast.success(`"${sourceText}" is now coded as ${r.term} (${r.code}).`);
+        setReplacing(null);
+        setDictResults(null);
+        setDictQuery("");
+      } else {
+        toast.success(`Added ${r.term} as a coding candidate — accept it above.`);
+      }
+      await refreshCoding();
+    } catch (err) {
+      toast.error(
+        isNotConfigured(err)
+          ? "Backend not connected — nothing was saved."
+          : "Could not save that term.",
+      );
+    } finally {
+      setPicking(null);
+    }
+  }
+
+  async function runSearch(dictionary: "MedDRA" | "WHODrug", query: string) {
+    if (!query.trim()) return;
+    setDictSearching(true);
+    try {
+      setDictResults(await codingApi.searchDictionary(dictionary, query));
+    } catch (err) {
+      toast.error(
+        isNotConfigured(err)
+          ? "Dictionary search requires the backend dictionary service."
+          : "Dictionary search failed.",
+      );
+    } finally {
+      setDictSearching(false);
+    }
+  }
+
+  function chooseAnother(s: CodingSuggestion) {
+    const dictionary = s.kind === "DRUG" ? "WHODrug" : "MedDRA";
+    setReplacing(s);
+    setDictDictionary(dictionary);
+    setDictQuery(s.sourceText);
+    void runSearch(dictionary, s.sourceText);
+    // Bring the search into view and ready for typing.
+    requestAnimationFrame(() => {
+      searchRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      searchRef.current?.focus();
+    });
+  }
 
   return (
     <div className="space-y-4">
       <Section
         title="Coding assist"
-        description="Candidate terms are matched against the demo dictionary and, where it has no match, supplemented with AI-suggested standardised term names — clearly labelled and never a real code. The system never fabricates or presents an invented value as an actual MedDRA/WHODrug dictionary entry."
+        description="Reactions are matched against MedDRA 29.1. Products are matched against a short sample product list, not a licensed WHODrug dictionary, so product codes are placeholders until a WHODrug licence is connected. Where nothing matches, the AI may suggest a term name — always labelled, never given a code. Accept, reject, or choose another term; every decision is recorded."
         actions={
           <div className="flex items-center gap-2">
             <AssistLabel>Recommendations — confirmation required</AssistLabel>
@@ -186,10 +282,19 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
             return (
               <div className="space-y-5">
                 <div>
-                  <p className="label-caps mb-1">Drug / product coding (WHODrug)</p>
+                  <p className="label-caps mb-1">
+                    Drug / product coding (sample list, not WHODrug)
+                  </p>
                   <ul className="divide-y divide-border rounded-md border border-border">
                     {drugs.length ? (
-                      drugs.map((s) => <SuggestionRow key={s.id} s={s} caseId={caseId} />)
+                      drugs.map((s) => (
+                        <SuggestionRow
+                          key={s.id}
+                          s={s}
+                          caseId={caseId}
+                          onChooseAnother={chooseAnother}
+                        />
+                      ))
                     ) : (
                       <li className="px-3 py-4 text-sm text-muted-foreground">
                         No product candidates.
@@ -201,7 +306,14 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
                   <p className="label-caps mb-1">Reaction coding (MedDRA)</p>
                   <ul className="divide-y divide-border rounded-md border border-border">
                     {reactions.length ? (
-                      reactions.map((s) => <SuggestionRow key={s.id} s={s} caseId={caseId} />)
+                      reactions.map((s) => (
+                        <SuggestionRow
+                          key={s.id}
+                          s={s}
+                          caseId={caseId}
+                          onChooseAnother={chooseAnother}
+                        />
+                      ))
                     ) : (
                       <li className="px-3 py-4 text-sm text-muted-foreground">
                         No reaction candidates.
@@ -214,23 +326,34 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
           }}
         </QueryBoundary>
 
+        {replacing ? (
+          <div
+            className="mt-4 flex flex-wrap items-center gap-2 rounded-md border border-info/30 bg-info-soft px-3 py-2 text-sm"
+            data-e2e-replacing={replacing.id}
+          >
+            <span>
+              Choosing another term for{" "}
+              <span className="font-medium">“{replacing.sourceText}”</span> (now {replacing.term}).
+              Pick one below — it replaces the current term.
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto"
+              onClick={() => {
+                setReplacing(null);
+                setDictResults(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        ) : null}
         <form
           className="mt-4 flex flex-wrap items-end gap-2 border-t border-border pt-4"
-          onSubmit={async (e) => {
+          onSubmit={(e) => {
             e.preventDefault();
-            setDictSearching(true);
-            try {
-              const results = await codingApi.searchDictionary(dictDictionary, dictQuery);
-              setDictResults(results);
-            } catch (err) {
-              toast.error(
-                isNotConfigured(err)
-                  ? "Dictionary search requires the backend dictionary service."
-                  : "Dictionary search failed.",
-              );
-            } finally {
-              setDictSearching(false);
-            }
+            void runSearch(dictDictionary, dictQuery);
           }}
         >
           <div className="min-w-56 flex-1">
@@ -239,8 +362,9 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
             </label>
             <Input
               id="dict-search"
+              ref={searchRef}
               className="mt-1"
-              placeholder="Search MedDRA / WHODrug terms"
+              placeholder="e.g. headache, rash, paracetamol"
               value={dictQuery}
               onChange={(e) => setDictQuery(e.target.value)}
             />
@@ -251,7 +375,7 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
             onChange={(e) => setDictDictionary(e.target.value as "MedDRA" | "WHODrug")}
           >
             <option value="MedDRA">MedDRA (reactions)</option>
-            <option value="WHODrug">WHODrug (drugs)</option>
+            <option value="WHODrug">Products (sample list)</option>
           </select>
           <Button type="submit" variant="outline" size="sm" disabled={dictSearching}>
             <Search className="size-4" /> {dictSearching ? "Searching…" : "Search"}
@@ -261,7 +385,8 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
         {dictResults ? (
           dictResults.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">
-              No dictionary terms matched “{dictQuery}”.
+              No dictionary terms matched “{dictQuery}”. Try one medical word — e.g. fever, rash,
+              vomiting — or the product's active ingredient.
             </p>
           ) : (
             <ul className="mt-3 divide-y divide-border rounded-md border border-border">
@@ -280,28 +405,16 @@ export function CodingWorkspace({ caseId }: { caseId: string }) {
                   )}
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant={replacing && r.source === "dictionary" ? "default" : "outline"}
                     className="ml-auto"
-                    onClick={async () => {
-                      try {
-                        await codingApi.addCandidate(
-                          caseId,
-                          r.dictionary === "WHODrug" ? "DRUG" : "REACTION",
-                          dictQuery,
-                          r,
-                        );
-                        toast.success(`Added ${r.term} as a coding candidate.`);
-                        suggestions.refetch();
-                      } catch (err) {
-                        toast.error(
-                          isNotConfigured(err)
-                            ? "Backend not connected — the candidate was not added."
-                            : "Could not add candidate.",
-                        );
-                      }
-                    }}
+                    disabled={picking !== null}
+                    onClick={() => void pick(r)}
                   >
-                    Add as candidate
+                    {picking === `${r.dictionary}-${r.code}-${r.term}`
+                      ? "Saving…"
+                      : replacing && r.source === "dictionary"
+                        ? "Use this term instead"
+                        : "Add as candidate"}
                   </Button>
                 </li>
               ))}

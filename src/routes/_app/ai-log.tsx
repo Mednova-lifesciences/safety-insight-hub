@@ -1,12 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { PermissionGate } from "@/components/pv/permission-gate";
 import {
   EmptyState,
   PageHeader,
+  Pager,
   QueryBoundary,
   Section,
   StatusPill,
+  paginate,
 } from "@/components/pv/primitives";
 import { usePvQuery } from "@/lib/data-source";
 import { aiDisclosures, type AiDisclosure } from "@/services/api/ai-disclosures";
@@ -63,6 +66,7 @@ function AiLogPage() {
     () => aiDisclosures.list(200),
     () => [],
   );
+  const [page, setPage] = useState(1);
   return (
     <>
       <PageHeader
@@ -82,7 +86,7 @@ function AiLogPage() {
                   description="Entries appear here as line lists, reports and cases are analysed."
                 />
               ) : (
-                <div className="overflow-x-auto">
+                <div className="space-y-3 overflow-x-auto">
                   <table className="w-full min-w-[720px] text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/50 text-left">
@@ -94,7 +98,10 @@ function AiLogPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {entries.map((e) => (
+                      {paginate(
+                        entries,
+                        Math.min(page, Math.max(1, Math.ceil(entries.length / 10))),
+                      ).map((e) => (
                         <tr key={e.id} className="border-b border-border align-top last:border-0">
                           <td className="mono-num px-3 py-2 whitespace-nowrap">
                             {e.at.replace("T", " ").slice(0, 19)}
@@ -124,6 +131,11 @@ function AiLogPage() {
                       ))}
                     </tbody>
                   </table>
+                  <Pager
+                    page={Math.min(page, Math.max(1, Math.ceil(entries.length / 10)))}
+                    total={entries.length}
+                    onPageChange={setPage}
+                  />
                 </div>
               )
             }

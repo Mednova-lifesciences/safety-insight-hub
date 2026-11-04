@@ -88,6 +88,10 @@ def _load_meddra() -> tuple[dict[str, MedDraTerm], dict[str, MedDraTerm]]:
         for line in stream:
             fields = line.rstrip("\r\n").split("$")
             if len(fields) >= 9 and fields[0] and fields[4]:
+                # A PT can sit under several SOCs; tabulations use its primary one.
+                is_primary = len(fields) > 11 and fields[11] == "Y"
+                if fields[0] in hierarchy and not is_primary:
+                    continue
                 hierarchy[fields[0]] = {
                     "preferred_term_code": fields[0],
                     "preferred_term": pt_names.get(fields[0], fields[4]),

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Download } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { PageHeader, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
+import { PageHeader, Paged, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -194,21 +194,25 @@ function ReportView({ report, quarterly }: { report: ActivityReport; quarterly: 
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Tile label="Reports received" value={report.received} />
         <Tile
-          label="Serious"
+          label={`Reports received · ${report.period.label}`}
+          value={report.received}
+          sub="Received in this period only"
+        />
+        <Tile
+          label={`Serious · ${report.period.label}`}
           value={report.serious}
-          sub={`${pct(report.serious, report.received)} of reports · ${report.fatal} fatal`}
+          sub={`${pct(report.serious, report.received)} of this period's reports · ${report.fatal} fatal`}
         />
         <Tile
-          label="Overdue for NAFDAC (today)"
+          label="Overdue for NAFDAC · all open cases today"
           value={report.overdueNow}
-          sub={`${report.dueSoonNow} due within 3 days`}
+          sub={`Any month, still open past the deadline · ${report.dueSoonNow} more due within 3 days`}
         />
         <Tile
-          label="Forwarded to holders"
+          label={`Forwarded to holders · ${report.period.label}`}
           value={report.forwardsInPeriod.length}
-          sub={`${report.awaitingForward} still to forward`}
+          sub={`${report.awaitingForward} case(s), any month, still to forward`}
         />
       </div>
 
@@ -238,29 +242,37 @@ function ReportView({ report, quarterly }: { report: ActivityReport; quarterly: 
           {psurDue.length === 0 ? (
             <p className="text-sm text-muted-foreground">None overdue or due within 30 days.</p>
           ) : (
-            <ul className="space-y-1.5 text-sm">
-              {psurDue.map((e) => (
-                <li key={e.drug.id} className="flex flex-wrap items-center gap-2">
-                  <StatusPill tone={e.status === "OVERDUE" ? "critical" : "warning"}>
-                    {e.label}
-                  </StatusPill>
-                  {e.drug.name} — DLP {e.nextDlp}, deadline {e.deadline}
-                </li>
-              ))}
-            </ul>
+            <Paged items={psurDue}>
+              {(pageDue) => (
+                <ul className="space-y-1.5 text-sm">
+                  {pageDue.map((e) => (
+                    <li key={e.drug.id} className="flex flex-wrap items-center gap-2">
+                      <StatusPill tone={e.status === "OVERDUE" ? "critical" : "warning"}>
+                        {e.label}
+                      </StatusPill>
+                      {e.drug.name} — DLP {e.nextDlp}, deadline {e.deadline}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Paged>
           )}
         </Section>
         <Section title="Registrations and commitments">
           {report.registrationAlerts.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nothing due.</p>
           ) : (
-            <ul className="space-y-1.5 text-sm">
-              {report.registrationAlerts.slice(0, 8).map((a) => (
-                <li key={a.key}>
-                  <span className="font-medium">{a.productName}</span> — {a.title}
-                </li>
-              ))}
-            </ul>
+            <Paged items={report.registrationAlerts}>
+              {(pageAlerts) => (
+                <ul className="space-y-1.5 text-sm">
+                  {pageAlerts.map((a) => (
+                    <li key={a.key}>
+                      <span className="font-medium">{a.productName}</span> — {a.title}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Paged>
           )}
         </Section>
       </div>

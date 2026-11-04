@@ -646,6 +646,25 @@ export const cases = {
     return next;
   },
 
+  /** Replaces the narrative only; the workflow step is unchanged. */
+  updateNarrative: async (caseId: string, narrative: string): Promise<CaseDetail> => {
+    const detail = await cases.get(caseId);
+    const next: CaseDetail = { ...detail, narrative };
+    const { error } = await supabase
+      .from("pv_cases")
+      .update({ data: toJson(next), updated_at: new Date().toISOString() })
+      .eq("id", caseId);
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      action: "CASE_NARRATIVE_UPDATED",
+      entity: "Case",
+      entityId: caseId,
+      previousValue: detail.narrative || "(empty)",
+      newValue: narrative,
+    });
+    return next;
+  },
+
   updateDynamicFields: async (
     caseId: string,
     dynamicFields: DynamicField[],

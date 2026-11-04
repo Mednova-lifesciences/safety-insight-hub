@@ -5,6 +5,7 @@ import { usePvQuery } from "@/lib/data-source";
 import {
   EmptyState,
   PageHeader,
+  Paged,
   QueryBoundary,
   Section,
   SourceTag,
@@ -55,64 +56,68 @@ function FollowUpsPage() {
               items.length === 0 ? (
                 <EmptyState title="No follow-up requests" />
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px] text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/50 text-left">
-                        {[
-                          "Case",
-                          "Requested information",
-                          "Channel",
-                          "Requested by",
-                          "Requested",
-                          "Due",
-                          "Status",
-                        ].map((h) => (
-                          <th key={h} className="label-caps px-3 py-2">
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((f) => (
-                        <tr key={f.id} className="border-b border-border last:border-0">
-                          <td className="px-3 py-2">
-                            <Link
-                              to="/cases/$caseId"
-                              params={{ caseId: f.caseId }}
-                              className="mono-num text-primary hover:underline"
-                            >
-                              {f.caseId}
-                            </Link>
-                          </td>
-                          <td className="px-3 py-2">{f.requestedInformation}</td>
-                          <td className="px-3 py-2 text-muted-foreground">
-                            {f.channel.toLowerCase()}
-                          </td>
-                          <td className="px-3 py-2">{f.requestedBy}</td>
-                          <td className="mono-num px-3 py-2">{f.requestedAt.slice(0, 10)}</td>
-                          <td className="mono-num px-3 py-2">{f.dueAt.slice(0, 10)}</td>
-                          <td className="px-3 py-2">
-                            <StatusPill
-                              tone={
-                                f.status === "OVERDUE"
-                                  ? "critical"
-                                  : f.status === "RESPONDED"
-                                    ? "success"
-                                    : f.status === "CLOSED"
-                                      ? "neutral"
-                                      : "warning"
-                              }
-                            >
-                              {f.status.toLowerCase()}
-                            </StatusPill>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <Paged items={items}>
+                  {(pageItems) => (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[900px] text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/50 text-left">
+                            {[
+                              "Case",
+                              "Requested information",
+                              "Channel",
+                              "Requested by",
+                              "Requested",
+                              "Due",
+                              "Status",
+                            ].map((h) => (
+                              <th key={h} className="label-caps px-3 py-2">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pageItems.map((f) => (
+                            <tr key={f.id} className="border-b border-border last:border-0">
+                              <td className="px-3 py-2">
+                                <Link
+                                  to="/cases/$caseId"
+                                  params={{ caseId: f.caseId }}
+                                  className="mono-num text-primary hover:underline"
+                                >
+                                  {f.caseId}
+                                </Link>
+                              </td>
+                              <td className="px-3 py-2">{f.requestedInformation}</td>
+                              <td className="px-3 py-2 text-muted-foreground">
+                                {f.channel.toLowerCase()}
+                              </td>
+                              <td className="px-3 py-2">{f.requestedBy}</td>
+                              <td className="mono-num px-3 py-2">{f.requestedAt.slice(0, 10)}</td>
+                              <td className="mono-num px-3 py-2">{f.dueAt.slice(0, 10)}</td>
+                              <td className="px-3 py-2">
+                                <StatusPill
+                                  tone={
+                                    f.status === "OVERDUE"
+                                      ? "critical"
+                                      : f.status === "RESPONDED"
+                                        ? "success"
+                                        : f.status === "CLOSED"
+                                          ? "neutral"
+                                          : "warning"
+                                  }
+                                >
+                                  {f.status.toLowerCase()}
+                                </StatusPill>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Paged>
               )
             }
           </QueryBoundary>
