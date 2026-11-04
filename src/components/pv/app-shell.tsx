@@ -72,6 +72,10 @@ interface NavItem {
  */
 const ASSESSOR_ROLES: Role[] = ["REVIEW_OFFICER", "EVALUATOR", "PEER_REVIEWER"];
 
+/** The staff roles whose sidebar leaves out the assessors' Processing
+ *  workspace (the field associate holds none of its permissions anyway). */
+const STAFF_ROLES: Role[] = ["PV_MANAGER", "PV_COORDINATOR", "FIELD_ASSOCIATE"];
+
 interface NavGroup {
   label: string;
   items: NavItem[];
@@ -156,21 +160,13 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
-    // Deliberately NO hiddenForRoles: the permission alone governs here.
-    //
-    // This group has now been wrong in both directions. It first hid
-    // PV_MANAGER and PV_COORDINATOR — two roles that hold these
-    // permissions — leaving the pages reachable only by typing the URL.
-    // Hiding the administrator roles instead, to match the case-handling
-    // groups below, was equally wrong: they really do run these workflows
-    // here (every line-list job in the live database was uploaded by an
-    // administrator), and it took the pages away from them.
-    //
-    // Unlike the case-handling groups, processing is not a role-shaped
-    // activity — anyone granted linelist.process / e2b.generate /
-    // psur.review is expected to use it. So the permission check is the
-    // whole rule, and nothing here can hide a page from someone entitled
-    // to it. See app-shell.test.tsx.
+    // The NAFDAC assessors' workspace: line-list processing, E2B
+    // preparation, screening and the PSUR scientific review. At the owner's
+    // decision (4 Nov 2026) it is not in the staff sidebar — the PV Manager
+    // and Coordinator work in Operations and Oversight. Their permissions
+    // are unchanged (the PSUR calendar records submissions with
+    // psur.review, and the backend checks them), so this is a sidebar
+    // choice only. See app-shell.test.tsx.
     label: "Processing",
     items: [
       {
@@ -178,12 +174,14 @@ export const NAV: NavGroup[] = [
         label: "Line-list processing",
         icon: FileSpreadsheet,
         permission: "linelist.process",
+        hiddenForRoles: STAFF_ROLES,
       },
       {
         to: "/e2b",
         label: "E2B(R3) preparation",
         icon: FileStack,
         permission: "e2b.generate",
+        hiddenForRoles: STAFF_ROLES,
       },
       {
         // The Review Officer's own queue. Gated on psur.screen, which only
@@ -192,12 +190,14 @@ export const NAV: NavGroup[] = [
         label: "Report screening",
         icon: ClipboardCheck,
         permission: "psur.screen",
+        hiddenForRoles: STAFF_ROLES,
       },
       {
         to: "/psur",
         label: "PSUR / PBRER scientific review",
         icon: FileText,
         permission: "psur.review",
+        hiddenForRoles: STAFF_ROLES,
       },
     ],
   },
