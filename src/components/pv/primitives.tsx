@@ -336,9 +336,9 @@ export const PAGE_SIZE = 10;
  *  and paging client-side is simpler than a server-paginated API, and
  *  keeps "newest upload sorts to the top" (each list's own sort, upstream
  *  of this) working unchanged regardless of page. */
-export function paginate<T>(items: T[], page: number): T[] {
-  const start = (page - 1) * PAGE_SIZE;
-  return items.slice(start, start + PAGE_SIZE);
+export function paginate<T>(items: T[], page: number, size = PAGE_SIZE): T[] {
+  const start = (page - 1) * size;
+  return items.slice(start, start + size);
 }
 
 /** Prev/Next pager for a paginate()'d list. Renders nothing when everything
@@ -347,15 +347,18 @@ export function Pager({
   page,
   total,
   onPageChange,
+  size = PAGE_SIZE,
 }: {
   page: number;
   total: number;
   onPageChange: (page: number) => void;
+  /** Items per page; the same number given to paginate(). */
+  size?: number;
 }) {
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(total / size));
   if (pageCount <= 1) return null;
-  const start = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const end = Math.min(page * PAGE_SIZE, total);
+  const start = total === 0 ? 0 : (page - 1) * size + 1;
+  const end = Math.min(page * size, total);
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-sm text-muted-foreground">
       <span>

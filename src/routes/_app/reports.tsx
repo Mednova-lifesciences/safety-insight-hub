@@ -194,21 +194,25 @@ function ReportView({ report, quarterly }: { report: ActivityReport; quarterly: 
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Tile label="Reports received" value={report.received} />
         <Tile
-          label="Serious"
+          label={`Reports received · ${report.period.label}`}
+          value={report.received}
+          sub="Received in this period only"
+        />
+        <Tile
+          label={`Serious · ${report.period.label}`}
           value={report.serious}
-          sub={`${pct(report.serious, report.received)} of reports · ${report.fatal} fatal`}
+          sub={`${pct(report.serious, report.received)} of this period's reports · ${report.fatal} fatal`}
         />
         <Tile
-          label="Overdue for NAFDAC (today)"
+          label="Overdue for NAFDAC · all open cases today"
           value={report.overdueNow}
-          sub={`${report.dueSoonNow} due within 3 days`}
+          sub={`Any month, still open past the deadline · ${report.dueSoonNow} more due within 3 days`}
         />
         <Tile
-          label="Forwarded to holders"
+          label={`Forwarded to holders · ${report.period.label}`}
           value={report.forwardsInPeriod.length}
-          sub={`${report.awaitingForward} still to forward`}
+          sub={`${report.awaitingForward} case(s), any month, still to forward`}
         />
       </div>
 
