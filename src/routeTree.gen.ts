@@ -16,6 +16,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as AppAiLogRouteImport } from './routes/_app/ai-log'
 import { Route as AppAuditRouteImport } from './routes/_app/audit'
+import { Route as AppBranchesRouteImport } from './routes/_app/branches'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppDrugsRouteImport } from './routes/_app/drugs'
 import { Route as AppE2bRouteImport } from './routes/_app/e2b'
@@ -25,6 +26,9 @@ import { Route as AppLiteratureRouteImport } from './routes/_app/literature'
 import { Route as AppNotificationsRouteImport } from './routes/_app/notifications'
 import { Route as AppOversightRouteImport } from './routes/_app/oversight'
 import { Route as AppPsurRouteImport } from './routes/_app/psur'
+import { Route as AppPsurCalendarRouteImport } from './routes/_app/psur-calendar'
+import { Route as AppRegistrationsRouteImport } from './routes/_app/registrations'
+import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppScreeningRouteImport } from './routes/_app/screening'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSignalScreenRouteImport } from './routes/_app/signal-screen'
@@ -37,6 +41,8 @@ import { Route as AppCasesCaseIdRouteImport } from './routes/_app/cases.$caseId'
 import { Route as AppIcsrNewRouteImport } from './routes/_app/icsr.new'
 import { Route as AppIntakeIndexRouteImport } from './routes/_app/intake.index'
 import { Route as AppIntakeConversationIdRouteImport } from './routes/_app/intake.$conversationId'
+import { Route as AppPsurDraftsIndexRouteImport } from './routes/_app/psur-drafts.index'
+import { Route as AppPsurDraftsDraftIdRouteImport } from './routes/_app/psur-drafts.$draftId'
 import { Route as ROrgSlugIndexRouteImport } from './routes/r.$orgSlug.index'
 import { Route as ROrgSlugReportRouteImport } from './routes/r.$orgSlug.report'
 
@@ -72,6 +78,11 @@ const AppAiLogRoute = AppAiLogRouteImport.update({
 const AppAuditRoute = AppAuditRouteImport.update({
   id: '/audit',
   path: '/audit',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBranchesRoute = AppBranchesRouteImport.update({
+  id: '/branches',
+  path: '/branches',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
@@ -117,6 +128,21 @@ const AppOversightRoute = AppOversightRouteImport.update({
 const AppPsurRoute = AppPsurRouteImport.update({
   id: '/psur',
   path: '/psur',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPsurCalendarRoute = AppPsurCalendarRouteImport.update({
+  id: '/psur-calendar',
+  path: '/psur-calendar',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRegistrationsRoute = AppRegistrationsRouteImport.update({
+  id: '/registrations',
+  path: '/registrations',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReportsRoute = AppReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => AppRoute,
 } as any)
 const AppScreeningRoute = AppScreeningRouteImport.update({
@@ -179,6 +205,16 @@ const AppIntakeConversationIdRoute = AppIntakeConversationIdRouteImport.update({
   path: '/intake/$conversationId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPsurDraftsIndexRoute = AppPsurDraftsIndexRouteImport.update({
+  id: '/psur-drafts/',
+  path: '/psur-drafts/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPsurDraftsDraftIdRoute = AppPsurDraftsDraftIdRouteImport.update({
+  id: '/psur-drafts/$draftId',
+  path: '/psur-drafts/$draftId',
+  getParentRoute: () => AppRoute,
+} as any)
 const ROrgSlugIndexRoute = ROrgSlugIndexRouteImport.update({
   id: '/r/$orgSlug/',
   path: '/r/$orgSlug/',
@@ -197,6 +233,7 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/ai-log': typeof AppAiLogRoute
   '/audit': typeof AppAuditRoute
+  '/branches': typeof AppBranchesRoute
   '/dashboard': typeof AppDashboardRoute
   '/drugs': typeof AppDrugsRoute
   '/e2b': typeof AppE2bRoute
@@ -206,6 +243,9 @@ export interface FileRoutesByFullPath {
   '/notifications': typeof AppNotificationsRoute
   '/oversight': typeof AppOversightRoute
   '/psur': typeof AppPsurRoute
+  '/psur-calendar': typeof AppPsurCalendarRoute
+  '/registrations': typeof AppRegistrationsRoute
+  '/reports': typeof AppReportsRoute
   '/screening': typeof AppScreeningRoute
   '/settings': typeof AppSettingsRoute
   '/signal-screen': typeof AppSignalScreenRoute
@@ -216,9 +256,11 @@ export interface FileRoutesByFullPath {
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
   '/intake/$conversationId': typeof AppIntakeConversationIdRoute
+  '/psur-drafts/$draftId': typeof AppPsurDraftsDraftIdRoute
   '/r/$orgSlug/report': typeof ROrgSlugReportRoute
   '/cases/': typeof AppCasesIndexRoute
   '/intake/': typeof AppIntakeIndexRoute
+  '/psur-drafts/': typeof AppPsurDraftsIndexRoute
   '/r/$orgSlug/': typeof ROrgSlugIndexRoute
 }
 export interface FileRoutesByTo {
@@ -228,6 +270,7 @@ export interface FileRoutesByTo {
   '/signup': typeof SignupRoute
   '/ai-log': typeof AppAiLogRoute
   '/audit': typeof AppAuditRoute
+  '/branches': typeof AppBranchesRoute
   '/dashboard': typeof AppDashboardRoute
   '/drugs': typeof AppDrugsRoute
   '/e2b': typeof AppE2bRoute
@@ -237,6 +280,9 @@ export interface FileRoutesByTo {
   '/notifications': typeof AppNotificationsRoute
   '/oversight': typeof AppOversightRoute
   '/psur': typeof AppPsurRoute
+  '/psur-calendar': typeof AppPsurCalendarRoute
+  '/registrations': typeof AppRegistrationsRoute
+  '/reports': typeof AppReportsRoute
   '/screening': typeof AppScreeningRoute
   '/settings': typeof AppSettingsRoute
   '/signal-screen': typeof AppSignalScreenRoute
@@ -247,9 +293,11 @@ export interface FileRoutesByTo {
   '/cases/$caseId': typeof AppCasesCaseIdRoute
   '/icsr/new': typeof AppIcsrNewRoute
   '/intake/$conversationId': typeof AppIntakeConversationIdRoute
+  '/psur-drafts/$draftId': typeof AppPsurDraftsDraftIdRoute
   '/r/$orgSlug/report': typeof ROrgSlugReportRoute
   '/cases': typeof AppCasesIndexRoute
   '/intake': typeof AppIntakeIndexRoute
+  '/psur-drafts': typeof AppPsurDraftsIndexRoute
   '/r/$orgSlug': typeof ROrgSlugIndexRoute
 }
 export interface FileRoutesById {
@@ -261,6 +309,7 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_app/ai-log': typeof AppAiLogRoute
   '/_app/audit': typeof AppAuditRoute
+  '/_app/branches': typeof AppBranchesRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/drugs': typeof AppDrugsRoute
   '/_app/e2b': typeof AppE2bRoute
@@ -270,6 +319,9 @@ export interface FileRoutesById {
   '/_app/notifications': typeof AppNotificationsRoute
   '/_app/oversight': typeof AppOversightRoute
   '/_app/psur': typeof AppPsurRoute
+  '/_app/psur-calendar': typeof AppPsurCalendarRoute
+  '/_app/registrations': typeof AppRegistrationsRoute
+  '/_app/reports': typeof AppReportsRoute
   '/_app/screening': typeof AppScreeningRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/signal-screen': typeof AppSignalScreenRoute
@@ -280,9 +332,11 @@ export interface FileRoutesById {
   '/_app/cases/$caseId': typeof AppCasesCaseIdRoute
   '/_app/icsr/new': typeof AppIcsrNewRoute
   '/_app/intake/$conversationId': typeof AppIntakeConversationIdRoute
+  '/_app/psur-drafts/$draftId': typeof AppPsurDraftsDraftIdRoute
   '/r/$orgSlug/report': typeof ROrgSlugReportRoute
   '/_app/cases/': typeof AppCasesIndexRoute
   '/_app/intake/': typeof AppIntakeIndexRoute
+  '/_app/psur-drafts/': typeof AppPsurDraftsIndexRoute
   '/r/$orgSlug/': typeof ROrgSlugIndexRoute
 }
 export interface FileRouteTypes {
@@ -294,6 +348,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/ai-log'
     | '/audit'
+    | '/branches'
     | '/dashboard'
     | '/drugs'
     | '/e2b'
@@ -303,6 +358,9 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/oversight'
     | '/psur'
+    | '/psur-calendar'
+    | '/registrations'
+    | '/reports'
     | '/screening'
     | '/settings'
     | '/signal-screen'
@@ -313,9 +371,11 @@ export interface FileRouteTypes {
     | '/cases/$caseId'
     | '/icsr/new'
     | '/intake/$conversationId'
+    | '/psur-drafts/$draftId'
     | '/r/$orgSlug/report'
     | '/cases/'
     | '/intake/'
+    | '/psur-drafts/'
     | '/r/$orgSlug/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -325,6 +385,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/ai-log'
     | '/audit'
+    | '/branches'
     | '/dashboard'
     | '/drugs'
     | '/e2b'
@@ -334,6 +395,9 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/oversight'
     | '/psur'
+    | '/psur-calendar'
+    | '/registrations'
+    | '/reports'
     | '/screening'
     | '/settings'
     | '/signal-screen'
@@ -344,9 +408,11 @@ export interface FileRouteTypes {
     | '/cases/$caseId'
     | '/icsr/new'
     | '/intake/$conversationId'
+    | '/psur-drafts/$draftId'
     | '/r/$orgSlug/report'
     | '/cases'
     | '/intake'
+    | '/psur-drafts'
     | '/r/$orgSlug'
   id:
     | '__root__'
@@ -357,6 +423,7 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_app/ai-log'
     | '/_app/audit'
+    | '/_app/branches'
     | '/_app/dashboard'
     | '/_app/drugs'
     | '/_app/e2b'
@@ -366,6 +433,9 @@ export interface FileRouteTypes {
     | '/_app/notifications'
     | '/_app/oversight'
     | '/_app/psur'
+    | '/_app/psur-calendar'
+    | '/_app/registrations'
+    | '/_app/reports'
     | '/_app/screening'
     | '/_app/settings'
     | '/_app/signal-screen'
@@ -376,9 +446,11 @@ export interface FileRouteTypes {
     | '/_app/cases/$caseId'
     | '/_app/icsr/new'
     | '/_app/intake/$conversationId'
+    | '/_app/psur-drafts/$draftId'
     | '/r/$orgSlug/report'
     | '/_app/cases/'
     | '/_app/intake/'
+    | '/_app/psur-drafts/'
     | '/r/$orgSlug/'
   fileRoutesById: FileRoutesById
 }
@@ -445,6 +517,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAuditRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/branches': {
+      id: '/_app/branches'
+      path: '/branches'
+      fullPath: '/branches'
+      preLoaderRoute: typeof AppBranchesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
@@ -506,6 +585,27 @@ declare module '@tanstack/react-router' {
       path: '/psur'
       fullPath: '/psur'
       preLoaderRoute: typeof AppPsurRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/psur-calendar': {
+      id: '/_app/psur-calendar'
+      path: '/psur-calendar'
+      fullPath: '/psur-calendar'
+      preLoaderRoute: typeof AppPsurCalendarRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/registrations': {
+      id: '/_app/registrations'
+      path: '/registrations'
+      fullPath: '/registrations'
+      preLoaderRoute: typeof AppRegistrationsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/reports': {
+      id: '/_app/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof AppReportsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/screening': {
@@ -592,6 +692,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIntakeConversationIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/psur-drafts/': {
+      id: '/_app/psur-drafts/'
+      path: '/psur-drafts'
+      fullPath: '/psur-drafts/'
+      preLoaderRoute: typeof AppPsurDraftsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/psur-drafts/$draftId': {
+      id: '/_app/psur-drafts/$draftId'
+      path: '/psur-drafts/$draftId'
+      fullPath: '/psur-drafts/$draftId'
+      preLoaderRoute: typeof AppPsurDraftsDraftIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/r/$orgSlug/': {
       id: '/r/$orgSlug/'
       path: '/r/$orgSlug'
@@ -612,6 +726,7 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppAiLogRoute: typeof AppAiLogRoute
   AppAuditRoute: typeof AppAuditRoute
+  AppBranchesRoute: typeof AppBranchesRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDrugsRoute: typeof AppDrugsRoute
   AppE2bRoute: typeof AppE2bRoute
@@ -621,6 +736,9 @@ interface AppRouteChildren {
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppOversightRoute: typeof AppOversightRoute
   AppPsurRoute: typeof AppPsurRoute
+  AppPsurCalendarRoute: typeof AppPsurCalendarRoute
+  AppRegistrationsRoute: typeof AppRegistrationsRoute
+  AppReportsRoute: typeof AppReportsRoute
   AppScreeningRoute: typeof AppScreeningRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppSignalScreenRoute: typeof AppSignalScreenRoute
@@ -629,13 +747,16 @@ interface AppRouteChildren {
   AppCasesCaseIdRoute: typeof AppCasesCaseIdRoute
   AppIcsrNewRoute: typeof AppIcsrNewRoute
   AppIntakeConversationIdRoute: typeof AppIntakeConversationIdRoute
+  AppPsurDraftsDraftIdRoute: typeof AppPsurDraftsDraftIdRoute
   AppCasesIndexRoute: typeof AppCasesIndexRoute
   AppIntakeIndexRoute: typeof AppIntakeIndexRoute
+  AppPsurDraftsIndexRoute: typeof AppPsurDraftsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppAiLogRoute: AppAiLogRoute,
   AppAuditRoute: AppAuditRoute,
+  AppBranchesRoute: AppBranchesRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDrugsRoute: AppDrugsRoute,
   AppE2bRoute: AppE2bRoute,
@@ -645,6 +766,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppNotificationsRoute: AppNotificationsRoute,
   AppOversightRoute: AppOversightRoute,
   AppPsurRoute: AppPsurRoute,
+  AppPsurCalendarRoute: AppPsurCalendarRoute,
+  AppRegistrationsRoute: AppRegistrationsRoute,
+  AppReportsRoute: AppReportsRoute,
   AppScreeningRoute: AppScreeningRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppSignalScreenRoute: AppSignalScreenRoute,
@@ -653,8 +777,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppCasesCaseIdRoute: AppCasesCaseIdRoute,
   AppIcsrNewRoute: AppIcsrNewRoute,
   AppIntakeConversationIdRoute: AppIntakeConversationIdRoute,
+  AppPsurDraftsDraftIdRoute: AppPsurDraftsDraftIdRoute,
   AppCasesIndexRoute: AppCasesIndexRoute,
   AppIntakeIndexRoute: AppIntakeIndexRoute,
+  AppPsurDraftsIndexRoute: AppPsurDraftsIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

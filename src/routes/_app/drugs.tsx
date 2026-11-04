@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Copy, Pill, Plus, Search, Upload } from "lucide-react";
+import { Copy, Pencil, Pill, Plus, Search, Upload } from "lucide-react";
 import { products as productsApi, type CatalogDrug } from "@/services/api/products";
 import { parseTabularFile } from "@/services/api/tabular-parse";
 import { demoProducts } from "@/services/demo/dataset";
@@ -11,6 +11,7 @@ import { PageHeader, QueryBoundary, Section, StatusPill } from "@/components/pv/
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -49,10 +50,40 @@ export const Route = createFileRoute("/_app/drugs")({
   component: DrugsPage,
 });
 
-function AddDrugDialog({ onAdded }: { onAdded: () => void }) {
+type DrugForm = {
+  name: string;
+  activeIngredient: string;
+  strength: string;
+  route: string;
+  holder: string;
+  ownBrand: boolean;
+};
+
+const EMPTY_FORM: DrugForm = {
+  name: "",
+  activeIngredient: "",
+  strength: "",
+  route: "",
+  holder: "",
+  ownBrand: false,
+};
+
+function formFrom(d: CatalogDrug): DrugForm {
+  return {
+    name: d.name,
+    activeIngredient: d.activeIngredient ?? "",
+    strength: d.strength ?? "",
+    route: d.route ?? "",
+    holder: d.holder ?? "",
+    ownBrand: !!d.ownBrand,
+  };
+}
+
+/** Adds a drug, or edits one when `drug` is given. */
+function DrugFormDialog({ drug, onSaved }: { drug?: CatalogDrug; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", activeIngredient: "", strength: "", route: "" });
+  const [form, setForm] = useState<DrugForm>(EMPTY_FORM);
 
   async function save() {
     if (!form.name.trim()) {
@@ -60,34 +91,50 @@ function AddDrugDialog({ onAdded }: { onAdded: () => void }) {
       return;
     }
     setSaving(true);
+    const input = {
+      name: form.name.trim(),
+      activeIngredient: form.activeIngredient.trim() || undefined,
+      strength: form.strength.trim() || undefined,
+      route: form.route.trim() || undefined,
+      doseUnit: drug?.doseUnit,
+      holder: form.holder.trim() || undefined,
+      ownBrand: form.ownBrand || undefined,
+    };
     try {
-      await productsApi.create({
-        name: form.name,
-        activeIngredient: form.activeIngredient || undefined,
-        strength: form.strength || undefined,
-        route: form.route || undefined,
-      });
-      toast.success(`${form.name} added to the catalog.`);
-      setForm({ name: "", activeIngredient: "", strength: "", route: "" });
+      if (drug) await productsApi.update(drug.id, input);
+      else await productsApi.create(input);
+      toast.success(drug ? `${input.name} updated.` : `${input.name} added to the catalog.`);
       setOpen(false);
-      onAdded();
+      onSaved();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not add that drug.");
+      toast.error(err instanceof Error ? err.message : "Could not save that drug.");
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (v) setForm(drug ? formFrom(drug) : EMPTY_FORM);
+      }}
+    >
       <DialogTrigger asChild>
-        <Button size="sm">
-          <Plus className="size-4" /> Add drug
-        </Button>
+        {drug ? (
+          <Button size="sm" variant="ghost" aria-label={`Edit ${drug.name}`}>
+            <Pencil className="size-3.5" /> Edit
+          </Button>
+        ) : (
+          <Button size="sm">
+            <Plus className="size-4" /> Add drug
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add a drug to the catalog</DialogTitle>
+          <DialogTitle>{drug ? `Edit ${drug.name}` : "Add a drug to the catalog"}</DialogTitle>
           <DialogDescription>
             Field associates will be able to search for and select this drug when reporting an ICSR.
           </DialogDescription>
@@ -128,10 +175,32 @@ function AddDrugDialog({ onAdded }: { onAdded: () => void }) {
               onChange={(e) => setForm((f) => ({ ...f, route: e.target.value }))}
             />
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="drugHolder">Marketing authorisation holder</Label>
+            <Input
+              id="drugHolder"
+              placeholder="The company that holds the NAFDAC registration"
+              value={form.holder}
+              onChange={(e) => setForm((f) => ({ ...f, holder: e.target.value }))}
+            />
+          </div>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              id="drugOwnBrand"
+              checked={form.ownBrand}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, ownBrand: v === true }))}
+            />
+            <span>
+              Own brand — we hold the registration
+              <span className="block text-xs text-muted-foreground">
+                Reports about other holders&apos; products are flagged to be forwarded to them.
+              </span>
+            </span>
+          </label>
         </div>
         <DialogFooter>
           <Button onClick={save} disabled={saving}>
-            {saving ? "Adding…" : "Add drug"}
+            {saving ? "Saving…" : drug ? "Save changes" : "Add drug"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -155,13 +224,23 @@ const COLUMN_ALIASES: Record<string, keyof CatalogDrug> = {
   doseunit: "doseUnit",
   route: "route",
   routeofadministration: "route",
+  holder: "holder",
+  mah: "holder",
+  marketingauthorisationholder: "holder",
+  marketingauthorizationholder: "holder",
+  ownbrand: "ownBrand",
 };
+
+const YES = new Set(["yes", "y", "true", "1", "own", "own brand"]);
 
 function mapCsvRow(headers: string[], row: string[]): Partial<CatalogDrug> {
   const out: Partial<CatalogDrug> = {};
   headers.forEach((header, i) => {
     const key = COLUMN_ALIASES[header.toLowerCase().replace(/[^a-z0-9]/g, "")];
-    if (key && row[i]?.trim()) out[key] = row[i].trim();
+    const value = row[i]?.trim();
+    if (!key || !value) return;
+    if (key === "ownBrand") out.ownBrand = YES.has(value.toLowerCase());
+    else out[key] = value;
   });
   return out;
 }
@@ -227,8 +306,9 @@ function UploadCsvDialog({ onImported }: { onImported: () => void }) {
         <DialogHeader>
           <DialogTitle>Bulk-upload drugs</DialogTitle>
           <DialogDescription>
-            CSV or spreadsheet with columns for name, active ingredient, strength and route.
-            Duplicates (matched by name) are skipped automatically.
+            CSV or spreadsheet with columns for name, active ingredient, strength, route, holder
+            (marketing authorisation holder) and own brand (yes/no). Duplicates (matched by name)
+            are skipped automatically.
           </DialogDescription>
         </DialogHeader>
         {preview ? (
@@ -245,6 +325,7 @@ function UploadCsvDialog({ onImported }: { onImported: () => void }) {
                     <TableHead>Active ingredient</TableHead>
                     <TableHead>Strength</TableHead>
                     <TableHead>Route</TableHead>
+                    <TableHead>Holder</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -254,6 +335,7 @@ function UploadCsvDialog({ onImported }: { onImported: () => void }) {
                       <TableCell>{r.activeIngredient ?? "—"}</TableCell>
                       <TableCell>{r.strength ?? "—"}</TableCell>
                       <TableCell>{r.route ?? "—"}</TableCell>
+                      <TableCell>{r.ownBrand ? "Own brand" : (r.holder ?? "—")}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -316,7 +398,7 @@ function DrugsPage() {
           canManage ? (
             <>
               <UploadCsvDialog onImported={refresh} />
-              <AddDrugDialog onAdded={refresh} />
+              <DrugFormDialog onSaved={refresh} />
             </>
           ) : undefined
         }
@@ -346,7 +428,15 @@ function DrugsPage() {
         ) : null}
 
         <QueryBoundary query={query} loadingLabel="Loading drug catalog">
-          {(drugs) => <DrugTable drugs={drugs} search={search} setSearch={setSearch} />}
+          {(drugs) => (
+            <DrugTable
+              drugs={drugs}
+              search={search}
+              setSearch={setSearch}
+              canManage={canManage}
+              onSaved={refresh}
+            />
+          )}
         </QueryBoundary>
       </div>
     </>
@@ -357,16 +447,23 @@ function DrugTable({
   drugs,
   search,
   setSearch,
+  canManage,
+  onSaved,
 }: {
   drugs: CatalogDrug[];
   search: string;
   setSearch: (v: string) => void;
+  canManage: boolean;
+  onSaved: () => void;
 }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return drugs;
     return drugs.filter(
-      (d) => d.name.toLowerCase().includes(q) || d.activeIngredient?.toLowerCase().includes(q),
+      (d) =>
+        d.name.toLowerCase().includes(q) ||
+        d.activeIngredient?.toLowerCase().includes(q) ||
+        d.holder?.toLowerCase().includes(q),
     );
   }, [drugs, search]);
 
@@ -400,6 +497,8 @@ function DrugTable({
               <TableHead>Active ingredient</TableHead>
               <TableHead>Strength</TableHead>
               <TableHead>Route</TableHead>
+              <TableHead>Holder</TableHead>
+              {canManage ? <TableHead className="w-20" /> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -411,6 +510,20 @@ function DrugTable({
                 <TableCell>
                   {d.route ? <StatusPill tone="neutral">{d.route}</StatusPill> : "—"}
                 </TableCell>
+                <TableCell>
+                  {d.ownBrand ? (
+                    <StatusPill tone="info">Own brand{d.holder ? ` · ${d.holder}` : ""}</StatusPill>
+                  ) : d.holder ? (
+                    d.holder
+                  ) : (
+                    <span className="text-muted-foreground">Not recorded</span>
+                  )}
+                </TableCell>
+                {canManage ? (
+                  <TableCell>
+                    <DrugFormDialog drug={d} onSaved={onSaved} />
+                  </TableCell>
+                ) : null}
               </TableRow>
             ))}
           </TableBody>

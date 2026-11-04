@@ -32,6 +32,15 @@ export const WORKFLOW_LABELS: Record<WorkflowStep, string> = {
 };
 
 export type Seriousness = "SERIOUS" | "NON_SERIOUS" | "UNASSESSED";
+export type IntakeChannel =
+  | "BRANCH"
+  | "ECOMMERCE"
+  | "CUSTOMER_SERVICE"
+  | "REPORTING_LINK"
+  | "WHATSAPP"
+  | "PHONE"
+  | "EMAIL"
+  | "OTHER";
 export type Priority = "HIGH" | "MEDIUM" | "LOW";
 export type CaseOutcome =
   "RECOVERED" | "RECOVERING" | "NOT_RECOVERED" | "RECOVERED_WITH_SEQUELAE" | "FATAL" | "UNKNOWN";
@@ -69,6 +78,21 @@ export interface SuspectProduct {
    *  the coding workspace — mirrors ReactionEvent.codedTerm. Only ever
    *  written by coding.accept(), never guessed or pre-filled. */
   codedTerm?: CodedTerm | null | undefined;
+}
+
+/** A case passed on to the holder of a product someone else registered. */
+export interface HolderForward {
+  id: string;
+  /** The suspect product the forward is about, as reported on the case. */
+  productName: string;
+  holder: string;
+  contact?: string | undefined;
+  method: "EMAIL" | "PORTAL" | "PHONE" | "LETTER" | "OTHER";
+  /** Date the report was sent to the holder (YYYY-MM-DD). */
+  sentOn: string;
+  note?: string | undefined;
+  recordedBy: string;
+  recordedAt: string;
 }
 
 export interface ConcomitantMedicine {
@@ -156,6 +180,19 @@ export interface CaseSummary {
   priority: Priority;
   flags: string[];
   source: "MANUAL" | "WHATSAPP" | "LINELIST" | "EMAIL";
+  /** Where the report came from. Absent on cases created before it was recorded. */
+  intakeChannel?: IntakeChannel | undefined;
+  /** The branch or store, only for the BRANCH channel. */
+  branch?: string | undefined;
+  /** Catalog id of the primary suspect product, when it was picked from the
+   *  catalog. Absent on older cases, which are matched by name instead. */
+  productId?: string | undefined;
+  /** The reporter could not find the primary product in the catalog. */
+  unlistedProduct?: boolean | undefined;
+  /** Holder / manufacturer the reporter gave for an unlisted product. */
+  reportedHolder?: string | undefined;
+  /** Reports passed on to the product's marketing authorisation holder. */
+  holderForwards?: HolderForward[] | undefined;
   /** Precomputed from CaseDetail.dynamicFields for the cases list page —
    *  count only, so the list view can show "N additional fields" without
    *  fetching every case's full detail. Absent/0 when there are none. */

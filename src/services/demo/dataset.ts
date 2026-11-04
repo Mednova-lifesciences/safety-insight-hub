@@ -55,6 +55,7 @@ export const demoProducts: import("@/services/api/products").CatalogDrug[] = [
     activeIngredient: "Amoxicillin",
     strength: "500mg",
     route: "Oral",
+    ownBrand: true,
   },
   {
     id: "drug-demo-2",
@@ -62,6 +63,7 @@ export const demoProducts: import("@/services/api/products").CatalogDrug[] = [
     activeIngredient: "Artemether, Lumefantrine",
     strength: "20/120mg",
     route: "Oral",
+    holder: "Example Pharma Ltd (demo)",
   },
   {
     id: "drug-demo-3",
@@ -87,6 +89,7 @@ export const demoCases: CaseSummary[] = [
     priority: "MEDIUM",
     flags: ["SERIOUSNESS_MISMATCH"],
     source: "WHATSAPP",
+    intakeChannel: "WHATSAPP",
   },
   {
     id: "MN-2026-000838",
@@ -102,6 +105,8 @@ export const demoCases: CaseSummary[] = [
     priority: "HIGH",
     flags: ["EXPEDITED"],
     source: "MANUAL",
+    intakeChannel: "BRANCH",
+    branch: "Lekki Phase 1",
   },
   {
     id: "MN-2026-000835",
@@ -117,6 +122,7 @@ export const demoCases: CaseSummary[] = [
     priority: "HIGH",
     flags: [],
     source: "EMAIL",
+    intakeChannel: "EMAIL",
   },
   {
     id: "MN-2026-000829",
@@ -147,6 +153,8 @@ export const demoCases: CaseSummary[] = [
     priority: "HIGH",
     flags: ["OVERDUE"],
     source: "MANUAL",
+    intakeChannel: "BRANCH",
+    branch: "Ikeja City Mall",
   },
   {
     id: "MN-2026-000817",
@@ -162,6 +170,7 @@ export const demoCases: CaseSummary[] = [
     priority: "HIGH",
     flags: ["INCOMPLETE"],
     source: "WHATSAPP",
+    intakeChannel: "WHATSAPP",
   },
   {
     id: "MN-2026-000812",

@@ -555,6 +555,7 @@ function WhatsAppIntakeDemo({ scenario, onReset }: { scenario: Scenario; onReset
         seriousnessCriteria:
           seriousness === "SERIOUS" ? ["Requires or prolongs hospitalisation"] : [],
         additionalInformation: "Captured via the WhatsApp intake channel (simulated demo).",
+        intakeChannel: "WHATSAPP",
         additionalProducts: [],
         concomitantMedicines: [],
         dynamicFields: [],

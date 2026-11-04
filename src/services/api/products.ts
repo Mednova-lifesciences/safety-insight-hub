@@ -9,6 +9,23 @@ export interface CatalogDrug {
   strength?: string | undefined;
   doseUnit?: string | undefined;
   route?: string | undefined;
+  /** Marketing authorisation holder — whoever holds the NAFDAC registration. */
+  holder?: string | undefined;
+  /** The organisation itself holds the registration (e.g. a private label). */
+  ownBrand?: boolean | undefined;
+  /** PSUR schedule, for own-brand products. */
+  psur?: PsurSchedule | undefined;
+}
+
+export interface PsurSchedule {
+  /** International birth date (YYYY-MM-DD). */
+  ibd?: string | undefined;
+  /** Reporting interval in months: 6, 12 or 36. */
+  intervalMonths?: number | undefined;
+  /** Data lock point of the last PSUR submitted (YYYY-MM-DD). */
+  lastDlp?: string | undefined;
+  /** When that PSUR was submitted, if recorded. */
+  lastSubmittedOn?: string | undefined;
 }
 
 export interface CatalogDrugInput {
@@ -17,6 +34,17 @@ export interface CatalogDrugInput {
   strength?: string | undefined;
   doseUnit?: string | undefined;
   route?: string | undefined;
+  holder?: string | undefined;
+  ownBrand?: boolean | undefined;
+  psur?: PsurSchedule | undefined;
+}
+
+function describeHolder(d: {
+  name: string;
+  holder?: string | undefined;
+  ownBrand?: boolean | undefined;
+}) {
+  return `${d.name} — ${d.ownBrand ? "own brand" : d.holder ? `holder ${d.holder}` : "holder not recorded"}`;
 }
 
 function fromRow(row: { id: string; data: unknown }): CatalogDrug {
@@ -47,6 +75,42 @@ export const products = {
       reason: "Drug added to catalog",
     });
     return drug;
+  },
+
+  /** Merges `input` over the stored entry, so fields a caller does not send
+   *  (e.g. the PSUR schedule when editing the name) are kept. A key sent as
+   *  undefined clears that field. */
+  update: async (
+    id: string,
+    input: Partial<CatalogDrugInput>,
+    audit?: { action: string; previousValue: string; newValue: string; reason: string },
+  ): Promise<CatalogDrug> => {
+    const { data: existing, error: readError } = await supabase
+      .from("pv_products")
+      .select("id,data")
+      .eq("id", id)
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (!existing) throw new Error("That drug could no longer be found.");
+    const before = fromRow(existing);
+    const { id: _id, ...beforeData } = before;
+    const merged = { ...beforeData, ...input };
+    const { error } = await supabase
+      .from("pv_products")
+      .update({ data: toJson(merged) })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
+    await recordAudit({
+      entity: "Product",
+      entityId: id,
+      ...(audit ?? {
+        action: "PRODUCT_UPDATED",
+        previousValue: describeHolder(before),
+        newValue: describeHolder(merged),
+        reason: `Catalog entry for ${merged.name} edited`,
+      }),
+    });
+    return { id, ...merged };
   },
 
   /** Inserts every row not already present (case-insensitive name match),

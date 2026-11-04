@@ -655,6 +655,63 @@ export type Database = {
         };
         Relationships: [];
       };
+      pv_branches: {
+        Row: {
+          created_at: string;
+          data: Json;
+          id: string;
+        };
+        Insert: {
+          created_at?: string;
+          data: Json;
+          id: string;
+        };
+        Update: {
+          created_at?: string;
+          data?: Json;
+          id?: string;
+        };
+        Relationships: [];
+      };
+      pv_registrations: {
+        Row: {
+          created_at: string;
+          data: Json;
+          id: string;
+        };
+        Insert: {
+          created_at?: string;
+          data: Json;
+          id: string;
+        };
+        Update: {
+          created_at?: string;
+          data?: Json;
+          id?: string;
+        };
+        Relationships: [];
+      };
+      pv_psur_drafts: {
+        Row: {
+          created_at: string;
+          data: Json;
+          id: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          data: Json;
+          id: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          data?: Json;
+          id?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       pv_pms_referrals: {
         Row: {
           created_at: string;

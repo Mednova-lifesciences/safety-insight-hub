@@ -26,6 +26,28 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { WORKFLOW_LABELS, WORKFLOW_STEPS } from "@/types/pv";
+import {
+  CHANNEL_NOT_RECORDED,
+  INTAKE_CHANNELS,
+  INTAKE_CHANNEL_LABELS,
+  describeIntake,
+  distinctBranches,
+  matchesBranchFilter,
+  matchesChannelFilter,
+} from "@/services/api/intake-channel";
+import {
+  CLOCK_TONE,
+  isPastDue,
+  matchesClockFilter,
+  reportingClock,
+} from "@/services/api/regulatory-clock";
+import { products as productsApi } from "@/services/api/products";
+import {
+  FORWARD_STATE_LABELS,
+  needsForward,
+  primaryForwardState,
+} from "@/services/api/holder-forwarding";
+import { demoProducts } from "@/services/demo/dataset";
 
 export const Route = createFileRoute("/_app/cases/")({
   head: () => ({
@@ -57,19 +79,35 @@ function CaseWorkbench() {
   const [status, setStatus] = useState("all");
   const [seriousness, setSeriousness] = useState("all");
   const [assignee, setAssignee] = useState("all");
+  const [channel, setChannel] = useState("all");
+  const [branch, setBranch] = useState("all");
+  const [clockFilter, setClockFilter] = useState("all");
+  const [holderFilter, setHolderFilter] = useState("all");
+  const catalogQuery = usePvQuery(
+    ["products"],
+    () => productsApi.list(),
+    () => demoProducts,
+  );
+  const catalog = catalogQuery.data?.data ?? [];
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [exporting, setExporting] = useState(false);
 
   const all = query.data?.data ?? [];
   const assignees = useMemo(() => Array.from(new Set(all.map((c) => c.assignedTo))), [all]);
+  const branches = useMemo(() => distinctBranches(all), [all]);
 
   const filtered = all.filter((c) => {
-    const text = `${c.id} ${c.patientIdentifier} ${c.product} ${c.reaction}`.toLowerCase();
+    const text =
+      `${c.id} ${c.patientIdentifier} ${c.product} ${c.reaction} ${c.branch ?? ""}`.toLowerCase();
     if (q && !text.includes(q.toLowerCase())) return false;
     if (status !== "all" && c.workflowStep !== status) return false;
     if (seriousness !== "all" && c.seriousness !== seriousness) return false;
     if (assignee !== "all" && c.assignedTo !== assignee) return false;
+    if (!matchesChannelFilter(c, channel)) return false;
+    if (!matchesBranchFilter(c, branch)) return false;
+    if (!matchesClockFilter(reportingClock(c), clockFilter)) return false;
+    if (holderFilter !== "all" && primaryForwardState(c, catalog) !== holderFilter) return false;
     if (from && c.receivedDate < from) return false;
     if (to && c.receivedDate > to) return false;
     return true;
@@ -127,7 +165,7 @@ function CaseWorkbench() {
               <Input
                 id="case-search"
                 className="pl-8"
-                placeholder="Case ID, patient, product, reaction"
+                placeholder="Case ID, patient, product, reaction, branch"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
@@ -184,6 +222,79 @@ function CaseWorkbench() {
           </div>
 
           <div>
+            <span className="label-caps">Channel</span>
+            <Select value={channel} onValueChange={setChannel}>
+              <SelectTrigger className="mt-1 w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All channels</SelectItem>
+                {INTAKE_CHANNELS.map((ch) => (
+                  <SelectItem key={ch} value={ch}>
+                    {INTAKE_CHANNEL_LABELS[ch]}
+                  </SelectItem>
+                ))}
+                <SelectItem value={CHANNEL_NOT_RECORDED}>Not recorded</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <span className="label-caps">NAFDAC clock</span>
+            <Select value={clockFilter} onValueChange={setClockFilter}>
+              <SelectTrigger className="mt-1 w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="ATTENTION">Overdue or due soon</SelectItem>
+                <SelectItem value="OVERDUE">Overdue</SelectItem>
+                <SelectItem value="DUE_SOON">Due within 3 days</SelectItem>
+                <SelectItem value="ON_TRACK">On track</SelectItem>
+                <SelectItem value="STOPPED">Ready / closed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <span className="label-caps">Product holder</span>
+            <Select value={holderFilter} onValueChange={setHolderFilter}>
+              <SelectTrigger className="mt-1 w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {(Object.keys(FORWARD_STATE_LABELS) as (keyof typeof FORWARD_STATE_LABELS)[]).map(
+                  (k) => (
+                    <SelectItem key={k} value={k}>
+                      {FORWARD_STATE_LABELS[k]}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {branches.length > 0 ? (
+            <div>
+              <span className="label-caps">Branch</span>
+              <Select value={branch} onValueChange={setBranch}>
+                <SelectTrigger className="mt-1 w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All branches</SelectItem>
+                  {branches.map((b) => (
+                    <SelectItem key={b} value={b}>
+                      {b}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+
+          <div>
             <label className="label-caps" htmlFor="from">
               Received from
             </label>
@@ -212,7 +323,7 @@ function CaseWorkbench() {
         <QueryBoundary query={query} loadingLabel="Loading cases">
           {() => (
             <div className="panel overflow-x-auto">
-              <table className="w-full min-w-[1100px] text-sm">
+              <table className="w-full min-w-[1380px] text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50 text-left">
                     {[
@@ -220,12 +331,14 @@ function CaseWorkbench() {
                       "Patient",
                       "Product",
                       "Reaction",
+                      "Channel",
                       "Seriousness",
                       "Outcome",
                       "Status",
                       "Assigned",
                       "Received",
                       "Due",
+                      "NAFDAC clock",
                       "Priority",
                     ].map((h) => (
                       <th key={h} className="label-caps px-3 py-2 whitespace-nowrap">
@@ -257,8 +370,26 @@ function CaseWorkbench() {
                       <td className="mono-num px-3 py-2 whitespace-nowrap">
                         {c.patientIdentifier}
                       </td>
-                      <td className="max-w-52 truncate px-3 py-2">{c.product}</td>
+                      <td className="max-w-52 px-3 py-2">
+                        <span className="block truncate">{c.product}</span>
+                        {(() => {
+                          const state = primaryForwardState(c, catalog);
+                          return needsForward(state) ? (
+                            <StatusPill tone="warning" className="mt-1">
+                              {state === "UNLISTED" ? "Not in catalog" : "Forward to holder"}
+                            </StatusPill>
+                          ) : null;
+                        })()}
+                      </td>
                       <td className="max-w-52 truncate px-3 py-2">{c.reaction}</td>
+                      <td
+                        className={
+                          "max-w-52 truncate px-3 py-2 text-xs " +
+                          (c.intakeChannel ? "" : "text-muted-foreground")
+                        }
+                      >
+                        {describeIntake(c)}
+                      </td>
                       <td className="px-3 py-2">
                         <SeriousnessBadge value={c.seriousness} />
                       </td>
@@ -272,11 +403,27 @@ function CaseWorkbench() {
                       <td className="mono-num px-3 py-2 whitespace-nowrap">{c.receivedDate}</td>
                       <td className="mono-num px-3 py-2 whitespace-nowrap">
                         {c.dueDate}
-                        {c.dueDate < "2026-08-15" && c.workflowStep !== "CLOSED" ? (
+                        {isPastDue(c) ? (
                           <StatusPill tone="critical" className="ml-2">
                             overdue
                           </StatusPill>
                         ) : null}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {(() => {
+                          const clock = reportingClock(c);
+                          return (
+                            <span
+                              title={
+                                clock.deadline
+                                  ? `${clock.windowDays}-day window, due ${clock.deadline}`
+                                  : undefined
+                              }
+                            >
+                              <StatusPill tone={CLOCK_TONE[clock.status]}>{clock.label}</StatusPill>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2">
                         <PriorityBadge value={c.priority} />
@@ -286,7 +433,7 @@ function CaseWorkbench() {
                   {filtered.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={11}
+                        colSpan={13}
                         className="px-3 py-10 text-center text-sm text-muted-foreground"
                       >
                         No cases match the current filters.

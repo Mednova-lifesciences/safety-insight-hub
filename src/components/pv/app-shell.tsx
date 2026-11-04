@@ -1,11 +1,15 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Activity,
+  BadgeCheck,
+  BarChart3,
   Bell,
   BriefcaseMedical,
+  CalendarClock,
   ChevronDown,
   ClipboardCheck,
   ClipboardPlus,
+  FilePen,
   FileSpreadsheet,
   FileStack,
   FileText,
@@ -18,6 +22,7 @@ import {
   Pill,
   Radar,
   Settings,
+  Store,
   ShieldCheck,
   Timer,
 } from "lucide-react";
@@ -120,6 +125,34 @@ export const NAV: NavGroup[] = [
         permission: "catalog.view",
         hiddenForRoles: ASSESSOR_ROLES,
       },
+      {
+        to: "/psur-drafts",
+        label: "PSUR drafts",
+        icon: FilePen,
+        permission: "team.view",
+        hiddenForRoles: ASSESSOR_ROLES,
+      },
+      {
+        to: "/branches",
+        label: "Branches",
+        icon: Store,
+        permission: "team.view",
+        hiddenForRoles: ASSESSOR_ROLES,
+      },
+      {
+        to: "/registrations",
+        label: "Registrations",
+        icon: BadgeCheck,
+        permission: "team.view",
+        hiddenForRoles: ASSESSOR_ROLES,
+      },
+      {
+        to: "/psur-calendar",
+        label: "PSUR calendar",
+        icon: CalendarClock,
+        permission: "catalog.view",
+        hiddenForRoles: ASSESSOR_ROLES,
+      },
     ],
   },
   {
@@ -190,6 +223,13 @@ export const NAV: NavGroup[] = [
         label: "Signal review",
         icon: Radar,
         permission: "signal.view",
+        hiddenForRoles: ASSESSOR_ROLES,
+      },
+      {
+        to: "/reports",
+        label: "Safety reports",
+        icon: BarChart3,
+        permission: "team.view",
         hiddenForRoles: ASSESSOR_ROLES,
       },
       {

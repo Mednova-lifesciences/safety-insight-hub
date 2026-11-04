@@ -4,7 +4,15 @@ import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { signals as signalsApi } from "@/services/api/signals";
-import { demoSignals } from "@/services/demo/dataset";
+import { cases as casesApi } from "@/services/api/cases";
+import { demoCases, demoSignals } from "@/services/demo/dataset";
+import {
+  branchPatternNote,
+  caseClusters,
+  type CaseForClusters,
+} from "@/services/api/case-clusters";
+import { QUALITY_SIGN_LABELS } from "@/services/api/linelist-clusters";
+import { Checkbox } from "@/components/ui/checkbox";
 import { usePvQuery } from "@/lib/data-source";
 import { isNotConfigured } from "@/services/api/client";
 import {
@@ -345,7 +353,95 @@ function SignalsPage() {
             );
           }}
         </QueryBoundary>
+        <BatchBranchClusters />
       </div>
     </>
+  );
+}
+
+function BatchBranchClusters() {
+  const [includeNonSerious, setIncludeNonSerious] = useState(false);
+  const casesQuery = usePvQuery(
+    ["cases"],
+    () => casesApi.list(),
+    () => demoCases,
+  );
+  return (
+    <Section
+      className="mt-4"
+      title="Batch and branch clusters — for review"
+      description="Two or more cases sharing a batch, or the same product at the same branch, within 30 days. Counting, not a conclusion."
+      actions={
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Checkbox
+            checked={includeNonSerious}
+            onCheckedChange={(v) => setIncludeNonSerious(v === true)}
+          />
+          Include non-serious cases
+        </label>
+      }
+    >
+      <QueryBoundary query={casesQuery} loadingLabel="Screening cases">
+        {(cases) => {
+          const flags = caseClusters(cases as CaseForClusters[], includeNonSerious);
+          if (flags.length === 0)
+            return (
+              <EmptyState
+                title="No clusters"
+                description={
+                  includeNonSerious
+                    ? "No batch or branch has two or more cases within 30 days."
+                    : "No batch or branch has two or more serious cases within 30 days."
+                }
+              />
+            );
+          return (
+            <ul className="space-y-3">
+              {flags.map((f) => (
+                <li key={f.key} className="rounded-md border border-border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill tone={f.kind === "BATCH" ? "warning" : "info"}>
+                      {f.kind === "BATCH" ? "Batch" : "Branch"}
+                    </StatusPill>
+                    <span className="font-medium">{f.label}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {f.cases.length} case(s), {f.from} → {f.to}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm">{branchPatternNote(f)}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Products: {f.products.join(", ") || "—"} · Branches:{" "}
+                    {f.facilities.join(", ") || "not recorded"} · Batches:{" "}
+                    {f.batches.join(", ") || "not recorded"}
+                  </p>
+                  {f.warningSigns.length > 0 ? (
+                    <p className="mt-1 text-xs text-warning">
+                      Quality warning signs:{" "}
+                      {f.warningSigns
+                        .map((w) => QUALITY_SIGN_LABELS[w.sign].replace(" / vaccine failure", ""))
+                        .join(", ")}
+                    </p>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {f.cases.map((c) =>
+                      c.caseId ? (
+                        <Link
+                          key={c.caseId}
+                          to="/cases/$caseId"
+                          params={{ caseId: c.caseId }}
+                          className="mono-num rounded border border-border px-1.5 py-0.5 text-xs text-primary hover:underline"
+                        >
+                          {c.caseId}
+                        </Link>
+                      ) : null,
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          );
+        }}
+      </QueryBoundary>
+    </Section>
   );
 }
