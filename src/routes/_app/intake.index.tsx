@@ -6,6 +6,7 @@ import { usePvQuery } from "@/lib/data-source";
 import {
   EmptyState,
   PageHeader,
+  Paged,
   QueryBoundary,
   Section,
   SourceTag,
@@ -71,71 +72,75 @@ function IntakeInbox() {
               items.length === 0 ? (
                 <EmptyState title="No inbound conversations" />
               ) : (
-                <ul className="divide-y divide-border">
-                  {items.map((c) => {
-                    const complete = Object.values(c.criteria).every(Boolean);
-                    return (
-                      <li key={c.id} className="py-3">
-                        <Link
-                          to="/intake/$conversationId"
-                          params={{ conversationId: c.id }}
-                          className="flex flex-wrap items-start gap-3 rounded-md px-2 py-1 hover:bg-muted/60"
-                        >
-                          <MessageSquare className="mt-0.5 size-4 text-muted-foreground" />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-medium">{c.reporterName}</span>
+                <Paged items={items}>
+                  {(pageItems) => (
+                    <ul className="divide-y divide-border">
+                      {pageItems.map((c) => {
+                        const complete = Object.values(c.criteria).every(Boolean);
+                        return (
+                          <li key={c.id} className="py-3">
+                            <Link
+                              to="/intake/$conversationId"
+                              params={{ conversationId: c.id }}
+                              className="flex flex-wrap items-start gap-3 rounded-md px-2 py-1 hover:bg-muted/60"
+                            >
+                              <MessageSquare className="mt-0.5 size-4 text-muted-foreground" />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-sm font-medium">{c.reporterName}</span>
+                                  <span className="mono-num text-xs text-muted-foreground">
+                                    {c.reporterNumberMasked}
+                                  </span>
+                                  <StatusPill
+                                    tone={
+                                      c.consent === "GRANTED"
+                                        ? "success"
+                                        : c.consent === "DECLINED"
+                                          ? "critical"
+                                          : "warning"
+                                    }
+                                  >
+                                    consent {c.consent.toLowerCase()}
+                                  </StatusPill>
+                                  <StatusPill
+                                    tone={
+                                      c.status === "CONVERTED"
+                                        ? "success"
+                                        : c.status === "NEW"
+                                          ? "info"
+                                          : "neutral"
+                                    }
+                                  >
+                                    {c.status.replaceAll("_", " ").toLowerCase()}
+                                  </StatusPill>
+                                </div>
+                                <p className="mt-1 truncate text-sm text-muted-foreground">
+                                  {c.lastMessage}
+                                </p>
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  <CriteriaChips c={c.criteria} />
+                                  <StatusPill tone={complete ? "success" : "warning"}>
+                                    {complete
+                                      ? "Minimum ICSR information available"
+                                      : "Minimum criteria incomplete"}
+                                  </StatusPill>
+                                  {c.linkedCaseId ? (
+                                    <span className="mono-num text-xs text-muted-foreground">
+                                      → {c.linkedCaseId}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
                               <span className="mono-num text-xs text-muted-foreground">
-                                {c.reporterNumberMasked}
+                                {c.lastMessageAt.replace("T", " ").slice(0, 16)} UTC
                               </span>
-                              <StatusPill
-                                tone={
-                                  c.consent === "GRANTED"
-                                    ? "success"
-                                    : c.consent === "DECLINED"
-                                      ? "critical"
-                                      : "warning"
-                                }
-                              >
-                                consent {c.consent.toLowerCase()}
-                              </StatusPill>
-                              <StatusPill
-                                tone={
-                                  c.status === "CONVERTED"
-                                    ? "success"
-                                    : c.status === "NEW"
-                                      ? "info"
-                                      : "neutral"
-                                }
-                              >
-                                {c.status.replaceAll("_", " ").toLowerCase()}
-                              </StatusPill>
-                            </div>
-                            <p className="mt-1 truncate text-sm text-muted-foreground">
-                              {c.lastMessage}
-                            </p>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <CriteriaChips c={c.criteria} />
-                              <StatusPill tone={complete ? "success" : "warning"}>
-                                {complete
-                                  ? "Minimum ICSR information available"
-                                  : "Minimum criteria incomplete"}
-                              </StatusPill>
-                              {c.linkedCaseId ? (
-                                <span className="mono-num text-xs text-muted-foreground">
-                                  → {c.linkedCaseId}
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                          <span className="mono-num text-xs text-muted-foreground">
-                            {c.lastMessageAt.replace("T", " ").slice(0, 16)} UTC
-                          </span>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </Paged>
               )
             }
           </QueryBoundary>

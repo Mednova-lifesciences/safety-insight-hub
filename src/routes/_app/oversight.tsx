@@ -20,6 +20,7 @@ import { demoAudit, demoCases, demoPsurDocuments, demoSignals } from "@/services
 import { usePvQuery } from "@/lib/data-source";
 import {
   PageHeader,
+  Paged,
   QueryBoundary,
   Section,
   SourceTag,
@@ -221,30 +222,32 @@ function OversightPage() {
                   title="Seriousness flags"
                   description="Assistive mismatches awaiting human review."
                 >
-                  <ul className="divide-y divide-border">
-                    {all
-                      .filter((c) => c.flags.includes("SERIOUSNESS_MISMATCH"))
-                      .map((c) => (
-                        <li key={c.id} className="flex flex-wrap items-center gap-3 py-2.5">
-                          <Link
-                            to="/cases/$caseId"
-                            params={{ caseId: c.id }}
-                            className="mono-num text-sm text-primary hover:underline"
-                          >
-                            {c.id}
-                          </Link>
-                          <span className="min-w-0 flex-1 truncate text-sm">
-                            {c.product} · {c.reaction}
-                          </span>
-                          <StatusPill tone="warning">Pending review</StatusPill>
-                        </li>
-                      ))}
-                    {all.filter((c) => c.flags.includes("SERIOUSNESS_MISMATCH")).length === 0 ? (
-                      <li className="py-3 text-sm text-muted-foreground">
-                        No open seriousness flags.
-                      </li>
-                    ) : null}
-                  </ul>
+                  <Paged items={all.filter((c) => c.flags.includes("SERIOUSNESS_MISMATCH"))}>
+                    {(flagged) => (
+                      <ul className="divide-y divide-border">
+                        {flagged.map((c) => (
+                          <li key={c.id} className="flex flex-wrap items-center gap-3 py-2.5">
+                            <Link
+                              to="/cases/$caseId"
+                              params={{ caseId: c.id }}
+                              className="mono-num text-sm text-primary hover:underline"
+                            >
+                              {c.id}
+                            </Link>
+                            <span className="min-w-0 flex-1 truncate text-sm">
+                              {c.product} · {c.reaction}
+                            </span>
+                            <StatusPill tone="warning">Pending review</StatusPill>
+                          </li>
+                        ))}
+                        {flagged.length === 0 ? (
+                          <li className="py-3 text-sm text-muted-foreground">
+                            No open seriousness flags.
+                          </li>
+                        ) : null}
+                      </ul>
+                    )}
+                  </Paged>
                 </Section>
               </>
             );
@@ -258,32 +261,36 @@ function OversightPage() {
           >
             <QueryBoundary query={signalsQuery}>
               {(items) => (
-                <ul className="divide-y divide-border">
-                  {items.map((s) => (
-                    <li key={s.id} className="flex flex-wrap items-center gap-2 py-2.5">
-                      <span className="mono-num text-sm">{s.reference}</span>
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {s.product} / {s.reaction}
-                      </span>
-                      <StatusPill
-                        tone={
-                          s.status === "CONFIRMED"
-                            ? "critical"
-                            : s.status === "POTENTIAL"
-                              ? "warning"
-                              : s.status === "UNDER_REVIEW"
-                                ? "info"
-                                : "neutral"
-                        }
-                      >
-                        {s.status.replaceAll("_", " ").toLowerCase()}
-                      </StatusPill>
-                      <Link to="/signals" className="text-sm text-primary hover:underline">
-                        Open
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+                <Paged items={items}>
+                  {(pageItems) => (
+                    <ul className="divide-y divide-border">
+                      {pageItems.map((s) => (
+                        <li key={s.id} className="flex flex-wrap items-center gap-2 py-2.5">
+                          <span className="mono-num text-sm">{s.reference}</span>
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            {s.product} / {s.reaction}
+                          </span>
+                          <StatusPill
+                            tone={
+                              s.status === "CONFIRMED"
+                                ? "critical"
+                                : s.status === "POTENTIAL"
+                                  ? "warning"
+                                  : s.status === "UNDER_REVIEW"
+                                    ? "info"
+                                    : "neutral"
+                            }
+                          >
+                            {s.status.replaceAll("_", " ").toLowerCase()}
+                          </StatusPill>
+                          <Link to="/signals" className="text-sm text-primary hover:underline">
+                            Open
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Paged>
               )}
             </QueryBoundary>
           </Section>
@@ -291,22 +298,26 @@ function OversightPage() {
           <Section title="PSUR / PBRER reviews">
             <QueryBoundary query={psurQuery}>
               {(items) => (
-                <ul className="divide-y divide-border">
-                  {items.map((d) => (
-                    <li key={d.id} className="flex flex-wrap items-center gap-2 py-2.5">
-                      <span className="text-sm">{d.product}</span>
-                      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                        {d.reportingPeriod}
-                      </span>
-                      <StatusPill tone={d.stage === "REVIEWED" ? "success" : "info"}>
-                        {d.stage.toLowerCase()}
-                      </StatusPill>
-                      <Link to="/psur" className="text-sm text-primary hover:underline">
-                        Open
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+                <Paged items={items}>
+                  {(pageItems) => (
+                    <ul className="divide-y divide-border">
+                      {pageItems.map((d) => (
+                        <li key={d.id} className="flex flex-wrap items-center gap-2 py-2.5">
+                          <span className="text-sm">{d.product}</span>
+                          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                            {d.reportingPeriod}
+                          </span>
+                          <StatusPill tone={d.stage === "REVIEWED" ? "success" : "info"}>
+                            {d.stage.toLowerCase()}
+                          </StatusPill>
+                          <Link to="/psur" className="text-sm text-primary hover:underline">
+                            Open
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Paged>
               )}
             </QueryBoundary>
           </Section>

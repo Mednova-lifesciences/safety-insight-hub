@@ -5,7 +5,7 @@ import { psurDrafts, type PsurDraft } from "@/services/psur/draft/drafts";
 import { toast } from "sonner";
 import { CalendarClock, CheckCircle2, Download, FilePen, FileText, Settings2 } from "lucide-react";
 import { PermissionGate } from "@/components/pv/permission-gate";
-import { PageHeader, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
+import { PageHeader, Paged, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -340,98 +340,102 @@ function CalendarTable({
   const today = todayIso();
 
   return (
-    <div className="panel overflow-x-auto">
-      <table className="w-full min-w-[980px] text-sm">
-        <thead>
-          <tr className="border-b border-border bg-muted/50 text-left">
-            {[
-              "Product",
-              "Interval",
-              "Reporting period",
-              "Data lock point",
-              "Submission deadline",
-              "Status",
-              "Cases",
-              "",
-            ].map((h) => (
-              <th key={h} className="label-caps px-3 py-2 whitespace-nowrap">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((e) => {
-            const inPeriod =
-              e.periodStart && e.nextDlp
-                ? casesInPeriod(cases, e.drug, e.periodStart, e.nextDlp)
-                : [];
-            return (
-              <tr key={e.drug.id} className="border-b border-border last:border-0">
-                <td className="px-3 py-2">
-                  <p className="font-medium">{e.drug.name}</p>
-                  {e.drug.psur?.lastSubmittedOn ? (
-                    <p className="text-xs text-muted-foreground">
-                      Last submitted {e.drug.psur.lastSubmittedOn}
-                    </p>
-                  ) : null}
-                </td>
-                <td className="px-3 py-2 whitespace-nowrap">
-                  {e.drug.psur?.intervalMonths ? `${e.drug.psur.intervalMonths} months` : "—"}
-                </td>
-                <td className="mono-num px-3 py-2 whitespace-nowrap">
-                  {e.periodStart && e.nextDlp ? `${e.periodStart} → ${e.nextDlp}` : "—"}
-                </td>
-                <td className="mono-num px-3 py-2 whitespace-nowrap">
-                  {e.nextDlp ?? "—"}
-                  {e.fromBirthDate ? (
-                    <span className="block text-xs text-muted-foreground">from birth date</span>
-                  ) : null}
-                </td>
-                <td className="mono-num px-3 py-2 whitespace-nowrap">
-                  {e.deadline ?? "—"}
-                  {e.windowDays ? (
-                    <span className="block text-xs text-muted-foreground">
-                      DLP + {e.windowDays} days
-                    </span>
-                  ) : null}
-                </td>
-                <td className="px-3 py-2 whitespace-nowrap">
-                  <StatusPill tone={STATUS_TONE[e.status]}>{e.label}</StatusPill>
-                </td>
-                <td className="mono-num px-3 py-2">{e.nextDlp ? inPeriod.length : "—"}</td>
-                <td className="px-3 py-2">
-                  <div className="flex min-w-36 flex-col items-start gap-0.5">
-                    {e.periodStart && e.nextDlp ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() =>
-                          downloadCsv(
-                            `line-listing-${e.drug.name.replace(/[^a-z0-9]+/gi, "-")}-DLP-${e.nextDlp}.csv`,
-                            lineListingCsv(inPeriod),
-                          )
-                        }
-                      >
-                        <Download className="size-3.5" /> Line listing
-                      </Button>
-                    ) : null}
-                    {canRecord && e.nextDlp && e.nextDlp <= today ? (
-                      <RecordSubmissionDialog
-                        entry={e as CalendarEntry & { nextDlp: string }}
-                        onSaved={onSaved}
-                      />
-                    ) : null}
-                    {canDraft ? <DraftButton entry={e} drafts={draftsQuery.data} /> : null}
-                    {canManage ? <ScheduleDialog drug={e.drug} onSaved={onSaved} /> : null}
-                  </div>
-                </td>
+    <Paged items={entries}>
+      {(pageEntries) => (
+        <div className="panel overflow-x-auto">
+          <table className="w-full min-w-[980px] text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/50 text-left">
+                {[
+                  "Product",
+                  "Interval",
+                  "Reporting period",
+                  "Data lock point",
+                  "Submission deadline",
+                  "Status",
+                  "Cases",
+                  "",
+                ].map((h) => (
+                  <th key={h} className="label-caps px-3 py-2 whitespace-nowrap">
+                    {h}
+                  </th>
+                ))}
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+            </thead>
+            <tbody>
+              {pageEntries.map((e) => {
+                const inPeriod =
+                  e.periodStart && e.nextDlp
+                    ? casesInPeriod(cases, e.drug, e.periodStart, e.nextDlp)
+                    : [];
+                return (
+                  <tr key={e.drug.id} className="border-b border-border last:border-0">
+                    <td className="px-3 py-2">
+                      <p className="font-medium">{e.drug.name}</p>
+                      {e.drug.psur?.lastSubmittedOn ? (
+                        <p className="text-xs text-muted-foreground">
+                          Last submitted {e.drug.psur.lastSubmittedOn}
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {e.drug.psur?.intervalMonths ? `${e.drug.psur.intervalMonths} months` : "—"}
+                    </td>
+                    <td className="mono-num px-3 py-2 whitespace-nowrap">
+                      {e.periodStart && e.nextDlp ? `${e.periodStart} → ${e.nextDlp}` : "—"}
+                    </td>
+                    <td className="mono-num px-3 py-2 whitespace-nowrap">
+                      {e.nextDlp ?? "—"}
+                      {e.fromBirthDate ? (
+                        <span className="block text-xs text-muted-foreground">from birth date</span>
+                      ) : null}
+                    </td>
+                    <td className="mono-num px-3 py-2 whitespace-nowrap">
+                      {e.deadline ?? "—"}
+                      {e.windowDays ? (
+                        <span className="block text-xs text-muted-foreground">
+                          DLP + {e.windowDays} days
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <StatusPill tone={STATUS_TONE[e.status]}>{e.label}</StatusPill>
+                    </td>
+                    <td className="mono-num px-3 py-2">{e.nextDlp ? inPeriod.length : "—"}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex min-w-36 flex-col items-start gap-0.5">
+                        {e.periodStart && e.nextDlp ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              downloadCsv(
+                                `line-listing-${e.drug.name.replace(/[^a-z0-9]+/gi, "-")}-DLP-${e.nextDlp}.csv`,
+                                lineListingCsv(inPeriod),
+                              )
+                            }
+                          >
+                            <Download className="size-3.5" /> Line listing
+                          </Button>
+                        ) : null}
+                        {canRecord && e.nextDlp && e.nextDlp <= today ? (
+                          <RecordSubmissionDialog
+                            entry={e as CalendarEntry & { nextDlp: string }}
+                            onSaved={onSaved}
+                          />
+                        ) : null}
+                        {canDraft ? <DraftButton entry={e} drafts={draftsQuery.data} /> : null}
+                        {canManage ? <ScheduleDialog drug={e.drug} onSaved={onSaved} /> : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Paged>
   );
 }
 

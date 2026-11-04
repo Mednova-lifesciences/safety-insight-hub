@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -383,5 +383,24 @@ export function Pager({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Renders one page of `items` followed by its Pager. Usable inside render
+ *  callbacks where a hook cannot go; the page is clamped when the list shrinks. */
+export function Paged<T>({
+  items,
+  children,
+}: {
+  items: T[];
+  children: (pageItems: T[]) => ReactNode;
+}) {
+  const [page, setPage] = useState(1);
+  const shown = Math.min(page, Math.max(1, Math.ceil(items.length / PAGE_SIZE)));
+  return (
+    <>
+      {children(paginate(items, shown))}
+      <Pager page={shown} total={items.length} onPageChange={setPage} />
+    </>
   );
 }

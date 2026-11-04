@@ -237,6 +237,18 @@ export function presubmissionCheck(draft: PsurDraft, today = todayIso()): Presub
       detail:
         "This system cannot see VigiFlow. If you can, state in the Section 6 comment how many of these ICSRs were submitted to NAFDAC.",
     },
+    {
+      key: "BENEFIT_RISK_STATED",
+      label:
+        "The conclusion says whether the benefit-risk balance remains favourable (NAFDAC directive NAFDAC-RDPS-045-00, 3.2).",
+      ...(/\b(un)?favou?rable\b/i.test(draft.inputs.conclusionsActions ?? "")
+        ? { result: "PASS" as const, detail: "Section 19 states the benefit-risk balance." }
+        : {
+            result: "ACTION" as const,
+            detail:
+              "In Conclusions and actions (Section 19), say in so many words whether the benefit-risk balance remains favourable.",
+          }),
+    },
   );
   if (draft.facts) {
     const rows = [...draft.facts.lineListing, ...draft.facts.lateBreaking];
@@ -268,6 +280,21 @@ export function presubmissionCheck(draft: PsurDraft, today = todayIso()): Presub
               detail: `Code these cases, then refresh: ${ids(uncoded)}.`,
             }
           : { result: "PASS" as const, detail: "Every case in the interval is coded." }),
+      },
+      {
+        key: "DATA_SOC",
+        label:
+          "Section 6 tabulates coded reactions by MedDRA system organ class (GVP 2021, chapter 6).",
+        ...(draft.facts.reactions.some((r) => r.coded && !r.soc)
+          ? {
+              result: "ACTION" as const,
+              detail:
+                "Some coded reactions have no system organ class. Refresh data from records while the backend is connected.",
+            }
+          : {
+              result: "PASS" as const,
+              detail: "Every coded reaction has its system organ class.",
+            }),
       },
       {
         key: "DATA_ONSET_DATES",

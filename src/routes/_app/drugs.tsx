@@ -7,7 +7,7 @@ import { parseTabularFile } from "@/services/api/tabular-parse";
 import { demoProducts } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { useCurrentUser, usePermission } from "@/lib/auth";
-import { PageHeader, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
+import { PageHeader, Paged, QueryBoundary, Section, StatusPill } from "@/components/pv/primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -490,44 +490,50 @@ function DrugTable({
           </p>
         </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Active ingredient</TableHead>
-              <TableHead>Strength</TableHead>
-              <TableHead>Route</TableHead>
-              <TableHead>Holder</TableHead>
-              {canManage ? <TableHead className="w-20" /> : null}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((d) => (
-              <TableRow key={d.id}>
-                <TableCell className="font-medium">{d.name}</TableCell>
-                <TableCell>{d.activeIngredient ?? "—"}</TableCell>
-                <TableCell>{d.strength ?? "—"}</TableCell>
-                <TableCell>
-                  {d.route ? <StatusPill tone="neutral">{d.route}</StatusPill> : "—"}
-                </TableCell>
-                <TableCell>
-                  {d.ownBrand ? (
-                    <StatusPill tone="info">Own brand{d.holder ? ` · ${d.holder}` : ""}</StatusPill>
-                  ) : d.holder ? (
-                    d.holder
-                  ) : (
-                    <span className="text-muted-foreground">Not recorded</span>
-                  )}
-                </TableCell>
-                {canManage ? (
-                  <TableCell>
-                    <DrugFormDialog drug={d} onSaved={onSaved} />
-                  </TableCell>
-                ) : null}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <Paged items={filtered}>
+          {(pageDrugs) => (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Active ingredient</TableHead>
+                  <TableHead>Strength</TableHead>
+                  <TableHead>Route</TableHead>
+                  <TableHead>Holder</TableHead>
+                  {canManage ? <TableHead className="w-20" /> : null}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pageDrugs.map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell className="font-medium">{d.name}</TableCell>
+                    <TableCell>{d.activeIngredient ?? "—"}</TableCell>
+                    <TableCell>{d.strength ?? "—"}</TableCell>
+                    <TableCell>
+                      {d.route ? <StatusPill tone="neutral">{d.route}</StatusPill> : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {d.ownBrand ? (
+                        <StatusPill tone="info">
+                          Own brand{d.holder ? ` · ${d.holder}` : ""}
+                        </StatusPill>
+                      ) : d.holder ? (
+                        d.holder
+                      ) : (
+                        <span className="text-muted-foreground">Not recorded</span>
+                      )}
+                    </TableCell>
+                    {canManage ? (
+                      <TableCell>
+                        <DrugFormDialog drug={d} onSaved={onSaved} />
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Paged>
       )}
     </Section>
   );

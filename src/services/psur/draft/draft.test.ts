@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { INPUTS, SECTIONS, SECTION_BY_ID, type InputKey } from "./template";
-import { buildDraftFacts, type CaseRecord } from "./facts";
+import { buildDraftFacts, codedReactionCodes, type CaseRecord } from "./facts";
 import { draftReadiness, missingInputs, sectionStatus } from "./status";
 import { placeholderText, printsIn, sectionBlocks } from "./content";
 import type { PsurDraft } from "./drafts";
@@ -162,6 +162,37 @@ describe("buildDraftFacts", () => {
     });
     expect(reported).toMatchObject({ cumulative: 3, interval: 1, intervalSerious: 0 });
     expect(f.uncodedInInterval).toBe(2);
+  });
+  it("tabulates by preferred term and primary SOC when the dictionary resolves the code", () => {
+    const withSoc = buildDraftFacts({
+      drug,
+      periodStart: "2025-08-31",
+      dlp: "2026-08-31",
+      cases,
+      signals: [],
+      registrations: [],
+      organisation: "Demo Org",
+      meddra: new Map([
+        ["10037844", { preferredTerm: "Rash", soc: "Skin and subcutaneous tissue disorders" }],
+      ]),
+    });
+    expect(codedReactionCodes(cases)).toEqual(["10037844"]);
+    expect(withSoc.reactions.find((r) => r.coded)).toMatchObject({
+      term: "Rash",
+      soc: "Skin and subcutaneous tissue disorders",
+    });
+    const table = sectionBlocks(draft({ facts: withSoc }), "S6").find((b) => b.kind === "table");
+    expect(table).toMatchObject({
+      headers: [
+        "System organ class",
+        "Preferred term",
+        "Interval (serious)",
+        "Cumulative (serious)",
+      ],
+    });
+    const rows = (table as { rows: string[][] }).rows;
+    expect(rows[0]![0]).toBe("Skin and subcutaneous tissue disorders");
+    expect(rows.at(-1)![0]).toBe("Not yet coded");
   });
   it("carries line-listing detail only where the case holds it", () => {
     const a = f.lineListing[0]!;
