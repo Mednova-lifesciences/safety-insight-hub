@@ -8,6 +8,7 @@ import { newId } from "@/services/api/db";
 import { demoAudit, demoCaseDetails } from "@/services/demo/dataset";
 import { usePvQuery } from "@/lib/data-source";
 import { describeIntake } from "@/services/api/intake-channel";
+import { draftNarrative } from "@/services/api/narrative";
 import { CLOCK_TONE, isPastDue, reportingClock } from "@/services/api/regulatory-clock";
 import type { CaseSummary } from "@/types/pv";
 import { HolderForwardPanel } from "@/components/pv/holder-forward-panel";
@@ -649,6 +650,106 @@ function CaseEditForm({ c, onSubmitted }: { c: CaseDetail; onSubmitted: () => vo
  * resubmit-to-Intake reset. Renders nothing when there are no fields and
  * the viewer can't add any, per the "don't show an empty section" rule.
  */
+function NarrativeSection({
+  c,
+  canEdit,
+  onSaved,
+}: {
+  c: CaseDetail;
+  canEdit: boolean;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(c.narrative);
+  const [drafted, setDrafted] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await casesApi.updateNarrative(c.id, text.trim());
+      toast.success("Narrative saved.");
+      setEditing(false);
+      setDrafted(false);
+      onSaved();
+    } catch (err) {
+      toast.error(
+        isNotConfigured(err)
+          ? "Backend not connected — the narrative was not saved."
+          : "Could not save the narrative.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Narrative"
+      actions={
+        canEdit && !editing ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setText(c.narrative);
+              setEditing(true);
+            }}
+          >
+            Edit narrative
+          </Button>
+        ) : null
+      }
+    >
+      {editing ? (
+        <div className="space-y-2">
+          <Textarea
+            aria-label="Case narrative"
+            rows={10}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          {drafted ? (
+            <p className="text-xs text-muted-foreground">
+              Drafted from the case data only. Check it against the source report, complete anything
+              listed as not reported, then save.
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setText(draftNarrative(c));
+                setDrafted(true);
+              }}
+            >
+              Draft from case data
+            </Button>
+            <Button size="sm" disabled={saving || !text.trim()} onClick={save}>
+              {saving ? "Saving…" : "Save narrative"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditing(false);
+                setDrafted(false);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : c.narrative.trim() ? (
+        <p className="text-sm leading-relaxed whitespace-pre-wrap">{c.narrative}</p>
+      ) : (
+        <p className="text-sm text-muted-foreground">No narrative recorded yet.</p>
+      )}
+    </Section>
+  );
+}
+
 function DynamicFieldsSection({
   caseId,
   fields,
@@ -817,6 +918,7 @@ function DynamicFieldsSection({
 function CaseDetailPage() {
   const { caseId } = Route.useParams();
   const canCode = usePermission("coding.review");
+  const canEditNarrative = usePermission("coding.approve");
   const role = useRole();
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const query = usePvQuery(
@@ -1038,9 +1140,15 @@ function CaseDetailPage() {
                     </Section>
                   </div>
 
-                  <Section title="Narrative">
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{c.narrative}</p>
-                  </Section>
+                  <NarrativeSection
+                    key={c.narrative}
+                    c={c}
+                    canEdit={canEditNarrative}
+                    onSaved={() => {
+                      query.refetch();
+                      auditQuery.refetch();
+                    }}
+                  />
 
                   <Section title="Seriousness (as reported)">
                     <div className="flex flex-wrap items-center gap-2">

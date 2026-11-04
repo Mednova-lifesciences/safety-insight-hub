@@ -993,7 +993,7 @@ function IcsrIntakeFormFields({
                     hint={
                       unlisted
                         ? "Brand name and strength, as on the pack."
-                        : "Coding candidates are retrieved from WHODrug after submission."
+                        : "Product coding is suggested on the case after submission."
                     }
                     aiExtracted={extractedFieldKeys.has("productName")}
                   >
