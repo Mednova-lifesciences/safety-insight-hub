@@ -897,6 +897,9 @@ export interface PsurDocument {
    *  actual decision) so an AI suggestion can never be mistaken for, or
    *  silently become, the regulatory conclusion. */
   aiRecommendation?: PsurAiRecommendation | undefined;
+  /** The critical scientific appraisal (four questions per section) —
+   *  see services/api/psur.ts runScientificReview. */
+  scientificAppraisal?: PsurScientificAppraisal | undefined;
   /** Section 12 — the assessor's own decision. Undefined until an
    *  assessor actually sets it; never defaulted from aiRecommendation. */
   regulatoryDecision?: PsurRegulatoryDecision | undefined;
@@ -943,7 +946,8 @@ export type PsurListOmittedField =
   | "nigerianContext"
   | "memoDraft"
   | "ciomsMatrix"
-  | "aiRecommendation";
+  | "aiRecommendation"
+  | "scientificAppraisal";
 
 /** A report as lists carry it. */
 export type PsurDocumentSummary = Omit<PsurDocument, PsurListOmittedField>;
@@ -1253,7 +1257,51 @@ export type PsurDeficiencyType =
   | "MISSING_REQUIRED_SECTION"
   | "INSUFFICIENT_LOCAL_EVIDENCE"
   | "ADDITIONAL_LITERATURE_REQUIRED"
-  | "DATA_DISCREPANCY";
+  | "DATA_DISCREPANCY"
+  /** The MAH presented an item under the wrong heading/category — e.g.
+   *  an investigational therapeutic use listed as a safety signal. */
+  | "MISCLASSIFICATION"
+  /** The MAH (or a naive reading) misread what its own data shows — e.g.
+   *  indication-stratified trial data treated as interval/cumulative. */
+  | "MISINTERPRETATION";
+
+/** One of the assessors' four questions, answered for one section. */
+export type PsurAppraisalVerdict = "SOUND" | "CONCERN" | "NOT_ASSESSABLE";
+
+export interface PsurAppraisalQuestion {
+  verdict: PsurAppraisalVerdict;
+  reasoning: string;
+}
+
+/** The critical appraisal of one V4 section: is what the MAH presented
+ *  correct, appropriately classified, scientifically meaningful and
+ *  adequately interpreted? AI-generated, non-binding guidance. */
+export interface PsurSectionAppraisal {
+  v4Section: PsurV4SectionId;
+  correct: PsurAppraisalQuestion;
+  classified: PsurAppraisalQuestion;
+  meaningful: PsurAppraisalQuestion;
+  interpreted: PsurAppraisalQuestion;
+  summary: string;
+}
+
+export interface PsurScientificAppraisal {
+  generatedAt: string;
+  model?: string | undefined;
+  sections: PsurSectionAppraisal[];
+  productContext?:
+    | {
+        product?: string | undefined;
+        activeSubstance?: string | undefined;
+        therapeuticClass?: string | undefined;
+        approvedIndications: string[];
+      }
+    | undefined;
+  /** Page ranges the appraisal could not read — never a clean bill. */
+  unreadPages: string[];
+  /** Set when the appraisal could not run at all; sections is then []. */
+  error?: string | undefined;
+}
 
 export type PsurEvidenceQuality = "HIGH" | "MODERATE" | "LOW" | "VERY_LOW" | "NOT_ASSESSABLE";
 
@@ -1818,6 +1866,15 @@ export interface PsurFinding {
    *  see PsurDeficiencyType. Never forced onto a finding the evidence
    *  doesn't clearly support. */
   deficiencyType?: PsurDeficiencyType | undefined;
+  /** What the data or statement actually shows, in scientific terms. */
+  scientificInterpretation?: string | undefined;
+  /** The concrete next step suggested to the reviewer. */
+  reviewerRecommendation?: string | undefined;
+  /** How sure the AI is, given the text it could see. */
+  confidence?: "HIGH" | "MEDIUM" | "LOW" | undefined;
+  /** Which AI pass raised it: the completeness review or the critical
+   *  scientific appraisal. Absent on older findings. */
+  aiPass?: "COMPLETENESS" | "APPRAISAL" | undefined;
   assistGenerated: boolean;
   humanAssessment?: "ACCEPTED" | "DISMISSED" | null | undefined;
   /** Which engine produced this finding. Absent on findings generated

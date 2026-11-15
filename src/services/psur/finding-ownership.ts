@@ -41,6 +41,10 @@ const MAH_ONLY_DEFICIENCY_TYPES = new Set<PsurDeficiencyType>([
   "INCONSISTENCY",
   "UNCLEAR_AMBIGUOUS_INFORMATION",
   "UNSUPPORTED_CLAIM",
+  // The MAH put an item in the wrong category, or misread its own data.
+  // Only the MAH can reclassify or re-present it in a corrected PSUR.
+  "MISCLASSIFICATION",
+  "MISINTERPRETATION",
 ]);
 
 /**

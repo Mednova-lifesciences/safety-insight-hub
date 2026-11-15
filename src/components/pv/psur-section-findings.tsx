@@ -37,6 +37,14 @@ const DEFICIENCY: Record<NonNullable<PsurFinding["deficiencyType"]>, string> = {
   INSUFFICIENT_LOCAL_EVIDENCE: "Insufficient local (Nigerian) evidence",
   ADDITIONAL_LITERATURE_REQUIRED: "Additional literature required",
   DATA_DISCREPANCY: "Data discrepancy",
+  MISCLASSIFICATION: "Misclassified by the MAH",
+  MISINTERPRETATION: "Data misinterpreted",
+};
+
+const CONFIDENCE: Record<NonNullable<PsurFinding["confidence"]>, string> = {
+  HIGH: "AI confidence: high",
+  MEDIUM: "AI confidence: medium",
+  LOW: "AI confidence: low — check this one carefully",
 };
 
 const SEVERITY: Record<PsurFinding["severity"], string> = {
@@ -173,9 +181,30 @@ function FindingItem({
         <StatusPill tone={f.source === "ai" ? "assist" : "neutral"}>
           {f.source === "ai" ? "AI" : "Rule"}
         </StatusPill>
+        {f.aiPass === "APPRAISAL" ? (
+          <StatusPill tone="info">Scientific appraisal</StatusPill>
+        ) : null}
+        {f.deficiencyType === "MISCLASSIFICATION" || f.deficiencyType === "MISINTERPRETATION" ? (
+          <StatusPill tone="warning">{DEFICIENCY[f.deficiencyType]}</StatusPill>
+        ) : null}
         <span className="text-xs text-muted-foreground">{SEVERITY[f.severity]}</span>
+        {f.confidence ? (
+          <span className="text-xs text-muted-foreground">· {CONFIDENCE[f.confidence]}</span>
+        ) : null}
       </div>
       <p className="mt-2">{f.description}</p>
+      {f.scientificInterpretation ? (
+        <div className="mt-2 rounded-md bg-muted/50 p-2 text-xs">
+          <p className="font-medium">What the data actually shows</p>
+          <p className="mt-0.5">{f.scientificInterpretation}</p>
+        </div>
+      ) : null}
+      {f.reviewerRecommendation ? (
+        <div className="mt-2 rounded-md bg-info-soft/40 p-2 text-xs">
+          <p className="font-medium">Suggested next step for you</p>
+          <p className="mt-0.5">{f.reviewerRecommendation}</p>
+        </div>
+      ) : null}
       <p
         className={`mt-1 text-xs ${status.tone === "critical" ? "text-critical" : status.tone === "success" ? "text-success" : "text-muted-foreground"}`}
       >

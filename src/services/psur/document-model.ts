@@ -332,6 +332,19 @@ export function buildRequiredAction(f: PsurFinding): string {
   if (f.actionOwnerOverride?.owner === "MAH" && f.actionOwnerOverride.rationale.trim()) {
     return f.actionOwnerOverride.rationale.trim();
   }
+  if (f.deficiencyType === "MISCLASSIFICATION") {
+    return (
+      "Re-present this information under the appropriate heading and classification, and " +
+      "revise any conclusion that relied on the original classification."
+    );
+  }
+  if (f.deficiencyType === "MISINTERPRETATION") {
+    return (
+      "Correct the presentation and interpretation of these data — stating their data source, " +
+      "time basis (reporting interval or cumulative) and stratification explicitly — and revise " +
+      "any conclusion drawn from them."
+    );
+  }
   if (f.suggestedSource?.type === "REQUEST_FROM_MAH") {
     return f.suggestedSource.note;
   }
@@ -518,7 +531,14 @@ export function buildComplianceDirectiveModel(
       deficiencyType: f.deficiencyType ?? null,
       severity: f.severity,
       whatWasIdentified: externalise(f.description, f),
-      whyMaterial: externalise(f.evidence, f),
+      // For a misclassification/misinterpretation the scientific
+      // interpretation IS the explanation the MAH needs ("although presented
+      // as signals, these are not PV safety signals because..."). The
+      // reviewer recommendation is internal guidance and never goes out.
+      whyMaterial: externalise(
+        f.scientificInterpretation ? `${f.evidence} ${f.scientificInterpretation}` : f.evidence,
+        f,
+      ),
       requiredAction: externalise(buildRequiredAction(f), f),
       assessorObservation: f.rationale?.trim() || null,
       suggestedSource: f.suggestedSource

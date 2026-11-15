@@ -66,6 +66,10 @@ import type {
 import { PSUR_V4_TEMPLATE_SECTIONS } from "@/types/pv";
 import { buildAssessmentMemoModel } from "@/services/psur/assessment-memo";
 import type { V4FieldId } from "@/services/psur/v4-fields";
+import {
+  mapAiScientificAppraisal,
+  mergeAppraisalFindings,
+} from "@/services/psur/scientific-appraisal";
 import { prefillFromAi } from "@/services/psur/v4-prefill";
 import {
   buildV4ReportModel,
@@ -137,6 +141,7 @@ import type {
   AiPsurFindingOut,
   AiPsurRecommendationOut,
   AiPsurReviewResponse,
+  AiPsurAppraisalResponse,
   AiPsurScreeningOut,
   AiPsurScreeningResponse,
   AiPsurSpecialPopulationItemOut,
@@ -372,7 +377,10 @@ function computeStats(rows: ParsedCaseRow[]) {
 /** One AI finding -> one domain PsurFinding — shared by the PDF-upload,
  *  PDF-retry, and spreadsheet review call sites so the mapping (including
  *  the newer v4Section/deficiencyType fields) never drifts between them. */
-function mapAiFinding(f: AiPsurFindingOut): PsurFinding {
+function mapAiFinding(
+  f: AiPsurFindingOut,
+  aiPass: "COMPLETENESS" | "APPRAISAL" = "COMPLETENESS",
+): PsurFinding {
   return {
     id: newId("pf"),
     category: f.category,
@@ -383,6 +391,10 @@ function mapAiFinding(f: AiPsurFindingOut): PsurFinding {
     suggestedSource: f.suggested_source ?? undefined,
     v4Section: (f.v4_section ?? undefined) as PsurV4SectionId | undefined,
     deficiencyType: (f.deficiency_type ?? undefined) as PsurDeficiencyType | undefined,
+    scientificInterpretation: f.scientific_interpretation ?? undefined,
+    reviewerRecommendation: f.reviewer_recommendation ?? undefined,
+    confidence: f.confidence ?? undefined,
+    aiPass,
     assistGenerated: true,
     humanAssessment: null,
     source: "ai" as const,
@@ -1020,6 +1032,10 @@ function renderExecutiveSummaryText(m: ExecutiveSummaryModel): string {
     );
     lines.push(`    ${f.description}`);
     lines.push(`    Evidence: ${f.evidence}`);
+    if (f.scientificInterpretation)
+      lines.push(`    Scientific interpretation: ${f.scientificInterpretation}`);
+    if (f.reviewerRecommendation)
+      lines.push(`    Recommended next step: ${f.reviewerRecommendation}`);
     if (f.rationale) lines.push(`    Reviewer rationale: ${f.rationale}`);
     if (f.resolved && f.resolution) lines.push(`    Resolution: ${f.resolution}`);
   }
@@ -1697,6 +1713,16 @@ function buildExecutiveSummaryDocx(m: ExecutiveSummaryModel): Document {
             new Paragraph({
               children: [new TextRun({ text: `Evidence: ${f.evidence}`, italics: true })],
             }),
+            ...(f.scientificInterpretation
+              ? [
+                  new Paragraph({
+                    text: `Scientific interpretation: ${f.scientificInterpretation}`,
+                  }),
+                ]
+              : []),
+            ...(f.reviewerRecommendation
+              ? [new Paragraph({ text: `Recommended next step: ${f.reviewerRecommendation}` })]
+              : []),
             ...(f.rationale ? [new Paragraph({ text: `Reviewer rationale: ${f.rationale}` })] : []),
             ...(f.resolved && f.resolution
               ? [new Paragraph({ text: `Resolution: ${f.resolution}` })]
@@ -2626,7 +2652,7 @@ export const psur = {
     try {
       const aiResult = await ai.psur.reviewPdf(file, doc.product, doc.reportingPeriod);
       const findings: PsurFinding[] = aiResult.ai_used
-        ? aiResult.findings.map(mapAiFinding)
+        ? aiResult.findings.map((f) => mapAiFinding(f))
         : RULE_BASED_DETECTION_ENABLED
           ? generatePdfFindingsFallback(doc)
           : [];
@@ -2713,6 +2739,7 @@ export const psur = {
     if (document.stage === "REVIEWED") return document;
 
     let aiResult: AiPsurReviewResponse;
+    let appraisalResult: AiPsurAppraisalResponse | undefined;
     if (document.sourceType === "SPREADSHEET") {
       const rows = document.rawRows ?? document.parsedRows ?? [];
       aiResult = await ai.psur.reviewSpreadsheet({
@@ -2729,18 +2756,44 @@ export const psur = {
           "Scientific review cannot start because no extractable PDF text was retained. Re-upload this document.",
         );
       }
-      aiResult = await ai.psur.reviewPdfText({
+      const body = {
         filename: document.filename,
         extractedText: document.extractedText,
         product: document.product,
         reportingPeriod: document.reportingPeriod,
-      });
+      };
+      // Completeness ("is it there?") and the critical appraisal ("is it
+      // correct, classified right, meaningful, interpreted right?") run side
+      // by side. The appraisal failing never blocks the review — it is
+      // recorded on the document as an error the assessor can see instead.
+      const [review, appraisal] = await Promise.allSettled([
+        ai.psur.reviewPdfText(body),
+        ai.psur.appraisePdfText(body),
+      ]);
+      if (review.status === "rejected") throw review.reason;
+      aiResult = review.value;
+      appraisalResult =
+        appraisal.status === "fulfilled"
+          ? appraisal.value
+          : {
+              findings: [],
+              section_appraisals: [],
+              ai_used: false,
+              prompt_version: "",
+              chunks_total: 0,
+              chunks_read: 0,
+              unread_pages: [],
+              error:
+                appraisal.reason instanceof Error
+                  ? appraisal.reason.message
+                  : "The scientific appraisal could not be reached.",
+            };
     }
     if (!aiResult.ai_used) {
       throw new Error(aiResult.error ?? "AI scientific review is unavailable.");
     }
 
-    const findings = aiResult.findings.map(mapAiFinding);
+    const findings = aiResult.findings.map((f) => mapAiFinding(f, "COMPLETENESS"));
     const screening = aiResult.screening ? mapAiScreening(aiResult.screening) : undefined;
     const specialPopulations = aiResult.special_populations?.length
       ? mapAiSpecialPopulations(aiResult.special_populations)
@@ -2762,11 +2815,24 @@ export const psur = {
     });
     findings.push(...buildNigerianRequirementFindings(nigerianContext, findings));
     findings.push(...reconcileSectionFindings(coverage, findings));
-    await persistFindings(document.id, findings);
+    // Appraisal findings are added AFTER reconciliation on purpose: they are
+    // about what IS presented, so they must not stand in for the "this
+    // section is missing/incomplete" finding reconciliation guarantees.
+    const scientificAppraisal = appraisalResult
+      ? mapAiScientificAppraisal(appraisalResult)
+      : undefined;
+    const allFindings = appraisalResult?.ai_used
+      ? mergeAppraisalFindings(
+          findings,
+          appraisalResult.findings.map((f) => mapAiFinding(f, "APPRAISAL")),
+        )
+      : findings;
+    await persistFindings(document.id, allFindings);
 
     const reviewed: PsurDocumentRow = {
       ...document,
       stage: "REVIEWED",
+      ...(scientificAppraisal ? { scientificAppraisal } : {}),
       ...(aiResult.product ? { product: aiResult.product } : {}),
       ...(aiResult.reporting_period ? { reportingPeriod: aiResult.reporting_period } : {}),
       ...(aiResult.mah ? { mah: aiResult.mah } : {}),
@@ -2787,7 +2853,13 @@ export const psur = {
       action: "PSUR_REVIEWED",
       entity: "PsurDocument",
       entityId: document.id,
-      newValue: `${findings.length} finding(s) generated (AI)`,
+      newValue: `${allFindings.length} finding(s) generated (AI)${
+        !scientificAppraisal
+          ? ""
+          : scientificAppraisal.error
+            ? "; scientific appraisal unavailable"
+            : `, of which ${allFindings.filter((f) => f.aiPass === "APPRAISAL").length} from the scientific appraisal`
+      }`,
     });
     return reviewed;
   },
@@ -2812,7 +2884,7 @@ export const psur = {
             stats,
           });
           findings = aiResult.ai_used
-            ? aiResult.findings.map(mapAiFinding)
+            ? aiResult.findings.map((f) => mapAiFinding(f))
             : RULE_BASED_DETECTION_ENABLED
               ? generateSpreadsheetFindingsFallback(document)
               : [];

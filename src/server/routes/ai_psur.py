@@ -31,6 +31,8 @@ from ..ai.client import (
     is_ai_configured,
     structured_completion,
 )
+from ..ai.appraisal import APPRAISAL_MODEL, AppraisalError, appraise_psur_text
+from ..ai.pdf_text import extract_pdf_text
 from ..ai.prompts import (
     PROMPT_VERSION,
     PSUR_FULL_FIX_PROMPT,
@@ -62,22 +64,10 @@ MAX_SPREADSHEET_ROWS_PER_CALL = 300
 
 
 def _extract_pdf_text(raw: bytes) -> tuple[str, int]:
-    import pdfplumber
-
-    parts: list[str] = []
-    char_budget = MAX_PDF_CHARS
-    with pdfplumber.open(io.BytesIO(raw)) as pdf:
-        total_pages = len(pdf.pages)
-        for i, page in enumerate(pdf.pages):
-            if char_budget <= 0:
-                break
-            page_text = (page.extract_text() or "").strip()
-            if not page_text:
-                continue
-            chunk = f"\n\n--- page {i + 1} ---\n{page_text[:char_budget]}"
-            parts.append(chunk)
-            char_budget -= len(chunk)
-    return "".join(parts), total_pages
+    # Table-aware and full-length — see server/ai/pdf_text.py for why. The
+    # single-call prompts below still only SEND the first MAX_PDF_CHARS; the
+    # scientific appraisal (/appraise-pdf-text) reads all of it in chunks.
+    return extract_pdf_text(raw)
 
 
 def _count_extracted_pages(text: str) -> Optional[int]:
@@ -105,6 +95,11 @@ class PsurFindingOut(BaseModel):
     # AiPsurFinding in schemas.py for the fixed lists both normalize to.
     v4_section: Optional[str] = None
     deficiency_type: Optional[str] = None
+    # Critical-appraisal fields — see PSUR_CRITICAL_APPRAISAL_RULES. None for
+    # the spreadsheet review and for findings that carry no interpretation.
+    scientific_interpretation: Optional[str] = None
+    reviewer_recommendation: Optional[str] = None
+    confidence: Optional[str] = None
 
 
 class PsurAdministrativeCheckOut(BaseModel):
@@ -288,7 +283,7 @@ async def review_pdf(
             "declaredReportingPeriod": reportingPeriod or None,
             "totalPages": total_pages,
             "truncated": truncated,
-            "extractedText": text,
+            "extractedText": text[:MAX_PDF_CHARS],
         }
         completion = await structured_completion(
             system_prompt=PSUR_REVIEW_PDF_PROMPT,
@@ -428,6 +423,99 @@ async def review_pdf_text(
             prompt_version=PROMPT_VERSION,
             error="AI review returned an unusable response.",
         )
+
+
+class PsurAppraisalQuestionOut(BaseModel):
+    verdict: str
+    reasoning: str = ""
+
+
+class PsurSectionAppraisalOut(BaseModel):
+    v4_section: str
+    correct: PsurAppraisalQuestionOut
+    classified: PsurAppraisalQuestionOut
+    meaningful: PsurAppraisalQuestionOut
+    interpreted: PsurAppraisalQuestionOut
+    summary: str = ""
+
+
+class PsurProductContextOut(BaseModel):
+    product: Optional[str] = None
+    active_substance: Optional[str] = None
+    therapeutic_class: Optional[str] = None
+    approved_indications: list[str] = []
+
+
+class AppraisalResponse(BaseModel):
+    findings: list[PsurFindingOut] = []
+    section_appraisals: list[PsurSectionAppraisalOut] = []
+    product_context: Optional[PsurProductContextOut] = None
+    ai_used: bool
+    prompt_version: str
+    model: Optional[str] = None
+    chunks_total: int = 0
+    chunks_read: int = 0
+    # Page ranges the extraction stage could not read — shown to the
+    # assessor so a gap in coverage is never mistaken for a clean section.
+    unread_pages: list[str] = []
+    error: Optional[str] = None
+
+
+@router.post("/appraise-pdf-text", response_model=AppraisalResponse)
+async def appraise_pdf_text(
+    request: ReviewPdfTextRequest,
+    user: AuthenticatedUser = Depends(require_permission("psur.evaluate")),
+):
+    """Critical scientific appraisal of the WHOLE submission — see
+    server/ai/appraisal.py. Runs alongside /review-pdf-text (completeness)
+    rather than inside it: the two ask different questions, and keeping them
+    apart is what gives the appraisal room to reason."""
+    text = request.extractedText.strip()
+    if not text:
+        return AppraisalResponse(
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="No extracted text is available for scientific appraisal.",
+        )
+    try:
+        result = await appraise_psur_text(
+            text,
+            complete=structured_completion,
+            filename=request.filename,
+            product=request.product,
+            reporting_period=request.reportingPeriod,
+        )
+    except AiNotConfiguredError as exc:
+        return AppraisalResponse(ai_used=False, prompt_version=PROMPT_VERSION, error=str(exc))
+    except AppraisalError as exc:
+        logger.error("PSUR appraisal failed: %s", exc)
+        return AppraisalResponse(
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error=f"Scientific appraisal unavailable: {exc}",
+        )
+    except Exception:
+        logger.exception("PSUR appraisal returned unusable output")
+        return AppraisalResponse(
+            ai_used=False,
+            prompt_version=PROMPT_VERSION,
+            error="Scientific appraisal returned an unusable response.",
+        )
+
+    appraisal = result.appraisal
+    return AppraisalResponse(
+        findings=[PsurFindingOut(**f.model_dump()) for f in appraisal.findings],
+        section_appraisals=[
+            PsurSectionAppraisalOut(**s.model_dump()) for s in appraisal.section_appraisals
+        ],
+        product_context=PsurProductContextOut(**appraisal.product_context.model_dump()),
+        ai_used=True,
+        prompt_version=PROMPT_VERSION,
+        model=result.model or APPRAISAL_MODEL,
+        chunks_total=result.chunks_total,
+        chunks_read=result.chunks_read,
+        unread_pages=result.unread_pages,
+    )
 
 
 class ReviewSpreadsheetRequest(BaseModel):
@@ -652,7 +740,7 @@ async def screen_pdf(
             "declaredReportingPeriod": reportingPeriod or None,
             "totalPages": total_pages,
             "truncated": truncated,
-            "extractedText": text,
+            "extractedText": text[:MAX_PDF_CHARS],
         }
         completion = await structured_completion(
             system_prompt=PSUR_SCREENING_PDF_PROMPT,
