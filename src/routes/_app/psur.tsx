@@ -13,6 +13,7 @@ import { PsurAssessmentMemoPanel } from "@/components/pv/psur-assessment-memo";
 import { ScreeningRecord } from "@/components/pv/psur-screening-checklist";
 import { V4PageTextEditor, V4SectionsPanel } from "@/components/pv/psur-v4-sections";
 import { SectionFindings } from "@/components/pv/psur-section-findings";
+import { SectionAppraisal } from "@/components/pv/psur-section-appraisal";
 import { findingsFor } from "@/services/psur/finding-research";
 import { BenefitRiskTables } from "@/components/pv/psur-v4-section10";
 import { useMemo, useState } from "react";
@@ -1002,6 +1003,7 @@ function SpecialPopulationsPanel({
         canResearch={canResearch}
         onChanged={onChanged}
       />
+      <SectionAppraisal doc={doc} section="S9_SPECIAL_POPULATIONS" />
       <div className="space-y-2">
         <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full min-w-[640px] table-fixed border-collapse text-sm">
@@ -1178,6 +1180,7 @@ function BenefitRiskPanel({
         canResearch={canResearch}
         onChanged={onChanged}
       />
+      <SectionAppraisal doc={doc} section="S10_BENEFIT_RISK" />
       <div className="space-y-4">
         <BenefitRiskTables data={data} setData={setData} disabled={!canEvaluate} />
 
@@ -1313,6 +1316,7 @@ function UncertaintiesPanel({
         canResearch={canResearch}
         onChanged={onChanged}
       />
+      <SectionAppraisal doc={doc} section="S11_UNCERTAINTIES" />
       <div className="space-y-2">
         {items.length === 0 && noneConfirmed ? (
           <p className="rounded-md border border-success/30 bg-success-soft px-2 py-1.5 text-xs">

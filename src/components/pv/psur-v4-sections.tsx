@@ -10,6 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PasteResearch, V4ResearchCard } from "@/components/pv/psur-assessment-memo";
 import { SectionFindings } from "@/components/pv/psur-section-findings";
+import {
+  ScientificAppraisalSummary,
+  SectionAppraisal,
+} from "@/components/pv/psur-section-appraisal";
 import { findingsFor } from "@/services/psur/finding-research";
 import { ExposureEditor, RowsEditor, type Column } from "@/components/pv/psur-v4-tables";
 import { EMPTY_EXPOSURE } from "@/services/psur/v4-prefill";
@@ -389,6 +393,8 @@ export function V4SectionsPanel({
 
         {canResearch ? <PasteResearch doc={doc} onChanged={onChanged} /> : null}
 
+        <ScientificAppraisalSummary doc={doc} />
+
         {findingsFor(findings, ["ADMIN_SCREENING", undefined]).length > 0 ? (
           <div className="space-y-2 rounded-md border border-border p-3">
             <p className="text-sm font-semibold">Administrative check and other findings</p>
@@ -430,6 +436,8 @@ export function V4SectionsPanel({
                 onChanged={onChanged}
                 edited={d.reviewed}
               />
+
+              <SectionAppraisal doc={doc} section={id} />
 
               {id === "S1_PRODUCT_REGULATORY" ? (
                 <div className="overflow-hidden rounded-md border border-border">

@@ -277,7 +277,20 @@ _KNOWN_DEFICIENCY_TYPES = {
     "MISSING_INFORMATION", "INCOMPLETE_INFORMATION", "INADEQUATE_EVIDENCE", "INCONSISTENCY",
     "UNCLEAR_AMBIGUOUS_INFORMATION", "UNSUPPORTED_CLAIM", "MISSING_REQUIRED_SECTION",
     "INSUFFICIENT_LOCAL_EVIDENCE", "ADDITIONAL_LITERATURE_REQUIRED", "DATA_DISCREPANCY",
+    # Added Nov 2026 for the critical-appraisal pass (NAFDAC feedback): the
+    # MAH presented something under the wrong heading/category, or misread
+    # what its own data shows. See PSUR_CRITICAL_APPRAISAL_RULES.
+    "MISCLASSIFICATION", "MISINTERPRETATION",
 }
+
+_KNOWN_CONFIDENCE_LEVELS = {"HIGH", "MEDIUM", "LOW"}
+
+
+def _optional_text(v):
+    """Blank/non-string model output becomes None rather than ''."""
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    return None
 
 
 class AiPsurSuggestedSource(BaseModel):
@@ -315,6 +328,23 @@ class AiPsurFinding(BaseModel):
     # Richer, optional classification alongside `category` — see
     # _KNOWN_DEFICIENCY_TYPES. None is a legitimate value, not a failure.
     deficiency_type: Optional[str] = None
+    # Critical-appraisal fields (Nov 2026). Optional so older output and the
+    # spreadsheet review, which never produce them, still validate.
+    scientific_interpretation: Optional[str] = None
+    reviewer_recommendation: Optional[str] = None
+    confidence: Optional[str] = None
+
+    @field_validator("scientific_interpretation", "reviewer_recommendation", mode="before")
+    @classmethod
+    def _normalize_appraisal_text(cls, v):
+        return _optional_text(v)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, v):
+        if isinstance(v, str) and v.strip().upper() in _KNOWN_CONFIDENCE_LEVELS:
+            return v.strip().upper()
+        return None
 
     # Same fragility as AiLineListFinding.severity above, and the same fix:
     # one finding with an off-enum category or severity would otherwise
@@ -1370,3 +1400,162 @@ class AiPsurV4Prefill(BaseModel):
             return text(v)
 
         return text(data) if isinstance(data, dict) else data
+
+
+
+# ---------------------------------------------------------------------------
+# Scientific appraisal pass — see server/ai/appraisal.py and
+# PSUR_FACT_EXTRACTION_PROMPT / PSUR_APPRAISAL_PROMPT.
+# ---------------------------------------------------------------------------
+
+_APPRAISAL_SECTIONS = [
+    "S1_PRODUCT_REGULATORY", "S2_WORLDWIDE_STATUS", "S3_THERAPEUTIC_CONTEXT", "S4_RSI",
+    "S5_EXPOSURE_ACTIONS", "S6_LITERATURE", "S7_AGGREGATE_SAFETY_DATA", "S8_SIGNAL_EVALUATION",
+    "S9_SPECIAL_POPULATIONS", "S10_BENEFIT_RISK", "S11_UNCERTAINTIES",
+]
+_KNOWN_APPRAISAL_VERDICTS = {"SOUND", "CONCERN", "NOT_ASSESSABLE"}
+
+
+class AiPsurFactChunk(BaseModel):
+    """Stage 1 output for one chunk. Deliberately lenient: every list is a
+    list of free-form dicts, because this is an intermediate the model
+    reads back in stage 2, never something shown to a user or stored. A
+    malformed entry costs that entry, never the chunk."""
+
+    sections_seen: list[dict] = []
+    product_statements: dict = {}
+    signals_presented: list[dict] = []
+    tables: list[dict] = []
+    exposure_statements: list[dict] = []
+    case_count_statements: list[dict] = []
+    risks_presented: list[dict] = []
+    rsi_statements: list[dict] = []
+    mah_conclusions: list[dict] = []
+    other_notable: list[dict] = []
+
+    @field_validator(
+        "sections_seen", "signals_presented", "tables", "exposure_statements",
+        "case_count_statements", "risks_presented", "rsi_statements", "mah_conclusions",
+        "other_notable", mode="before",
+    )
+    @classmethod
+    def _keep_dict_items(cls, v):
+        if not isinstance(v, list):
+            return []
+        return [item for item in v if isinstance(item, dict)]
+
+    @field_validator("product_statements", mode="before")
+    @classmethod
+    def _dict_or_empty(cls, v):
+        return v if isinstance(v, dict) else {}
+
+
+class AiPsurAppraisalQuestion(BaseModel):
+    verdict: Literal["SOUND", "CONCERN", "NOT_ASSESSABLE"] = "NOT_ASSESSABLE"
+    reasoning: str = ""
+
+    @field_validator("verdict", mode="before")
+    @classmethod
+    def _normalize_verdict(cls, v):
+        if isinstance(v, str) and v.strip().upper().replace(" ", "_") in _KNOWN_APPRAISAL_VERDICTS:
+            return v.strip().upper().replace(" ", "_")
+        return "NOT_ASSESSABLE"
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return v.strip() if isinstance(v, str) else ""
+
+
+class AiPsurSectionAppraisal(BaseModel):
+    v4_section: str
+    correct: AiPsurAppraisalQuestion = AiPsurAppraisalQuestion()
+    classified: AiPsurAppraisalQuestion = AiPsurAppraisalQuestion()
+    meaningful: AiPsurAppraisalQuestion = AiPsurAppraisalQuestion()
+    interpreted: AiPsurAppraisalQuestion = AiPsurAppraisalQuestion()
+    summary: str = ""
+
+    @field_validator("correct", "classified", "meaningful", "interpreted", mode="before")
+    @classmethod
+    def _question_or_default(cls, v):
+        return v if isinstance(v, dict) else {}
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def _summary_text(cls, v):
+        return v.strip() if isinstance(v, str) else ""
+
+
+class AiPsurProductContext(BaseModel):
+    product: Optional[str] = None
+    active_substance: Optional[str] = None
+    therapeutic_class: Optional[str] = None
+    approved_indications: list[str] = []
+
+    @field_validator("product", "active_substance", "therapeutic_class", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return _optional_text(v)
+
+    @field_validator("approved_indications", mode="before")
+    @classmethod
+    def _strings(cls, v):
+        if not isinstance(v, list):
+            return []
+        return [x.strip() for x in v if isinstance(x, str) and x.strip()]
+
+
+class AiPsurAppraisal(BaseModel):
+    """Stage 2 output. Findings reuse AiPsurFinding (same normalisation as
+    the main review). Bad individual findings or section entries are dropped
+    rather than failing the whole appraisal; section entries are reduced to
+    exactly one per S1-S11, in template order, with NOT_ASSESSABLE filling
+    any section the model skipped — so the UI never silently shows fewer
+    sections than the template has."""
+
+    product_context: AiPsurProductContext = AiPsurProductContext()
+    findings: list[AiPsurFinding] = []
+    section_appraisals: list[AiPsurSectionAppraisal] = Field(default=[], validate_default=True)
+
+    @field_validator("product_context", mode="before")
+    @classmethod
+    def _ctx(cls, v):
+        return v if isinstance(v, dict) else {}
+
+    @field_validator("findings", mode="before")
+    @classmethod
+    def _valid_findings(cls, v):
+        if not isinstance(v, list):
+            return []
+        kept = []
+        for item in v:
+            try:
+                kept.append(AiPsurFinding.model_validate(item))
+            except Exception:
+                continue
+        return kept
+
+    @field_validator("section_appraisals", mode="before")
+    @classmethod
+    def _one_per_section(cls, v):
+        by_section: dict[str, AiPsurSectionAppraisal] = {}
+        for item in v if isinstance(v, list) else []:
+            if not isinstance(item, dict):
+                continue
+            section = str(item.get("v4_section", "")).strip().upper()
+            if section not in _APPRAISAL_SECTIONS or section in by_section:
+                continue
+            try:
+                by_section[section] = AiPsurSectionAppraisal.model_validate(
+                    {**item, "v4_section": section}
+                )
+            except Exception:
+                continue
+        return [
+            by_section.get(section)
+            or AiPsurSectionAppraisal(
+                v4_section=section,
+                summary="Not appraised — the AI returned no assessment for this section.",
+            )
+            for section in _APPRAISAL_SECTIONS
+        ]

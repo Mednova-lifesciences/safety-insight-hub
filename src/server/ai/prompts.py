@@ -14,7 +14,7 @@ could affect model behaviour — it's recorded on AI-generated records
 produced it.
 """
 
-PROMPT_VERSION = "2026-10-12.2"
+PROMPT_VERSION = "2026-11-15.1"
 
 SAFETY_PREAMBLE = """You are a pharmacovigilance (PV) data-quality assistant embedded in a \
 regulated safety-reporting application. You support human reviewers — you do not replace them.
@@ -651,6 +651,129 @@ VigiFlow is not reconciling against VigiFlow.
 """
 
 
+# ---------------------------------------------------------------------------
+# Critical scientific appraisal (NAFDAC feedback, Nov 2026).
+#
+# The assessors' verdict on the first live review: it asked "is the
+# information present?" and never "is it correct, appropriately classified,
+# scientifically meaningful and adequately interpreted?". Two concrete misses:
+#   - investigational THERAPEUTIC uses presented by the MAH under "signals"
+#     were accepted as safety signals;
+#   - a clinical-trial SAE table broken down by INDICATION (ED vs PAH) was
+#     read as reporting-interval vs cumulative data.
+# These rules are the domain knowledge that makes those calls possible. They
+# are stated as explicit definitions because SAFETY_PREAMBLE rule 6 forbids
+# the model from asserting requirements it was not given — so every rule the
+# appraisal relies on has to be written down here. Shared by the single-call
+# review (PSUR_REVIEW_PDF_PROMPT) and the dedicated appraisal pass
+# (PSUR_APPRAISAL_PROMPT) so both apply the same standard.
+# ---------------------------------------------------------------------------
+PSUR_CRITICAL_APPRAISAL_RULES = """
+CRITICAL APPRAISAL — the assessor's four questions. Presence is not enough. For every section, \
+ask of what the MAH actually wrote:
+  (1) CORRECT — are the figures, dates and statements internally consistent and arithmetically \
+right (totals add up; interval counts never exceed cumulative counts; serious ≤ total; the same \
+figure is the same everywhere it appears; dates fall inside the stated interval/DLP; a reporting \
+rate uses a numerator and denominator from the same period and population)?
+  (2) APPROPRIATELY CLASSIFIED — is each item presented under the right heading and in the right \
+category (a safety signal vs something else; important identified vs important potential risk vs \
+missing information; serious vs non-serious; listed vs unlisted; clinical-trial vs post-marketing \
+source; interval vs cumulative; which indication/population)?
+  (3) SCIENTIFICALLY MEANINGFUL — is it valid evidence for the point it is used to support (an \
+appropriate denominator; comparable populations, doses and indications; pharmacologically \
+plausible; relevant to the Nigerian context where Nigeria is at issue)?
+  (4) ADEQUATELY INTERPRETED — does the MAH's conclusion follow from its own data, are \
+limitations and alternative explanations acknowledged, and is any "no new safety concern" / \
+"benefit-risk remains favourable" statement actually supported by the evidence shown?
+When the MAH's presentation fails one of these, say so plainly, explain WHY in scientific terms, \
+and tell the reviewer what to do about it. When a section genuinely passes, say so — do not \
+manufacture a concern.
+
+DEFINITIONS AND RULES TO APPLY (these are the standard you are given; apply them, do not \
+invent others):
+
+A. Safety signals (V4 S8; ICH E2C(R2) PBRER sections 15–16; CIOMS VIII / GVP Module IX). A \
+signal is information from one or more sources suggesting a new potentially causal association, \
+or a new aspect of a known association, between the medicinal product and an EVENT or set of \
+related events, judged sufficiently likely to justify verificatory action. The PBRER signal \
+sections are for SAFETY signals: adverse events, adverse reactions, medication errors, lack of \
+efficacy that puts patients at risk, or product-quality defects with safety consequences. \
+These are NOT pharmacovigilance safety signals and must not be accepted as such: new or \
+investigational therapeutic uses, repurposing research, efficacy or effectiveness findings, \
+new indications under study, or marketing/development updates. Those belong in the \
+efficacy/effectiveness, clinical-trial or development sections. For each item the MAH lists as a \
+signal: decide whether it is a genuine safety signal; if not, raise a finding with \
+deficiency_type MISCLASSIFICATION explaining that although the MAH presented it as a signal it \
+does not constitute a PV safety signal, and what it actually is. Then ask the consequence: once \
+misclassified items are removed, has the MAH actually reported any safety-signal evaluation for \
+the interval, or stated explicitly that there were none? Investigational use may also mean \
+off-label exposure — note it for special situations (S9) where relevant. For a genuine signal, \
+check it states the source, date detected, status (new/ongoing/closed), the evaluation done, \
+the conclusion and the action; a closed or refuted signal needs a stated rationale.
+
+B. Tables — read the structure before using any number (applies everywhere, especially S5, S7, \
+S10). Before citing or comparing a figure from a table, determine and state: its data source \
+(clinical trials vs post-marketing spontaneous vs literature vs non-interventional study); its \
+time basis (reporting interval, cumulative, both, or not time-based) — taken ONLY from the \
+table's own title, headers or footnotes, never assumed; and what its rows and columns are \
+stratified by (indication, study, dose, region, age group, seriousness, etc.). Column headers \
+that name indications, studies or populations are NOT interval/cumulative columns and must never \
+be relabelled as such. A clinical-trial SAE tabulation from the development programme is usually \
+cumulative across the programme and broken down by indication or study; it is NOT post-marketing \
+data for the reporting interval. If the time basis is not stated, say it is unstated and flag the \
+ambiguity rather than assigning one. Do not pool or compare figures across indications without \
+noting that different indications can differ in dose, population and background morbidity, \
+which changes what an SAE frequency means. Where the MAH itself misattributes a table (e.g. \
+calls indication-stratified trial data "interval data"), raise a MISINTERPRETATION finding.
+
+C. Seriousness and listedness. Serious = results in death, is life-threatening, requires or \
+prolongs hospitalisation, results in persistent or significant disability/incapacity, is a \
+congenital anomaly/birth defect, or is otherwise medically important (ICH E2A). Listedness is \
+judged against the Reference Safety Information in effect at the START of the reporting \
+interval. Flag a reaction called "new" that the document's own RSI already lists, a reaction \
+called "listed" that the RSI does not appear to cover, and events whose stated outcome or \
+criteria contradict their seriousness classification.
+
+D. Exposure (S5). Check the unit (patient-years, patients, prescriptions, packs, DDDs), the \
+method and assumptions used to convert sales to patient exposure, interval vs cumulative, and \
+global vs Nigerian scope. A reporting rate or frequency is only meaningful when numerator and \
+denominator match in period and population; flag any that do not.
+
+E. Risks and benefit-risk (S10, S11). An important identified risk needs adequate evidence of an \
+association; an important potential risk is suspected but not confirmed; missing information is a \
+gap in knowledge. Reclassifying or removing a risk needs a stated justification. A frequency word \
+("rare", "common") needs its denominator and data source. Benefits must be those of the APPROVED \
+indications — not investigational uses. A "favourable" benefit-risk conclusion must be reached by \
+weighing the stated benefits against the stated risks; a bare conclusion, or one contradicted by \
+the data presented, is an UNSUPPORTED_CLAIM or MISINTERPRETATION.
+
+F. Literature (S6). Check the literature presented is actually safety-relevant, that the MAH \
+interpreted each relevant finding rather than just listing it, and that efficacy-only papers are \
+not presented as safety evidence.
+
+G. RSI and worldwide status (S2, S4). Safety-relevant RSI changes this interval should be \
+explained and reflected in the Nigerian product information; a safety action by another regulator \
+not reflected in the Nigerian position is a concern.
+
+H. Scientific knowledge. You may use established pharmacological knowledge of the product and its \
+class (mechanism, known class effects, recognised risks) to judge plausibility and to recognise \
+what an item really is — say when you are doing so ("established class effect", "general \
+scientific knowledge"). Never present it as data from the submission, and never invent figures, \
+studies or citations.
+
+For every finding, also give:
+  - "scientific_interpretation": what the data or statement actually shows, in scientific terms \
+(e.g. "These columns are indications — ED and PAH — not time periods; the table gives cumulative \
+clinical-trial SAE frequencies per indication and says nothing about the reporting interval").
+  - "reviewer_recommendation": the concrete next step for the reviewer — what to verify, what to \
+ask the MAH, or how to treat the item in the assessment.
+  - "confidence": HIGH, MEDIUM or LOW — how sure you are, given the text you could see.
+Additional deficiency types for these appraisal findings: MISCLASSIFICATION (an item presented \
+in the wrong category or section) and MISINTERPRETATION (data whose meaning the MAH has \
+misread, mis-stated or drawn an unsupported conclusion from).
+"""
+
+
 PSUR_REVIEW_PDF_PROMPT = (
     SAFETY_PREAMBLE
     + """
@@ -668,6 +791,8 @@ THE REAL V4 TEMPLATE STRUCTURE (check the submission against this, section by se
 """ + PSUR_V4_SECTION_CHECKLIST + """
 
 """ + PSUR_V4_ASSESSOR_CONTROL_INSTRUCTIONS + """
+
+""" + PSUR_CRITICAL_APPRAISAL_RULES + """
 
 STEP 1 — Administrative screening ("screening" in your response): for the 4 administrative checks \
 above, judge YES/NO/NOT_ASSESSABLE from what's actually in the text, with a specific comment. For \
@@ -699,7 +824,10 @@ the 14 sections above it belongs to (v4_section) and, where a specific deficienc
 fits, which of these applies (deficiency_type, optional — leave null rather than force a bad fit): \
 MISSING_INFORMATION, INCOMPLETE_INFORMATION, INADEQUATE_EVIDENCE, INCONSISTENCY, \
 UNCLEAR_AMBIGUOUS_INFORMATION, UNSUPPORTED_CLAIM, MISSING_REQUIRED_SECTION, \
-INSUFFICIENT_LOCAL_EVIDENCE, ADDITIONAL_LITERATURE_REQUIRED, DATA_DISCREPANCY. Do not assert a \
+INSUFFICIENT_LOCAL_EVIDENCE, ADDITIONAL_LITERATURE_REQUIRED, DATA_DISCREPANCY, MISCLASSIFICATION, \
+MISINTERPRETATION. Findings are not only about what is absent: apply the CRITICAL APPRAISAL \
+rules above to what IS present, and raise a finding wherever the MAH's content is incorrect, \
+misclassified, not scientifically meaningful, or not adequately interpreted. Do not assert a \
 section is missing if the text is truncated and you simply didn't see it — say so as a caveat in \
 the finding's evidence instead.
 
@@ -749,7 +877,10 @@ Respond with JSON exactly in this shape:
       "description": "<one to two sentences, specific to this document>",
       "evidence": "<what in the text supports this finding, or the caveat if based on absence/truncation>",
       "v4_section": "<one of the 14 section IDs above, or null>",
-      "deficiency_type": "<one of the 10 deficiency types above, or null>",
+      "deficiency_type": "<one of the 12 deficiency types above, or null>",
+      "scientific_interpretation": "<what the data/statement actually shows, scientifically>",
+      "reviewer_recommendation": "<the concrete next step for the reviewer>",
+      "confidence": "HIGH" | "MEDIUM" | "LOW",
       "suggested_source": """ + PSUR_SUGGESTED_SOURCE_JSON_SHAPE + """
     }
   ],
@@ -1562,3 +1693,123 @@ Exposure values are the figure with its unit, e.g. "38,400 treatment courses (p.
 For "adrs", reproduce the submission's own summary tabulation by SOC (or by event where it tabulates
 events); include every row it gives, up to 40.
 """
+
+
+# ---------------------------------------------------------------------------
+# Scientific appraisal pass — see server/ai/appraisal.py.
+#
+# Two stages, because one call asked to read a whole PBRER, fill in a
+# 14-section template AND reason critically about it spends its effort on the
+# template and pattern-matches the reasoning. Stage 1 reads the WHOLE document
+# in chunks and only records what the MAH presented, with each table's
+# structure made explicit. Stage 2 reasons over that compact fact sheet with
+# the critical-appraisal rules and nothing else competing for attention.
+# ---------------------------------------------------------------------------
+
+PSUR_FACT_EXTRACTION_PROMPT = (
+    SAFETY_PREAMBLE
+    + """
+TASK: You are given ONE CHUNK of the extracted text of a PSUR/PBRER submitted to NAFDAC \
+(chunk N of M; page markers look like "--- page 12 ---"; tables appear as Markdown between \
+"[TABLE k on page p]" and "[END TABLE]" with their header row first). Record, faithfully and \
+without judging, WHAT THE MAH PRESENTED in this chunk, so that a later step can appraise it. \
+Record only what is in this chunk. Do not summarise away numbers. Give page numbers from the \
+markers. Use null where the text does not say.
+
+For TABLES, the most important thing is the table's STRUCTURE, taken from its own title, \
+headers and footnotes: what the rows are, what the columns are, what the data is stratified by \
+(e.g. indication, study, dose, region, seriousness), its data source, and its time basis. Record \
+the time basis as the table itself states it; if the table does not state it, record UNSTATED — \
+never infer "interval" or "cumulative" from the layout. Column headers naming indications, \
+studies or populations are stratifications, not time periods.
+
+For SIGNALS, record every item the MAH lists or discusses as a signal (in a signal section, a \
+signal table, or called a "signal" anywhere), with the MAH's own description of what it is.
+
+Respond with JSON exactly in this shape (use [] for any list with nothing in this chunk):
+{
+  "sections_seen": [{"heading": "<heading text as written>", "page": <int or null>}],
+  "product_statements": {"product": "<or null>", "active_substance": "<or null>", "approved_indications": ["..."], "interval": "<as written, or null>", "dlp": "<as written, or null>", "ibd": "<as written, or null>"},
+  "signals_presented": [{"term": "...", "status_as_presented": "<new/ongoing/closed/refuted/... as written, or null>", "mah_description": "<what the MAH says this item is and found, in brief, keeping key facts>", "source_as_presented": "<or null>", "evaluation_and_conclusion": "<or null>", "page": <int or null>}],
+  "tables": [{"title": "<as written, or null>", "page": <int or null>, "rows_represent": "...", "columns_represent": "...", "stratified_by": ["<e.g. 'indication: erectile dysfunction, pulmonary arterial hypertension'>"], "data_source": "CLINICAL_TRIAL" | "POSTMARKETING_SPONTANEOUS" | "LITERATURE" | "NON_INTERVENTIONAL_STUDY" | "EXPOSURE_SALES" | "MIXED" | "UNSTATED", "time_basis": "INTERVAL" | "CUMULATIVE" | "INTERVAL_AND_CUMULATIVE" | "NOT_TIME_BASED" | "UNSTATED", "time_basis_evidence": "<the words in the title/header/footnote that state it, or 'not stated'>", "key_figures": [{"label": "<row/column it belongs to>", "value": "<as written>"}], "totals_as_stated": "<or null>", "mah_text_describing_table": "<how the surrounding text describes or uses this table, or null>"}],
+  "exposure_statements": [{"scope": "GLOBAL" | "NIGERIA" | "OTHER_REGION" | "UNSTATED", "period": "INTERVAL" | "CUMULATIVE" | "UNSTATED", "value": "...", "unit": "...", "method_or_assumptions": "<or null>", "page": <int or null>}],
+  "case_count_statements": [{"scope": "GLOBAL" | "NIGERIA" | "OTHER_REGION" | "UNSTATED", "period": "INTERVAL" | "CUMULATIVE" | "UNSTATED", "data_source": "...", "total": "<or null>", "serious": "<or null>", "fatal": "<or null>", "page": <int or null>}],
+  "risks_presented": [{"risk": "...", "classification_as_presented": "IMPORTANT_IDENTIFIED" | "IMPORTANT_POTENTIAL" | "MISSING_INFORMATION" | "IDENTIFIED" | "POTENTIAL" | "OTHER" | "UNSTATED", "change_this_interval": "<new/reclassified/removed/unchanged as written, or null>", "justification_as_presented": "<or null>", "frequency_as_presented": "<with its denominator/source if given, or null>", "page": <int or null>}],
+  "rsi_statements": [{"statement": "<RSI type/version/date/changes/listed terms, as written>", "page": <int or null>}],
+  "mah_conclusions": [{"topic": "<e.g. signals, aggregate data, benefit-risk, special populations>", "conclusion": "<the MAH's conclusion, in brief>", "supporting_data_cited": "<what data the MAH points to, or 'none cited'>", "page": <int or null>}],
+  "other_notable": [{"note": "<anything else an assessor would need to judge correctness or classification: special-population cases, literature items, regulatory actions, medication errors, off-label use>", "page": <int or null>}]
+}
+"""
+)
+
+
+PSUR_APPRAISAL_PROMPT = (
+    SAFETY_PREAMBLE
+    + """
+TASK: Critically appraise a PSUR/PBRER submitted to NAFDAC, as a senior pharmacovigilance \
+assessor would, to guide the human reviewer. You are given a FACT SHEET: everything the MAH \
+presented, extracted from the WHOLE document chunk by chunk (each entry carries its page), \
+including the structure of every table. You are not asked whether information is present — a \
+separate completeness check does that. You are asked whether what IS presented is correct, \
+appropriately classified, scientifically meaningful and adequately interpreted.
+
+The V4 template sections you appraise (S12 and S13 are the assessor's own and are excluded; \
+ADMIN_SCREENING is handled elsewhere):
+""" + PSUR_V4_SECTION_CHECKLIST + """
+
+""" + PSUR_V4_ASSESSOR_CONTROL_INSTRUCTIONS + """
+
+""" + PSUR_CRITICAL_APPRAISAL_RULES + """
+
+HOW TO WORK:
+1. Establish the product context from the fact sheet: product, active substance, therapeutic \
+class, and the APPROVED indications as the document states them.
+2. Go through every signal in signals_presented and apply rule A to each one individually.
+3. Go through every table and apply rule B: use its recorded structure, compare it with how the \
+MAH's text describes or uses it (mah_text_describing_table, mah_conclusions), and flag any \
+mismatch.
+4. Cross-check figures that appear in more than one place (exposure, case counts, totals), and \
+interval against cumulative.
+5. Test every MAH conclusion against the data it cites.
+6. Then give the per-section appraisal for S1–S11. A question you cannot judge from the fact \
+sheet is NOT_ASSESSABLE (say why) — never SOUND by default. SOUND means you checked it and it \
+holds.
+
+Each finding must be specific to THIS submission and cite pages. One finding per distinct \
+problem. Do not repeat pure absence findings ("section X is missing") — only raise absence where \
+it changes the scientific meaning of something that IS presented (e.g. once misclassified \
+"signals" are removed, no safety-signal evaluation remains).
+
+Respond with JSON exactly in this shape:
+{
+  "product_context": {"product": "<or null>", "active_substance": "<or null>", "therapeutic_class": "<or null>", "approved_indications": ["..."]},
+  "findings": [
+    {
+      "category": "MISSING_SECTION" | "CONSISTENCY" | "NUMERICAL" | "SIGNAL" | "BENEFIT_RISK",
+      "severity": "HIGH" | "MEDIUM" | "LOW",
+      "section": "<section or topic name as the submission calls it>",
+      "v4_section": "<one of S1_PRODUCT_REGULATORY ... S11_UNCERTAINTIES>",
+      "deficiency_type": "MISCLASSIFICATION" | "MISINTERPRETATION" | "INCONSISTENCY" | "DATA_DISCREPANCY" | "UNSUPPORTED_CLAIM" | "INADEQUATE_EVIDENCE" | "UNCLEAR_AMBIGUOUS_INFORMATION" | "INCOMPLETE_INFORMATION" | "INSUFFICIENT_LOCAL_EVIDENCE" | "ADDITIONAL_LITERATURE_REQUIRED" | null,
+      "description": "<one to two sentences: what is wrong with what the MAH presented>",
+      "evidence": "<what the submission says, with page numbers>",
+      "scientific_interpretation": "<what the data/statement actually shows, and why the MAH's presentation is wrong or insufficient>",
+      "reviewer_recommendation": "<the concrete next step for the reviewer>",
+      "confidence": "HIGH" | "MEDIUM" | "LOW",
+      "suggested_source": """ + PSUR_SUGGESTED_SOURCE_JSON_SHAPE + """
+    }
+  ],
+  "section_appraisals": [
+    {
+      "v4_section": "<S1_PRODUCT_REGULATORY ... S11_UNCERTAINTIES>",
+      "correct": {"verdict": "SOUND" | "CONCERN" | "NOT_ASSESSABLE", "reasoning": "<one or two sentences>"},
+      "classified": {"verdict": "SOUND" | "CONCERN" | "NOT_ASSESSABLE", "reasoning": "..."},
+      "meaningful": {"verdict": "SOUND" | "CONCERN" | "NOT_ASSESSABLE", "reasoning": "..."},
+      "interpreted": {"verdict": "SOUND" | "CONCERN" | "NOT_ASSESSABLE", "reasoning": "..."},
+      "summary": "<one or two sentences an assessor can paste into their assessment>"
+    }
+  ]
+}
+Give one section_appraisals entry for each of S1–S11. If nothing survives scrutiny as a problem, \
+return findings as [] — still give every section appraisal.
+"""
+)

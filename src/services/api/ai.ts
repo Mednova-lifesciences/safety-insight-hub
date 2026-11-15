@@ -115,6 +115,46 @@ export interface AiPsurFindingOut {
    *  / PsurDeficiencyType (types/pv.ts). Either may be null. */
   v4_section?: string | null;
   deficiency_type?: string | null;
+  /** Critical-appraisal fields: what the data actually shows, the concrete
+   *  next step for the reviewer, and how sure the AI is. Null when a
+   *  finding carries none (e.g. the spreadsheet review). */
+  scientific_interpretation?: string | null;
+  reviewer_recommendation?: string | null;
+  confidence?: "HIGH" | "MEDIUM" | "LOW" | null;
+}
+
+export interface AiPsurAppraisalQuestionOut {
+  verdict: "SOUND" | "CONCERN" | "NOT_ASSESSABLE";
+  reasoning: string;
+}
+
+export interface AiPsurSectionAppraisalOut {
+  v4_section: string;
+  correct: AiPsurAppraisalQuestionOut;
+  classified: AiPsurAppraisalQuestionOut;
+  meaningful: AiPsurAppraisalQuestionOut;
+  interpreted: AiPsurAppraisalQuestionOut;
+  summary: string;
+}
+
+/** /api/ai/psur/appraise-pdf-text — the critical scientific appraisal of
+ *  the whole submission (see src/server/ai/appraisal.py). */
+export interface AiPsurAppraisalResponse {
+  findings: AiPsurFindingOut[];
+  section_appraisals: AiPsurSectionAppraisalOut[];
+  product_context?: {
+    product?: string | null;
+    active_substance?: string | null;
+    therapeutic_class?: string | null;
+    approved_indications: string[];
+  } | null;
+  ai_used: boolean;
+  prompt_version: string;
+  model?: string | null;
+  chunks_total: number;
+  chunks_read: number;
+  unread_pages: string[];
+  error?: string | null;
 }
 
 export interface AiPsurAdministrativeCheckOut {
@@ -574,6 +614,19 @@ export const ai = {
       reportingPeriod: string;
     }) =>
       apiRequest<AiPsurReviewResponse>("/api/ai/psur/review-pdf-text", {
+        method: "POST",
+        body,
+      }),
+    /** Critical scientific appraisal — same body as reviewPdfText; runs
+     *  alongside it. Reads the whole document, not just the first 120k
+     *  characters. */
+    appraisePdfText: (body: {
+      filename: string;
+      extractedText: string;
+      product: string;
+      reportingPeriod: string;
+    }) =>
+      apiRequest<AiPsurAppraisalResponse>("/api/ai/psur/appraise-pdf-text", {
         method: "POST",
         body,
       }),
