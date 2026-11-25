@@ -761,6 +761,23 @@ what an item really is — say when you are doing so ("established class effect"
 scientific knowledge"). Never present it as data from the submission, and never invent figures, \
 studies or citations.
 
+I. Signals and risks against the RSI (S4 with S8, S7, S10). A signal is "new" only if the event is \
+not already in the Reference Safety Information in effect at the start of the interval, so every \
+genuine safety signal and every important risk the MAH presents must be tested against the RSI \
+terms recorded in the fact sheet (rsi_statements). For each one, decide: LISTED (the RSI names the \
+event or a clear equivalent), NOT SHOWN TO BE LISTED, or CANNOT TELL (the fact sheet has no RSI \
+terms). Judge listedness ONLY against the RSI as the MAH states it in this submission — never from \
+your own knowledge of the product's label, and say so. If the MAH gives only a partial list \
+("listed reactions include..."), an event missing from it is NOT SHOWN TO BE LISTED, not proven \
+unlisted: raise the finding, say the list may be partial, and tell the reviewer to check the event \
+against the full RSI document. Then ask what follows: a genuine signal that is not shown to be \
+listed is a potential change to the RSI/product information, so the signal conclusion, the S4 \
+statement that no changes are needed, and the S10 conclusion must be consistent with it. A signal \
+called "new" that the RSI already lists, or an RSI section that says "no changes required" while an \
+unlisted signal is under active evaluation, is an INCONSISTENCY or UNSUPPORTED_CLAIM. Record the \
+result of this check in the S4 section appraisal. S4 is not SOUND merely because the RSI \
+version and date are stated.
+
 For every finding, also give:
   - "scientific_interpretation": what the data or statement actually shows, in scientific terms \
 (e.g. "These columns are indications — ED and PAH — not time periods; the table gives cumulative \
@@ -1723,6 +1740,12 @@ the time basis as the table itself states it; if the table does not state it, re
 never infer "interval" or "cumulative" from the layout. Column headers naming indications, \
 studies or populations are stratifications, not time periods.
 
+For the RSI, copy out EVERY reaction or event the text says the RSI lists into listed_terms, one \
+entry each, exactly as written, so a later step can test signals against them. Set \
+listed_terms_complete to true only if the text presents the list as the whole RSI list, false if it \
+is introduced as partial ("include", "such as", "e.g.") or points to a document it does not \
+reproduce, and null if unclear.
+
 For SIGNALS, record every item the MAH lists or discusses as a signal (in a signal section, a \
 signal table, or called a "signal" anywhere), with the MAH's own description of what it is.
 
@@ -1735,7 +1758,7 @@ Respond with JSON exactly in this shape (use [] for any list with nothing in thi
   "exposure_statements": [{"scope": "GLOBAL" | "NIGERIA" | "OTHER_REGION" | "UNSTATED", "period": "INTERVAL" | "CUMULATIVE" | "UNSTATED", "value": "...", "unit": "...", "method_or_assumptions": "<or null>", "page": <int or null>}],
   "case_count_statements": [{"scope": "GLOBAL" | "NIGERIA" | "OTHER_REGION" | "UNSTATED", "period": "INTERVAL" | "CUMULATIVE" | "UNSTATED", "data_source": "...", "total": "<or null>", "serious": "<or null>", "fatal": "<or null>", "page": <int or null>}],
   "risks_presented": [{"risk": "...", "classification_as_presented": "IMPORTANT_IDENTIFIED" | "IMPORTANT_POTENTIAL" | "MISSING_INFORMATION" | "IDENTIFIED" | "POTENTIAL" | "OTHER" | "UNSTATED", "change_this_interval": "<new/reclassified/removed/unchanged as written, or null>", "justification_as_presented": "<or null>", "frequency_as_presented": "<with its denominator/source if given, or null>", "page": <int or null>}],
-  "rsi_statements": [{"statement": "<RSI type/version/date/changes/listed terms, as written>", "page": <int or null>}],
+  "rsi_statements": [{"statement": "<RSI type/version/date/changes, as written>", "listed_terms": ["<each adverse reaction/event the text says the RSI lists, exactly as written>"], "listed_terms_complete": true | false | null, "page": <int or null>}],
   "mah_conclusions": [{"topic": "<e.g. signals, aggregate data, benefit-risk, special populations>", "conclusion": "<the MAH's conclusion, in brief>", "supporting_data_cited": "<what data the MAH points to, or 'none cited'>", "page": <int or null>}],
   "other_notable": [{"note": "<anything else an assessor would need to judge correctness or classification: special-population cases, literature items, regulatory actions, medication errors, off-label use>", "page": <int or null>}]
 }
@@ -1771,7 +1794,10 @@ mismatch.
 4. Cross-check figures that appear in more than one place (exposure, case counts, totals), and \
 interval against cumulative.
 5. Test every MAH conclusion against the data it cites.
-6. Then give the per-section appraisal for S1–S11. A question you cannot judge from the fact \
+6. Apply rule I: take each genuine signal and each important risk and test it against the RSI terms \
+in the fact sheet. Do this even though the signal itself is a real one — a real signal can still be \
+unlisted, and that is exactly when the RSI statements and conclusions need to be checked.
+7. Then give the per-section appraisal for S1–S11. A question you cannot judge from the fact \
 sheet is NOT_ASSESSABLE (say why) — never SOUND by default. SOUND means you checked it and it \
 holds.
 

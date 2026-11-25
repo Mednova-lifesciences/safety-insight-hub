@@ -6,32 +6,74 @@
 import type { AiPsurAppraisalResponse } from "@/services/api/ai";
 import type { PsurFinding, PsurScientificAppraisal, PsurV4SectionId } from "@/types/pv";
 
+const STOP_WORDS = new Set(
+  (
+    "a an the of and or to in on for with by is are was were be been being that this these those " +
+    "it its as at from but not no only also which who whom their there than then so such into " +
+    "over under per via any all each both more most other some can cannot may might will would " +
+    "should could do does did have has had"
+  ).split(" "),
+);
+
+/** Content words of a finding's description, crudely stemmed, for comparing
+ *  two findings that say the same thing in different words. */
+function contentWords(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of text.toLowerCase().match(/[a-z][a-z'-]+|\d[\d,.]*/g) ?? []) {
+    if (STOP_WORDS.has(raw)) continue;
+    out.add(raw.length > 5 ? raw.replace(/(ing|ed|es|s|ly)$/, "") : raw);
+  }
+  return out;
+}
+
+/** Share of the SHORTER finding's content words that the other also uses,
+ *  and how many words are shared. Measured on real pairs from a live review
+ *  of the test PSUR: genuine duplicates shared 67-71% of their words,
+ *  different issues in the same section at most 25%. */
+export function descriptionOverlap(a: string, b: string): { share: number; shared: number } {
+  const A = contentWords(a);
+  const B = contentWords(b);
+  let shared = 0;
+  for (const w of A) if (B.has(w)) shared += 1;
+  return { share: shared / Math.max(1, Math.min(A.size, B.size)), shared };
+}
+
+const DUPLICATE_SHARE = 0.5;
+const DUPLICATE_MIN_SHARED = 6;
+
+const MIS_TYPES = new Set(["MISCLASSIFICATION", "MISINTERPRETATION"]);
+
 /**
- * Both AI passes now apply the same critical-appraisal rules, so the
- * completeness pass can raise the same misclassification the appraisal
- * raises. The appraisal read the whole document with room to reason, so
- * where both flag a MISCLASSIFICATION/MISINTERPRETATION in the same section,
- * the appraisal's version is kept and the completeness one dropped.
+ * Both AI passes apply the same critical-appraisal rules, so they can raise
+ * the same problem — the assessor then sees it twice in one section and has
+ * to decide it twice. The appraisal read the whole document with room to
+ * reason, so its version is the one kept. A completeness finding is dropped
+ * only when it restates an appraisal finding of the SAME section, i.e. when
+ *   - both are a misclassification/misinterpretation of that section, or
+ *   - their descriptions say substantially the same thing (see
+ *     descriptionOverlap).
+ * A finding with no section, or one that matches nothing, is always kept.
  */
 export function mergeAppraisalFindings(
   completeness: PsurFinding[],
   appraisal: PsurFinding[],
 ): PsurFinding[] {
-  const appraisalKeys = new Set(
-    appraisal
-      .filter(
-        (f) => f.deficiencyType === "MISCLASSIFICATION" || f.deficiencyType === "MISINTERPRETATION",
-      )
-      .map((f) => `${f.v4Section ?? ""}|${f.deficiencyType}`),
-  );
-  const kept = completeness.filter(
-    (f) =>
-      !(
-        (f.deficiencyType === "MISCLASSIFICATION" || f.deficiencyType === "MISINTERPRETATION") &&
-        appraisalKeys.has(`${f.v4Section ?? ""}|${f.deficiencyType}`)
-      ),
-  );
-  return [...kept, ...appraisal];
+  const restatesAppraisal = (f: PsurFinding): boolean => {
+    if (!f.v4Section) return false;
+    return appraisal.some((a) => {
+      if (a.v4Section !== f.v4Section) return false;
+      if (
+        f.deficiencyType &&
+        MIS_TYPES.has(f.deficiencyType) &&
+        a.deficiencyType === f.deficiencyType
+      ) {
+        return true;
+      }
+      const { share, shared } = descriptionOverlap(f.description, a.description);
+      return share >= DUPLICATE_SHARE && shared >= DUPLICATE_MIN_SHARED;
+    });
+  };
+  return [...completeness.filter((f) => !restatesAppraisal(f)), ...appraisal];
 }
 
 /** AI appraisal (wire shape) -> domain PsurScientificAppraisal. */

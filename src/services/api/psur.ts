@@ -2821,12 +2821,13 @@ export const psur = {
     const scientificAppraisal = appraisalResult
       ? mapAiScientificAppraisal(appraisalResult)
       : undefined;
+    const appraisalFindings = appraisalResult?.ai_used
+      ? appraisalResult.findings.map((f) => mapAiFinding(f, "APPRAISAL"))
+      : [];
     const allFindings = appraisalResult?.ai_used
-      ? mergeAppraisalFindings(
-          findings,
-          appraisalResult.findings.map((f) => mapAiFinding(f, "APPRAISAL")),
-        )
+      ? mergeAppraisalFindings(findings, appraisalFindings)
       : findings;
+    const duplicatesMerged = findings.length + appraisalFindings.length - allFindings.length;
     await persistFindings(document.id, allFindings);
 
     const reviewed: PsurDocumentRow = {
@@ -2858,7 +2859,9 @@ export const psur = {
           ? ""
           : scientificAppraisal.error
             ? "; scientific appraisal unavailable"
-            : `, of which ${allFindings.filter((f) => f.aiPass === "APPRAISAL").length} from the scientific appraisal`
+            : `, of which ${allFindings.filter((f) => f.aiPass === "APPRAISAL").length} from the scientific appraisal${
+                duplicatesMerged > 0 ? ` (${duplicatesMerged} duplicate(s) merged)` : ""
+              }`
       }`,
     });
     return reviewed;

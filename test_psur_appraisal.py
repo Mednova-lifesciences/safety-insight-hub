@@ -165,6 +165,36 @@ def test_rules_forbid_relabelling_indication_columns_as_time_periods():
     assert "time basis" in rules
 
 
+def test_rules_test_signals_against_the_rsi_as_the_mah_states_it():
+    rules = PSUR_CRITICAL_APPRAISAL_RULES
+    assert "I. Signals and risks against the RSI" in rules
+    assert "NOT SHOWN TO BE LISTED" in rules
+    # Listedness comes from the submission's own RSI, never the model's memory
+    # of the real label, and a partial list is never proof of "unlisted".
+    assert "never from your own knowledge of the product's label" in rules
+    assert "partial list" in rules
+    assert "S4 is not SOUND merely because" in rules
+
+
+def test_appraisal_workflow_applies_the_rsi_rule_to_genuine_signals():
+    assert "Apply rule I" in PSUR_APPRAISAL_PROMPT
+
+
+def test_extraction_copies_out_every_listed_rsi_term_and_whether_the_list_is_whole():
+    assert '"listed_terms"' in PSUR_FACT_EXTRACTION_PROMPT
+    assert '"listed_terms_complete"' in PSUR_FACT_EXTRACTION_PROMPT
+
+
+def test_rsi_terms_survive_the_fact_sheet_merge():
+    chunk = AiPsurFactChunk.model_validate(
+        {"rsi_statements": [{"statement": "CCDS v14.0", "listed_terms": ["headache", "NAION"],
+                             "listed_terms_complete": False, "page": 1}]}
+    )
+    merged = merge_fact_chunks([chunk])
+    assert merged["rsi_statements"][0]["listed_terms"] == ["headache", "NAION"]
+    assert merged["rsi_statements"][0]["listed_terms_complete"] is False
+
+
 def test_rules_ask_the_assessors_four_questions():
     for q in ("CORRECT", "APPROPRIATELY CLASSIFIED", "SCIENTIFICALLY MEANINGFUL", "ADEQUATELY INTERPRETED"):
         assert q in PSUR_CRITICAL_APPRAISAL_RULES
