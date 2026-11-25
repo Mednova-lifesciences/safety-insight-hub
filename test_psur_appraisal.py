@@ -254,6 +254,20 @@ def test_missing_section_appraisals_still_yields_all_sections():
     assert len(parsed.section_appraisals) == len(_APPRAISAL_SECTIONS)
 
 
+def test_a_section_the_ai_skipped_is_marked_not_returned_but_a_returned_one_is_not():
+    # "The AI returned nothing" is a failure and must be told apart from "the
+    # MAH left the section out", which the AI reports as NOT_ASSESSABLE.
+    parsed = AiPsurAppraisal.model_validate(
+        {"section_appraisals": [{"v4_section": "S2_WORLDWIDE_STATUS",
+                                 "correct": {"verdict": "not assessable", "reasoning": "absent"}}]}
+    )
+    by = {s.v4_section: s for s in parsed.section_appraisals}
+    assert by["S2_WORLDWIDE_STATUS"].returned is True
+    assert by["S2_WORLDWIDE_STATUS"].correct.verdict == "NOT_ASSESSABLE"
+    assert by["S3_THERAPEUTIC_CONTEXT"].returned is False
+    assert sum(1 for s in parsed.section_appraisals if not s.returned) == len(_APPRAISAL_SECTIONS) - 1
+
+
 def test_one_bad_finding_does_not_sink_the_rest():
     parsed = AiPsurAppraisal.model_validate(
         {

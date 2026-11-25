@@ -1474,6 +1474,11 @@ class AiPsurSectionAppraisal(BaseModel):
     meaningful: AiPsurAppraisalQuestion = AiPsurAppraisalQuestion()
     interpreted: AiPsurAppraisalQuestion = AiPsurAppraisalQuestion()
     summary: str = ""
+    # False only for the placeholder _one_per_section inserts when the model
+    # returned nothing for this section. That is a FAILURE to appraise, and
+    # must never read the same as "the MAH left this section out" — the
+    # screen shows them differently.
+    returned: bool = True
 
     @field_validator("correct", "classified", "meaningful", "interpreted", mode="before")
     @classmethod
@@ -1555,6 +1560,7 @@ class AiPsurAppraisal(BaseModel):
             by_section.get(section)
             or AiPsurSectionAppraisal(
                 v4_section=section,
+                returned=False,
                 summary="Not appraised — the AI returned no assessment for this section.",
             )
             for section in _APPRAISAL_SECTIONS
