@@ -135,6 +135,8 @@ export interface AiPsurSectionAppraisalOut {
   meaningful: AiPsurAppraisalQuestionOut;
   interpreted: AiPsurAppraisalQuestionOut;
   summary: string;
+  /** False when the AI returned nothing for this section. */
+  returned?: boolean;
 }
 
 /** /api/ai/psur/appraise-pdf-text — the critical scientific appraisal of

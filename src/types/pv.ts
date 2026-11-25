@@ -1283,6 +1283,9 @@ export interface PsurSectionAppraisal {
   meaningful: PsurAppraisalQuestion;
   interpreted: PsurAppraisalQuestion;
   summary: string;
+  /** False when the AI returned nothing for this section — a failure, not
+   *  a statement about the submission. Absent on older documents (= true). */
+  returned?: boolean | undefined;
 }
 
 export interface PsurScientificAppraisal {

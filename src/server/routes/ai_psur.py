@@ -437,6 +437,7 @@ class PsurSectionAppraisalOut(BaseModel):
     meaningful: PsurAppraisalQuestionOut
     interpreted: PsurAppraisalQuestionOut
     summary: str = ""
+    returned: bool = True
 
 
 class PsurProductContextOut(BaseModel):

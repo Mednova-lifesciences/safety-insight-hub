@@ -1,10 +1,16 @@
 import { AlertTriangle, CheckCircle2, HelpCircle } from "lucide-react";
 import { StatusPill, type Tone } from "@/components/pv/primitives";
+import { buildAuthoritativeSectionCoverage } from "@/services/psur/section-consistency";
+import {
+  appraisalCellKind,
+  wholeSectionKind,
+  type AppraisalCellKind,
+} from "@/services/psur/scientific-appraisal";
 import type {
   PsurAppraisalQuestion,
-  PsurAppraisalVerdict,
   PsurDocument,
   PsurSectionAppraisal,
+  PsurSectionStatus,
   PsurV4SectionId,
 } from "@/types/pv";
 
@@ -19,16 +25,44 @@ export const APPRAISAL_QUESTIONS: {
   { key: "interpreted", label: "Is it adequately interpreted?" },
 ];
 
-const VERDICT: Record<PsurAppraisalVerdict, { label: string; tone: Tone }> = {
-  SOUND: { label: "Sound", tone: "success" },
-  CONCERN: { label: "Concern", tone: "warning" },
-  NOT_ASSESSABLE: { label: "Can't tell", tone: "neutral" },
+/** How each kind of answer reads on screen. "Not in submission" and "Not
+ *  appraised" are deliberately different from each other and from a verdict:
+ *  the first says the MAH left the section out, the second says the AI
+ *  failed to return anything, so the assessor knows which one needs them. */
+const KIND: Record<AppraisalCellKind, { label: string; tone: Tone; hint: string }> = {
+  SOUND: { label: "Sound", tone: "success", hint: "" },
+  CONCERN: { label: "Concern", tone: "warning", hint: "" },
+  NOT_IN_SUBMISSION: {
+    label: "Not in submission",
+    tone: "neutral",
+    hint: "The MAH did not include this section, so there was nothing to appraise. It is raised as a missing-section finding.",
+  },
+  NOT_RETURNED: {
+    label: "Not appraised",
+    tone: "warning",
+    hint: "The AI returned no assessment for this section. Appraise it yourself, or re-run the review.",
+  },
+  INSUFFICIENT_DETAIL: {
+    label: "Not enough detail",
+    tone: "neutral",
+    hint: "The section is present but too thin for the AI to judge this question.",
+  },
 };
 
-function VerdictIcon({ verdict }: { verdict: PsurAppraisalVerdict }) {
-  if (verdict === "SOUND") return <CheckCircle2 className="size-3.5 shrink-0 text-success" />;
-  if (verdict === "CONCERN") return <AlertTriangle className="size-3.5 shrink-0 text-warning" />;
+function KindIcon({ kind }: { kind: AppraisalCellKind }) {
+  if (kind === "SOUND") return <CheckCircle2 className="size-3.5 shrink-0 text-success" />;
+  if (kind === "CONCERN" || kind === "NOT_RETURNED")
+    return <AlertTriangle className="size-3.5 shrink-0 text-warning" />;
   return <HelpCircle className="size-3.5 shrink-0 text-muted-foreground" />;
+}
+
+/** The section's authoritative coverage status (is it present at all?),
+ *  from the same source the rest of the screen uses. */
+export function coverageStatusFor(
+  doc: PsurDocument,
+  section: PsurV4SectionId,
+): PsurSectionStatus | undefined {
+  return buildAuthoritativeSectionCoverage(doc).find((c) => c.section === section)?.status;
 }
 
 export function appraisalFor(
@@ -42,17 +76,30 @@ export function concernCount(s: PsurSectionAppraisal): number {
   return APPRAISAL_QUESTIONS.filter((q) => s[q.key].verdict === "CONCERN").length;
 }
 
-function QuestionRow({ label, q }: { label: string; q: PsurAppraisalQuestion }) {
-  const v = VERDICT[q.verdict];
+function QuestionRow({
+  label,
+  q,
+  kind,
+}: {
+  label: string;
+  q: PsurAppraisalQuestion;
+  kind: AppraisalCellKind;
+}) {
+  const k = KIND[kind];
+  // For "nothing to judge" the AI's own reasoning is usually a restatement of
+  // the same fact; show our plain-language explanation, then its reasoning.
   return (
     <li className="flex items-start gap-2">
-      <VerdictIcon verdict={q.verdict} />
+      <KindIcon kind={kind} />
       <div className="min-w-0">
         <p>
           <span className="font-medium">{label}</span>{" "}
-          <span className="text-muted-foreground">— {v.label}</span>
+          <span className="text-muted-foreground">— {k.label}</span>
         </p>
         {q.reasoning ? <p className="text-muted-foreground">{q.reasoning}</p> : null}
+        {k.hint && kind !== "INSUFFICIENT_DETAIL" ? (
+          <p className="text-muted-foreground">{k.hint}</p>
+        ) : null}
       </div>
     </li>
   );
@@ -72,24 +119,38 @@ export function SectionAppraisal({
 }) {
   const s = appraisalFor(doc, section);
   if (!s) return null;
+  const status = coverageStatusFor(doc, section);
   const concerns = concernCount(s);
+  const whole = wholeSectionKind(s, status);
+  // The pill must never say "no concerns" about a section nobody could judge.
+  const pill: { tone: Tone; text: string } =
+    concerns > 0
+      ? { tone: "warning", text: `${concerns} of 4 questions raise a concern` }
+      : whole === "NOT_IN_SUBMISSION"
+        ? { tone: "neutral", text: "Not in the submission — nothing to appraise" }
+        : whole === "NOT_RETURNED"
+          ? { tone: "warning", text: "Not appraised — the AI returned nothing for this section" }
+          : whole === "INSUFFICIENT_DETAIL"
+            ? { tone: "neutral", text: "Too little detail to judge" }
+            : { tone: "success", text: "No concerns on the questions it could judge" };
   return (
     <details
-      open={concerns > 0}
+      open={concerns > 0 || whole === "NOT_RETURNED"}
       className="rounded-md border border-info/30 bg-info-soft/20 p-3 text-xs"
     >
       <summary className="flex cursor-pointer select-none flex-wrap items-center gap-2 text-sm">
         <span className="font-semibold">Scientific appraisal of what the MAH presented</span>
-        <StatusPill tone={concerns > 0 ? "warning" : "success"}>
-          {concerns > 0
-            ? `${concerns} of 4 questions raise a concern`
-            : "No concerns on the four questions"}
-        </StatusPill>
+        <StatusPill tone={pill.tone}>{pill.text}</StatusPill>
       </summary>
       {s.summary ? <p className="mt-2">{s.summary}</p> : null}
       <ul className="mt-2 space-y-2">
         {APPRAISAL_QUESTIONS.map((q) => (
-          <QuestionRow key={q.key} label={q.label} q={s[q.key]} />
+          <QuestionRow
+            key={q.key}
+            label={q.label}
+            q={s[q.key]}
+            kind={appraisalCellKind(s[q.key].verdict, s, status)}
+          />
         ))}
       </ul>
       <p className="mt-2 text-muted-foreground">
@@ -141,6 +202,9 @@ export function ScientificAppraisalSummary({ doc }: { doc: PsurDocument }) {
     );
   }
   const ctx = a.productContext;
+  const coverageByS = new Map(
+    buildAuthoritativeSectionCoverage(doc).map((c) => [c.section, c.status]),
+  );
   return (
     <div className="space-y-2 rounded-md border border-info/30 bg-info-soft/20 p-3 text-sm">
       <p className="font-semibold">Scientific appraisal — the four questions, section by section</p>
@@ -173,26 +237,49 @@ export function ScientificAppraisalSummary({ doc }: { doc: PsurDocument }) {
             </tr>
           </thead>
           <tbody>
-            {a.sections.map((s) => (
-              <tr key={s.v4Section} className="border-t border-border">
-                <td className="py-1 pr-2">
-                  <a href={`#v4-${s.v4Section}`} className="underline underline-offset-2">
-                    {SECTION_SHORT[s.v4Section] ?? s.v4Section}
-                  </a>
-                </td>
-                {APPRAISAL_QUESTIONS.map((q) => (
-                  <td key={q.key} className="py-1 pr-2" title={s[q.key].reasoning}>
-                    <span className="inline-flex items-center gap-1">
-                      <VerdictIcon verdict={s[q.key].verdict} />
-                      {VERDICT[s[q.key].verdict].label}
-                    </span>
+            {a.sections.map((s) => {
+              const status = coverageByS.get(s.v4Section);
+              const whole = wholeSectionKind(s, status);
+              return (
+                <tr key={s.v4Section} className="border-t border-border">
+                  <td className="py-1 pr-2">
+                    <a href={`#v4-${s.v4Section}`} className="underline underline-offset-2">
+                      {SECTION_SHORT[s.v4Section] ?? s.v4Section}
+                    </a>
                   </td>
-                ))}
-              </tr>
-            ))}
+                  {whole === "NOT_IN_SUBMISSION" || whole === "NOT_RETURNED" ? (
+                    <td colSpan={4} className="py-1 pr-2" title={KIND[whole].hint}>
+                      <span className="inline-flex items-center gap-1">
+                        <KindIcon kind={whole} />
+                        {whole === "NOT_IN_SUBMISSION"
+                          ? "Not in the submission — nothing to appraise"
+                          : "Not appraised — the AI returned nothing for this section"}
+                      </span>
+                    </td>
+                  ) : (
+                    APPRAISAL_QUESTIONS.map((q) => {
+                      const kind = appraisalCellKind(s[q.key].verdict, s, status);
+                      return (
+                        <td key={q.key} className="py-1 pr-2" title={s[q.key].reasoning}>
+                          <span className="inline-flex items-center gap-1">
+                            <KindIcon kind={kind} />
+                            {KIND[kind].label}
+                          </span>
+                        </td>
+                      );
+                    })
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+      <p className="text-xs text-muted-foreground">
+        <strong>Not in submission</strong> means the MAH left that section out — there was nothing to
+        appraise, and it is raised as a missing-section finding. <strong>Not appraised</strong> is
+        different: the AI returned nothing for that section, so appraise it yourself.
+      </p>
       <p className="text-xs text-muted-foreground">
         AI guidance{a.model ? ` (${a.model})` : ""} to support your assessment, not a decision.
       </p>

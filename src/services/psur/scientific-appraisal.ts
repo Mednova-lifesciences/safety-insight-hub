@@ -4,7 +4,14 @@
  * completeness review's. Pure functions — see scientific-appraisal.test.ts.
  */
 import type { AiPsurAppraisalResponse } from "@/services/api/ai";
-import type { PsurFinding, PsurScientificAppraisal, PsurV4SectionId } from "@/types/pv";
+import type {
+  PsurAppraisalVerdict,
+  PsurFinding,
+  PsurScientificAppraisal,
+  PsurSectionAppraisal,
+  PsurSectionStatus,
+  PsurV4SectionId,
+} from "@/types/pv";
 
 const STOP_WORDS = new Set(
   (
@@ -100,6 +107,7 @@ export function mapAiScientificAppraisal(
       meaningful: s.meaningful,
       interpreted: s.interpreted,
       summary: s.summary,
+      returned: s.returned ?? true,
     })),
     productContext: ctx
       ? {
@@ -113,3 +121,51 @@ export function mapAiScientificAppraisal(
   };
 }
 
+/**
+ * What to SHOW for one of the four questions. The AI's "can't assess"
+ * verdict means different things, and reading them all as "failed" is
+ * wrong — and so is reading a genuine failure as "the MAH left it out":
+ *
+ *  - NOT_IN_SUBMISSION: the section's coverage says the MAH did not include
+ *    it. There was nothing to judge. (The completeness review already
+ *    raises the missing section as a finding.)
+ *  - NOT_RETURNED: the AI returned nothing for this section. A real failure
+ *    — the assessor must appraise it themselves.
+ *  - INSUFFICIENT_DETAIL: the section is there but too thin to judge.
+ *
+ * A real verdict (sound / concern) is always shown as given, even for a
+ * section that is otherwise missing — e.g. "uncertainties" can be a concern
+ * because of what the MAH's OTHER data shows.
+ */
+export type AppraisalCellKind =
+  | "SOUND"
+  | "CONCERN"
+  | "NOT_IN_SUBMISSION"
+  | "NOT_RETURNED"
+  | "INSUFFICIENT_DETAIL";
+
+export function appraisalCellKind(
+  verdict: PsurAppraisalVerdict,
+  section: Pick<PsurSectionAppraisal, "returned">,
+  coverageStatus: PsurSectionStatus | undefined,
+): AppraisalCellKind {
+  if (verdict === "SOUND") return "SOUND";
+  if (verdict === "CONCERN") return "CONCERN";
+  if (section.returned === false) return "NOT_RETURNED";
+  if (coverageStatus === "MISSING") return "NOT_IN_SUBMISSION";
+  return "INSUFFICIENT_DETAIL";
+}
+
+/** The kind that all four questions share, if they all share a non-verdict
+ *  kind (nothing to appraise / not returned / too thin) — else null. */
+export function wholeSectionKind(
+  s: PsurSectionAppraisal,
+  coverageStatus: PsurSectionStatus | undefined,
+): Exclude<AppraisalCellKind, "SOUND" | "CONCERN"> | null {
+  const kinds = [s.correct, s.classified, s.meaningful, s.interpreted].map((q) =>
+    appraisalCellKind(q.verdict, s, coverageStatus),
+  );
+  const first = kinds[0];
+  if (first === undefined || first === "SOUND" || first === "CONCERN") return null;
+  return kinds.every((k) => k === first) ? first : null;
+}

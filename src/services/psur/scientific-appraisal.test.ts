@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  appraisalCellKind,
   descriptionOverlap,
   mapAiScientificAppraisal,
   mergeAppraisalFindings,
+  wholeSectionKind,
 } from "./scientific-appraisal";
 import { buildRequiredAction } from "./document-model";
 import { requiresMahAction } from "./finding-ownership";
 import type { AiPsurAppraisalResponse } from "@/services/api/ai";
-import type { PsurFinding } from "@/types/pv";
+import type { PsurFinding, PsurSectionAppraisal } from "@/types/pv";
 
 function finding(overrides: Partial<PsurFinding> = {}): PsurFinding {
   return {
@@ -186,5 +188,75 @@ describe("duplicate findings across the two AI passes", () => {
       [finding({ id: "a8", v4Section: "S8_SIGNAL_EVALUATION", deficiencyType: "MISCLASSIFICATION", description: REAL.s8Raynaud })],
     );
     expect(merged.map((f) => f.id)).toEqual(["c10", "a8"]);
+  });
+});
+
+describe("what an unanswered question is called on screen", () => {
+  const na = { verdict: "NOT_ASSESSABLE" as const, reasoning: "" };
+  const section = (over: Partial<PsurSectionAppraisal> = {}): PsurSectionAppraisal => ({
+    v4Section: "S2_WORLDWIDE_STATUS",
+    correct: na,
+    classified: na,
+    meaningful: na,
+    interpreted: na,
+    summary: "",
+    ...over,
+  });
+
+  it("calls it 'not in submission' when the MAH left the section out, never a failure", () => {
+    expect(appraisalCellKind("NOT_ASSESSABLE", section(), "MISSING")).toBe("NOT_IN_SUBMISSION");
+    expect(wholeSectionKind(section(), "MISSING")).toBe("NOT_IN_SUBMISSION");
+  });
+
+  it("calls it 'not appraised' when the AI returned nothing — even for a missing section", () => {
+    const failed = section({ returned: false });
+    expect(appraisalCellKind("NOT_ASSESSABLE", failed, "MISSING")).toBe("NOT_RETURNED");
+    expect(appraisalCellKind("NOT_ASSESSABLE", failed, "ADEQUATELY_ADDRESSED")).toBe("NOT_RETURNED");
+    expect(wholeSectionKind(failed, "MISSING")).toBe("NOT_RETURNED");
+  });
+
+  it("calls it 'not enough detail' when the section is present but too thin", () => {
+    for (const status of ["PRESENT_BUT_INCOMPLETE", "ADEQUATELY_ADDRESSED", "ASSESSOR_PENDING", undefined] as const) {
+      expect(appraisalCellKind("NOT_ASSESSABLE", section(), status)).toBe("INSUFFICIENT_DETAIL");
+    }
+  });
+
+  it("treats documents stored before the flag existed as returned", () => {
+    expect(appraisalCellKind("NOT_ASSESSABLE", section({ returned: undefined }), "MISSING")).toBe(
+      "NOT_IN_SUBMISSION",
+    );
+  });
+
+  it("shows a real verdict as given, even for a section that is otherwise missing", () => {
+    const s11 = section({ meaningful: { verdict: "CONCERN", reasoning: "r" }, classified: { verdict: "SOUND", reasoning: "r" } });
+    expect(appraisalCellKind("CONCERN", s11, "MISSING")).toBe("CONCERN");
+    expect(appraisalCellKind("SOUND", s11, "MISSING")).toBe("SOUND");
+    // A mixed section is not collapsed to a single "nothing to appraise" row.
+    expect(wholeSectionKind(s11, "MISSING")).toBeNull();
+  });
+
+  it("never reports a section the AI judged as 'nothing to appraise'", () => {
+    const judged = section({ correct: { verdict: "SOUND", reasoning: "" } });
+    expect(wholeSectionKind(judged, "MISSING")).toBeNull();
+  });
+});
+
+describe("mapAiScientificAppraisal keeps the not-returned flag", () => {
+  it("carries returned=false through, and defaults to true", () => {
+    const na = { verdict: "NOT_ASSESSABLE" as const, reasoning: "" };
+    const row = { correct: na, classified: na, meaningful: na, interpreted: na, summary: "" };
+    const a = mapAiScientificAppraisal({
+      findings: [],
+      section_appraisals: [
+        { v4_section: "S2_WORLDWIDE_STATUS", ...row, returned: false },
+        { v4_section: "S3_THERAPEUTIC_CONTEXT", ...row },
+      ],
+      ai_used: true,
+      prompt_version: "x",
+      chunks_total: 1,
+      chunks_read: 1,
+      unread_pages: [],
+    });
+    expect(a.sections.map((s) => s.returned)).toEqual([false, true]);
   });
 });
