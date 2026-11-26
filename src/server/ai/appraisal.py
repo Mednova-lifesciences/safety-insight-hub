@@ -30,7 +30,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
-from .pdf_text import chunk_page_range, split_into_chunks
+from .pdf_text import chunk_page_range, split_into_chunks, truncation_note
 from .prompts import PSUR_APPRAISAL_PROMPT, PSUR_FACT_EXTRACTION_PROMPT
 from .schemas import AiPsurAppraisal, AiPsurFactChunk
 
@@ -187,6 +187,14 @@ async def appraise_psur_text(
             )
     if not read:
         raise AppraisalError("The AI could not read any part of the document for appraisal.")
+    # Pages cut off at extraction time are just as unread as pages whose
+    # chunk failed, and must be reported the same way — never as a clean read.
+    cut = truncation_note(text)
+    if cut:
+        first, last, total = cut
+        unread_pages.append(
+            f"pages {first}-{last} of {total} (the document is longer than the extraction size limit)"
+        )
 
     sheet = merge_fact_chunks(read)
     sheet, trimmed = _fit_fact_sheet(sheet)

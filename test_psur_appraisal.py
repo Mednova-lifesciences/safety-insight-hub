@@ -38,6 +38,7 @@ from server.ai.pdf_text import (  # noqa: E402
     extract_pdf_text,
     split_into_chunks,
     table_to_markdown,
+    truncation_note,
 )
 from server.ai.prompts import (  # noqa: E402
     PSUR_APPRAISAL_PROMPT,
@@ -113,6 +114,44 @@ def test_extraction_reads_past_the_old_120k_limit():
     from server.ai.pdf_text import MAX_EXTRACTED_CHARS
 
     assert MAX_EXTRACTED_CHARS >= 500_000
+
+
+def test_a_document_over_the_size_limit_says_which_pages_were_not_read():
+    # Found by testing a 400-page PSUR: extraction stopped at the cap without
+    # saying so, so the appraisal claimed "the whole document was read" while
+    # the signals section at the end was never seen.
+    make = pytest.importorskip("make_appraisal_test_psur")
+    raw = make.build(ROOT / "docs" / "test-psurs" / "appraisal-test-pbrer-sildenafil.pdf").read_bytes()
+    full, pages = extract_pdf_text(raw)
+    assert truncation_note(full) is None  # under the limit: no marker
+
+    cut, _ = extract_pdf_text(raw, max_chars=1500)
+    first, last, total = truncation_note(cut)
+    assert (last, total) == (pages, pages) and 1 <= first <= pages
+    assert f"--- page {first} ---" in cut  # the page cut part-way is still shown
+    assert "FINAL" not in cut and "Overview of Signals" not in cut
+
+
+def test_a_truncated_document_is_reported_as_unread_not_as_a_clean_read():
+    fake = FakeModel()
+    text = _pages(3, 2_000) + "\n\n--- TEXT TRUNCATED: pages 4-400 of 400 not extracted ---"
+    result = asyncio.run(appraise_psur_text(text, complete=fake))
+    assert any("pages 4-400 of 400" in u for u in result.unread_pages)
+    note = [c for c in fake.calls if c[0] is PSUR_APPRAISAL_PROMPT][0][1]["coverage_note"]
+    assert "could NOT be read" in note and "pages 4-400 of 400" in note
+
+
+def test_a_truncated_document_and_a_failed_chunk_are_both_reported():
+    fake = FakeModel(fail_chunks={1})
+    text = _pages(12, 10_000) + "\n\n--- TEXT TRUNCATED: pages 13-90 of 90 not extracted ---"
+    result = asyncio.run(appraise_psur_text(text, complete=fake))
+    assert len(result.unread_pages) == 2
+
+
+def test_a_complete_document_is_not_reported_as_truncated():
+    fake = FakeModel()
+    result = asyncio.run(appraise_psur_text(_pages(3, 2_000), complete=fake))
+    assert result.unread_pages == []
 
 
 # --------------------------------------------------------------------------
