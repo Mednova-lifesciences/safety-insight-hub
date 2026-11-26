@@ -112,16 +112,36 @@ def _page_text_with_tables(page, page_number: int) -> str:
         return (page.extract_text() or "").strip()
 
 
+_TRUNCATION_RE = re.compile(r"--- TEXT TRUNCATED: pages (\d+)-(\d+) of (\d+) not extracted ---")
+
+
+def truncation_note(text: str) -> tuple[int, int, int] | None:
+    """(first page not read, last page, total pages) if extraction stopped
+    early because of the size limit, else None. Read back from the marker
+    ``extract_pdf_text`` leaves in the text, so it survives being stored on
+    the document and sent back later for the appraisal."""
+    m = _TRUNCATION_RE.search(text)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+
 def extract_pdf_text(raw: bytes, max_chars: int = MAX_EXTRACTED_CHARS) -> tuple[str, int]:
-    """Return (text with ``--- page N ---`` markers, total page count)."""
+    """Return (text with ``--- page N ---`` markers, total page count).
+
+    If the document is longer than ``max_chars``, extraction stops and a
+    ``--- TEXT TRUNCATED: pages X-Y of N not extracted ---`` marker is added,
+    so a later step can say plainly which pages it never saw instead of
+    claiming it read the whole document.
+    """
     import pdfplumber
 
     parts: list[str] = []
     budget = max_chars
+    first_unread: int | None = None
     with pdfplumber.open(io.BytesIO(raw)) as pdf:
         total_pages = len(pdf.pages)
         for i, page in enumerate(pdf.pages):
             if budget <= 0:
+                first_unread = i + 1
                 break
             page_text = _page_text_with_tables(page, i + 1)
             if not page_text:
@@ -129,6 +149,14 @@ def extract_pdf_text(raw: bytes, max_chars: int = MAX_EXTRACTED_CHARS) -> tuple[
             chunk = f"\n\n--- page {i + 1} ---\n{page_text[:budget]}"
             parts.append(chunk)
             budget -= len(chunk)
+            if budget <= 0 and len(page_text) > len(chunk):
+                # The budget ran out part-way through this very page.
+                first_unread = i + 1
+                break
+    if first_unread is not None:
+        parts.append(
+            f"\n\n--- TEXT TRUNCATED: pages {first_unread}-{total_pages} of {total_pages} not extracted ---"
+        )
     return "".join(parts), total_pages
 
 
